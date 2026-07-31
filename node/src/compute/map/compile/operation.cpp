@@ -20,10 +20,14 @@ build_map_operation_multi(const std::size_t count,
     return Result<compute_dsl::ComputeOp>::fail(Reason::IrBindingInvalid);
   }
   for (const MapRead read : reads) {
-    if ((!read.indexed() && read.count != 0u) ||
+    const bool element = read.mode == MapReadMode::Element;
+    const bool uniform = read.mode == MapReadMode::Uniform;
+    if ((element && (read.index != NoIndex || read.count != 0u)) ||
+        (uniform && (read.index != NoIndex || read.count != 0u)) ||
         (read.indexed() &&
          (read.index < source_count || read.index >= inputs.size() ||
-          inputs[read.index] != Type::U32 || read.count == 0u))) {
+          inputs[read.index] != Type::U32 || read.count == 0u)) ||
+        (!element && !uniform && !read.indexed())) {
       return Result<compute_dsl::ComputeOp>::fail(Reason::IrBindingInvalid);
     }
   }

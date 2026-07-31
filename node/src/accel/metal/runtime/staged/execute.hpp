@@ -16,7 +16,8 @@ bool ExecuteWindow(MetalAdapter &adapter,
                    const rund::kernel::ComputePlan &plan,
                    const rund::kernel::ComputeDispatchWindow &window,
                    const rund::kernel::BindingSet &bindings,
-                   const MetalRuntimeBuffer *const param_buffer) {
+                   const MetalRuntimeBuffer *const param_buffer,
+                   const std::span<const InputWindowPlan> input_plans) {
   id<MTLComputePipelineState> pipeline =
       (__bridge id<MTLComputePipelineState>)pipeline_handle.get();
   if (pipeline == nil || param_buffer == nullptr ||
@@ -30,8 +31,8 @@ bool ExecuteWindow(MetalAdapter &adapter,
     return false;
   }
   MetalRuntimeBuffer *input = nullptr;
-  if (!PrepareStagedInputBuffer(adapter, plan, window, bindings, staged, scoped,
-                                input)) {
+  if (!PrepareStagedInputBuffer(adapter, plan, window, bindings, input_plans,
+                                staged, scoped, input)) {
     return false;
   }
   MetalRuntimeBuffer *output = nullptr;
@@ -47,8 +48,9 @@ bool ExecuteWindow(MetalAdapter &adapter,
   if (!OpenCommand(adapter, command).ok) {
     return false;
   }
-  const bool encoded = EncodeWindow(command.encoder, pipeline, plan, window,
-                                    bindings, *param_buffer, input, *output);
+  const bool encoded =
+      EncodeWindow(command.encoder, pipeline, plan, window, bindings,
+                   *param_buffer, input_plans, input, *output);
   const rund::AccelCheck submit = FinishCommand(
       adapter, command,
       rund::AccelCheck{encoded, encoded ? "ok" : "compute_binding_mismatch"});

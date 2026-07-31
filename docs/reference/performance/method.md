@@ -449,10 +449,13 @@ balanced ABBA order after both routes are warm; observation and the serial
 outer Fold occur after timing.
 
 The nested row is admissible only with 571 retained route templates, 33,264
-native command references, 504 executed outer windows, 32,256 executed inner
+authored Seed/Action/Fold occurrences, 504 executed outer windows, 32,256 executed inner
 iterations, one nested submission, no failed coordinate, exact serial/nested
 result parity, and zero warm compile, allocation, upload, download,
-binding-mutation, and fallback evidence. The CSV
+binding-mutation, and fallback evidence. An eligible status-free element-local
+Action must additionally use the common tile-transducer proof and the `K * 3`
+physical Seed/transducer/Fold Program-occurrence shape; the authored count does
+not expand the native stream. The CSV
 `*_warm_binding_mutation_count` columns are the public
 `PipelineStats::rebinding_count`: they count post-prepare retained-binding
 mutations, not cold native capture or emission of frozen descriptors. Their
@@ -468,11 +471,14 @@ Metal rows on Apple identify the reusable ICB path. Vulkan rows whose
 environment reports MoltenVK prove the Vulkan API, SPIR-V, descriptor,
 push-constant, command-buffer, and barrier path over that translation layer;
 they are not native Vulkan throughput evidence.
-The Metal wall time includes the current warm traversal of frozen
-direct-command and ICB-range descriptors needed to construct Metal's
-single-use outer command buffer. One nested submit and zero binding mutation
-must not be interpreted as zero host encoder work; the literal no-host-loop
-gap is owned by the Pipeline contract.
+The Metal wall time includes the hard-cut executor's remaining host envelope:
+one outer command-buffer/encoder lifecycle, one bulk resource-residency call,
+one full-ICB range call, commit/completion, and fixed control observation. It
+contains no runD command/range/binding/state traversal, but it also includes
+the device cost of issuing frozen commands whose inactive payload threads
+return through uniform guards. One nested submit and zero binding mutation
+must therefore be interpreted with both the structural hard-cut contract and
+the measured wall result, not as literally zero host or inactive-device cost.
 
 ## Telemetry Overhead Method
 

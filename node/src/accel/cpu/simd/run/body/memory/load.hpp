@@ -25,6 +25,14 @@ namespace {
   return RUND_CPU_SIMD_LOAD(lanes.data());
 }
 
+[[nodiscard]] Vec LoadReadUniform(const Instruction &instruction,
+                                  const CpuSimdBindingView &bindings) noexcept {
+  Scalar value{};
+  const auto &binding = bindings.reads[instruction.binding_slot];
+  std::memcpy(&value, binding.data, sizeof(value));
+  return RUND_CPU_SIMD_SPLAT(value);
+}
+
 [[nodiscard]] Vec LoadReadAt(const Instruction &instruction,
                              const CpuSimdBindingView &bindings,
                              const u64 base_tile,
@@ -35,13 +43,11 @@ namespace {
   for (std::size_t lane = 0u; lane < live_lanes; ++lane) {
     u32 index = 0u;
     std::memcpy(&index,
-                indices.data +
-                    ByteOffset(base_tile + static_cast<u64>(lane),
-                               indices.stride),
+                indices.data + ByteOffset(base_tile + static_cast<u64>(lane),
+                                          indices.stride),
                 sizeof(index));
     if (index < instruction.element_bytes) {
-      std::memcpy(&lanes[lane],
-                  source.data + ByteOffset(index, source.stride),
+      std::memcpy(&lanes[lane], source.data + ByteOffset(index, source.stride),
                   sizeof(Scalar));
     }
   }

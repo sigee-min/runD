@@ -140,10 +140,83 @@ int test_compute_fusion_builds_checked_fused_ir_for_two_map_chain() {
   return 0;
 }
 
+int test_compute_fusion_preserves_external_uniform_read() {
+  const rund::compute_dsl::ComputeOp first = BuildAddFiveOp();
+  const rund::compute_dsl::ComputeOp second = BuildFixedUniformConsumerOp();
+  TEST_ASSERT(first.ok());
+  TEST_ASSERT(second.ok());
+
+  rund::kernel::GraphBufferRef first_buffers[2]{
+      {.logical_id = 11u, .role = rund::kernel::BufferRole::Read},
+      {.logical_id = 21u, .role = rund::kernel::BufferRole::Write},
+  };
+  rund::kernel::GraphBufferRef second_buffers[3]{
+      {.logical_id = 21u, .role = rund::kernel::BufferRole::Read},
+      {.logical_id = 41u, .role = rund::kernel::BufferRole::Read},
+      {.logical_id = 31u, .role = rund::kernel::BufferRole::Write},
+  };
+  rund::kernel::GraphNode nodes[2]{
+      {.op_hash_hi = first.ir().op_hash_hi,
+       .op_hash_lo = first.ir().op_hash_lo,
+       .buffers = first_buffers,
+       .buffer_count = 2u,
+       .element_count = 4u},
+      {.op_hash_hi = second.ir().op_hash_hi,
+       .op_hash_lo = second.ir().op_hash_lo,
+       .buffers = second_buffers,
+       .buffer_count = 3u,
+       .element_count = 4u},
+  };
+  rund::kernel::FusionNodePolicy policies[2]{PolicyNode(first.ir()),
+                                             PolicyNode(second.ir())};
+  const rund::kernel::ComputeIR chain[2]{first.ir(), second.ir()};
+  const rund::kernel::Graph graph{
+      .nodes = nodes,
+      .node_count = 2u,
+      .scalar = rund::kernel::ComputeScalar::Lane32,
+      .domain = rund::kernel::ComputeDomain::Fixed,
+      .fixed_format = first.ir().fixed_format,
+  };
+  const rund::kernel::FusionPolicy policy{.nodes = policies,
+                                          .node_count = 2u};
+  const rund::kernel::ComputeFusedMapChainIR fused =
+      rund::kernel::BuildFusedComputeMapChainIR(
+          chain, 2u, graph, policy, rund::kernel::ComputeApi::Metal);
+
+  TEST_ASSERT(fused.ok);
+  TEST_ASSERT(fused.metadata.read_count == 2u);
+  TEST_ASSERT(fused.metadata.direct_read_mask == 0x1u);
+  TEST_ASSERT(fused.metadata.uniform_read_mask == 0x2u);
+  TEST_ASSERT(rund::kernel::RequiredInputCount(fused.metadata, 0u, 4u) == 4u);
+  TEST_ASSERT(rund::kernel::RequiredInputCount(fused.metadata, 1u, 4u) == 1u);
+  const auto parsed =
+      rund::kernel::compute_lowering_detail::ParseComputeIR(fused.ir);
+  TEST_ASSERT(parsed.ok);
+  std::size_t uniform_nodes = 0u;
+  for (const auto &node : parsed.nodes) {
+    uniform_nodes += static_cast<std::size_t>(
+        static_cast<rund::kernel::IrOp>(node.op) ==
+        rund::kernel::IrOp::ReadUniform);
+  }
+  TEST_ASSERT(uniform_nodes == 1u);
+  const auto artifact = rund::kernel::LowerComputeIR(
+      fused.ir, rund::kernel::ComputeApi::Metal);
+  TEST_ASSERT(artifact.ok);
+  TEST_ASSERT(artifact.source_text.find("].op=read_uniform") !=
+              std::string_view::npos);
+  TEST_ASSERT(artifact.source_text.find(
+                  "RundBase_read_66315f756e69666f726d + gid") ==
+              std::string_view::npos);
+  return 0;
+}
+
 } // namespace
 
 int RunPair() {
-  return test_compute_fusion_builds_checked_fused_ir_for_two_map_chain();
+  if (test_compute_fusion_builds_checked_fused_ir_for_two_map_chain() != 0) {
+    return 1;
+  }
+  return test_compute_fusion_preserves_external_uniform_read();
 }
 
 } // namespace program_compute_contract::fusion_build_contract

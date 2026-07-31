@@ -47,6 +47,9 @@ private:
                           rund::kernel::u32 binding) noexcept;
   friend Expr DynamicRead(BuildContext &context, rund::kernel::u32 binding,
                           rund::kernel::ComputeFixedFormat format) noexcept;
+  friend Expr DynamicUniformRead(
+      BuildContext &context, rund::kernel::u32 binding,
+      rund::kernel::ComputeFixedFormat format) noexcept;
   friend Expr DynamicReadAt(BuildContext &context,
                             rund::kernel::u32 binding,
                             rund::kernel::u32 index,
@@ -75,6 +78,9 @@ private:
 [[nodiscard]] Expr
 DynamicRead(BuildContext &context, rund::kernel::u32 binding,
             rund::kernel::ComputeFixedFormat format) noexcept;
+[[nodiscard]] Expr DynamicUniformRead(
+    BuildContext &context, rund::kernel::u32 binding,
+    rund::kernel::ComputeFixedFormat format = {}) noexcept;
 [[nodiscard]] Expr DynamicReadAt(
     BuildContext &context, rund::kernel::u32 binding,
     rund::kernel::u32 index, rund::kernel::u32 count,

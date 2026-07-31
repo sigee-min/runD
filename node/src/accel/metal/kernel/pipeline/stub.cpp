@@ -7,6 +7,7 @@ namespace rund::node::accel::detail {
 rund::AccelCheck PrepareMetalPipeline(const std::span<const BackendBatchEntry>,
                                       const std::span<const BackendBatchEntry>,
                                       const std::span<const std::uint8_t>,
+                                      const std::span<const TileTransducer>,
                                       const std::span<const BackendPublish>,
                                       PreparedPipelineStatusLayout &,
                                       const bool,

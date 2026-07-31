@@ -76,6 +76,12 @@ VulkanWideAlign(const std::string &value, const ComputeFixedFormat source,
                                VulkanReadNodeExpr(key, layouts[node.aux],
                                                   parsed.bindings[node.aux])));
     return true;
+  case IrOp::ReadUniform:
+    AppendVulkanWideValue(
+        out, name,
+        VulkanWideFromLaneExpr(
+            key, VulkanReadUniformNodeExpr(key, layouts[node.aux])));
+    return true;
   case IrOp::ReadAt:
     AppendVulkanWideValue(
         out, name,
@@ -461,6 +467,12 @@ inline void AppendVulkanNode(std::string &out, const ParsedIR &parsed,
     AppendVulkanAssignedValue(out, key.scalar,
                               SetVulkanNodeName(node_names, current_node),
                               VulkanReadNodeExpr(key, layout, binding));
+    break;
+  }
+  case IrOp::ReadUniform: {
+    AppendVulkanAssignedValue(
+        out, key.scalar, SetVulkanNodeName(node_names, current_node),
+        VulkanReadUniformNodeExpr(key, layouts[node.aux]));
     break;
   }
   case IrOp::ReadAt: {

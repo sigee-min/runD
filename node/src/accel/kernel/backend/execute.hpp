@@ -11,6 +11,8 @@
 
 namespace rund::node::accel::detail {
 
+struct TileTransducer;
+
 [[nodiscard]] rund::AccelCheck RunFakeKernel(const BackendRun &run);
 [[nodiscard]] rund::AccelCheck RunMetalKernel(const BackendRun &run);
 [[nodiscard]] rund::AccelCheck RunVulkanKernel(const BackendRun &run);
@@ -39,6 +41,7 @@ RunPreparedMetalBatch(std::span<const BackendBatchEntry> entries,
 PrepareMetalPipeline(std::span<const BackendBatchEntry> templates,
                      std::span<const BackendBatchEntry> entries,
                      std::span<const std::uint8_t> barriers,
+                     std::span<const TileTransducer> transducers,
                      std::span<const BackendPublish> publications,
                      PreparedPipelineStatusLayout &status, bool profile_steps,
                      std::shared_ptr<void> &prepared,
@@ -67,6 +70,7 @@ RunPreparedVulkanBatch(std::span<const BackendBatchEntry> entries,
 PrepareVulkanPipeline(std::span<const BackendBatchEntry> templates,
                       std::span<const BackendBatchEntry> entries,
                       std::span<const std::uint8_t> barriers,
+                      std::span<const TileTransducer> transducers,
                       std::span<const BackendPublish> publications,
                       PreparedPipelineStatusLayout &status, bool profile_steps,
                       std::shared_ptr<void> &prepared,

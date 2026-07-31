@@ -14,6 +14,11 @@ constexpr std::size_t Commands = Outer * (Inner + 2u);
 constexpr std::size_t SerialSubmits = Outer * Inner;
 constexpr std::size_t Domain = 64u;
 constexpr std::uint32_t OuterSeed = 7u;
+// One open/reset, one raw-status reset, one Seed status fold and one Seed
+// preflight per outer window, the final Fold advance, canonicalization,
+// terminal close, and final publication. Program dispatches stay authored.
+constexpr std::uint64_t MetalNestedControlCommands =
+    2u + 1u + Outer + Outer + 1u + 1u + 1u;
 
 static_assert(Maximum % Tile == 0u);
 static_assert(Outer == 504u);
@@ -21,6 +26,7 @@ static_assert(SerialSubmits == 32256u);
 static_assert(Templates == 571u);
 static_assert(Commands == 33264u);
 static_assert(Inner % 2u == 0u);
+static_assert(MetalNestedControlCommands == 1014u);
 
 template <std::size_t Max, std::size_t Width>
 [[nodiscard]] auto SeedProgram(::rund::compute::Device &device) {
@@ -76,7 +82,11 @@ template <std::size_t Max, std::size_t Width>
                                   const ::rund::compute::PipelinePlan &plan) {
   using ::rund::compute::PipelineNestedPhase;
   using ::rund::compute::PipelineStats;
-  return stats.backend == backend && stats.command_submits == 1u &&
+  const bool physical_control =
+      backend != Backend::Metal ||
+      stats.pipeline.control_command_count == MetalNestedControlCommands;
+  return physical_control && stats.backend == backend &&
+         stats.command_submits == 1u &&
          stats.dispatches != 0u && stats.pipeline.step_count == 1u &&
          stats.pipeline.verified_step_count == 1u &&
          stats.pipeline.failed_step_index == PipelineStats::no_failed_step &&
@@ -106,6 +116,7 @@ void PrintNestedRepeatColumns() {
       "nested_first,templates,commands,serial_wall_median_us,"
       "nested_wall_median_us,speedup,serial_command_submits,"
       "nested_command_submits,serial_dispatches,nested_dispatches,"
+      "nested_control_commands,"
       "serial_warm_buffer_allocations,nested_warm_buffer_allocations,"
       "serial_warm_uploaded_bytes,nested_warm_uploaded_bytes,"
       "serial_warm_download_events,nested_warm_download_events,"
@@ -396,7 +407,7 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
   std::printf(
       "window_repeat,%s,%s,%s,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%zu,"
       "%.3f,%.3f,%.6f,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
-      "%llu,%llu,%llu,%llu,%llu,%u,%u,%u,%u,%u,%u\n",
+      "%llu,%llu,%llu,%llu,%llu,%llu,%u,%u,%u,%u,%u,%u\n",
       Name(backend), CommandPath(backend), contract ? "ok" : "contract_failed",
       Maximum, Outer, Tile, Inner, samples, serial_first_count,
       nested_first_count, Templates, Commands, serial_us, nested_us, speedup,
@@ -404,6 +415,8 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
       static_cast<unsigned long long>(nested_counters.command_submits),
       static_cast<unsigned long long>(serial_counters.dispatches),
       static_cast<unsigned long long>(nested_counters.dispatches),
+      static_cast<unsigned long long>(
+          nested_stats.pipeline.control_command_count),
       static_cast<unsigned long long>(serial_warm.buffer_allocations),
       static_cast<unsigned long long>(nested_warm.buffer_allocations),
       static_cast<unsigned long long>(serial_warm.uploaded_bytes),

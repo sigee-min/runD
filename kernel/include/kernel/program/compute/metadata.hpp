@@ -27,6 +27,7 @@ struct ExecutionMetadata {
   std::vector<std::string> binding_names{};
   std::vector<ReadRoute> read_routes{};
   u64 direct_read_mask = 0u;
+  u64 uniform_read_mask = 0u;
   u64 read_count = 0u;
   u64 write_count = 0u;
   bool uses_index = false;

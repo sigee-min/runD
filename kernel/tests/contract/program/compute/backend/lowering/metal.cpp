@@ -194,6 +194,26 @@ int test_compute_metal_lowering_emits_logical_index() {
   return 0;
 }
 
+int test_compute_metal_lowering_emits_base_only_uniform_read() {
+  const auto artifact = rund::kernel::LowerComputeIR(
+      BuildI32UniformReadIr(), rund::kernel::ComputeApi::Metal);
+  constexpr std::string_view uniform_base =
+      "RundBase_read_756e69666f726d";
+
+  TEST_ASSERT(artifact.ok);
+  TEST_ASSERT(artifact.metadata.direct_read_mask == 0u);
+  TEST_ASSERT(artifact.metadata.uniform_read_mask == 0x1u);
+  TEST_ASSERT(artifact.source_text.find("].op=read_uniform") !=
+              std::string_view::npos);
+  TEST_ASSERT(artifact.source_text.find(
+                  "LoadI32(read_756e69666f726d, "
+                  "RundBase_read_756e69666f726d)") !=
+              std::string_view::npos);
+  TEST_ASSERT(artifact.source_text.find(std::string{uniform_base} + " + gid") ==
+              std::string_view::npos);
+  return 0;
+}
+
 int test_compute_metal_lowering_emits_narrow_mask_store() {
   const auto op = BuildU64MaskOp();
   const auto artifact =
@@ -229,6 +249,9 @@ int RunComputeBackendLoweringMetalContract() {
     return 1;
   }
   if (test_compute_metal_lowering_emits_logical_index() != 0) {
+    return 1;
+  }
+  if (test_compute_metal_lowering_emits_base_only_uniform_read() != 0) {
     return 1;
   }
   return test_compute_metal_lowering_emits_narrow_mask_store();

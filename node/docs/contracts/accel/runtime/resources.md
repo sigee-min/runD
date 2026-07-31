@@ -384,7 +384,17 @@ binding; it never searches for backend-source use patterns. This covers
 ordinary and wide writes as well as both the index and source sides of
 `ReadAt`, while every bound range remains within the device limit. No copy,
 extra dispatch, runtime size strategy, or backend graph is introduced. A
-dense primitive whose shader has no prefix operand uses the existing
+dense Map freezes one common `InputWindowPlan` per input from the admitted
+execution metadata. Direct and `ReadAt`-index inputs retain the canonical
+dispatch window. Uniform-only and indexed-source-only inputs instead retain a
+base-anchored source-identity span beginning at zero with the exact
+`RequiredInputCount`; compatible uniform plus indexed-source use takes their
+maximum. Metal and Vulkan consume the same plan for resident descriptors and
+staged packing, so a count-one broadcast transfers and binds one element for
+every native window without materializing a broadcast Buffer. Mixing either
+base-anchored use with direct or index use in one binding fails preparation;
+there is no descriptor-base heuristic or backend-specific reinterpretation.
+A dense primitive whose shader has no prefix operand uses the existing
 device-local View normalization when its authored offset is not a legal
 descriptor base. The copy is reported as internal round-trip traffic and never
 becomes a host transfer or fallback.

@@ -79,6 +79,12 @@ struct NodeAccess;
 template <class Schema> struct SchemaRef;
 struct StageRefAccess final {
   template <class T, class Card>
+  [[nodiscard]] static StageRef<T, Card>
+  make(std::shared_ptr<FlowState> state, const std::uint32_t value,
+       const std::uint32_t count = 0u) {
+    return StageRef<T, Card>{std::move(state), value, count};
+  }
+  template <class T, class Card>
   [[nodiscard]] static const std::shared_ptr<FlowState> &
   state(const StageRef<T, Card> &value) noexcept {
     return value.state_;

@@ -150,8 +150,11 @@ namespace {
              right.metadata.output_element_bytes &&
          left.metadata.param_storage == right.metadata.param_storage &&
          left.metadata.read_count == right.metadata.read_count &&
+         left.metadata.read_routes == right.metadata.read_routes &&
          left.metadata.direct_read_mask ==
              right.metadata.direct_read_mask &&
+         left.metadata.uniform_read_mask ==
+             right.metadata.uniform_read_mask &&
          left.metadata.write_count == right.metadata.write_count &&
          left.metadata.uses_index == right.metadata.uses_index &&
          left.metadata.ok == right.metadata.ok;
@@ -169,6 +172,42 @@ namespace {
     const BackendRecurrence marker = entries[index].recurrence;
     if (marker.logical_step != logical || marker.bound != bound ||
         marker.iteration != index || marker.window != nullptr) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool ExactNestedMapRecurrenceMarker(
+    const std::span<const BackendBatchEntry> entries) noexcept {
+  if (entries.size() <= 1u ||
+      entries.size() > std::numeric_limits<std::uint32_t>::max()) {
+    return false;
+  }
+  const BackendWindow *const first = entries.front().recurrence.window;
+  if (first == nullptr ||
+      first->phase != BackendWindowPhase::NestedAction ||
+      first->inner_bound != entries.size() || first->inner_iteration != 0u ||
+      first->route != 0u) {
+    return false;
+  }
+  const std::uint32_t logical = entries.front().recurrence.logical_step;
+  const std::uint32_t bound = static_cast<std::uint32_t>(entries.size());
+  for (std::size_t index = 0u; index < entries.size(); ++index) {
+    const BackendRecurrence marker = entries[index].recurrence;
+    const BackendWindow *const window = marker.window;
+    if (marker.logical_step != logical || marker.bound != bound ||
+        marker.iteration != index || window == nullptr ||
+        window->phase != BackendWindowPhase::NestedAction ||
+        window->state != first->state || window->maximum != first->maximum ||
+        window->tile != first->tile || window->expected != first->expected ||
+        window->outer_bound != first->outer_bound ||
+        window->inner_bound != bound || window->inner_iteration != index ||
+        window->route != 0u || window->has_terminal != first->has_terminal ||
+        window->count.source.id != first->count.source.id ||
+        window->count.source.offset_bytes !=
+            first->count.source.offset_bytes ||
+        window->count.handle != first->count.handle) {
       return false;
     }
   }

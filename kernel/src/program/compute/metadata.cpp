@@ -70,9 +70,10 @@ u64 RequiredInputCount(const ExecutionMetadata &metadata, const u64 binding,
       tile_count == 0u) {
     return 0u;
   }
-  u64 required =
-      (metadata.direct_read_mask & (u64{1u} << binding)) != 0u ? tile_count
-                                                               : 0u;
+  const u64 bit = u64{1u} << binding;
+  u64 required = (metadata.direct_read_mask & bit) != 0u
+                     ? tile_count
+                     : (metadata.uniform_read_mask & bit) != 0u ? 1u : 0u;
   for (const ReadRoute route : metadata.read_routes) {
     if (route.index == binding) {
       required = tile_count;

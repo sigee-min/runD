@@ -12,6 +12,10 @@ namespace rund::node::accel::detail {
     std::span<const BackendBatchEntry> entries, const MapRecurrence &recurrence,
     PreparedPipelineStatusLayout &status, VulkanPipeline &pipeline,
     PreparedMemory &staging_memory);
+[[nodiscard]] rund::AccelCheck PrepareVulkanTransducers(
+    std::span<const BackendBatchEntry> templates,
+    std::span<const TileTransducer> transducers, VulkanPipeline &pipeline,
+    PreparedMemory &staging_memory);
 
 #endif
 

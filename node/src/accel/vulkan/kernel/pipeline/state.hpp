@@ -83,6 +83,7 @@ struct VulkanPipeline final {
   VulkanCollectivePipeline *telemetry_pipeline{};
   std::vector<VulkanPipelineTelemetryRecord> telemetry;
   std::shared_ptr<void> recurrence;
+  std::vector<std::shared_ptr<void>> transducers;
   std::uint64_t dispatch_count{};
   std::uint64_t reset_count{};
   std::uint64_t reset_bytes{};

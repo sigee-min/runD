@@ -153,7 +153,8 @@ BuildFusedNodeMap(const std::vector<FusedSource> &sources,
         }
         continue;
       }
-      if (op == IrOp::Param || op == IrOp::Read) {
+      if (op == IrOp::Param || op == IrOp::Read ||
+          op == IrOp::ReadUniform) {
         node.aux =
             bindings.indices[BindingMapIndex(bindings, source_index, node.aux)];
       } else if (op == IrOp::ReadAt) {

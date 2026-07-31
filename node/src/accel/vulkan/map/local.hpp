@@ -2,6 +2,7 @@
 
 #include "../../plan/validation.hpp"
 #include "../../resident/window/admission/runtime/windows.hpp"
+#include "../../sequence/input/window.hpp"
 #include "../adapter/api.hpp"
 #include "../buffer/resident/model.hpp"
 #include "../cached/pipeline.hpp"
@@ -32,7 +33,7 @@ struct VulkanMapEncodeResources {
   std::uint32_t iterations{1u};
   rund::kernel::ComputePlan plan{};
   rund::kernel::BindingSet bindings{};
-  std::vector<rund::kernel::ReadRoute> read_routes{};
+  std::vector<InputWindowPlan> input_plans{};
   std::vector<VulkanMapCheck> checks{};
   std::vector<rund::kernel::ComputeDispatchWindow> windows{};
   VulkanResidentBindings resident{};

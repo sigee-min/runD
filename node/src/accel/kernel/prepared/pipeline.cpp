@@ -2,6 +2,7 @@
 
 #include "evidence.hpp"
 #include "model.hpp"
+#include "../recurrence.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -18,6 +19,8 @@ struct ExpandedPipeline final {
   std::vector<BackendBatchEntry> commands;
   std::vector<std::uint8_t> barriers;
   std::vector<BackendWindow> windows;
+  std::vector<TileTransducer> transducers;
+  const char *reason = "accel_kernel_run_invalid";
 };
 
 [[nodiscard]] bool same_nested_window(const BackendWindow &left,
@@ -92,6 +95,8 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
   if (templates.empty() || templates.size() != template_barriers.size()) {
     return false;
   }
+  std::vector<std::uint32_t> group_transducers(
+      templates.size(), NoTileTransducer);
   std::uint64_t command_count = 0u;
   for (std::size_t index = 0u; index < templates.size();) {
     const BackendWindow *const window = templates[index].recurrence.window;
@@ -107,8 +112,30 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
         !nested_shape(templates, index, end, outer_bound, inner_bound)) {
       return false;
     }
+    const std::size_t action_first = index + outer_bound;
+    MapRecurrence recurrence = BuildNestedMapRecurrence(
+        templates.subspan(action_first, inner_bound),
+        template_barriers.subspan(action_first, inner_bound));
+    if (recurrence.invalid()) {
+      expanded.reason = recurrence.reason;
+      return false;
+    }
+    const bool fused = recurrence.ready();
+    if (fused) {
+      if (expanded.transducers.size() >= NoTileTransducer) {
+        expanded.reason = "compute_pipeline_capacity";
+        return false;
+      }
+      group_transducers[index] =
+          static_cast<std::uint32_t>(expanded.transducers.size());
+      expanded.transducers.push_back(TileTransducer{
+          .recurrence = std::move(recurrence),
+          .template_first = static_cast<std::uint32_t>(action_first),
+          .template_count = inner_bound,
+      });
+    }
     const std::uint64_t commands_per_outer =
-        static_cast<std::uint64_t>(inner_bound) + 2u;
+        fused ? 3u : static_cast<std::uint64_t>(inner_bound) + 2u;
     if (command_count > std::numeric_limits<std::uint32_t>::max() ||
         (commands_per_outer != 0u &&
          outer_bound >
@@ -135,7 +162,10 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
                           const std::uint32_t outer_bound,
                           const std::uint32_t inner,
                           const std::uint32_t inner_bound,
-                          const std::uint32_t route) {
+                          const std::uint32_t route,
+                          const std::uint32_t transducer = NoTileTransducer,
+                          const std::uint32_t inner_advance =
+                              NoTileTransducer) {
     if (template_index >= templates.size() ||
         expanded.commands.size() >= std::numeric_limits<std::uint32_t>::max()) {
       return false;
@@ -144,6 +174,7 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
     command.template_index = static_cast<std::uint32_t>(template_index);
     command.occurrence_index =
         static_cast<std::uint32_t>(expanded.commands.size());
+    command.transducer = transducer;
     if (command.recurrence.window != nullptr) {
       expanded.windows.push_back(*command.recurrence.window);
       BackendWindow &window = expanded.windows.back();
@@ -153,6 +184,10 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
       window.outer_bound = outer_bound;
       window.inner_iteration = inner;
       window.inner_bound = inner_bound;
+      window.inner_advance =
+          inner_advance != NoTileTransducer
+              ? inner_advance
+              : (window.phase == BackendWindowPhase::NestedAction ? 1u : 0u);
       window.route = route;
       command.recurrence.window = &window;
     }
@@ -183,6 +218,7 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
     }
     const std::size_t action_first = index + outer_bound;
     const std::size_t fold_first = action_first + inner_bound;
+    const std::uint32_t transducer = group_transducers[index];
     for (std::uint32_t outer = 0u; outer < outer_bound; ++outer) {
       const bool first_command = expanded.commands.empty();
       const std::uint8_t seed_barrier =
@@ -191,16 +227,24 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
                   inner_bound, 0u)) {
         return false;
       }
-      for (std::uint32_t inner = 0u; inner < inner_bound; ++inner) {
-        if (!append(action_first + inner, 1u, outer, outer_bound, inner,
-                    inner_bound, 0u)) {
+      if (transducer != NoTileTransducer) {
+        if (!append(action_first, 1u, outer, outer_bound, 0u, inner_bound, 0u,
+                    transducer, 0u)) {
           return false;
+        }
+      } else {
+        for (std::uint32_t inner = 0u; inner < inner_bound; ++inner) {
+          if (!append(action_first + inner, 1u, outer, outer_bound, inner,
+                      inner_bound, 0u)) {
+            return false;
+          }
         }
       }
       const std::uint32_t route =
           outer == 0u ? 0u : ((outer & 1u) != 0u ? 1u : 2u);
       if (!append(fold_first + route, 1u, outer, outer_bound, inner_bound,
-                  inner_bound, route)) {
+                  inner_bound, route, NoTileTransducer,
+                  transducer == NoTileTransducer ? 0u : inner_bound)) {
         return false;
       }
     }
@@ -294,7 +338,7 @@ PrepareKernelPipeline(const rund::AccelContext &context,
           .template_index = static_cast<std::uint32_t>(index)};
     }
     if (!expand_pipeline(templates, barriers, expanded)) {
-      return PreparedKernelPipeline{.reason = invalid.reason};
+      return PreparedKernelPipeline{.reason = expanded.reason};
     }
   } catch (const std::bad_alloc &) {
     return PreparedKernelPipeline{.reason = "compute_pipeline_capacity"};
@@ -311,12 +355,40 @@ PrepareKernelPipeline(const rund::AccelContext &context,
         pipeline->states[command.template_index] == nullptr) {
       return PreparedKernelPipeline{.reason = invalid.reason};
     }
-    prepared::Accumulate(pipeline->counts,
-                         *pipeline->states[command.template_index]);
+    if (command.transducer == NoTileTransducer) {
+      prepared::Accumulate(pipeline->counts,
+                           *pipeline->states[command.template_index]);
+      continue;
+    }
+    if (command.transducer >= expanded.transducers.size()) {
+      return PreparedKernelPipeline{.reason = invalid.reason};
+    }
+    const TileTransducer &transducer =
+        expanded.transducers[command.transducer];
+    const std::uint64_t template_end =
+        static_cast<std::uint64_t>(transducer.template_first) +
+        transducer.template_count;
+    if (transducer.template_count == 0u || template_end > pipeline->size) {
+      return PreparedKernelPipeline{.reason = invalid.reason};
+    }
+    // One physical transducer command represents the complete authored
+    // Action subrange for this outer window. Evidence remains logical: count
+    // every original template once while the backend reports the smaller
+    // physical dispatch count independently.
+    for (std::uint32_t offset = 0u; offset < transducer.template_count;
+         ++offset) {
+      const std::size_t template_index = transducer.template_first + offset;
+      if (pipeline->states[template_index] == nullptr) {
+        return PreparedKernelPipeline{.reason = invalid.reason};
+      }
+      prepared::Accumulate(pipeline->counts,
+                           *pipeline->states[template_index]);
+    }
   }
   const rund::AccelCheck built = pipeline->ops->prepare_pipeline(
-      templates, expanded.commands, expanded.barriers, publications,
-      pipeline->status, profile_steps, pipeline->backend, pipeline->memory);
+      templates, expanded.commands, expanded.barriers, expanded.transducers,
+      publications, pipeline->status, profile_steps, pipeline->backend,
+      pipeline->memory);
   if (!built.ok) {
     return PreparedKernelPipeline{.reason = built.reason};
   }

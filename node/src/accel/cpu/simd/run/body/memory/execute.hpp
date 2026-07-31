@@ -16,10 +16,16 @@ inline void ExecuteRead(const Instruction &instruction, const PreparedRun &,
       LoadRead(instruction, bindings, base_tile, live_lanes);
 }
 
+inline void ExecuteReadUniform(const Instruction &instruction,
+                               const PreparedRun &,
+                               const CpuSimdBindingView &bindings, u64,
+                               std::size_t, Values &values) noexcept {
+  values[instruction.value_index] = LoadReadUniform(instruction, bindings);
+}
+
 inline void ExecuteReadAt(const Instruction &instruction, const PreparedRun &,
                           const CpuSimdBindingView &bindings,
-                          const u64 base_tile,
-                          const std::size_t live_lanes,
+                          const u64 base_tile, const std::size_t live_lanes,
                           Values &values) noexcept {
   values[instruction.value_index] =
       LoadReadAt(instruction, bindings, base_tile, live_lanes);

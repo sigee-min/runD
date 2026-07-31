@@ -1,7 +1,7 @@
 #pragma once
 
-#include <rund/counter.hpp>
 #include "admit.hpp"
+#include <rund/counter.hpp>
 
 #include <cstddef>
 #include <utility>
@@ -12,13 +12,15 @@ namespace rund::node::accel::detail {
 [[nodiscard]] inline bool PrepareVulkanStagedInputBuffer(
     VulkanAdapter &adapter, const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow &window,
-    const rund::kernel::BindingSet &bindings, VulkanWindowBuffers &out) {
+    const rund::kernel::BindingSet &bindings,
+    const std::span<const InputWindowPlan> input_plans,
+    VulkanWindowBuffers &out) {
   if (out.resident || plan.input_buffer_count == 0u) {
     return true;
   }
   rund::kernel::u64 input_byte_count = 0u;
   if (!StagedInputByteCount(
-          bindings, window,
+          bindings, window, input_plans,
           static_cast<rund::kernel::u64>(adapter.storage_align),
           input_byte_count)) {
     SetVulkanLastError(adapter, "compute_binding_input_stride_invalid");
@@ -44,10 +46,15 @@ namespace rund::node::accel::detail {
   rund::kernel::u64 input_cursor = 0u;
   rund::kernel::u64 semantic_input_bytes = 0u;
   for (rund::kernel::u64 index = 0u; index < plan.input_buffer_count; ++index) {
+    const InputWindowPlan input_plan =
+        input_plans[static_cast<std::size_t>(index)];
+    const rund::kernel::ComputeDispatchWindow input_window =
+        InputWindow(input_plan, window);
     rund::kernel::u64 input_offset = 0u;
     rund::kernel::u64 input_range = 0u;
     rund::kernel::u64 next_cursor = 0u;
-    if (!StagedInputRange(bindings.input_buffers[index], window, input_cursor,
+    if (!StagedInputRange(bindings.input_buffers[index], input_window,
+                          input_cursor,
                           static_cast<rund::kernel::u64>(adapter.storage_align),
                           input_offset, input_range, next_cursor)) {
       SetVulkanLastError(adapter, "compute_binding_input_stride_invalid");
@@ -58,9 +65,11 @@ namespace rund::node::accel::detail {
     if (!ToSize(input_offset, offset_size) ||
         !ToSize(input_range, range_size) || offset_size > input_size_bytes ||
         range_size > input_size_bytes - offset_size ||
-        !PackInputBufferRange(bindings.input_buffers[index], bindings, window,
-                              input_data + offset_size, range_size,
-                              out.staged.bulk())) {
+        !PackInputBufferRange(
+            bindings.input_buffers[index], bindings, input_window,
+            input_data + offset_size, range_size, out.staged.bulk(),
+            input_plan.base_anchored() ? InputAddressMode::Identity
+                                       : InputAddressMode::Sequence)) {
       SetVulkanLastError(adapter, "compute_binding_input_stride_invalid");
       return false;
     }

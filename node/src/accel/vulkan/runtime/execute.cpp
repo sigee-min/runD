@@ -3,6 +3,7 @@
 
 #include <kernel/program/compute/lowering/artifact/admission.hpp>
 
+#include <array>
 #include <mutex>
 
 namespace rund::node::accel::detail {
@@ -28,9 +29,8 @@ bool ExecuteVulkan(void *const context, const rund::kernel::ComputePlan &plan,
     SetVulkanLastError(*adapter, "compute_backend_mismatch");
     return false;
   }
-  const rund::kernel::compute_lowering_detail::ArtifactAdmission
-      admission = rund::kernel::compute_lowering_detail::AdmitArtifact(
-          plan, artifact);
+  const rund::kernel::compute_lowering_detail::ArtifactAdmission admission =
+      rund::kernel::compute_lowering_detail::AdmitArtifact(plan, artifact);
   if (!admission.ok) {
     SetVulkanLastError(*adapter,
                        artifact.kind ==
@@ -48,6 +48,16 @@ bool ExecuteVulkan(void *const context, const rund::kernel::ComputePlan &plan,
   }
   if (!RuntimeWindowsMatchPlan(plan, windows, window_count, bindings)) {
     SetVulkanLastError(*adapter, "compute_dispatch_count_mismatch");
+    return false;
+  }
+  std::array<InputWindowPlan, rund::kernel::kMaxComputeBindingCount>
+      input_plan_storage{};
+  const std::span<InputWindowPlan> input_plans{
+      input_plan_storage.data(),
+      static_cast<std::size_t>(plan.input_buffer_count)};
+  if (!FreezeInputWindowPlans(artifact.metadata, plan.tile_count,
+                              input_plans)) {
+    SetVulkanLastError(*adapter, "compute_binding_mismatch");
     return false;
   }
   VulkanCachedPipeline *const pipeline =
@@ -76,7 +86,7 @@ bool ExecuteVulkan(void *const context, const rund::kernel::ComputePlan &plan,
   }
   for (rund::kernel::u64 index = 0u; index < window_count; ++index) {
     if (!ExecuteWindow(*adapter, *pipeline, plan, windows[index], bindings,
-                       param_buffer, resident_ptr)) {
+                       input_plans, param_buffer, resident_ptr)) {
       return false;
     }
   }

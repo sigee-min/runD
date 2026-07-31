@@ -23,6 +23,7 @@ namespace {
 struct SourceBinding final {
   std::string symbol;
   std::uint64_t element_bytes{};
+  bool uniform{};
 };
 
 [[nodiscard]] bool ReplaceOne(std::string &source,
@@ -94,13 +95,21 @@ struct SourceBinding final {
         rund::kernel::compute_lowering_detail::SafeIdentifier(
             metadata.binding_names[index]);
     if (access == ComputeBindingAccess::Read) {
-      if (read >= metadata.input_element_bytes.size()) {
+      if (read >= metadata.input_element_bytes.size() || read >= 64u) {
+        return false;
+      }
+      const std::uint64_t bit = std::uint64_t{1u} << read;
+      const bool direct = (metadata.direct_read_mask & bit) != 0u;
+      const bool uniform = (metadata.uniform_read_mask & bit) != 0u;
+      if (direct == uniform) {
         return false;
       }
       inputs.push_back(SourceBinding{
           .symbol = "read_" + safe,
-          .element_bytes = metadata.input_element_bytes[read++],
+          .element_bytes = metadata.input_element_bytes[read],
+          .uniform = uniform,
       });
+      ++read;
     } else if (access == ComputeBindingAccess::Write) {
       if (write >= metadata.output_element_bytes.size()) {
         return false;
@@ -126,7 +135,8 @@ struct SourceBinding final {
           binding.symbol);
   return std::string{
              rund::kernel::compute_lowering_detail::MetalLoadFunction(scalar)} +
-         "(" + binding.symbol + ", " + base + " + gid * " + stride + ")";
+         "(" + binding.symbol + ", " + base +
+         (binding.uniform ? ")" : " + gid * " + stride + ")");
 }
 
 [[nodiscard]] std::string VulkanLoad(const ComputeScalar scalar,
@@ -138,7 +148,8 @@ struct SourceBinding final {
           binding.symbol);
   return std::string{
              rund::kernel::compute_lowering_detail::VulkanLoadPrefix(scalar)} +
-         "_" + binding.symbol + "(" + base + " + gid * " + stride + ")";
+         "_" + binding.symbol + "(" + base +
+         (binding.uniform ? ")" : " + gid * " + stride + ")");
 }
 
 [[nodiscard]] bool ReplaceOutput(std::string &source, const ComputeApi api,
@@ -205,7 +216,7 @@ struct SourceBinding final {
   const std::uint64_t scalar_bytes =
       rund::kernel::ComputeScalarBits(artifact.key.scalar) / 8u;
   for (std::size_t index = 0u; index < outputs.size(); ++index) {
-    if (inputs[index].element_bytes != scalar_bytes ||
+    if (inputs[index].uniform || inputs[index].element_bytes != scalar_bytes ||
         outputs[index].element_bytes != scalar_bytes) {
       return false;
     }

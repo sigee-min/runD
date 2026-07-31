@@ -122,6 +122,16 @@ VulkanParamNodeExpr(const ArtifactKey &key, const BindingLayout &layout) {
 }
 
 [[nodiscard]] inline std::string
+VulkanReadUniformNodeExpr(const ArtifactKey &key,
+                          const BindingLayout &layout) {
+  std::string expr = VulkanLoadFunctionName(key.scalar, layout);
+  expr += "(";
+  expr += BindingBaseSymbol(layout);
+  expr += ")";
+  return expr;
+}
+
+[[nodiscard]] inline std::string
 VulkanReadAtNodeExpr(const ArtifactKey &key, const BindingLayout &source,
                      const BindingLayout &index) {
   std::string offset = VulkanLoadFunctionName(ComputeScalar::Lane32, index);

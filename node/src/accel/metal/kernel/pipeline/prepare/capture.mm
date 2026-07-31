@@ -11,12 +11,10 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
   if (finished) {
     return rund::AccelCheck{true, "ok"};
   }
-  try {
-    window_params.reserve(native_windows.size());
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  }
   encoder = [[RUNDMetalPipelineCapture alloc] initWithCapture:&captured];
+  captured.guard_zero = pipeline->guard_zero;
+  captured.guard_states = pipeline->states;
+  captured.guard_state_count = pipeline->state_count;
   MetalPipelineStatusParams open = status_params;
   open.phase = 0u;
   [encoder setComputePipelineState:complete];
@@ -25,8 +23,14 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
   if (profile_steps) {
     [encoder setBuffer:pipeline->step_control offset:0u atIndex:2u];
   }
-  [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
-      threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+  id<MTLBuffer> const states =
+      pipeline->states == nil ? pipeline->control : pipeline->states;
+  [encoder setBuffer:states offset:0u atIndex:3u];
+  const NSUInteger count = std::max<NSUInteger>(pipeline->state_count, 1u);
+  const NSUInteger width =
+      std::min(count, [complete maxTotalThreadsPerThreadgroup]);
+  [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u)
+      threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
   captured.commands.back().control = true;
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   if (private_raw_count != 0u) {

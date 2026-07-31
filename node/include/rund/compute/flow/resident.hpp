@@ -66,25 +66,33 @@ resident(const StageRef<std::uint32_t, stage::Exact> &total,
   constexpr std::uint32_t maximum = static_cast<std::uint32_t>(Max);
   constexpr std::uint32_t width = static_cast<std::uint32_t>(Tile);
   constexpr std::uint32_t windows = static_cast<std::uint32_t>(Windows);
-  (void)total.scalar();
+  const auto total_scalar = total.scalar();
   const auto ordinal_scalar = ordinal.scalar();
-  auto items = total.expand(
-      MaxItems{Tile}, ordinal_scalar,
-      capture(
-          [](auto count, auto index, auto limit, auto tile, auto bound) {
-            const auto base = index * tile;
-            const auto remaining = select(count > base, count - base, 0u);
-            const auto active = select(remaining > tile, tile, remaining);
-            return select((count > limit) || (index >= bound), tile + 1u,
-                          active);
-          },
-          maximum, width, windows),
-      capture([](auto, auto index, auto local, auto tile) {
-        return index * tile + local;
-      }, width));
   auto base = ordinal_scalar.map(
       "resident-base",
       capture([](auto index, auto tile) { return index * tile; }, width));
+  auto count = total_scalar.combine(
+      "resident-count", ordinal_scalar,
+      capture(
+          [](auto total_count, auto index, auto limit, auto tile, auto bound) {
+            const auto begin = index * tile;
+            const auto remaining =
+                select(total_count > begin, total_count - begin, 0u);
+            const auto active = select(remaining > tile, tile, remaining);
+            return select((total_count > limit) || (index >= bound),
+                          tile + 1u, active);
+          },
+          maximum, width, windows));
+  const auto state = detail::StageRefAccess::state(total);
+  auto slots = detail::StageRefAccess::make<std::uint32_t, stage::Exact>(
+      state, detail::flow_index(state, detail::Type::U32, Tile));
+  auto values = slots.combine(
+      "resident-item", base,
+      [](auto local, auto begin) { return begin + local; });
+  auto items = detail::StageRefAccess::make<
+      std::uint32_t, stage::Bounded<std::uint32_t>>(
+      state, detail::StageRefAccess::id(values),
+      detail::StageRefAccess::id(count));
   return ResidentWindow<Max, Tile>{std::move(items), std::move(base),
                                    ordinal_scalar};
 }

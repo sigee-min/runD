@@ -23,7 +23,9 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
   }
   for (std::size_t index = 0u; index < entries.size(); ++index) {
     if (entries[index].occurrence_index != index ||
-        entries[index].template_index >= templates.size()) {
+        entries[index].template_index >= templates.size() ||
+        (entries[index].transducer != NoTileTransducer &&
+         entries[index].transducer >= transducers.size())) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
   }
@@ -38,6 +40,36 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
   }
   std::uint32_t state_count = 0u;
   try {
+    constexpr std::uint32_t unset =
+        std::numeric_limits<std::uint32_t>::max();
+    std::vector<std::uint32_t> deferred_inner_advance;
+    std::vector<std::uint32_t> deferred_inner_bound;
+    for (const BackendBatchEntry &entry : entries) {
+      const BackendWindow *const window = entry.recurrence.window;
+      if (window == nullptr || !window->nested()) {
+        continue;
+      }
+      if (window->state == unset) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
+      if (deferred_inner_advance.size() <= window->state) {
+        deferred_inner_advance.resize(
+            static_cast<std::size_t>(window->state) + 1u, unset);
+        deferred_inner_bound.resize(
+            static_cast<std::size_t>(window->state) + 1u, unset);
+      }
+      if (window->phase != BackendWindowPhase::NestedFold) {
+        continue;
+      }
+      std::uint32_t &advance = deferred_inner_advance[window->state];
+      std::uint32_t &bound = deferred_inner_bound[window->state];
+      if ((advance != unset && advance != window->inner_advance) ||
+          (bound != unset && bound != window->inner_bound)) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
+      advance = window->inner_advance;
+      bound = window->inner_bound;
+    }
     native_publications.reserve(publications.size());
     native_windows.reserve(entries.size());
     MetalResidentState &resident = MetalResidents(*context.adapter);
@@ -118,18 +150,45 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
         continue;
       }
       const bool nested = window->nested();
+      const std::uint32_t deferred =
+          nested && window->state < deferred_inner_advance.size()
+              ? deferred_inner_advance[window->state]
+              : unset;
+      const std::uint32_t deferred_bound =
+          nested && window->state < deferred_inner_bound.size()
+              ? deferred_inner_bound[window->state]
+              : unset;
       const bool nested_shape_valid =
           !nested ||
           (window->outer_bound != 0u &&
            window->outer_iteration < window->outer_bound &&
            window->inner_bound != 0u &&
            ((window->phase == BackendWindowPhase::NestedSeed &&
-             window->route == 0u) ||
+             window->route == 0u && window->inner_advance == 0u) ||
             (window->phase == BackendWindowPhase::NestedAction &&
              window->inner_iteration < window->inner_bound &&
-             window->route == 0u) ||
+             window->route == 0u &&
+             window->inner_advance ==
+                 (entries[entry_index].transducer == NoTileTransducer
+                      ? 1u
+                      : 0u)) ||
             (window->phase == BackendWindowPhase::NestedFold &&
-             window->route < 3u)));
+             window->route < 3u &&
+             (window->inner_advance == 0u ||
+              window->inner_advance == window->inner_bound))) &&
+           deferred != unset && deferred_bound == window->inner_bound &&
+           (deferred == 0u || deferred == deferred_bound));
+      if (entries[entry_index].transducer != NoTileTransducer) {
+        const TileTransducer &transducer =
+            transducers[entries[entry_index].transducer];
+        if (!nested ||
+            window->phase != BackendWindowPhase::NestedAction ||
+            !transducer.recurrence.ready() ||
+            transducer.template_first != entries[entry_index].template_index ||
+            transducer.template_count != window->inner_bound) {
+          return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+        }
+      }
       const MetalResidentBufferResult count = ResolveMetalResidentBuffer(
           resident, window->count.source, window->count.handle,
           "accel_metal_resident_id_unavailable", true);
@@ -196,12 +255,15 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                   .state = window->state,
                   .has_terminal =
                       static_cast<std::uint32_t>(window->has_terminal),
-                  .range_count = 0u,
                   .phase = static_cast<std::uint32_t>(window->phase),
                   .declared_step = status.declared_steps[template_index],
                   .overflow_reason = static_cast<std::uint32_t>(
                       rund::compute::Reason::BoundedCountInvalid),
                   .inner_bound = window->inner_bound,
+                  .inner_advance =
+                      window->phase == BackendWindowPhase::NestedSeed
+                          ? deferred
+                          : window->inner_advance,
               },
           .entry = static_cast<std::uint32_t>(entry_index),
       });
@@ -214,6 +276,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     pipeline->adapter = context.adapter;
     pipeline->state_count = state_count;
     pipeline->profile_steps = profile_steps;
+    pipeline->transducers.resize(transducers.size());
     if (profile_steps) {
       if (status.declared_step_count == 0u ||
           status.declared_step_count > PreparedPipelineStepCapacity) {
@@ -225,6 +288,9 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   if (recurrence.ready()) {
+    if (!transducers.empty()) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
     if (recurrence.first == nullptr || recurrence.windows == nullptr ||
         recurrence.window_count == 0u || recurrence.iterations < 2u ||
         recurrence.iterations > std::numeric_limits<std::uint32_t>::max()) {
@@ -237,6 +303,36 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           recurrence.windows, recurrence.window_count, recurrence.bindings,
           recurrence.first->control, pipeline->recurrence,
           static_cast<std::uint32_t>(recurrence.iterations));
+    } catch (const std::bad_alloc &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    if (!ready.ok) {
+      return ready;
+    }
+  }
+  for (std::size_t index = 0u; index < transducers.size(); ++index) {
+    const TileTransducer &transducer = transducers[index];
+    const MapRecurrence &map = transducer.recurrence;
+    if (!map.ready() || map.first == nullptr || map.windows == nullptr ||
+        map.window_count == 0u || map.iterations < 2u ||
+        map.iterations != transducer.template_count ||
+        map.iterations > std::numeric_limits<std::uint32_t>::max() ||
+        transducer.template_first >= templates.size() ||
+        transducer.template_count >
+            templates.size() - transducer.template_first) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
+    const BackendBatchEntry &owner = templates[transducer.template_first];
+    if (owner.run == nullptr || owner.run->pick == nullptr) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
+    rund::AccelCheck ready{};
+    try {
+      ready = PrepareMetalMap(
+          *owner.run->pick, map.plan, map.artifact, map.windows,
+          map.window_count, map.bindings, map.first->control,
+          pipeline->transducers[index],
+          static_cast<std::uint32_t>(map.iterations));
     } catch (const std::bad_alloc &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }

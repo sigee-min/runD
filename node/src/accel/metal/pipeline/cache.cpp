@@ -1,5 +1,6 @@
 #include "cache.hpp"
 #include "artifact/index.hpp"
+#include "guard.hpp"
 #include "../../source/hash.hpp"
 #include <rund/counter.hpp>
 #include <mutex>
@@ -43,12 +44,13 @@ namespace {
 std::shared_ptr<void> LookupMetalNamedPipeline(
     MetalAdapter& adapter,
     const std::string_view key) {
+  const std::string scoped_key = MetalPipelineCacheKey(key);
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  const std::uint64_t hash = SourceHash(key);
+  const std::uint64_t hash = SourceHash(scoped_key);
   const auto [begin, end] = adapter.pipeline_index->named.equal_range(hash);
   for (auto index = begin; index != end; ++index) {
     if (index->second < adapter.named_pipelines.size() &&
-        adapter.named_pipelines[index->second].name == key &&
+        adapter.named_pipelines[index->second].name == scoped_key &&
         adapter.named_pipelines[index->second].pipeline != nullptr) {
       ::rund::detail::counter::Accumulate(
           adapter.stats.pipeline_cache_hit_count, 1u);
@@ -62,6 +64,7 @@ void StoreMetalNamedPipeline(MetalAdapter& adapter,
                              std::string key,
                              std::shared_ptr<void> pipeline,
                              const std::uint64_t create_ns) {
+  key = MetalPipelineCacheKey(key);
   std::lock_guard<std::mutex> lock{adapter.mutex};
   if (pipeline == nullptr) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");

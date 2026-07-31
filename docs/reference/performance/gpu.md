@@ -61,30 +61,58 @@ therefore independent of shader-module handle lifetime. This is a native
 resource-lifetime bound, not a throughput measurement; compile latency and
 pipeline-native memory remain device and driver observations.
 
-## Admitted Observation
+## Admitted Observations
 
-The checked M4 Pro profile freezes the following resident medians for one
-light `N = 1,048,576` workload:
+The checked M4 Pro profile contains measurements for three different cost
+boundaries. They must not be read as one portable CPU-versus-GPU ranking.
 
-| Path | Median |
+### Resident Creation and Input Upload
+
+The resident-setup timer encloses only `Program::resident(input)`. Program
+compilation happens before the timer. `Job::run()` and the validation read
+happen after it. The resulting medians therefore measure resident job
+creation and the path's initial input copy or upload, not kernel execution:
+
+| Path | `Program::resident(input)` median, `N = 1,048,576` |
 | --- | ---: |
 | CPU | 86.542 us |
 | Metal | 477.500 us |
-| Vulkan through MoltenVK | 561.000 us |
+| Vulkan/MoltenVK | 561.000 us |
 
-These values prove a regression boundary for that exact host, workload,
-source identity, output, and driver path. They do not establish a portable
-CPU-versus-GPU ranking. In particular, the Vulkan row exercises runD's Vulkan
-lowering through MoltenVK on Apple hardware; it is not native Vulkan
-throughput evidence.
+These values are setup-regression evidence for the exact source, input,
+host, and driver path. They do not show CPU or GPU compute throughput.
 
-The same profile also shows why submission amortization matters. For 64
-independent jobs of 64 elements, one batch reduced the observed wall median
-from 7,347.062 us to 227.645 us on Metal and from 9,136.105 us to 583.146 us
-on the Vulkan/MoltenVK path. Those observations are 32.274 and 15.667 times
-the respective serial rates for this exact workload. They are evidence for
-the structural benefit of one submission boundary, not universal speedup
-claims.
+### Warm Resident Execution
+
+The workload timer creates the resident job and completes one validated
+warmup before sampling. Each sample then times only `Job::run()`. After the
+samples, the suite validates the result and requires its graph and output
+hashes to match the CPU reference:
+
+| Workload, `N = 262,144` | CPU | Metal | Vulkan/MoltenVK |
+| --- | ---: | ---: | ---: |
+| Dense expensive map | 324.959 us | 123.666 us | 190.542 us |
+| Dense sort | 4,494.875 us | 342.458 us | 1,566.584 us |
+
+For this exact profile, CPU median divided by path median was 2.628 for Metal
+and 1.705 for Vulkan/MoltenVK on the dense expensive map. The corresponding
+dense-sort ratios were 13.125 and 2.869. These are warm resident
+`Job::run()` wall-time ratios for the named workload and host, not end-to-end
+speedups or promises for another device, driver, data shape, or backend.
+
+### Submission Amortization
+
+For 64 independent jobs of 64 elements, one batch reduced the observed wall
+median from 7,347.062 us to 227.645 us on Metal and from 9,136.105 us to
+583.146 us on the Vulkan/MoltenVK path. Serial median divided by Batch median
+is 32.274 and 15.667, respectively, for this exact workload. These values are
+evidence for the structural benefit of one submission boundary, not
+universal speedup claims. The serial wall path also includes per-job stats
+observation and host-loop work, so these ratios must not be presented as pure
+kernel or pure submission speedups.
+
+All Vulkan observations above exercise runD's Vulkan lowering through
+MoltenVK on Apple hardware. They are not native Vulkan throughput evidence.
 
 ## Execution Shape
 

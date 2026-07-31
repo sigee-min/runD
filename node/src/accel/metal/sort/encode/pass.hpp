@@ -3,6 +3,7 @@
 #include <accel/check.hpp>
 
 #include "prepare.hpp"
+#include "../../../kernel/preparation.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -42,9 +43,14 @@ SelectMetalSortPassBuffers(const MetalSortEncodeState &state,
 
 inline void DispatchMetalSortBlocks(const MetalSortEncodeState &state) {
   if (state.bounded) {
-    [state.encoder dispatchThreadgroupsWithIndirectBuffer:state.dispatch_args
-                                     indirectBufferOffset:0u
-                                    threadsPerThreadgroup:state.threads];
+    if (IsPipelinePrivatePreparation(CurrentKernelPreparationMode())) {
+      [state.encoder dispatchThreadgroups:state.groups
+                    threadsPerThreadgroup:state.threads];
+    } else {
+      [state.encoder dispatchThreadgroupsWithIndirectBuffer:state.dispatch_args
+                                       indirectBufferOffset:0u
+                                      threadsPerThreadgroup:state.threads];
+    }
     return;
   }
   [state.encoder dispatchThreadgroups:state.groups

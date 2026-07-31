@@ -240,6 +240,11 @@ Status prepare_backend(PipelineState &value) noexcept {
               .outer_bound = outer_bound,
               .inner_iteration = inner_iteration,
               .inner_bound = inner_bound,
+              .inner_advance =
+                  phase ==
+                          node::accel::detail::BackendWindowPhase::NestedAction
+                      ? 1u
+                      : 0u,
               .route = route,
               .phase = phase,
               .has_terminal = has_terminal,

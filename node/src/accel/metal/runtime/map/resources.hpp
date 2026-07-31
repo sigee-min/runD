@@ -1,7 +1,8 @@
 #pragma once
 
-#include "../resident/bindings.hpp"
+#include "../../../sequence/input/window.hpp"
 #include "../../resident.hpp"
+#include "../resident/bindings.hpp"
 #include <kernel/program/compute/graph/schema.hpp>
 
 #include "../../state.hpp"
@@ -18,10 +19,10 @@ struct MetalMapCheck final {
 };
 
 struct MetalMapEncodeResources {
-  MetalAdapter* adapter = nullptr;
+  MetalAdapter *adapter = nullptr;
   rund::kernel::ComputePlan plan{};
   rund::kernel::BindingSet bindings{};
-  std::vector<rund::kernel::ReadRoute> read_routes{};
+  std::vector<InputWindowPlan> input_plans{};
   std::vector<MetalMapCheck> checks{};
   std::vector<rund::kernel::ComputeDispatchWindow> windows{};
   MetalResidentBindings resident{};
@@ -44,4 +45,4 @@ struct MetalMapEncodeResources {
 };
 #endif
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

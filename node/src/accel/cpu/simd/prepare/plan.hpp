@@ -15,12 +15,11 @@ namespace {
 [[nodiscard]] bool
 StableNode(const IrOp op, const ParsedNode &node,
            const std::vector<std::uint8_t> &stable) noexcept {
-  if (op == IrOp::Param || op == IrOp::Constant) {
+  if (op == IrOp::Param || op == IrOp::Constant || op == IrOp::ReadUniform) {
     return true;
   }
   if (op == IrOp::Read || op == IrOp::ReadAt || op == IrOp::Write ||
-      op == IrOp::Index ||
-      op == IrOp::Quantize) {
+      op == IrOp::Index || op == IrOp::Quantize) {
     return false;
   }
   return StableReference(stable, node.lhs) &&
@@ -52,6 +51,8 @@ PrepareInstruction(const ParsedIR &parsed, const BindingPlan &bindings,
     instruction.full_executor_slot = span.stride_bytes == scalar_bytes
                                          ? kCpuSimdReadFullExecutorSlot
                                          : kCpuSimdReadStridedFullExecutorSlot;
+  } else if (op == IrOp::ReadUniform) {
+    instruction.binding_slot = bindings.slots[node.aux];
   } else if (op == IrOp::ReadAt) {
     instruction.binding_slot = bindings.slots[node.aux];
     instruction.immediate = bindings.slots[node.lhs];

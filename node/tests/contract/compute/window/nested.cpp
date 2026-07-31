@@ -1419,6 +1419,31 @@ template <class Seed, class Action, class Fold>
     return 3;
   }
 
+  if (backend == Backend::Vulkan) {
+    for (std::size_t inner = 0u; inner < kInner; ++inner) {
+      const PipelineStepStats &execution = rows[kOuter + inner].execution;
+      const std::uint64_t expected_physical = inner == 0u ? kOuter : 0u;
+      if (execution.sample_count != 1u ||
+          execution.original_dispatches != kOuter ||
+          execution.final_dispatches != expected_physical ||
+          execution.workgroup_count != expected_physical ||
+          execution.work_item_count != expected_physical) {
+        std::fprintf(
+            stderr,
+            "nested Vulkan transducer row=%llu samples=%llu authored=%llu "
+            "physical=%llu/%llu groups=%llu items=%llu\n",
+            static_cast<unsigned long long>(inner),
+            static_cast<unsigned long long>(execution.sample_count),
+            static_cast<unsigned long long>(execution.original_dispatches),
+            static_cast<unsigned long long>(execution.final_dispatches),
+            static_cast<unsigned long long>(expected_physical),
+            static_cast<unsigned long long>(execution.workgroup_count),
+            static_cast<unsigned long long>(execution.work_item_count));
+        return 4;
+      }
+    }
+  }
+
   const graph::Fingerprint seed_fingerprint = seed.fingerprint();
   const graph::Fingerprint action_fingerprint = action.fingerprint();
   const graph::Fingerprint fold_fingerprint = fold.fingerprint();
@@ -1461,7 +1486,7 @@ template <class Seed, class Action, class Fold>
           static_cast<unsigned long long>(row.program.lo),
           static_cast<unsigned long long>(expected_program.hi),
           static_cast<unsigned long long>(expected_program.lo));
-      return 4;
+      return 5;
     }
   }
   return 0;

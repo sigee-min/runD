@@ -99,6 +99,22 @@ int VulkanLoweringBase() {
   TEST_ASSERT(index.source_text.find("uint64_t(gid)") !=
               std::string_view::npos);
 
+  const auto uniform = rund::kernel::LowerComputeIR(
+      backend_lowering_support::BuildI32UniformReadIr(),
+      rund::kernel::ComputeApi::Vulkan);
+  TEST_ASSERT(uniform.ok);
+  TEST_ASSERT(uniform.metadata.direct_read_mask == 0u);
+  TEST_ASSERT(uniform.metadata.uniform_read_mask == 0x1u);
+  TEST_ASSERT(uniform.source_text.find("].op=read_uniform") !=
+              std::string_view::npos);
+  TEST_ASSERT(uniform.source_text.find(
+                  "LoadI32_read_756e69666f726d("
+                  "RundBase_read_756e69666f726d)") !=
+              std::string_view::npos);
+  TEST_ASSERT(uniform.source_text.find(
+                  "RundBase_read_756e69666f726d + gid") ==
+              std::string_view::npos);
+
   const auto mask = rund::kernel::LowerComputeIR(
       backend_lowering_support::BuildU64MaskOp().ir(),
       rund::kernel::ComputeApi::Vulkan);

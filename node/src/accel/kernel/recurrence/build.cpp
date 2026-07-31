@@ -18,15 +18,23 @@ namespace {
   };
 }
 
-} // namespace
+enum class RecurrenceMarker : std::uint8_t {
+  TopLevel,
+  NestedAction,
+};
 
-MapRecurrence
-BuildMapRecurrence(const std::span<const BackendBatchEntry> entries,
-                   const std::span<const std::uint8_t> barriers) {
-  if (!ExactRecurrenceMarker(entries)) {
+[[nodiscard]] MapRecurrence
+Build(const std::span<const BackendBatchEntry> entries,
+      const std::span<const std::uint8_t> barriers,
+      const RecurrenceMarker marker) {
+  const bool marked = marker == RecurrenceMarker::TopLevel
+                          ? ExactRecurrenceMarker(entries)
+                          : ExactNestedMapRecurrenceMarker(entries);
+  if (!marked) {
     return {};
   }
-  if (barriers.size() != entries.size() || barriers.front() != 0u) {
+  if (barriers.size() != entries.size() ||
+      (marker == RecurrenceMarker::TopLevel && barriers.front() != 0u)) {
     return Invalid("compute_pipeline_recurrence_barrier_invalid");
   }
   for (std::size_t index = 1u; index < barriers.size(); ++index) {
@@ -46,6 +54,7 @@ BuildMapRecurrence(const std::span<const BackendBatchEntry> entries,
       first.control.active() || first.planned->artifact == nullptr ||
       first.step->artifact.kind != first.planned->artifact->kind ||
       first.planned->artifact != &first.step->artifact ||
+      !first.step->artifact.metadata.read_routes.empty() ||
       (first.step->artifact.key.api != ComputeApi::Metal &&
        first.step->artifact.key.api != ComputeApi::Vulkan)) {
     return {};
@@ -147,5 +156,19 @@ BuildMapRecurrence(const std::span<const BackendBatchEntry> entries,
   result.state = MapRecurrenceState::Ready;
   result.reason = "ok";
   return result;
+}
+
+} // namespace
+
+MapRecurrence
+BuildMapRecurrence(const std::span<const BackendBatchEntry> entries,
+                   const std::span<const std::uint8_t> barriers) {
+  return Build(entries, barriers, RecurrenceMarker::TopLevel);
+}
+
+MapRecurrence
+BuildNestedMapRecurrence(const std::span<const BackendBatchEntry> entries,
+                         const std::span<const std::uint8_t> barriers) {
+  return Build(entries, barriers, RecurrenceMarker::NestedAction);
 }
 } // namespace rund::node::accel::detail

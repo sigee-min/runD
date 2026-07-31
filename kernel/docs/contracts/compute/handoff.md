@@ -263,9 +263,18 @@ explicit download or staged readback owned by the caller.
 Resident direct execution uses deterministic contiguous semantic tile windows:
 window `begin_sequence` is the first tile index in that dispatch window and
 shader `gid` is local to the window. Backends bind resident inputs and output
-with byte offset `window.begin_sequence * element_bytes`, so `gid` indexes the
-correct contiguous tile segment. The runtime rejects non-contiguous resident
-views (`stride_bytes != element_bytes`) with `compute_resident_stride_invalid`
+from one frozen input-window plan derived from `ExecutionMetadata`. A binding
+used by direct `Read` or as a `ReadAt` index is windowed and uses byte offset
+`window.begin_sequence * element_bytes`. A binding used only by
+`ReadUniform`, as a `ReadAt` source, or by both compatible base-anchored uses
+binds `{begin_sequence = 0, tile_count = RequiredInputCount(...)}` for every
+dispatch window. The staged path packs that same exact source-identity span;
+it does not follow the output sequence or replicate a uniform scalar to the
+dispatch width. A binding that mixes a base-anchored use with a windowed use
+is rejected before execution unless an earlier owner split it into distinct
+bindings. This prevents one descriptor base from silently changing either
+address law. The runtime rejects non-contiguous resident views
+(`stride_bytes != element_bytes`) with `compute_resident_stride_invalid`
 rather than introducing a sequence-index shader ABI.
 
 Compute completion order is not semantic authority. Graph dependency order,

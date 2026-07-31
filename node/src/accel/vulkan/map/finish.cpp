@@ -62,8 +62,12 @@ rund::AccelCheck PrepareVulkanMap(
   raw->adapter = adapter;
   raw->plan = plan;
   raw->bindings = bindings;
-  raw->read_routes = artifact.metadata.read_routes;
-  for (const rund::kernel::ReadRoute route : raw->read_routes) {
+  raw->input_plans.resize(static_cast<std::size_t>(plan.input_buffer_count));
+  if (!FreezeInputWindowPlans(artifact.metadata, plan.tile_count,
+                              raw->input_plans)) {
+    return rund::AccelCheck{false, "compute_binding_mismatch"};
+  }
+  for (const rund::kernel::ReadRoute route : artifact.metadata.read_routes) {
     const auto found = std::find_if(raw->checks.begin(), raw->checks.end(),
                                     [&](const VulkanMapCheck check) {
                                       return check.binding == route.index;

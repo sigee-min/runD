@@ -90,6 +90,11 @@ inline void AppendMetalWideFixedNode(std::string &out, const ParsedIR &parsed,
         wrap_lane(MetalReadNodeExpr(key, layouts[node.aux],
                                     parsed.bindings[node.aux])));
     return;
+  case IrOp::ReadUniform:
+    AppendMetalWideValue(
+        out, name,
+        wrap_lane(MetalReadUniformNodeExpr(key, layouts[node.aux])));
+    return;
   case IrOp::ReadAt:
     AppendMetalWideValue(out, name,
                          wrap_lane(MetalReadAtNodeExpr(key, layouts[node.aux],
@@ -442,6 +447,12 @@ inline void AppendMetalNode(std::string &out, const ParsedIR &parsed,
     AppendMetalAssignedValue(out, key.scalar,
                              SetMetalNodeName(node_names, current_node),
                              MetalReadNodeExpr(key, layout, binding));
+    break;
+  }
+  case IrOp::ReadUniform: {
+    AppendMetalAssignedValue(
+        out, key.scalar, SetMetalNodeName(node_names, current_node),
+        MetalReadUniformNodeExpr(key, layouts[node.aux]));
     break;
   }
   case IrOp::ReadAt: {

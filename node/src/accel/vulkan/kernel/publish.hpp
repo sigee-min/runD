@@ -37,7 +37,7 @@ struct VulkanPipelinePublishRoute final {
   VulkanStorageBinding target_binding{};
   VulkanPipelinePublishParams params{};
   VkDescriptorSet descriptor{VK_NULL_HANDLE};
-  VkDescriptorSet seal_descriptor{VK_NULL_HANDLE};
+  VkDescriptorSet canonical_descriptor{VK_NULL_HANDLE};
   std::uint32_t groups_x{};
   std::uint32_t groups_y{};
 };
@@ -65,11 +65,10 @@ void DestroyVulkanPipelinePublish(
 [[nodiscard]] bool EncodeVulkanPipelinePublish(
     VkCommandBuffer command,
     const VulkanPipelinePublishResources &resources) noexcept;
-[[nodiscard]] bool
-EncodeVulkanPipelineSeal(VkCommandBuffer command,
-                         const VulkanPipelinePublishResources &resources,
-                         std::uint32_t state, std::uint32_t iteration) noexcept;
-
+[[nodiscard]] bool EncodeVulkanPipelineCanonicalize(
+    VkCommandBuffer command,
+    const VulkanPipelinePublishResources &resources,
+    std::uint32_t state) noexcept;
 [[nodiscard]] std::uint64_t VulkanPipelinePublishHostBytes(
     const VulkanPipelinePublishResources &resources) noexcept;
 

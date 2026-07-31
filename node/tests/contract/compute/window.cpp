@@ -1,5 +1,6 @@
 #include "window/local.hpp"
 #include "window/nested/local.hpp"
+#include "window/workset/local.hpp"
 
 #include "../target/selection.hpp"
 
@@ -14,6 +15,7 @@ using rund::node::test_contract::window::CheckOverflow64;
 using rund::node::test_contract::window::CheckParity32;
 using rund::node::test_contract::window::CheckParity64;
 using rund::node::test_contract::window::CheckPlan;
+using rund::node::test_contract::window::CheckResidentWorkset;
 using rund::node::test_contract::window::CheckWindowChain;
 using rund::node::test_contract::window::CheckWindowFreeze;
 using rund::node::test_contract::window::CheckWindowMatrix;
@@ -60,8 +62,12 @@ using rund::node::test_contract::window::Identity;
       terminal != 0) {
     return 180 + terminal;
   }
+  if (const int workset = CheckResidentWorkset(*opened, backend);
+      workset != 0) {
+    return 220 + workset;
+  }
   if (const int nested = CheckNestedWindow(*opened, backend); nested != 0) {
-    return 220 + nested;
+    return 320 + nested;
   }
   return 0;
 }

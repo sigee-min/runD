@@ -31,6 +31,17 @@ enum class Compose : unsigned char {
 
 [[nodiscard]] bool same_domain(const FlowState &flow, const MapRecipe &producer,
                                const MapRecipe &consumer) noexcept {
+  // Elementwise composition may substitute the producer expression only when
+  // both Maps evaluate the same logical ordinals. A count-one producer feeding
+  // a uniform read is a value dependency, not an elementwise fusion edge.
+  if (producer.outputs.empty() || consumer.outputs.empty() ||
+      producer.outputs.front() == 0u || consumer.outputs.front() == 0u ||
+      producer.outputs.front() > flow.values.size() ||
+      consumer.outputs.front() > flow.values.size() ||
+      flow.values[producer.outputs.front() - 1u].count !=
+          flow.values[consumer.outputs.front() - 1u].count) {
+    return false;
+  }
   Type type{Type::I32};
   FixedFormat format{};
   bool selected = false;

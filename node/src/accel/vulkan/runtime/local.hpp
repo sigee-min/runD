@@ -1,10 +1,11 @@
 #pragma once
 
+#include "../../backend/number.hpp"
 #include "../../plan/validation.hpp"
 #include "../../resident/window/admission/runtime/windows.hpp"
 #include "../../sequence/input/pack.hpp"
+#include "../../sequence/input/window.hpp"
 #include "../../sequence/output.hpp"
-#include "../../backend/number.hpp"
 #include "../adapter/api.hpp"
 #include "../cached/pipeline.hpp"
 #include "../command.hpp"
@@ -12,6 +13,7 @@
 #include "../scope.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace rund::node::accel::detail {
 
@@ -41,12 +43,15 @@ ResidentWindowSpan(const rund::kernel::ResidentBufferRef &ref,
     VulkanAdapter &adapter, const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow &window,
     const rund::kernel::BindingSet &bindings,
+    std::span<const InputWindowPlan> input_plans,
     const VulkanResidentBindings *resident_bindings, VulkanWindowBuffers &out);
 [[nodiscard]] bool UpdateVulkanWindowDescriptorSet(
     VulkanAdapter &adapter, VulkanCachedPipeline &pipeline,
     const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow &window,
-    const rund::kernel::BindingSet &bindings, const ScopedBuffer &param_buffer,
+    const rund::kernel::BindingSet &bindings,
+    std::span<const InputWindowPlan> input_plans,
+    const ScopedBuffer &param_buffer,
     const VulkanResidentBindings *resident_bindings,
     const VulkanWindowBuffers &buffers, VkDescriptorSet &descriptor_set);
 [[nodiscard]] bool
@@ -64,6 +69,7 @@ ExecuteWindow(VulkanAdapter &adapter, VulkanCachedPipeline &pipeline,
               const rund::kernel::ComputePlan &plan,
               const rund::kernel::ComputeDispatchWindow &window,
               const rund::kernel::BindingSet &bindings,
+              std::span<const InputWindowPlan> input_plans,
               const ScopedBuffer &param_buffer,
               const VulkanResidentBindings *resident_bindings);
 #endif

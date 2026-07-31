@@ -55,6 +55,7 @@ KindFor(const ComputeApi api) noexcept {
          left.binding_names == right.binding_names &&
          left.read_routes == right.read_routes &&
          left.direct_read_mask == right.direct_read_mask &&
+         left.uniform_read_mask == right.uniform_read_mask &&
          left.read_count == right.read_count &&
          left.write_count == right.write_count &&
          left.uses_index == right.uses_index && left.ok == right.ok &&

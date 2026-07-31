@@ -8,15 +8,17 @@ struct ReadShape final {
   u64 count{};
 };
 
-[[nodiscard]] ReadShape
-ReadBindingShape(const ParsedIR &parsed, const u32 binding,
-                 const u64 scalar_bytes,
-                 const u64 tile_count) noexcept {
+[[nodiscard]] ReadShape ReadBindingShape(const ParsedIR &parsed,
+                                         const u32 binding,
+                                         const u64 scalar_bytes,
+                                         const u64 tile_count) noexcept {
   ReadShape shape{.bytes = scalar_bytes};
   for (const ParsedNode &node : parsed.nodes) {
     const auto op = static_cast<IrOp>(node.op);
     if (op == IrOp::Read && node.aux == binding) {
       shape.count = tile_count;
+    } else if (op == IrOp::ReadUniform && node.aux == binding) {
+      shape.count = std::max<u64>(shape.count, 1u);
     } else if (op == IrOp::ReadAt && node.lhs == binding) {
       shape.bytes = sizeof(u32);
       shape.count = tile_count;
@@ -48,8 +50,8 @@ ValidateReadBuffers(const ParsedIR &parsed, const BindingPlan &plan,
     }
     const u64 slot = plan.slots[index];
     const auto &span = bindings.input_buffers[slot];
-    const ReadShape shape = ReadBindingShape(
-        parsed, static_cast<u32>(index), scalar_bytes, bindings.tile_count);
+    const ReadShape shape = ReadBindingShape(parsed, static_cast<u32>(index),
+                                             scalar_bytes, bindings.tile_count);
     if (shape.count == 0u || span.data == nullptr ||
         span.element_bytes != shape.bytes || span.stride_bytes < shape.bytes ||
         !FitsSize(span.stride_bytes) || span.count < shape.count) {

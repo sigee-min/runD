@@ -67,17 +67,26 @@ vector_bytes(const std::vector<T> &values) noexcept {
 
 [[nodiscard]] std::uint64_t
 VulkanRecurrenceHostBytes(const VulkanPipeline &pipeline) noexcept {
-  const auto *const map =
-      static_cast<const VulkanMapEncodeResources *>(pipeline.recurrence.get());
-  if (map == nullptr) {
-    return 0u;
-  }
-  std::uint64_t bytes = sizeof(VulkanMapEncodeResources);
-  for (const std::uint64_t allocation :
-       {vector_bytes(map->windows), vector_bytes(map->resident.inputs),
-        vector_bytes(map->resident.outputs),
-        vector_bytes(map->descriptor_sets)}) {
-    bytes = ::rund::detail::counter::SaturatingAdd(bytes, allocation);
+  std::uint64_t bytes = vector_bytes(pipeline.transducers);
+  const auto account = [&](const std::shared_ptr<void> &resource) {
+    const auto *const map =
+        static_cast<const VulkanMapEncodeResources *>(resource.get());
+    if (map == nullptr) {
+      return;
+    }
+    bytes = ::rund::detail::counter::SaturatingAdd(
+        bytes, sizeof(VulkanMapEncodeResources));
+    for (const std::uint64_t allocation :
+         {vector_bytes(map->input_plans), vector_bytes(map->checks),
+          vector_bytes(map->windows), vector_bytes(map->resident.inputs),
+          vector_bytes(map->resident.outputs),
+          vector_bytes(map->descriptor_sets)}) {
+      bytes = ::rund::detail::counter::SaturatingAdd(bytes, allocation);
+    }
+  };
+  account(pipeline.recurrence);
+  for (const std::shared_ptr<void> &resource : pipeline.transducers) {
+    account(resource);
   }
   return bytes;
 }

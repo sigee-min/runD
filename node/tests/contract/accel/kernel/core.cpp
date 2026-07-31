@@ -17,6 +17,7 @@
 #include "src/accel/kernel/schedule.hpp"
 #include "src/accel/kernel/storage.hpp"
 #include "src/accel/primitive/shape.hpp"
+#include "src/accel/sequence/input/window.hpp"
 
 #include <array>
 #include <cstddef>
@@ -190,6 +191,66 @@ bool ThrowingValue::fail = false;
          !ResidentOverlap(first, separate);
 }
 
+[[nodiscard]] bool InputWindowPlansRejectMixedAddressing() {
+  using rund::kernel::ComputeDispatchWindow;
+  using rund::kernel::ExecutionMetadata;
+  using rund::kernel::ReadRoute;
+  using rund::node::accel::detail::FreezeInputWindowPlans;
+  using rund::node::accel::detail::InputWindow;
+  using rund::node::accel::detail::InputWindowPlan;
+
+  ExecutionMetadata uniform{};
+  uniform.uniform_read_mask = 0x1u;
+  uniform.read_count = 1u;
+  uniform.ok = true;
+  uniform.reason = "ok";
+  std::array<InputWindowPlan, 1u> uniform_plan{};
+  constexpr ComputeDispatchWindow window{.begin_sequence = 4u,
+                                         .tile_count = 4u};
+  const auto same_window = [](const ComputeDispatchWindow left,
+                              const ComputeDispatchWindow right) {
+    return left.begin_sequence == right.begin_sequence &&
+           left.tile_count == right.tile_count;
+  };
+  if (!FreezeInputWindowPlans(uniform, 8u, uniform_plan) ||
+      !uniform_plan[0u].base_anchored() || uniform_plan[0u].windowed() ||
+      uniform_plan[0u].required_count != 1u ||
+      !same_window(
+          InputWindow(uniform_plan[0u], window),
+          ComputeDispatchWindow{.begin_sequence = 0u, .tile_count = 1u})) {
+    return false;
+  }
+
+  ExecutionMetadata indexed{};
+  indexed.read_routes.push_back(
+      ReadRoute{.source = 0u, .index = 1u, .count = 7u});
+  indexed.read_count = 2u;
+  indexed.ok = true;
+  indexed.reason = "ok";
+  std::array<InputWindowPlan, 2u> indexed_plans{};
+  if (!FreezeInputWindowPlans(indexed, 8u, indexed_plans) ||
+      !indexed_plans[0u].base_anchored() ||
+      indexed_plans[0u].required_count != 7u ||
+      indexed_plans[1u].base_anchored() || !indexed_plans[1u].windowed() ||
+      indexed_plans[1u].required_count != 8u ||
+      !same_window(
+          InputWindow(indexed_plans[0u], window),
+          ComputeDispatchWindow{.begin_sequence = 0u, .tile_count = 7u}) ||
+      !same_window(InputWindow(indexed_plans[1u], window), window)) {
+    return false;
+  }
+
+  ExecutionMetadata direct_uniform = uniform;
+  direct_uniform.direct_read_mask = 0x1u;
+  if (FreezeInputWindowPlans(direct_uniform, 8u, uniform_plan)) {
+    return false;
+  }
+
+  ExecutionMetadata direct_source = indexed;
+  direct_source.direct_read_mask = 0x1u;
+  return !FreezeInputWindowPlans(direct_source, 8u, indexed_plans);
+}
+
 } // namespace
 
 int RunAccelKernelCoreContract() {
@@ -198,6 +259,7 @@ int RunAccelKernelCoreContract() {
   TEST_ASSERT(SourcePartitionHasOneAuthority());
   TEST_ASSERT(FailureNodeIsFirst());
   TEST_ASSERT(RangesUseOffsets());
+  TEST_ASSERT(InputWindowPlansRejectMixedAddressing());
   TEST_ASSERT(node_accel_contract::ResetModelContract());
   TEST_ASSERT(node_accel_contract::AuthorityContract());
   TEST_ASSERT(node_accel_contract::BackendParameterModelsMatchSources());

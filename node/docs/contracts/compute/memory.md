@@ -541,9 +541,9 @@ control contents and counters, but it cannot allocate, resize, rebind, or
 re-place any owner.
 
 Here, rebind means a post-prepare mutation of retained Job, Buffer, typed View,
-arena descriptor, or prepared-pipeline owner identity. Re-emitting an already
-frozen descriptor while constructing a fresh single-use Metal command buffer
-does not change that identity and is not a rebind. The public
+arena descriptor, or prepared-pipeline owner identity. Executing one frozen
+Metal ICB range from a fresh single-use outer command buffer does not change
+that identity and is not a rebind. The public
 `rebinding_count` is therefore zero by construction, not sufficient evidence
 by itself. The nested-window contract fixture captures the unique normal and
 transactional alternate Jobs across its nested and transactional binding
@@ -552,13 +552,14 @@ arena bindings, and the available primary/alternate opaque prepared-pipeline
 owners; every identity must compare equal after successive executions, and
 the nested identities must also survive overflow.
 
-That definition must not erase Metal encoder work from the execution model.
-The current Metal warm path walks the immutable direct-command and ICB-range
-tables while constructing the single-use outer command buffer. It allocates
-and rebinds nothing, but the walk can scale with prepared schedule size and is
-the outstanding literal “no host loop” gap. It is excluded from
-`rebinding_count` only because that counter measures identity mutation, not
-because the CPU work is absent.
+That definition must not erase Metal's host boundary from the execution model.
+The Metal warm path creates the required outer command buffer and encoder,
+passes the frozen unique-resource array through one bulk residency call,
+executes one full ICB range, commits, and observes completion. It visits no
+command, range, binding, indirect-grid, or recurrence-state table and restores
+no bytes. `rebinding_count` remains an identity-mutation counter; zero schedule
+traversal is proved by the single-range executor structure, while the bulk
+residency call and submission CPU work remain explicit.
 
 The planner admits a nonzero arena range only after a dense `Full` write or a
 proved `Domain` write. Domain coverage uses canonical count identity and

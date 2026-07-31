@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../local.hpp"
+#include "../../pipeline/guard.hpp"
+#include "../../../kernel/backend/run.hpp"
 
 #include <array>
 #include <cstddef>
@@ -13,14 +15,13 @@
 
 namespace rund::node::accel::detail {
 
-constexpr NSUInteger kMetalArgumentCapacity = 32u;
+constexpr NSUInteger kMetalArgumentCapacity =
+    kMetalPipelineArgumentCapacity;
 
 enum class MetalGrid : std::uint8_t {
   None,
   Groups,
   Threads,
-  IndirectGroups,
-  DirectThreads,
 };
 
 struct MetalBinding final {
@@ -53,10 +54,6 @@ struct MetalThreadgroupBinding final {
 
 struct MetalCommand final {
   id<MTLComputePipelineState> pipeline = nil;
-  id<MTLBuffer> indirect_buffer = nil;
-  NSUInteger indirect_offset = 0u;
-  NSUInteger gate_offset = 0u;
-  std::size_t stream_index = 0u;
   std::size_t binding_begin = 0u;
   std::size_t binding_count = 0u;
   std::size_t threadgroup_begin = 0u;
@@ -83,6 +80,8 @@ struct MetalFixedCommandLayoutProof final {
 
 struct MetalCapture final {
   id<MTLComputePipelineState> pipeline = nil;
+  id<MTLBuffer> guard_zero = nil;
+  id<MTLBuffer> guard_states = nil;
   std::array<MetalBinding, kMetalArgumentCapacity> bindings{};
   std::array<NSUInteger, kMetalArgumentCapacity> threadgroup{};
   std::vector<std::byte> parameters;
@@ -95,15 +94,16 @@ struct MetalCapture final {
   std::uint32_t binding_mask = 0u;
   std::uint32_t threadgroup_mask = 0u;
   std::uint32_t owner{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t guard_state_count{};
   bool capacity_failed = false;
   bool failed = false;
 };
 
 static_assert(sizeof(MetalBinding) == 32u);
-static_assert(sizeof(MetalFixedCommandLayoutProof) == 1344u);
+static_assert(sizeof(MetalFixedCommandLayoutProof) == 1304u);
 static_assert(sizeof(MetalCommandBinding) == 32u);
 static_assert(sizeof(MetalThreadgroupBinding) == 16u);
-static_assert(sizeof(MetalCommand) == 128u);
+static_assert(sizeof(MetalCommand) == 96u);
 
 struct MetalWork final {
   std::uint64_t workgroup_count{};

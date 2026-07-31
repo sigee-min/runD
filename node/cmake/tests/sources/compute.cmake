@@ -95,6 +95,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/oracle.cpp|compute.pipeline,compute.window"
   "tests/contract/compute/pipeline/identity.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/loss.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/profile.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/repeat.cpp|compute.pipeline"
@@ -110,6 +111,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/parity.cpp|compute.window"
   "tests/contract/compute/window/plan.cpp|compute.window"
   "tests/contract/compute/window/terminal.cpp|compute.window"
+  "tests/contract/compute/window/workset.cpp|compute.window"
   "tests/contract/compute/memory/accel.cpp|compute.memory"
   "tests/contract/compute/memory/arena.cpp|compute.memory"
   "tests/contract/compute/memory/graph.cpp|compute.memory"
@@ -206,6 +208,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/oracle.cpp
   tests/contract/compute/pipeline/identity.cpp
   tests/contract/compute/pipeline/loss.cpp
+  tests/contract/compute/pipeline/metal.cpp
   tests/contract/compute/pipeline/memory.cpp
   tests/contract/compute/pipeline/profile.cpp
   tests/contract/compute/pipeline/repeat.cpp
@@ -222,6 +225,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/parity.cpp
   tests/contract/compute/window/plan.cpp
   tests/contract/compute/window/terminal.cpp
+  tests/contract/compute/window/workset.cpp
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
   tests/contract/compute/memory/arena.cpp

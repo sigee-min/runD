@@ -14,7 +14,8 @@ namespace rund::node::accel::detail {
     const rund::kernel::ComputeDispatchWindow *windows,
     rund::kernel::u64 window_count, const rund::kernel::BindingSet &bindings,
     const MetalRuntimeBuffer &param_buffer,
-    const MetalResidentBindings &resident) {
+    const MetalResidentBindings &resident,
+    const std::span<const InputWindowPlan> input_plans) {
   id<MTLComputePipelineState> pipeline =
       (__bridge id<MTLComputePipelineState>)pipeline_handle.get();
   if (pipeline == nil || param_buffer.buffer == nullptr ||
@@ -35,7 +36,8 @@ namespace rund::node::accel::detail {
   rund::AccelCheck encoded{true, "ok"};
   for (rund::kernel::u64 index = 0u; index < window_count; ++index) {
     if (!EncodeResidentWindow(adapter, command.encoder, pipeline, plan,
-                              windows[index], bindings, resident)) {
+                              windows[index], bindings, resident,
+                              input_plans)) {
       encoded = rund::AccelCheck{false, "compute_binding_mismatch"};
       break;
     }

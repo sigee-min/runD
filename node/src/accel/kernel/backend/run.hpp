@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -130,7 +131,11 @@ struct ResidentState final {
   std::uint32_t stopped{};
 };
 
-static_assert(sizeof(ResidentState) == 8u);
+static_assert(std::is_standard_layout_v<ResidentState>);
+static_assert(sizeof(ResidentState) == 2u * sizeof(std::uint32_t));
+static_assert(alignof(ResidentState) == alignof(std::uint32_t));
+static_assert(offsetof(ResidentState, current) == 0u);
+static_assert(offsetof(ResidentState, stopped) == 4u);
 
 // A compact nested Pipeline retains one route template for every outer seed,
 // inner action, and fold-bank transition. Cold native capture expands those
@@ -178,6 +183,10 @@ struct BackendWindow final {
   std::uint32_t outer_bound{1u};
   std::uint32_t inner_iteration{};
   std::uint32_t inner_bound{1u};
+  // Number of authored Action transitions represented by this physical
+  // occurrence. Scalar Action commands advance one; a proved tile
+  // transducer advances the complete inner bound in one device transition.
+  std::uint32_t inner_advance{};
   // Fold route 0 consumes the authored seed accumulator, route 1 the first
   // carried bank, and route 2 the second carried bank.
   std::uint32_t route{};
@@ -231,6 +240,9 @@ struct BackendBatchEntry final {
   const std::shared_ptr<void> *prepared = nullptr;
   rund::RuntimeStats *stats = nullptr;
   BackendRecurrence recurrence{};
+  // Index into the common compiler's proved TileTransducer table. Backends
+  // consume this classification; they do not rediscover it from native state.
+  std::uint32_t transducer{std::numeric_limits<std::uint32_t>::max()};
   // Status/resource description is owned once per compact template. Native
   // capture may reference that template many times; occurrence_index is the
   // lexicographic command-order failure key.

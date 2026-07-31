@@ -19,6 +19,7 @@ struct MetalPipelineBuild final {
   std::span<const BackendBatchEntry> templates;
   std::span<const BackendBatchEntry> entries;
   std::span<const std::uint8_t> barriers;
+  std::span<const TileTransducer> transducers;
   std::span<const BackendPublish> publications;
   PreparedPipelineStatusLayout &status;
   bool profile_steps{};
@@ -51,7 +52,6 @@ struct MetalPipelineBuild final {
   std::shared_ptr<void> telemetry_owner;
   std::shared_ptr<void> publish_owner;
   std::shared_ptr<void> advance_owner;
-  std::shared_ptr<void> gate_owner;
   id<MTLComputePipelineState> reset = nil;
   id<MTLComputePipelineState> import = nil;
   id<MTLComputePipelineState> reduce = nil;
@@ -59,19 +59,17 @@ struct MetalPipelineBuild final {
   id<MTLComputePipelineState> telemetry = nil;
   id<MTLComputePipelineState> publish = nil;
   id<MTLComputePipelineState> advance = nil;
-  id<MTLComputePipelineState> gate = nil;
   bool needs_import{};
   bool needs_reset{};
   MetalPipelineStatusParams status_params{};
 
   MetalCapture captured;
-  std::vector<std::size_t> window_params;
   RUNDMetalPipelineCapture *encoder = nil;
   std::size_t reset_command_count{};
   std::uint32_t import_count{};
   std::uint32_t fold_count{};
   std::uint32_t advance_count{};
-  std::uint32_t seal_count{};
+  std::uint32_t canonicalize_count{};
   bool finished{};
 
   [[nodiscard]] rund::AccelCheck Admit();

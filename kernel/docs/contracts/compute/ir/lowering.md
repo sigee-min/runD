@@ -267,15 +267,37 @@ same address owner with the logical lane as their index:
 binding_base(binding) + logical_index * stride(binding)
 ```
 
+`ReadUniform` is the canonical scalar-broadcast read. Its `aux` field names one
+ordinary read binding, `lhs == rhs == 0`, and every active logical lane loads
+the same address:
+
+```text
+binding_base(binding)
+```
+
+This is an explicit IR identity, not a zero-stride descriptor convention.
+For a nonempty dispatch, `RequiredInputCount` therefore requires exactly one
+element for a binding used only by `ReadUniform`. If the same binding is also a
+direct read, an indexed-read source, or an indexed-read index, the required
+count is the maximum required by all uses. A zero-tile dispatch requires no
+input element. This count law does not authorize one native descriptor base to
+serve incompatible address classes: Node requires base-anchored uniform/source
+uses and window-local direct/index uses to occupy distinct bindings, and
+rejects an unsplit mixture during backend preparation. CPU, Metal, and Vulkan
+lower the opcode to one base-only load;
+no backend may add the logical lane or binding stride. This preserves the
+authored scalar's exact bits while eliminating a materialized broadcast Map and
+its Gather route.
+
 Canonical Metal and Vulkan source declares one base and one stride constant
 per read/write binding. Runtime view specialization changes only those
 declarations; it never searches or rewrites individual address-expression
-shapes. Direct reads, `ReadAt` source/index reads, ordinary writes, and wide
-writes therefore cannot diverge when a native descriptor requires an aligned
-base plus a byte bias. `ReadAt`, its source count, and both binding ordinals
-are serialized and therefore participate in operation hash, graph fingerprint,
-program cache,
-and artifact identity.
+shapes. Direct reads, base-only `ReadUniform` reads, `ReadAt` source/index
+reads, ordinary writes, and wide writes therefore cannot diverge when a native
+descriptor requires an aligned base plus a byte bias. `ReadAt`,
+`ReadUniform`, their operands, and the `ReadAt` source count are serialized and
+therefore participate in operation hash, graph fingerprint, program cache, and
+artifact identity.
 
 Generated integer-division helpers follow reachable canonical nodes, not the
 graph-header domain. Metal and Vulkan inspect `DivSigned` and
@@ -991,6 +1013,9 @@ sole generic admission owner exactly once; Node passes those retained
 admissions into the builder, so fusion performs no second source parse.
 Intermediate binding names receive stable `f0_`, `f1_`, ... prefixes, and each
 boundary Read is replaced by the preceding boundary's single Write value.
+Only an ordinary direct `Read` can be that boundary carrier. `ReadUniform`
+remains a base-only external input and is remapped into the fused binding table
+without being substituted or reinterpreted as an elementwise intermediate.
 
 Only the final assembled `ParsedIR` is serialized and hashed. The builder admits
 that generated fact without parsing the just-produced bytes and derives
@@ -1123,6 +1148,13 @@ values and binding
 names for this order so node can validate graph refs without parsing IR
 internals. Raw canonical binding kind numbers and lowering parse details remain
 kernel implementation authority.
+
+Metadata records direct and uniform use in separate 64-bit masks. The direct
+mask proves `tile_count` elements are addressable; the uniform mask proves one
+element is addressable for a nonempty dispatch. Indexed routes are then folded
+into that lower bound by maximum, so one deterministic `RequiredInputCount`
+owner covers mixed-use bindings without manufacturing an expanded scalar
+buffer.
 
 Read and parameter bindings always use the IR scalar width. A write binding
 normally uses that same width. The only mixed-width write admitted by policy

@@ -56,6 +56,16 @@ struct MetalPipelineStatusParams final {
   std::uint32_t generation_stride{};
   std::uint32_t source_count{};
   std::uint32_t phase{};
+  // A nested status fold closes its ResidentState in the same dispatch that
+  // selects the first failure. Non-nested folds retain the invalid sentinel.
+  std::uint32_t window_state{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t window_stop{};
+  // A failing Fold has already completed its Action body. The reducer records
+  // that proved work before closing the resident route; Seed/Action use zero.
+  std::uint32_t window_inner_advance{};
+  // The prepared open dispatch resets this exact ResidentState prefix before
+  // any recurrence-owned command can observe it.
+  std::uint32_t state_count{};
 };
 
 struct MetalPipelineStatusBindingRecord final {
@@ -84,7 +94,7 @@ struct MetalPipelineTelemetryParams final {
 
 static_assert(sizeof(MetalPipelineStatusSourceMeta) == 64u);
 static_assert(sizeof(MetalPipelineStatusEntryMeta) == 8u);
-static_assert(sizeof(MetalPipelineStatusParams) == 32u);
+static_assert(sizeof(MetalPipelineStatusParams) == 48u);
 static_assert(sizeof(MetalPipelineResetMeta) == 8u);
 static_assert(sizeof(MetalPipelineStatusBindingRecord) == 96u);
 static_assert(sizeof(MetalPipelineTelemetryParams) == 72u);
@@ -119,12 +129,11 @@ struct MetalWindowParams final {
   std::uint32_t expected{};
   std::uint32_t state{};
   std::uint32_t has_terminal{};
-  std::uint32_t range_count{};
   std::uint32_t phase{};
   std::uint32_t declared_step{};
   std::uint32_t overflow_reason{};
   std::uint32_t inner_bound{1u};
-  std::uint32_t reserved{};
+  std::uint32_t inner_advance{};
 };
 
 static_assert(sizeof(MetalWindowParams) == 80u);
@@ -141,45 +150,24 @@ struct MetalPipelineTelemetryRecord final {
   std::shared_ptr<void> owner;
 };
 
-struct MetalRange final {
-  std::uint32_t location{};
-  std::uint32_t length{};
-};
-
-static_assert(sizeof(MetalRange) == 8u);
-
-struct MetalRangePlan final {
-  MetalRange range{};
-  std::uint32_t owner{std::numeric_limits<std::uint32_t>::max()};
-  bool barrier{};
-};
-
 struct MetalSequence final {
   MetalAdapter *adapter{};
   std::vector<id<MTLResource>> declared;
   std::vector<id<MTLComputePipelineState>> pipelines;
-  std::vector<MetalCommand> direct;
-  std::vector<MetalRangePlan> ranges;
-  std::vector<MetalRange> original_ranges;
-  std::vector<MetalCommandBinding> indirect_bindings;
-  std::vector<MetalThreadgroupBinding> indirect_threadgroups;
   std::vector<MetalPipelineTelemetryRecord> telemetry;
   std::vector<PreparedPipelineStepEvidence> step_evidence;
   std::shared_ptr<void> recurrence;
+  std::vector<std::shared_ptr<void>> transducers;
   id<MTLIndirectCommandBuffer> commands = nil;
   id<MTLBuffer> parameters = nil;
   id<MTLBuffer> raw_status = nil;
   id<MTLBuffer> control = nil;
   id<MTLBuffer> states = nil;
-  id<MTLBuffer> gate_buffer = nil;
-  id<MTLBuffer> range_buffer = nil;
-  id<MTLBuffer> range_owners = nil;
+  id<MTLBuffer> guard_zero = nil;
   id<MTLBuffer> step_control = nil;
   NSUInteger command_count = 0u;
   std::uint32_t control_command_count{};
-  std::uint32_t gate_count{};
   std::uint32_t state_count{};
-  std::uint32_t range_capacity{};
   std::uint64_t retained_bytes{};
   std::uint64_t dispatch_count{};
   std::uint64_t reset_count{};
@@ -187,7 +175,6 @@ struct MetalSequence final {
   std::uint64_t instrumentation_byte_count{};
   bool uses_status_arena{};
   bool profile_steps{};
-  id<MTLComputePipelineState> gate = nil;
   submission::State<MetalSequence> submission{};
 };
 

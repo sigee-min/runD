@@ -1,6 +1,7 @@
 #include "model.hpp"
 
 #include "../../../scatter/reduce/model.hpp"
+#include "../../../kernel/preparation.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -80,22 +81,42 @@ EncodeMetalScatterReduce(MetalAdapter &adapter,
           threadsPerThreadgroup:MTLSizeMake(kScatterReduceWidth, 1u, 1u)];
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   bind(init);
-  [encoder
-      dispatchThreadgroupsWithIndirectBuffer:indirect
-                        indirectBufferOffset:0u
-                       threadsPerThreadgroup:MTLSizeMake(kScatterReduceWidth,
-                                                         1u, 1u)];
+  const bool fixed =
+      IsPipelinePrivatePreparation(CurrentKernelPreparationMode());
+  if (fixed) {
+    const std::uint64_t groups =
+        state->plan.output_count / kScatterReduceWidth +
+        (state->plan.output_count % kScatterReduceWidth != 0u ? 1u : 0u);
+    [encoder dispatchThreadgroups:MTLSizeMake(
+                                      static_cast<NSUInteger>(groups), 1u, 1u)
+            threadsPerThreadgroup:MTLSizeMake(kScatterReduceWidth, 1u, 1u)];
+  } else {
+    [encoder dispatchThreadgroupsWithIndirectBuffer:indirect
+                              indirectBufferOffset:0u
+                             threadsPerThreadgroup:MTLSizeMake(
+                                                       kScatterReduceWidth, 1u,
+                                                       1u)];
+  }
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   bind(fold);
-  [encoder
-      dispatchThreadgroupsWithIndirectBuffer:indirect
-                        indirectBufferOffset:3u * sizeof(std::uint32_t)
-                       threadsPerThreadgroup:
-                           MTLSizeMake(rund::kernel::ScatterReduceFoldParallel(
-                                           state->plan)
-                                           ? kScatterReduceWidth
-                                           : 1u,
-                                       1u, 1u)];
+  const bool parallel = rund::kernel::ScatterReduceFoldParallel(state->plan);
+  const MTLSize fold_threads =
+      MTLSizeMake(parallel ? kScatterReduceWidth : 1u, 1u, 1u);
+  if (fixed) {
+    const std::uint64_t groups =
+        parallel ? state->plan.element_count / kScatterReduceWidth +
+                       (state->plan.element_count % kScatterReduceWidth != 0u
+                            ? 1u
+                            : 0u)
+                 : 1u;
+    [encoder dispatchThreadgroups:MTLSizeMake(
+                                      static_cast<NSUInteger>(groups), 1u, 1u)
+            threadsPerThreadgroup:fold_threads];
+  } else {
+    [encoder dispatchThreadgroupsWithIndirectBuffer:indirect
+                              indirectBufferOffset:3u * sizeof(std::uint32_t)
+                             threadsPerThreadgroup:fold_threads];
+  }
   return {true, "ok"};
 #else
   (void)adapter;

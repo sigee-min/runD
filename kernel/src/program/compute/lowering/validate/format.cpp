@@ -77,6 +77,7 @@ ValidateFixedNodeFormat(const ParsedIR &parsed, const ParsedNode &node,
   switch (op) {
   case IrOp::Param:
   case IrOp::Read:
+  case IrOp::ReadUniform:
   case IrOp::ReadAt:
   case IrOp::Index:
     return ComputeFixedFormatValid(scalar, node.fixed_format)

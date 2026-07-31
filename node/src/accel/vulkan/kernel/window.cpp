@@ -6,6 +6,7 @@
 #include "lease.hpp"
 
 #include "../../kernel/footprint.hpp"
+#include "../../kernel/recurrence.hpp"
 #include "../buffer/resident/find.hpp"
 #include "../collective/pipeline.hpp"
 #include "../command.hpp"
@@ -68,6 +69,7 @@ layout(push_constant) uniform WindowParams {
   uint declared_step;
   uint overflow_reason;
   uint inner_bound;
+  uint inner_advance;
 } p;
 shared uint enabled;
 shared uint fresh;
@@ -93,8 +95,11 @@ void main() {
     if (phase == 2u) {
       enabled = current.y == 0u && !failed ? 1u : 0u;
       fresh = current.y == 0u && failed ? 1u : 0u;
-      if (enabled != 0u) { add64(28u, 1ul); }
+      if (enabled != 0u) { add64(28u, uint64_t(p.inner_advance)); }
     } else if (phase == 3u) {
+      if (current.y == 0u && p.inner_advance != 0u) {
+        add64(28u, uint64_t(p.inner_advance));
+      }
       enabled = current.y == 0u && !failed ? 1u : 0u;
       fresh = current.y == 0u && failed ? 1u : 0u;
       if (enabled != 0u) {
@@ -463,9 +468,16 @@ rund::AccelCheck PrepareVulkanWindow(
                         window->route == 0u) ||
                        (window->phase == BackendWindowPhase::NestedAction &&
                         window->inner_iteration < window->inner_bound &&
-                        window->route == 0u) ||
+                        window->route == 0u &&
+                        window->inner_advance ==
+                            (entries[entry_index].transducer ==
+                                     NoTileTransducer
+                                 ? 1u
+                                 : 0u)) ||
                        (window->phase == BackendWindowPhase::NestedFold &&
-                        window->route < 3u)));
+                        window->route < 3u &&
+                        (window->inner_advance == 0u ||
+                         window->inner_advance == window->inner_bound))));
       const std::uint32_t template_index = entries[entry_index].template_index;
       VulkanResidentBufferResult count = ResolveVulkanResidentBuffer(
           resident, window->count.source, window->count.handle,
@@ -552,6 +564,7 @@ rund::AccelCheck PrepareVulkanWindow(
                   .overflow_reason = static_cast<std::uint32_t>(
                       rund::compute::Reason::BoundedCountInvalid),
                   .inner_bound = window->inner_bound,
+                  .inner_advance = window->inner_advance,
               },
           .entry = static_cast<std::uint32_t>(entry_index),
       });
@@ -661,6 +674,10 @@ bool EncodeVulkanWindow(const VkCommandBuffer command,
     if (route->descriptor == VK_NULL_HANDLE ||
         (preflight && phase != BackendWindowPhase::NestedSeed)) {
       return false;
+    }
+    if (!preflight && phase == BackendWindowPhase::NestedAction &&
+        route->params.inner_advance == 0u) {
+      continue;
     }
     VulkanWindowParams params = route->params;
     if (preflight) {

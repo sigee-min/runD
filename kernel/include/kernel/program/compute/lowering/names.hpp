@@ -115,6 +115,8 @@ ScalarName(const ComputeScalar scalar) noexcept {
     return "read";
   case IrOp::ReadAt:
     return "read_at";
+  case IrOp::ReadUniform:
+    return "read_uniform";
   case IrOp::Write:
     return "write";
   case IrOp::Quantize:

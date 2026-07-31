@@ -218,6 +218,8 @@ cpu_program_memory(const CpuGraphProgram *const program) noexcept {
       memory.host =
           add_cpu_memory_bytes(memory.host, vector_memory(map->input_bytes));
       memory.host =
+          add_cpu_memory_bytes(memory.host, vector_memory(map->input_counts));
+      memory.host =
           add_cpu_memory_bytes(memory.host, vector_memory(map->read_routes));
       add_cpu_memory(memory, cpu_executor_memory(map->tile_plan));
     }

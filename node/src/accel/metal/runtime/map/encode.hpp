@@ -138,7 +138,7 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
   std::size_t window_index = 0u;
   for (const rund::kernel::ComputeDispatchWindow &window : map->windows) {
     if (!EncodeResidentWindow(adapter, encoder, pipeline, map->plan, window,
-                              map->bindings, map->resident, map->read_routes,
+                              map->bindings, map->resident, map->input_plans,
                               indirect_args,
                               static_cast<NSUInteger>(window_index * 4u *
                                                       sizeof(std::uint32_t)))) {

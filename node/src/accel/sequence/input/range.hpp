@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../backend/number.hpp"
+#include "window.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -34,9 +35,12 @@ namespace rund::node::accel::detail {
 [[nodiscard]] inline bool
 StagedInputByteCount(const rund::kernel::BindingSet &bindings,
                      const rund::kernel::ComputeDispatchWindow &window,
+                     const std::span<const InputWindowPlan> input_plans,
                      const rund::kernel::u64 alignment,
                      rund::kernel::u64 &out) noexcept {
-  if (bindings.input_buffer_count != 0u && bindings.input_buffers == nullptr) {
+  if ((bindings.input_buffer_count != 0u &&
+       bindings.input_buffers == nullptr) ||
+      input_plans.size() != bindings.input_buffer_count) {
     return false;
   }
   rund::kernel::u64 cursor = 0u;
@@ -45,7 +49,9 @@ StagedInputByteCount(const rund::kernel::BindingSet &bindings,
     rund::kernel::u64 input_offset = 0u;
     rund::kernel::u64 input_range = 0u;
     rund::kernel::u64 next_cursor = 0u;
-    if (!StagedInputRange(bindings.input_buffers[index], window, cursor,
+    const rund::kernel::ComputeDispatchWindow input_window =
+        InputWindow(input_plans[static_cast<std::size_t>(index)], window);
+    if (!StagedInputRange(bindings.input_buffers[index], input_window, cursor,
                           alignment, input_offset, input_range, next_cursor)) {
       return false;
     }

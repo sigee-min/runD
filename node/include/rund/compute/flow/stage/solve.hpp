@@ -150,24 +150,19 @@ public:
     if (state_ != scalar.state_) {
       detail::flow_pick(state_, 0u);
     }
-    const std::size_t count = detail::flow_value_count(state_, value_);
-    const std::uint32_t zeros = detail::flow_zero(state_, count);
-    const std::array gather_inputs{scalar.value_, zeros};
-    const std::uint32_t broadcast =
-        detail::flow_binary_values(state_, detail::Primitive::Gather,
-                                   gather_inputs, detail::type<T>(), count, {});
     auto expressions = detail::make_expr();
     Expr<T> first{
         detail::flow_expression_input<T>(state_, expressions, value_, 0u)};
     Expr<T> second{
-        detail::flow_expression_input<T>(state_, expressions, broadcast, 1u)};
+        detail::flow_expression_input<T>(state_, expressions, scalar.value_,
+                                         1u)};
     auto expression = detail::element(function, first, second);
     static_assert(detail::ComputeExpr<decltype(expression)>,
                   "compute scalar combine must return a compute expression");
     using U = detail::ExprValueT<decltype(expression)>;
     static_assert(detail::map_result<T, U>,
                   "compute map may change width only through mask");
-    const std::array inputs{value_, broadcast};
+    const std::array inputs{value_, scalar.value_};
     return StageRef<U, Card>{state_,
                              detail::flow_map_value_controlled(
                                  state_, inputs, name, expression.ref_,

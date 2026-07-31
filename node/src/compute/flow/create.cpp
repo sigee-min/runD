@@ -131,7 +131,8 @@ ValueIds flow_map_multi_controlled(const std::shared_ptr<FlowState> &flow,
   for (const std::uint32_t value : inputs) {
     if (value == 0u || value > flow->values.size() ||
         type_bytes(flow->values[value - 1u].type) != type_bytes(input.type) ||
-        flow->values[value - 1u].count != input.count) {
+        (flow->values[value - 1u].count != input.count &&
+         !(flow->values[value - 1u].count == 1u && input.count != 1u))) {
       reject(*flow, Reason::GraphShapeMismatch);
       return {};
     }

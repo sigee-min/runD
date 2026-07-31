@@ -75,6 +75,28 @@ template <rund::compute_dsl::detail::ScalarMode Mode>
                                       std::move(body.values), 4u};
 }
 
+[[nodiscard]] inline rund::compute_dsl::ComputeOp
+BuildFixedUniformConsumerOp() {
+  using namespace rund::compute_dsl::detail;
+  rund::kernel::i32 middle[4]{};
+  rund::kernel::i32 uniform[1]{};
+  rund::kernel::i32 output[4]{};
+  auto body = rund::compute_dsl::bind(4u)
+                  .fixed<1u, 31u>()
+                  .read<"middle">(middle)
+                  .read<"uniform">(uniform)
+                  .write<"output">(output);
+  BuildContext context{body.bindings(), ScalarMode::FixedLane32,
+                       body.fixed_format()};
+  const auto element = DynamicRead(context, 0u, body.fixed_format());
+  const auto scalar = DynamicUniformRead(context, 1u, body.fixed_format());
+  DynamicWrite(context, 2u, Binary(rund::kernel::IrOp::Add, element, scalar));
+  rund::kernel::ComputeIR ir =
+      BuildIr("fusion-fixed-uniform-consumer", body, context);
+  const rund::kernel::ComputeMap map = BuildMap(ir, body);
+  return rund::compute_dsl::ComputeOp{std::move(ir), map, body.bindings(), 4u};
+}
+
 template <rund::kernel::IrWriteMode WriteMode>
 [[nodiscard]] rund::compute_dsl::ComputeOp BuildCarrierConsumerOp() {
   using namespace rund::compute_dsl::detail;

@@ -64,6 +64,7 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
                                  rund::compute::graph::Fingerprint &,
                                  std::uint64_t &);
 [[nodiscard]] int CheckMemory(rund::compute::Device &);
+[[nodiscard]] int CheckMetalGuardTransform();
 [[nodiscard]] int CheckViews(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckViewArena(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckHazards(rund::compute::Device &);

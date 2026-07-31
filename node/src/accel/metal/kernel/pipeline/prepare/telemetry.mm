@@ -146,7 +146,6 @@ rund::AccelCheck MetalPipelineBuild::EncodeTelemetry(
               atIndex:8u];
     [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
         threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
-    captured.commands.back().kind = MetalGrid::DirectThreads;
     captured.commands.back().control = true;
     [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   }

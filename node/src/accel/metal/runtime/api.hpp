@@ -31,23 +31,24 @@ void DestroyMetalMapEncodeResources(void *raw);
     const rund::kernel::ComputeDispatchWindow &window,
     const rund::kernel::BindingSet &bindings,
     const MetalResidentBindings &resident,
-    std::span<const rund::kernel::ReadRoute> read_routes = {},
-    id<MTLBuffer> indirect_args = nil,
-    NSUInteger indirect_offset = 0u);
+    std::span<const InputWindowPlan> input_plans,
+    id<MTLBuffer> indirect_args = nil, NSUInteger indirect_offset = 0u);
 [[nodiscard]] bool ExecuteWindows(
     MetalAdapter &adapter, const std::shared_ptr<void> &pipeline_handle,
     const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow *windows,
     rund::kernel::u64 window_count, const rund::kernel::BindingSet &bindings,
     const MetalRuntimeBuffer &param_buffer,
-    const MetalResidentBindings &resident);
+    const MetalResidentBindings &resident,
+    std::span<const InputWindowPlan> input_plans);
 [[nodiscard]] bool
 ExecuteWindow(MetalAdapter &adapter,
               const std::shared_ptr<void> &pipeline_handle,
               const rund::kernel::ComputePlan &plan,
               const rund::kernel::ComputeDispatchWindow &window,
               const rund::kernel::BindingSet &bindings,
-              const MetalRuntimeBuffer *param_buffer);
+              const MetalRuntimeBuffer *param_buffer,
+              std::span<const InputWindowPlan> input_plans);
 #endif
 
 } // namespace rund::node::accel::detail

@@ -397,13 +397,15 @@ invariant derived from either coordinate is explicit in `Q`.
 The prepared schedule is hierarchical. It retains `O(K + N)` route templates
 and fixed control, not a flattened `K * N` collection of Program graphs, Jobs,
 workspaces, bindings, or banks. Seed, Action, and Fold share the maximum
-serial workspace, dense-View, and primitive-scratch envelopes. Native command
-references and observed dispatches remain separate evidence because generic
-Action work can execute `K_active * N` Program invocations even though its
-prepared action body is stored once. The current nested lowering executes all
-`N` ordered Action invocations for each active window; the independent
-top-level Map register-recurrence specialization does not classify a
-Seed/Action/Fold subrange.
+serial workspace, dense-View, and primitive-scratch envelopes. Authored
+occurrences, physically encoded Program occurrences, and observed dispatches
+remain separate evidence. A status-free element-local Map Action with exact
+ping-pong carried views and invariant tail is proved once as a tile transducer:
+one device invocation evaluates all `N` transitions in order and retains the
+carry in registers. Its physical Program-occurrence shape is `K * 3` for Seed,
+Action, and Fold while logical inner work remains `K_active * N`. An indexed,
+controlled, telemetry-bearing, collective, aliased, or otherwise unproved
+Action keeps all `N` physical invocations and its exact failure coordinates.
 
 `C = 0` performs only resident preflight and publishes the initial `O`.
 A partial last window receives its exact active count. Seed must retain that
@@ -424,19 +426,21 @@ step plus independent outer-window and inner-iteration coordinates; Seed and
 Fold identify their phase without a synthetic inner iteration. Bounds and
 locations are never represented by `k * N + j`. CPU follows that order in one
 Pipeline run. Metal and Vulkan reuse at most two parity Action
-Job/prepared-resource owners across the frozen native command references and
-perform one native submission with no warm allocation, compilation,
-descriptor growth, rebind, count readback, or fallback.
+Job/prepared-resource owners across the cold-frozen stream and perform one
+native submission with no warm allocation, compilation, descriptor growth,
+rebind, count readback, or fallback.
 
-Metal normal command buffers are single-use. The current Metal warm path
-therefore traverses its frozen direct-command and ICB-range tables to encode
-the one outer command buffer. The walk is count-independent, performs no
-binding-identity mutation, and adds no submission, but it is still host
-descriptor traversal whose size can grow with the prepared schedule. The
-literal nested-window “no host loop” requirement remains open until that walk
-is replaced by a fully guarded static ICB or a persistent device scheduler;
-one-submit evidence alone does not close it. Vulkan's primary command buffer
-is recorded during cold preparation.
+Metal normal command buffers are single-use. Cold preparation therefore owns
+one fully guarded static ICB: Pipeline-private kernels reserve Buffer index 30,
+unowned controls bind zero, recurrence-owned payloads bind the device-private
+owner stop word, and formerly indirect primitives use checked maximum grids
+with their resident logical guards. A warm attempt creates the required outer
+command buffer, declares the frozen resource array with one bulk call, executes
+the whole ICB through one range call, and commits once. It visits no frozen
+command, range, binding, indirect-grid, or recurrence-state rows. This closes
+the schedule-sized host loop without claiming zero CPU participation in Metal
+residency, submission, completion, or fixed control observation. Vulkan's
+primary command buffer remains recorded during cold preparation.
 
 The corresponding `rebinding_count` means mutations of those retained
 Job/Buffer/View/prepared-owner identities after preparation. Cold native
@@ -453,14 +457,15 @@ allocation/reuse/publication counts, and largest/peak coordinates.
 
 For nested tile-local recurrence, that summary additionally distinguishes
 outer-window count, `Tile`, inner-iteration count, compact route-template
-count, and native command-reference capacity. Its largest, peak, and View
+count, and authored occurrence capacity. Its largest, peak, and View
 locations carry separate outer and inner coordinates. Runtime dispatch totals
 remain `Stats` evidence and are not synthesized from either prepared count.
 `barrier_count` likewise reports the exact nonzero boundaries in the compact
 schedule produced by the canonical resource hazard analysis plus shared-arena
-reuse. It is not `prepared_command_count - 1`; native expansion can grow as
+reuse. It is not `prepared_command_count - 1`; the authored count is
 `K * (N + 2)` while a pure nested route table has at most `K + N + 2`
-boundaries. `plan()` freezes that boundary vector and `prepare()` consumes it
+boundaries and a proved Action transducer needs only `K * 3` physical Program
+occurrences. `plan()` freezes that boundary vector and `prepare()` consumes it
 without reconstructing another hazard policy.
 
 ```text

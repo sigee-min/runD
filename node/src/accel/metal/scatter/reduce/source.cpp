@@ -146,9 +146,10 @@ kernel void rund_scatter_reduce_control(
   source += "kernel void rund_scatter_reduce_initialize(\n";
   source += "    device " + bits + "* output [[buffer(3)]],\n";
   source += R"MSL(    device uint* counts [[buffer(7)]],
+    device const uint* indirect [[buffer(5)]],
     constant ScatterReduceParams& params [[buffer(6)]],
     uint target [[thread_position_in_grid]]) {
-  if (ulong(target) >= params.output_count) { return; }
+  if (indirect[0] == 0u || ulong(target) >= params.output_count) { return; }
 )MSL";
   source += "  output[target] = " + identity + ";\n";
   source += R"MSL(  counts[target] = 0u;
@@ -162,10 +163,12 @@ kernel void rund_scatter_reduce_control(
 )MSL";
   source += "    device " + bits + "* output [[buffer(3)]],\n";
   source += R"MSL(    device atomic_uint* status [[buffer(4)]],
+    device const uint* indirect [[buffer(5)]],
     constant ScatterReduceParams& params [[buffer(6)]],
     device uint* counts [[buffer(7)]],
     uint gid [[thread_position_in_grid]]) {
   const ulong logical = rund_scatter_reduce_count(count_words, params);
+  if (indirect[3] == 0u) { return; }
 )MSL";
   if (parallel_fold) {
     source += R"MSL(  const ulong ordinal = ulong(gid);

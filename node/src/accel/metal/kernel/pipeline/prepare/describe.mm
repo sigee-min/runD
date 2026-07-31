@@ -1,5 +1,7 @@
 #include "../build.hpp"
 
+#include <rund/counter.hpp>
+
 #include <limits>
 #include <new>
 
@@ -129,6 +131,13 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     if (resources == nullptr) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
+    const TileTransducer *const transducer =
+        entry.transducer == NoTileTransducer
+            ? nullptr
+            : &transducers[entry.transducer];
+    const std::uint64_t physical_dispatches =
+        transducer == nullptr ? resources->dispatch_count
+                              : transducer->recurrence.window_count;
     const std::uint32_t declared_step =
         status.declared_steps[entry.template_index];
     if (declared_step >= status.declared_step_count) {
@@ -139,12 +148,12 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         pipeline->dispatch_count = recurrence.window_count;
       }
     } else {
-      if (resources->dispatch_count >
+      if (physical_dispatches >
           std::numeric_limits<std::uint64_t>::max() -
               pipeline->dispatch_count) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
-      pipeline->dispatch_count += resources->dispatch_count;
+      pipeline->dispatch_count += physical_dispatches;
       pipeline->reset_count = ::rund::detail::counter::SaturatingAdd(
           pipeline->reset_count, resources->reset_count);
       pipeline->reset_bytes = ::rund::detail::counter::SaturatingAdd(
@@ -158,11 +167,12 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       const std::uint64_t final =
           recurrence.ready()
               ? (recurrence_owner ? recurrence.window_count : 0u)
-              : entry.run->final_dispatch_count;
+              : (transducer == nullptr ? entry.run->final_dispatch_count
+                                       : physical_dispatches);
       const std::uint64_t physical =
           recurrence.ready()
               ? (recurrence_owner ? recurrence.window_count : 0u)
-              : resources->dispatch_count;
+              : physical_dispatches;
       if (original > std::numeric_limits<std::uint64_t>::max() -
                          row.original_dispatch_count ||
           final > std::numeric_limits<std::uint64_t>::max() -
@@ -174,6 +184,40 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       row.original_dispatch_count += original;
       row.final_dispatch_count += final;
       row.physical_dispatch_count += physical;
+    }
+  }
+  if (profile_steps) {
+    std::vector<std::uint64_t> occurrence_counts(transducers.size(), 0u);
+    for (const BackendBatchEntry &entry : entries) {
+      if (entry.transducer != NoTileTransducer) {
+        occurrence_counts[entry.transducer] =
+            ::rund::detail::counter::SaturatingAdd(
+                occurrence_counts[entry.transducer], 1u);
+      }
+    }
+    for (std::size_t index = 0u; index < transducers.size(); ++index) {
+      const TileTransducer &transducer = transducers[index];
+      for (std::uint32_t offset = 1u; offset < transducer.template_count;
+           ++offset) {
+        const std::size_t template_index = transducer.template_first + offset;
+        const BackendBatchEntry &entry = templates[template_index];
+        const std::uint32_t declared = status.declared_steps[template_index];
+        if (entry.run == nullptr || declared >= status.declared_step_count) {
+          return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+        }
+        const std::uint64_t original =
+            entry.run->original_dispatch_count != 0u &&
+                    occurrence_counts[index] >
+                        std::numeric_limits<std::uint64_t>::max() /
+                            entry.run->original_dispatch_count
+                ? std::numeric_limits<std::uint64_t>::max()
+                : occurrence_counts[index] *
+                      entry.run->original_dispatch_count;
+        PreparedPipelineStepEvidence &row = pipeline->step_evidence[declared];
+        row.original_dispatch_count =
+            ::rund::detail::counter::SaturatingAdd(
+                row.original_dispatch_count, original);
+      }
     }
   }
   // Private replacement ranges are packed first.  Only those words need an

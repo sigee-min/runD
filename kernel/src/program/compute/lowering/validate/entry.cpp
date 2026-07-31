@@ -55,6 +55,7 @@ namespace rund::kernel::compute_lowering_detail {
     switch (static_cast<IrOp>(node.op)) {
     case IrOp::Param:
     case IrOp::Read:
+    case IrOp::ReadUniform:
     case IrOp::ReadAt:
     case IrOp::Constant:
     case IrOp::Index:

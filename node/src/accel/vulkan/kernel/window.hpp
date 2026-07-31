@@ -30,6 +30,7 @@ struct VulkanWindowParams final {
   std::uint32_t declared_step{};
   std::uint32_t overflow_reason{};
   std::uint32_t inner_bound{1u};
+  std::uint32_t inner_advance{};
 };
 
 static_assert(sizeof(VulkanWindowParams) == 80u);

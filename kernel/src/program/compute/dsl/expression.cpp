@@ -47,6 +47,13 @@ Expr DynamicRead(BuildContext &context, const rund::kernel::u32 binding,
               context.read_node(binding, format)};
 }
 
+Expr DynamicUniformRead(
+    BuildContext &context, const rund::kernel::u32 binding,
+    const rund::kernel::ComputeFixedFormat format) noexcept {
+  return Expr{Expr::InternalToken{}, &context,
+              context.read_uniform_node(binding, format)};
+}
+
 Expr DynamicReadAt(BuildContext &context, const rund::kernel::u32 binding,
                    const rund::kernel::u32 index,
                    const rund::kernel::u32 count,

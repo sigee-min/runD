@@ -145,7 +145,8 @@ CanonicalUnsignedMaskWriteBinding(const ParsedIR &parsed,
     if (op == IrOp::ReadAt && node.lhs == binding) {
       indexed = true;
     }
-    if ((op == IrOp::Read && node.aux == binding) ||
+    if (((op == IrOp::Read || op == IrOp::ReadUniform) &&
+         node.aux == binding) ||
         (op == IrOp::ReadAt && node.aux == binding)) {
       return false;
     }
@@ -375,7 +376,8 @@ ResolveEffectiveNodeDomains(const ParsedIR &parsed,
   for (std::size_t index = 0u; index < parsed.nodes.size(); ++index) {
     const ParsedNode &node = parsed.nodes[index];
     const auto op = static_cast<IrOp>(node.op);
-    if (op == IrOp::Param || op == IrOp::Read || op == IrOp::ReadAt) {
+    if (op == IrOp::Param || op == IrOp::Read ||
+        op == IrOp::ReadUniform || op == IrOp::ReadAt) {
       resolved.values[index] = binding_domain(node.aux);
       if (resolved.values[index] == unknown ||
           resolved.values[index] == ComputeDomain::Fixed) {
@@ -499,6 +501,7 @@ ResolveEffectiveNodeDomains(const ParsedIR &parsed,
     switch (static_cast<IrOp>(node.op)) {
     case IrOp::Param:
     case IrOp::Read:
+    case IrOp::ReadUniform:
     case IrOp::ReadAt:
     case IrOp::Constant:
     case IrOp::Index:

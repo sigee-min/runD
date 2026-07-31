@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prepare.hpp"
+#include "../../../kernel/preparation.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -39,11 +40,20 @@ inline void EncodeMetalGatherDispatch(const MetalGatherCommandState& state,
                    atIndex:2u];
   [state.encoder setBuffer:state.indirect offset:0u atIndex:3u];
   [state.encoder setBytes:&params length:sizeof(params) atIndex:4u];
-  [state.encoder dispatchThreadgroupsWithIndirectBuffer:state.indirect
-                                   indirectBufferOffset:0u
-                                  threadsPerThreadgroup:MTLSizeMake(
-                                                            kGatherThreadgroupSize,
-                                                            1u, 1u)];
+  const MTLSize threads = MTLSizeMake(kGatherThreadgroupSize, 1u, 1u);
+  if (IsPipelinePrivatePreparation(CurrentKernelPreparationMode())) {
+    const std::uint64_t groups =
+        gather.plan.element_count / kGatherThreadgroupSize +
+        (gather.plan.element_count % kGatherThreadgroupSize != 0u ? 1u : 0u);
+    [state.encoder dispatchThreadgroups:MTLSizeMake(
+                                            static_cast<NSUInteger>(groups),
+                                            1u, 1u)
+                    threadsPerThreadgroup:threads];
+  } else {
+    [state.encoder dispatchThreadgroupsWithIndirectBuffer:state.indirect
+                                     indirectBufferOffset:0u
+                                    threadsPerThreadgroup:threads];
+  }
 }
 #endif
 

@@ -565,6 +565,15 @@ ordered multi-write Map. `record(a, b, ...)` only groups existing graph values;
 `combine` is the explicit sequence/scalar broadcast operation. The linear
 Complex construction path is not a second general zip facade.
 
+Sequence/scalar `combine` lowers the scalar edge as a canonical uniform Map
+read. The sequence (or bounded capacity) remains the execution domain, while
+the scalar binding retains its physical count of one and every logical lane
+loads that binding's base element. CPU and accelerator lowering implement the
+same base-only read; no capacity-sized zero-index Map, Gather, or expanded
+broadcast buffer is materialized. Uniform-read mode is part of canonical Map
+identity, so a runtime stride cannot silently change an elementwise read into a
+broadcast.
+
 For a linear two-input chain, a bound Flow uses
 `flow.combine(name, side, expression)`, while a deferred Flow uses
 `flow.combine(name, side_count, expression)`. Both append one canonical
@@ -1055,11 +1064,14 @@ the Action output prefix and `Q` is invariant. The retained nested state is
 the required outer state plus one `Q` bank and exactly two alternating `P`
 banks. Seed, Action, and Fold share the componentwise maximum Program
 workspace, dense-View, and primitive-scratch envelopes. Compact control,
-command references, and prepared metadata grow as
+authored occurrence descriptions, and prepared metadata grow as
 `O(ceil(Max / Tile) + N)`; no state, graph, Job, workspace, or bank grows as
 the outer-times-inner product or as `Max` elements. Plan and runtime evidence
-keep outer window, inner iteration, native command reference, and observed
-dispatch counts as different coordinates.
+keep outer window, inner iteration, authored occurrence, physically encoded
+Program occurrence, and observed dispatch counts as different coordinates. A
+proved status-free element-local Action is one device transducer invocation per
+outer window while retaining all `N` ordered logical transitions; other Action
+shapes keep their canonical per-iteration stream.
 
 `MemoryBudget` compares `peak_bytes` before any Pipeline-owned View, scratch,
 state, or workspace Buffer is materialized because caller Buffers already

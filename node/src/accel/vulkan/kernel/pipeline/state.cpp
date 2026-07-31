@@ -20,6 +20,7 @@ VulkanPipeline::~VulkanPipeline() {
     profile->timestamps = VK_NULL_HANDLE;
   }
   recurrence.reset();
+  transducers.clear();
   DestroyVulkanWindow(window);
   DestroyVulkanPipelinePublish(publish);
   DestroyVulkanPipelineControl(control);

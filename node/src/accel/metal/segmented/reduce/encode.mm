@@ -1,11 +1,13 @@
 #include "model.hpp"
 
+#include "../../../kernel/preparation.hpp"
 #include "../../../segmented/reduce/metal.hpp"
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #import <Metal/Metal.h>
 #endif
 
+#include <algorithm>
 #include <cstring>
 
 namespace rund::node::accel::detail {
@@ -61,19 +63,19 @@ EncodeMetalSegmentedReduce(MetalAdapter &adapter,
               offset:static_cast<NSUInteger>(state->heads.ref.offset_bytes)
              atIndex:0];
   [encoder setBuffer:Buffer(state->block_counts.buffer)
-               offset:static_cast<NSUInteger>(state->block_counts.offset)
-              atIndex:1];
+              offset:static_cast<NSUInteger>(state->block_counts.offset)
+             atIndex:1];
   [encoder setBuffer:Buffer(state->status.buffer) offset:0 atIndex:4];
   [encoder setBytes:&params length:sizeof(params) atIndex:5];
   [encoder dispatchThreadgroups:groups threadsPerThreadgroup:threads];
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   [encoder setComputePipelineState:prefix];
   [encoder setBuffer:Buffer(state->block_counts.buffer)
-               offset:static_cast<NSUInteger>(state->block_counts.offset)
-              atIndex:0];
+              offset:static_cast<NSUInteger>(state->block_counts.offset)
+             atIndex:0];
   [encoder setBuffer:Buffer(state->block_offsets.buffer)
-               offset:static_cast<NSUInteger>(state->block_offsets.offset)
-              atIndex:1];
+              offset:static_cast<NSUInteger>(state->block_offsets.offset)
+             atIndex:1];
   [encoder setBuffer:Buffer(state->segment_count.buffer) offset:0 atIndex:2];
   [encoder setBuffer:Buffer(state->dispatch_args.buffer) offset:0 atIndex:3];
   [encoder setBytes:&params length:sizeof(params) atIndex:5];
@@ -84,11 +86,11 @@ EncodeMetalSegmentedReduce(MetalAdapter &adapter,
               offset:static_cast<NSUInteger>(state->heads.ref.offset_bytes)
              atIndex:0];
   [encoder setBuffer:Buffer(state->block_offsets.buffer)
-               offset:static_cast<NSUInteger>(state->block_offsets.offset)
-              atIndex:1];
+              offset:static_cast<NSUInteger>(state->block_offsets.offset)
+             atIndex:1];
   [encoder setBuffer:Buffer(state->segment_starts.buffer)
-               offset:static_cast<NSUInteger>(state->segment_starts.offset)
-              atIndex:2];
+              offset:static_cast<NSUInteger>(state->segment_starts.offset)
+             atIndex:2];
   [encoder setBytes:&params length:sizeof(params) atIndex:5];
   [encoder dispatchThreadgroups:groups threadsPerThreadgroup:threads];
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
@@ -97,18 +99,31 @@ EncodeMetalSegmentedReduce(MetalAdapter &adapter,
               offset:static_cast<NSUInteger>(state->input.ref.offset_bytes)
              atIndex:0];
   [encoder setBuffer:Buffer(state->segment_starts.buffer)
-               offset:static_cast<NSUInteger>(state->segment_starts.offset)
-              atIndex:1];
+              offset:static_cast<NSUInteger>(state->segment_starts.offset)
+             atIndex:1];
   [encoder setBuffer:Buffer(state->segment_count.buffer) offset:0 atIndex:2];
   [encoder setBuffer:Buffer(state->output.device_buffer)
               offset:static_cast<NSUInteger>(state->output.ref.offset_bytes)
              atIndex:3];
   [encoder setBuffer:Buffer(state->status.buffer) offset:0 atIndex:4];
   [encoder setBytes:&params length:sizeof(params) atIndex:5];
-  [encoder
-      dispatchThreadgroupsWithIndirectBuffer:Buffer(state->dispatch_args.buffer)
-                        indirectBufferOffset:0u
-                       threadsPerThreadgroup:threads];
+  if (IsPipelinePrivatePreparation(CurrentKernelPreparationMode())) {
+    const std::uint64_t maximum =
+        state->plan.element_count / state->segments_per_group +
+        (state->plan.element_count % state->segments_per_group != 0u ? 1u : 0u);
+    [encoder dispatchThreadgroups:MTLSizeMake(
+                                      static_cast<NSUInteger>(
+                                          std::min<std::uint64_t>(
+                                              maximum, kSegmentedMaxGroups)),
+                                      1u, 1u)
+            threadsPerThreadgroup:threads];
+  } else {
+    [encoder
+        dispatchThreadgroupsWithIndirectBuffer:Buffer(
+                                                   state->dispatch_args.buffer)
+                          indirectBufferOffset:0u
+                         threadsPerThreadgroup:threads];
+  }
   return {true, "ok"};
 #else
   (void)adapter;

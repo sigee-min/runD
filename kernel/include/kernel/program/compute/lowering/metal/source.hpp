@@ -141,6 +141,18 @@ MetalParamNodeExpr(const ArtifactKey &key, const BindingLayout &layout) {
 }
 
 [[nodiscard]] inline std::string
+MetalReadUniformNodeExpr(const ArtifactKey &key,
+                         const BindingLayout &layout) {
+  std::string expr = MetalLoadFunction(key.scalar);
+  expr += "(";
+  expr += layout.symbol;
+  expr += ", ";
+  expr += BindingBaseSymbol(layout);
+  expr += ")";
+  return expr;
+}
+
+[[nodiscard]] inline std::string
 MetalReadAtNodeExpr(const ArtifactKey &key, const BindingLayout &source,
                     const BindingLayout &index) {
   std::string offset = MetalLoadFunction(ComputeScalar::Lane32);

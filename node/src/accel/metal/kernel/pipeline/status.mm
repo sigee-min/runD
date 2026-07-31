@@ -130,8 +130,7 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
     std::shared_ptr<void> &reduce, std::shared_ptr<void> &complete,
     std::shared_ptr<void> &telemetry, const bool need_publish,
     std::shared_ptr<void> &publish, const bool need_advance,
-    std::shared_ptr<void> &advance, const bool need_gate,
-    std::shared_ptr<void> &gate) {
+    std::shared_ptr<void> &advance) {
   const char *const reduce_key =
       profile_steps ? "pipeline.status.fold.profile" : "pipeline.status.fold";
   const char *const reduce_function =
@@ -167,9 +166,6 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
   if (need_advance) {
     advance = LookupMetalNamedPipeline(adapter, "pipeline.advance");
   }
-  if (need_gate) {
-    gate = LookupMetalNamedPipeline(adapter, "pipeline.gate");
-  }
   const bool make_reset = need_reset && reset == nullptr;
   const bool make_import = need_import && import == nullptr;
   const bool make_reduce = need_status && reduce == nullptr;
@@ -177,9 +173,8 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
   const bool make_telemetry = need_telemetry && telemetry == nullptr;
   const bool make_publish = need_publish && publish == nullptr;
   const bool make_advance = need_advance && advance == nullptr;
-  const bool make_gate = need_gate && gate == nullptr;
   if (!make_reset && !make_import && !make_reduce && !make_complete &&
-      !make_telemetry && !make_publish && !make_advance && !make_gate) {
+      !make_telemetry && !make_publish && !make_advance) {
     return true;
   }
   id<MTLDevice> const device = (__bridge id<MTLDevice>)adapter.device.get();
@@ -205,9 +200,7 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
                                publish)) ||
       (make_advance &&
        !MakeNamedMetalPipeline(device, library, "rund_pipeline_advance",
-                               advance)) ||
-      (make_gate &&
-       !MakeNamedMetalPipeline(device, library, "rund_pipeline_gate", gate))) {
+                               advance))) {
     return false;
   }
   const std::uint64_t elapsed = MonotonicNanoseconds() - begin;
@@ -227,7 +220,6 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
   store(make_telemetry, telemetry_key, telemetry);
   store(make_publish, "pipeline.publish", publish);
   store(make_advance, "pipeline.advance", advance);
-  store(make_gate, "pipeline.gate", gate);
   return true;
 }
 

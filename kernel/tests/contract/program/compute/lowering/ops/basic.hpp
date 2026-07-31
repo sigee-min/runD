@@ -4,6 +4,25 @@
 
 namespace program_compute_contract::lowering_support {
 
+[[nodiscard]] inline rund::kernel::ComputeIR BuildI32UniformReadIr() {
+  i32 uniform[1]{};
+  i32 output[4]{};
+  const auto body = rund::compute_dsl::bind(4u)
+                        .i32()
+                        .read<"uniform">(uniform)
+                        .write<"output">(output);
+  rund::compute_dsl::detail::BuildContext context{
+      body.bindings(), rund::compute_dsl::detail::ScalarMode::I32};
+  const rund::kernel::u32 uniform_binding = context.binding_index(
+      "uniform", rund::compute_dsl::detail::BindingKind::Read);
+  const rund::kernel::u32 output_binding = context.binding_index(
+      "output", rund::compute_dsl::detail::BindingKind::Write);
+  const auto value =
+      rund::compute_dsl::detail::DynamicUniformRead(context, uniform_binding);
+  rund::compute_dsl::detail::DynamicWrite(context, output_binding, value);
+  return rund::compute_dsl::detail::BuildIr("uniform-i32", body, context);
+}
+
 [[nodiscard]] inline auto BuildFixedLane32Op(const i32 dt) {
   i32 pos[4]{};
   i32 vel[4]{};

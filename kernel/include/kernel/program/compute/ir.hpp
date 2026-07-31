@@ -69,6 +69,7 @@ enum class IrOp : u8 {
   Index,
   Quantize,
   ReadAt,
+  ReadUniform,
 };
 
 // Write modes are part of the canonical IR identity. Value is the ordinary

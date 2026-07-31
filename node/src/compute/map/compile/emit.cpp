@@ -78,19 +78,23 @@ build(const std::size_t count, const std::span<const Type> outputs,
       const kernel::ComputeFixedFormat format = kernel_format(
           input_formats.get(index, expressions.front().fixed_format));
       reads.push_back(
-          route.indexed()
-              ? compute_dsl::detail::DynamicReadAt(
-                    context, static_cast<kernel::u32>(index), route.index,
-                    route.count, format)
+          route.indexed() ? compute_dsl::detail::DynamicReadAt(
+                                context, static_cast<kernel::u32>(index),
+                                route.index, route.count, format)
+          : route.uniform()
+              ? compute_dsl::detail::DynamicUniformRead(
+                    context, static_cast<kernel::u32>(index), format)
               : compute_dsl::detail::DynamicRead(
                     context, static_cast<kernel::u32>(index), format));
     } else {
-      reads.push_back(route.indexed()
-                          ? compute_dsl::detail::DynamicReadAt(
-                                context, static_cast<kernel::u32>(index),
-                                route.index, route.count)
-                          : compute_dsl::detail::DynamicRead(
-                                context, static_cast<kernel::u32>(index)));
+      reads.push_back(
+          route.indexed()   ? compute_dsl::detail::DynamicReadAt(
+                                  context, static_cast<kernel::u32>(index),
+                                  route.index, route.count)
+          : route.uniform() ? compute_dsl::detail::DynamicUniformRead(
+                                  context, static_cast<kernel::u32>(index))
+                            : compute_dsl::detail::DynamicRead(
+                                  context, static_cast<kernel::u32>(index)));
     }
   }
   const KernelExpr logical_index = compute_dsl::detail::DynamicIndex(context);

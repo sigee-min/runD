@@ -197,6 +197,7 @@ ValidateParsedNodeOperands(const ParsedIR &parsed, const ParsedNode &node,
     }
     return nullptr;
   case IrOp::Read:
+  case IrOp::ReadUniform:
     if (node.lhs != 0u || node.rhs != 0u ||
         !BindingIs(parsed, node.aux, kReadBindingKind)) {
       return "compute_ir_node_invalid";

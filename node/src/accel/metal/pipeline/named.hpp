@@ -3,6 +3,7 @@
 #include "../../clock.hpp"
 #include "../object.hpp"
 #include "cache.hpp"
+#include "guard.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -54,6 +55,11 @@ NewMetalLibrary(id<MTLDevice> device, const std::string &source_text) {
 
 [[nodiscard]] inline std::shared_ptr<void>
 AcquireMetalLibrary(MetalAdapter &adapter, std::string source_text) {
+  source_text = PipelinePrivateMetalSource(std::move(source_text));
+  if (source_text.empty()) {
+    SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
+    return {};
+  }
   std::shared_ptr<void> cached = LookupMetalSourceLibrary(adapter, source_text);
   if (cached != nullptr) {
     return cached;

@@ -1,5 +1,5 @@
-#include "model.hpp"
 #include "indexed.hpp"
+#include "model.hpp"
 
 #include "../../fixed/format.hpp"
 #include "../../type.hpp"
@@ -108,7 +108,7 @@ ValueIds build_map(const std::shared_ptr<GraphState> &graph,
       graph_detail::reject(*graph, Reason::GraphValueInvalid);
       return {};
     }
-    if (!indexed) {
+    if (!indexed && shape.count == 0u) {
       shape = graph->values[first - 1u];
     } else if (shape.count == 0u) {
       graph_detail::reject(*graph, Reason::GraphShapeMismatch);
@@ -133,7 +133,15 @@ ValueIds build_map(const std::shared_ptr<GraphState> &graph,
     const GraphValue source_shape = graph->values[value - 1u];
     const std::uint32_t index = indexed ? indices[source] : 0u;
     if (index == 0u) {
-      if (source_shape.count != shape.count) {
+      if (source_shape.count == shape.count) {
+        continue;
+      }
+      if (source_shape.count == 1u && shape.count != 1u) {
+        if (reads.empty()) {
+          reads.resize(sources.size());
+        }
+        reads[source] = MapRead{.mode = MapReadMode::Uniform};
+      } else {
         graph_detail::reject(*graph, Reason::GraphShapeMismatch);
         return {};
       }
@@ -147,9 +155,9 @@ ValueIds build_map(const std::shared_ptr<GraphState> &graph,
       graph_detail::reject(*graph, Reason::GraphShapeMismatch);
       return {};
     }
-    const auto found = std::find(inputs.begin() +
-                                     static_cast<std::ptrdiff_t>(sources.size()),
-                                 inputs.end(), index);
+    const auto found =
+        std::find(inputs.begin() + static_cast<std::ptrdiff_t>(sources.size()),
+                  inputs.end(), index);
     std::size_t binding = 0u;
     if (found == inputs.end()) {
       binding = inputs.size();
@@ -158,7 +166,8 @@ ValueIds build_map(const std::shared_ptr<GraphState> &graph,
       binding = static_cast<std::size_t>(found - inputs.begin());
     }
     reads[source] =
-        MapRead{.index = static_cast<std::uint32_t>(binding),
+        MapRead{.mode = MapReadMode::Indexed,
+                .index = static_cast<std::uint32_t>(binding),
                 .count = static_cast<std::uint32_t>(source_shape.count)};
   }
 
@@ -213,7 +222,8 @@ ValueIds build_map(const std::shared_ptr<GraphState> &graph,
   }
   if (!indexed && control.empty()) {
     if (const auto value =
-            graph_build_detail::direct_input(*graph, sources, expressions)) {
+            graph_build_detail::direct_input(*graph, sources, expressions);
+        value && graph->values[*value - 1u].count == shape.count) {
       ValueIds output;
       output.push_back(*value);
       return output;

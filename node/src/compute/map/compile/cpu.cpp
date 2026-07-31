@@ -55,6 +55,7 @@ prepare_cpu_map(const std::shared_ptr<DeviceState> &device,
           Reason::IrBindingInvalid);
     }
     cpu.read_routes = execution.read_routes;
+    cpu.input_counts.resize(inputs.size());
     std::array<std::uint64_t, kernel::kMaxComputeBindingCount> input_probes{};
     std::array<std::uint64_t, MaxOutputs> output_probes{};
     std::array<kernel::BufferSpan, kernel::kMaxComputeBindingCount>
@@ -66,17 +67,23 @@ prepare_cpu_map(const std::shared_ptr<DeviceState> &device,
         return Result<std::unique_ptr<CpuProgram>>::fail(
             Reason::IrBindingInvalid);
       }
+      const kernel::u64 required = kernel::RequiredInputCount(
+          execution, static_cast<kernel::u64>(index), count);
+      if (required == 0u) {
+        return Result<std::unique_ptr<CpuProgram>>::fail(
+            Reason::IrBindingInvalid);
+      }
+      cpu.input_counts[index] = required;
       input_spans[index] = kernel::BufferSpan{.data = &input_probes[index],
                                               .element_bytes = width,
                                               .stride_bytes = width,
-                                              .count = count};
+                                              .count = required};
     }
     for (const kernel::ReadRoute route : cpu.read_routes) {
       if (route.source >= inputs.size() || route.index >= inputs.size()) {
         return Result<std::unique_ptr<CpuProgram>>::fail(
             Reason::IrBindingInvalid);
       }
-      input_spans[route.source].count = route.count;
     }
     for (std::size_t index = 0u; index < outputs.size(); ++index) {
       const kernel::u64 width = metadata.output_element_bytes[index];

@@ -9,11 +9,15 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 namespace {
 
-[[nodiscard]] bool BindInputs(id<MTLComputeCommandEncoder> encoder,
-                              const id<MTLBuffer> input,
-                              const rund::kernel::ComputePlan &plan,
-                              const rund::kernel::ComputeDispatchWindow &window,
-                              const rund::kernel::BindingSet &bindings) {
+[[nodiscard]] bool
+BindInputs(id<MTLComputeCommandEncoder> encoder, const id<MTLBuffer> input,
+           const rund::kernel::ComputePlan &plan,
+           const rund::kernel::ComputeDispatchWindow &window,
+           const rund::kernel::BindingSet &bindings,
+           const std::span<const InputWindowPlan> input_plans) {
+  if (input_plans.size() != plan.input_buffer_count) {
+    return false;
+  }
   rund::kernel::u64 cursor = 0u;
   for (rund::kernel::u64 index = 0u; index < plan.input_buffer_count; ++index) {
     if (input == nil) {
@@ -22,8 +26,10 @@ namespace {
     rund::kernel::u64 offset = 0u;
     rund::kernel::u64 range = 0u;
     rund::kernel::u64 next = 0u;
-    if (!StagedInputRange(bindings.input_buffers[index], window, cursor, 1u,
-                          offset, range, next)) {
+    const rund::kernel::ComputeDispatchWindow input_window =
+        InputWindow(input_plans[static_cast<std::size_t>(index)], window);
+    if (!StagedInputRange(bindings.input_buffers[index], input_window, cursor,
+                          1u, offset, range, next)) {
       return false;
     }
     NSUInteger ns_offset = 0u;
@@ -43,6 +49,7 @@ namespace {
     const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow &window,
     const rund::kernel::BindingSet &bindings, const MetalRuntimeBuffer &param,
+    const std::span<const InputWindowPlan> input_plans,
     const MetalRuntimeBuffer *const input, const MetalRuntimeBuffer &output) {
   if (encoder == nil) {
     return false;
@@ -53,7 +60,7 @@ namespace {
              atIndex:0u];
   id<MTLBuffer> input_buffer =
       input == nullptr ? nil : (__bridge id<MTLBuffer>)input->buffer.get();
-  if (!BindInputs(encoder, input_buffer, plan, window, bindings)) {
+  if (!BindInputs(encoder, input_buffer, plan, window, bindings, input_plans)) {
     return false;
   }
   [encoder setBuffer:(__bridge id<MTLBuffer>)output.buffer.get()

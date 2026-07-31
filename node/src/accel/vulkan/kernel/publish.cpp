@@ -72,7 +72,7 @@ void main() {
                        control[3] == p.declared_step_count
                    ? 1u
                    : 0u)
-            : (state.y == p.stop && state.x != p.final ? 1u : 0u);
+            : (control[1] == 0u && state.x != p.final ? 1u : 0u);
   }
   barrier();
   if (allowed == 0u) { return; }
@@ -81,8 +81,7 @@ void main() {
       uint64_t(gl_WorkGroupID.y) * uint64_t(gl_NumWorkGroups.x);
   const uint64_t index = group * 256ul + uint64_t(lane);
   if (index >= p.count) { return; }
-  const uint current =
-      p.stop == 0u ? p.final : states[p.state].x;
+  const uint current = p.stop == 0u ? p.final : states[p.state].x;
   const uint64_t source =
       p.source_offset_words[current] + index * p.source_stride_words[current];
   const uint64_t target =
@@ -258,8 +257,9 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
       ready = ready &&
               AcquireVulkanCollectiveDescriptorSet(adapter, *resources.pipeline,
                                                    6u, route.descriptor) &&
-              AcquireVulkanCollectiveDescriptorSet(adapter, *resources.pipeline,
-                                                   6u, route.seal_descriptor);
+              AcquireVulkanCollectiveDescriptorSet(
+                  adapter, *resources.pipeline, 6u,
+                  route.canonical_descriptor);
       if (!ready) {
         break;
       }
@@ -274,7 +274,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
       ready =
           WriteVulkanStorageDescriptorSet(adapter, route.descriptor, bindings);
       if (ready) {
-        const std::array<VulkanStorageBinding, 6u> seal_bindings{
+        const std::array<VulkanStorageBinding, 6u> canonical_bindings{
             route.source_bindings[0],
             route.source_bindings[1],
             route.source_bindings[2],
@@ -282,8 +282,8 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
             VulkanStorageBindingFor(control.summary),
             VulkanStorageBindingFor(window.states),
         };
-        ready = WriteVulkanStorageDescriptorSet(adapter, route.seal_descriptor,
-                                                seal_bindings);
+        ready = WriteVulkanStorageDescriptorSet(
+            adapter, route.canonical_descriptor, canonical_bindings);
       }
       if (!ready) {
         break;
@@ -347,15 +347,14 @@ bool EncodeVulkanPipelinePublish(
   return true;
 }
 
-bool EncodeVulkanPipelineSeal(const VkCommandBuffer command,
-                              const VulkanPipelinePublishResources &resources,
-                              const std::uint32_t state,
-                              const std::uint32_t iteration) noexcept {
+bool EncodeVulkanPipelineCanonicalize(
+    const VkCommandBuffer command,
+    const VulkanPipelinePublishResources &resources,
+    const std::uint32_t state) noexcept {
   if (resources.routes.empty()) {
     return true;
   }
-  if (command == VK_NULL_HANDLE || resources.pipeline == nullptr ||
-      iteration == std::numeric_limits<std::uint32_t>::max()) {
+  if (command == VK_NULL_HANDLE || resources.pipeline == nullptr) {
     return false;
   }
   EncodeVulkanComputeToComputeBarrier(command);
@@ -365,17 +364,18 @@ bool EncodeVulkanPipelineSeal(const VkCommandBuffer command,
     if (route.params.state != state) {
       continue;
     }
-    if (route.seal_descriptor == VK_NULL_HANDLE || route.groups_x == 0u ||
-        route.groups_y == 0u || route.params.final >= 3u) {
+    if (route.canonical_descriptor == VK_NULL_HANDLE ||
+        route.groups_x == 0u || route.groups_y == 0u ||
+        route.params.final >= 3u) {
       return false;
     }
     VulkanPipelinePublishParams params = route.params;
     params.target_offset_words = params.source_offset_words[params.final];
     params.target_stride_words = params.source_stride_words[params.final];
-    params.stop = iteration + 1u;
+    params.stop = std::numeric_limits<std::uint32_t>::max();
     BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                           resources.pipeline->pipeline_layout, 0u, 1u,
-                          &route.seal_descriptor, 0u, nullptr);
+                          &route.canonical_descriptor, 0u, nullptr);
     PushVulkanConstants(command, resources.pipeline->pipeline_layout,
                         VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(params),
                         &params);

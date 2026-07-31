@@ -20,10 +20,14 @@ using rund::kernel::LoweringArtifactKind;
 using rund::node::accel::detail::BackendBatchEntry;
 using rund::node::accel::detail::BackendRecurrence;
 using rund::node::accel::detail::BackendRun;
+using rund::node::accel::detail::BackendWindow;
+using rund::node::accel::detail::BackendWindowPhase;
 using rund::node::accel::detail::BoundStep;
 using rund::node::accel::detail::BuildMapRecurrence;
+using rund::node::accel::detail::BuildNestedMapRecurrence;
 using rund::node::accel::detail::KernelExecutionStep;
 using rund::node::accel::detail::MapRecurrence;
+using rund::node::accel::detail::MapRecurrenceState;
 using rund::node::accel::detail::PlannedStep;
 using rund::node::accel::detail::RunBinds;
 using rund::node::accel::detail::StepBinds;
@@ -57,12 +61,18 @@ using rund::node::accel::detail::StepBinds;
 
 [[nodiscard]] std::string Source(const ComputeApi api,
                                  const ComputeScalar scalar,
-                                 const std::uint64_t hash) {
+                                 const std::uint64_t hash,
+                                 const bool uniform_invariant) {
   const bool wide = scalar == ComputeScalar::Lane64;
   const std::string lane = wide ? "64" : "32";
   constexpr std::string_view state = "read_7374617465";
   constexpr std::string_view constant = "read_636f6e7374616e74";
   constexpr std::string_view result = "write_726573756c74";
+  const std::string invariant_address =
+      "RundBase_" + std::string{constant} +
+      (uniform_invariant
+           ? std::string{}
+           : " + gid * RundStride_" + std::string{constant});
   std::string source;
   source += "// artifact_variant=canonical\n";
   source += KeyLine("op_hash_hi", hash);
@@ -84,9 +94,8 @@ using rund::node::accel::detail::StepBinds;
               std::string{state} + " + gid * RundStride_" + std::string{state} +
               "));\n";
     source += "  const RundWide node_2 = RundWideFrom" + lane + "(LoadI" +
-              lane + "(" + std::string{constant} + ", RundBase_" +
-              std::string{constant} + " + gid * RundStride_" +
-              std::string{constant} + "));\n";
+              lane + "(" + std::string{constant} + ", " +
+              invariant_address + "));\n";
     source += "  const RundWide node_3 = RundWideAdd(node_1, node_2);\n";
     source += "  StoreI" + lane + "(" + std::string{result} + ", RundBase_" +
               std::string{result} + " + gid * RundStride_" +
@@ -105,9 +114,8 @@ using rund::node::accel::detail::StepBinds;
               std::string{state} + " + gid * RundStride_" + std::string{state} +
               "));\n";
     source += "  const RundWide node_2 = RundWideFrom" + lane + "(LoadI" +
-              lane + "_" + std::string{constant} + "(RundBase_" +
-              std::string{constant} + " + gid * RundStride_" +
-              std::string{constant} + "));\n";
+              lane + "_" + std::string{constant} + "(" +
+              invariant_address + "));\n";
     source += "  const RundWide node_3 = RundWideAdd(node_1, node_2);\n";
     source += "  StoreI" + lane + "_" + std::string{result} + "(RundBase_" +
               std::string{result} + " + gid * RundStride_" +
@@ -137,7 +145,8 @@ struct Fixture final {
   std::array<BackendBatchEntry, 2u> entries{};
   std::array<std::uint8_t, 2u> barriers{0u, 1u};
 
-  Fixture(const ComputeApi api, const ComputeScalar scalar) {
+  Fixture(const ComputeApi api, const ComputeScalar scalar,
+          const bool uniform_invariant = false) {
     const std::uint64_t bytes =
         scalar == ComputeScalar::Lane64 ? std::uint64_t{8u} : std::uint64_t{4u};
     constexpr std::uint64_t hash = 0x1020304050607080ull;
@@ -175,10 +184,12 @@ struct Fixture final {
                                             ComputeBindingAccess::Write};
       artifact.metadata.binding_names = {"state", "constant", "result"};
       artifact.metadata.read_count = 2u;
+      artifact.metadata.direct_read_mask = uniform_invariant ? 0x1u : 0x3u;
+      artifact.metadata.uniform_read_mask = uniform_invariant ? 0x2u : 0u;
       artifact.metadata.write_count = 1u;
       artifact.metadata.ok = true;
       artifact.metadata.reason = "ok";
-      artifact.source_text = Source(api, scalar, hash);
+      artifact.source_text = Source(api, scalar, hash, uniform_invariant);
       artifact.ok = true;
       artifact.reason = "ok";
 
@@ -218,8 +229,12 @@ struct Fixture final {
       item.refs.reserve(3u);
       (void)item.refs.push(ref(input_owner, rund::kernel::kResidentUsageRead),
                            owners[input_owner]);
-      (void)item.refs.push(ref(3u, rund::kernel::kResidentUsageRead),
-                           owners[3]);
+      auto invariant = ref(3u, rund::kernel::kResidentUsageRead);
+      if (uniform_invariant) {
+        invariant.bytes = bytes;
+        invariant.count = 1u;
+      }
+      (void)item.refs.push(invariant, owners[3]);
       (void)item.refs.push(ref(output_owner, rund::kernel::kResidentUsageWrite),
                            owners[output_owner]);
       item.binds.inputs.bind(item.refs, 2u);
@@ -253,8 +268,9 @@ struct Fixture final {
 };
 
 [[nodiscard]] bool SourceMatches(const ComputeApi api,
-                                 const ComputeScalar scalar) {
-  Fixture fixture{api, scalar};
+                                 const ComputeScalar scalar,
+                                 const bool uniform_invariant = false) {
+  Fixture fixture{api, scalar, uniform_invariant};
   const MapRecurrence recurrence =
       BuildMapRecurrence(fixture.entries, fixture.barriers);
   if (!recurrence.ready() || recurrence.iterations != 2u ||
@@ -268,6 +284,11 @@ struct Fixture final {
   const std::string lane = wide ? "64" : "32";
   constexpr std::string_view state = "read_7374617465";
   constexpr std::string_view constant = "read_636f6e7374616e74";
+  const std::string invariant_address =
+      "RundBase_" + std::string{constant} +
+      (uniform_invariant
+           ? std::string{}
+           : " + gid * RundStride_" + std::string{constant});
   const std::string state_load =
       api == ComputeApi::Metal
           ? "LoadI" + lane + "(" + std::string{state} + ", RundBase_" +
@@ -278,12 +299,10 @@ struct Fixture final {
                 std::string{state} + ")";
   const std::string invariant_load =
       api == ComputeApi::Metal
-          ? "LoadI" + lane + "(" + std::string{constant} + ", RundBase_" +
-                std::string{constant} + " + gid * RundStride_" +
-                std::string{constant} + ")"
-          : "LoadI" + lane + "_" + std::string{constant} + "(RundBase_" +
-                std::string{constant} + " + gid * RundStride_" +
-                std::string{constant} + ")";
+          ? "LoadI" + lane + "(" + std::string{constant} + ", " +
+                invariant_address + ")"
+          : "LoadI" + lane + "_" + std::string{constant} + "(" +
+                invariant_address + ")";
   const std::string exact_boundary =
       api == ComputeApi::Metal ? (wide ? "rund_next_0 = long(node_3.lo);"
                                        : "rund_next_0 = int(node_3.lo);")
@@ -304,6 +323,53 @@ struct Fixture final {
              std::string::npos;
 }
 
+[[nodiscard]] bool NestedMarkerContract() {
+  Fixture fixture{ComputeApi::Metal, ComputeScalar::Lane32};
+  std::array<BackendWindow, 2u> windows{};
+  for (std::size_t index = 0u; index < windows.size(); ++index) {
+    windows[index] = BackendWindow{
+        .maximum = 8u,
+        .tile = 4u,
+        .iteration = 1u,
+        .bound = 2u,
+        .state = 3u,
+        .outer_iteration = 1u,
+        .outer_bound = 2u,
+        .inner_iteration = static_cast<std::uint32_t>(index),
+        .inner_bound = 2u,
+        .inner_advance = 1u,
+        .phase = BackendWindowPhase::NestedAction,
+    };
+    fixture.entries[index].recurrence.window = &windows[index];
+  }
+  fixture.barriers = {1u, 1u};
+  const MapRecurrence ready =
+      BuildNestedMapRecurrence(fixture.entries, fixture.barriers);
+  if (!ready.ready() || ready.iterations != windows.size()) {
+    return false;
+  }
+
+  fixture.barriers[1u] = 0u;
+  if (BuildNestedMapRecurrence(fixture.entries, fixture.barriers).state !=
+      MapRecurrenceState::Invalid) {
+    return false;
+  }
+  fixture.barriers[1u] = 1u;
+  windows[1u].inner_iteration = 0u;
+  if (BuildNestedMapRecurrence(fixture.entries, fixture.barriers).state !=
+      MapRecurrenceState::Ineligible) {
+    return false;
+  }
+  windows[1u].inner_iteration = 1u;
+  fixture.occurrences[0u].step.artifact.metadata.read_routes.push_back(
+      rund::kernel::ReadRoute{.source = 0u, .index = 1u, .count = 4u});
+  if (BuildNestedMapRecurrence(fixture.entries, fixture.barriers).state !=
+      MapRecurrenceState::Ineligible) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 [[nodiscard]] bool MapRecurrenceSourceContract() {
@@ -314,10 +380,15 @@ struct Fixture final {
       rund::node::accel::detail::MapRecurrenceState::Ineligible) {
     return false;
   }
-  return SourceMatches(ComputeApi::Metal, ComputeScalar::Lane32) &&
+  return NestedMarkerContract() &&
+         SourceMatches(ComputeApi::Metal, ComputeScalar::Lane32) &&
          SourceMatches(ComputeApi::Metal, ComputeScalar::Lane64) &&
          SourceMatches(ComputeApi::Vulkan, ComputeScalar::Lane32) &&
-         SourceMatches(ComputeApi::Vulkan, ComputeScalar::Lane64);
+         SourceMatches(ComputeApi::Vulkan, ComputeScalar::Lane64) &&
+         SourceMatches(ComputeApi::Metal, ComputeScalar::Lane32, true) &&
+         SourceMatches(ComputeApi::Metal, ComputeScalar::Lane64, true) &&
+         SourceMatches(ComputeApi::Vulkan, ComputeScalar::Lane32, true) &&
+         SourceMatches(ComputeApi::Vulkan, ComputeScalar::Lane64, true);
 }
 
 } // namespace node_accel_contract

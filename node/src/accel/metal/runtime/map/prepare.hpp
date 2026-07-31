@@ -40,11 +40,17 @@ rund::AccelCheck PrepareMetalMap(
   raw->adapter = adapter;
   raw->plan = plan;
   raw->bindings = bindings;
-  raw->read_routes = artifact.metadata.read_routes;
-  for (const rund::kernel::ReadRoute route : raw->read_routes) {
-    const auto found = std::find_if(
-        raw->checks.begin(), raw->checks.end(),
-        [&](const MetalMapCheck check) { return check.binding == route.index; });
+  raw->input_plans.resize(static_cast<std::size_t>(plan.input_buffer_count));
+  if (!FreezeInputWindowPlans(artifact.metadata, plan.tile_count,
+                              raw->input_plans)) {
+    SetMetalLastError(*adapter, "compute_binding_mismatch");
+    return rund::AccelCheck{false, "compute_binding_mismatch"};
+  }
+  for (const rund::kernel::ReadRoute route : artifact.metadata.read_routes) {
+    const auto found = std::find_if(raw->checks.begin(), raw->checks.end(),
+                                    [&](const MetalMapCheck check) {
+                                      return check.binding == route.index;
+                                    });
     if (found == raw->checks.end()) {
       raw->checks.push_back(MetalMapCheck{route.index, route.count});
     } else {

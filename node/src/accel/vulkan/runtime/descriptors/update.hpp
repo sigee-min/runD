@@ -15,7 +15,9 @@ bool UpdateVulkanWindowDescriptorSet(
     VulkanAdapter &adapter, VulkanCachedPipeline &pipeline,
     const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow &window,
-    const rund::kernel::BindingSet &bindings, const ScopedBuffer &param_buffer,
+    const rund::kernel::BindingSet &bindings,
+    const std::span<const InputWindowPlan> input_plans,
+    const ScopedBuffer &param_buffer,
     const VulkanResidentBindings *const resident_bindings,
     const VulkanWindowBuffers &buffers, VkDescriptorSet &descriptor_set) {
   descriptor_set = DescriptorSetForPipeline(adapter, pipeline);
@@ -32,8 +34,8 @@ bool UpdateVulkanWindowDescriptorSet(
       .offset = 0u,
       .range = param_buffer.used_bytes,
   };
-  if (!BindInputDescriptors(adapter, plan, window, bindings, resident_bindings,
-                            buffers, scratch.infos) ||
+  if (!BindInputDescriptors(adapter, plan, window, bindings, input_plans,
+                            resident_bindings, buffers, scratch.infos) ||
       !BindOutputDescriptor(adapter, plan, window, bindings, resident_bindings,
                             buffers, scratch.infos)) {
     return false;

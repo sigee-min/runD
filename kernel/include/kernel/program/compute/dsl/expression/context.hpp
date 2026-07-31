@@ -26,6 +26,9 @@ public:
   read_node(rund::kernel::u32 binding,
             rund::kernel::ComputeFixedFormat format) noexcept;
   [[nodiscard]] rund::kernel::u32
+  read_uniform_node(rund::kernel::u32 binding,
+                    rund::kernel::ComputeFixedFormat format) noexcept;
+  [[nodiscard]] rund::kernel::u32
   read_at_node(rund::kernel::u32 binding, rund::kernel::u32 index,
                rund::kernel::u32 count,
                rund::kernel::ComputeFixedFormat format) noexcept;

@@ -25,8 +25,7 @@ ValidMetalReset(std::span<const MetalPipelineResetMeta> resets,
     std::shared_ptr<void> &import, std::shared_ptr<void> &reduce,
     std::shared_ptr<void> &complete, std::shared_ptr<void> &telemetry,
     bool need_publish, std::shared_ptr<void> &publish, bool need_advance,
-    std::shared_ptr<void> &advance, bool need_gate,
-    std::shared_ptr<void> &gate);
+    std::shared_ptr<void> &advance);
 
 #endif
 

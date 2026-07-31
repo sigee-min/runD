@@ -27,7 +27,7 @@ static_assert(sizeof(PreparedInstruction) == 56u);
 static_assert(sizeof(PreparedInstruction::full_executor_slot) == 1u);
 static_assert(sizeof(PreparedInstruction::tail_executor_slot) == 1u);
 static_assert(rund::node::accel::cpu_simd_detail::kCpuSimdBaseExecutorCount ==
-              static_cast<std::size_t>(rund::kernel::IrOp::ReadAt) + 1u);
+              static_cast<std::size_t>(rund::kernel::IrOp::ReadUniform) + 1u);
 static_assert(rund::node::accel::cpu_simd_detail::kCpuSimdExecutorCount ==
               rund::node::accel::cpu_simd_detail::kCpuSimdBaseExecutorCount +
                   3u);

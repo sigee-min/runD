@@ -6,6 +6,11 @@
 #include <cstdio>
 
 int RunComputePipelineContract() {
+  if (const int guard = rund_node_test_pipeline::CheckMetalGuardTransform();
+      guard != 0) {
+    std::fprintf(stderr, "pipeline Metal guard contract result=%d\n", guard);
+    return 800 + guard;
+  }
   rund::compute::graph::Fingerprint fingerprint{};
   std::uint64_t output_hash = 0u;
   std::uint64_t state_hash = 0u;

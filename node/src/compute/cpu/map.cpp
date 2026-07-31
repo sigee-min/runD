@@ -33,6 +33,7 @@ Status prepare_cpu_map_bindings(
       input_views.size() != inputs.size() ||
       output_views.size() != outputs.size() ||
       program.input_bytes.size() != inputs.size() ||
+      program.input_counts.size() != inputs.size() ||
       !kernel::ComputeScalarBytes(map.scalar, scalar_bytes) ||
       (outputs.size() == 1u
            ? !kernel::ComputeOutputBytesValid(map.scalar,
@@ -56,14 +57,7 @@ Status prepare_cpu_map_bindings(
   for (std::size_t index = 0u; index < inputs.size(); ++index) {
     BufferState *const buffer = inputs[index];
     const JobBufferView view = input_views[index];
-    std::size_t expected_count = count;
-    for (const kernel::ReadRoute route : program.read_routes) {
-      if (route.source == index) {
-        expected_count = route.count;
-        break;
-      }
-    }
-    if (view.count != expected_count ||
+    if (view.count != program.input_counts[index] ||
         view.element_bytes != program.input_bytes[index]) {
       return Status::fail(Reason::CpuBufferInvalid);
     }

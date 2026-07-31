@@ -24,5 +24,7 @@ SameArtifact(const rund::kernel::LoweringArtifact &left,
              const rund::kernel::LoweringArtifact &right) noexcept;
 [[nodiscard]] bool
 ExactRecurrenceMarker(std::span<const BackendBatchEntry> entries) noexcept;
+[[nodiscard]] bool ExactNestedMapRecurrenceMarker(
+    std::span<const BackendBatchEntry> entries) noexcept;
 
 } // namespace rund::node::accel::detail

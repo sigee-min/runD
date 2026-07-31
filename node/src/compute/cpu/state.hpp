@@ -61,6 +61,7 @@ struct CpuProgram final {
   kernel::ComputeMap map;
   node::accel::cpu_simd_detail::CpuSimdDispatch dispatch;
   std::vector<std::uint64_t> input_bytes;
+  std::vector<std::uint64_t> input_counts;
   std::vector<kernel::ReadRoute> read_routes;
   kernel::ComputeTileExecutor tile_plan;
   std::size_t scratch_words{};

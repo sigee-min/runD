@@ -33,6 +33,7 @@ int test_compute_execution_metadata_maps_checked_fixed_lane32_ir() {
   TEST_ASSERT(metadata.read_count == 2u);
   TEST_ASSERT(metadata.write_count == 1u);
   TEST_ASSERT(metadata.direct_read_mask == 0x3u);
+  TEST_ASSERT(metadata.uniform_read_mask == 0u);
   TEST_ASSERT(metadata.read_routes.empty());
   TEST_ASSERT(metadata.binding_accesses.size() == 3u);
   TEST_ASSERT(metadata.binding_accesses[0] ==
@@ -97,16 +98,33 @@ int test_compute_execution_metadata_rejects_hash_mismatch_reason() {
 
 int test_compute_execution_metadata_owns_required_input_counts() {
   rund::kernel::ExecutionMetadata metadata{};
-  metadata.read_count = 3u;
+  metadata.read_count = 4u;
   metadata.direct_read_mask = 0x1u;
+  metadata.uniform_read_mask = 0x9u;
   metadata.read_routes.push_back(
       rund::kernel::ReadRoute{.source = 2u, .index = 1u, .count = 7u});
 
   TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 0u, 5u) == 5u);
   TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 1u, 5u) == 5u);
   TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 2u, 5u) == 7u);
-  TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 3u, 5u) == 0u);
+  TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 3u, 5u) == 1u);
+  TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 4u, 5u) == 0u);
   TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 0u, 0u) == 0u);
+  return 0;
+}
+
+int test_compute_execution_metadata_owns_uniform_read_identity() {
+  const rund::kernel::ComputeIR ir = BuildI32UniformReadIr();
+  const rund::kernel::ExecutionMetadata metadata =
+      rund::kernel::BuildExecutionMetadata(ir, rund::kernel::ComputeApi::Metal);
+
+  TEST_ASSERT(ir.ok);
+  TEST_ASSERT(metadata.ok);
+  TEST_ASSERT(metadata.read_count == 1u);
+  TEST_ASSERT(metadata.direct_read_mask == 0u);
+  TEST_ASSERT(metadata.uniform_read_mask == 0x1u);
+  TEST_ASSERT(metadata.read_routes.empty());
+  TEST_ASSERT(rund::kernel::RequiredInputCount(metadata, 0u, 4096u) == 1u);
   return 0;
 }
 
@@ -184,6 +202,9 @@ int RunComputeMetadataContract() {
     return 1;
   }
   if (test_compute_execution_metadata_owns_required_input_counts() != 0) {
+    return 1;
+  }
+  if (test_compute_execution_metadata_owns_uniform_read_identity() != 0) {
     return 1;
   }
   if (test_compute_retained_string_storage_distinguishes_inline_and_external() !=

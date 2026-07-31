@@ -26,6 +26,7 @@ namespace rund::node::accel::detail {
 struct BackendRun;
 struct BackendBatchEntry;
 struct BackendPublish;
+struct TileTransducer;
 struct PreparedMemory;
 struct PreparedPipelineMemory;
 class PreparedMemoryMeter;
@@ -76,6 +77,7 @@ struct BackendOps final {
   rund::AccelCheck (*prepare_pipeline)(std::span<const BackendBatchEntry>,
                                        std::span<const BackendBatchEntry>,
                                        std::span<const std::uint8_t>,
+                                       std::span<const TileTransducer>,
                                        std::span<const BackendPublish>,
                                        PreparedPipelineStatusLayout &, bool,
                                        std::shared_ptr<void> &,

@@ -31,24 +31,14 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
   }
   pipeline->control = [device newBufferWithLength:PreparedPipelineControlBytes
                                           options:MTLResourceStorageModeShared];
-  // Window selectors need a stable buffer identity while commands are
-  // captured. The exact range count is known only after capture and is
-  // allocated in Finalize; one placeholder is sufficient here.
-  pipeline->range_capacity =
-      static_cast<std::uint32_t>(!native_windows.empty());
-  if (pipeline->range_capacity != 0u) {
-    pipeline->range_buffer =
-        [device newBufferWithLength:sizeof(MetalRange)
-                            options:MTLResourceStorageModeShared];
-    pipeline->range_owners =
-        [device newBufferWithLength:sizeof(std::uint32_t)
-                            options:MTLResourceStorageModeShared];
-  }
+  pipeline->guard_zero =
+      [device newBufferWithLength:sizeof(std::uint32_t)
+                          options:MTLResourceStorageModeShared];
   if (pipeline->state_count != 0u) {
     pipeline->states = [device
         newBufferWithLength:static_cast<NSUInteger>(pipeline->state_count) *
                             sizeof(ResidentState)
-                    options:MTLResourceStorageModeShared];
+                    options:MTLResourceStorageModePrivate];
   }
   if (profile_steps) {
     const NSUInteger step_control_bytes =
@@ -60,29 +50,16 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
   }
   if ((pipeline->uses_status_arena && pipeline->raw_status == nil) ||
       pipeline->control == nil || [pipeline->control contents] == nullptr ||
-      (pipeline->range_capacity != 0u &&
-       (pipeline->range_buffer == nil ||
-        [pipeline->range_buffer contents] == nullptr ||
-        pipeline->range_owners == nil ||
-        [pipeline->range_owners contents] == nullptr)) ||
-      (pipeline->state_count != 0u &&
-       (pipeline->states == nil || [pipeline->states contents] == nullptr)) ||
+      pipeline->guard_zero == nil ||
+      [pipeline->guard_zero contents] == nullptr ||
+      (pipeline->state_count != 0u && pipeline->states == nil) ||
       (profile_steps && (pipeline->step_control == nil ||
                          [pipeline->step_control contents] == nullptr))) {
     return rund::AccelCheck{false, "accel_metal_buffer_failed"};
   }
   const PreparedPipelineControl initial{};
   std::memcpy([pipeline->control contents], &initial, sizeof(initial));
-  if (pipeline->range_capacity != 0u) {
-    std::memset([pipeline->range_buffer contents], 0, sizeof(MetalRange));
-    *static_cast<std::uint32_t *>([pipeline->range_owners contents]) =
-        std::numeric_limits<std::uint32_t>::max();
-  }
-  if (pipeline->state_count != 0u) {
-    std::memset([pipeline->states contents], 0,
-                static_cast<std::size_t>(pipeline->state_count) *
-                    sizeof(ResidentState));
-  }
+  *static_cast<std::uint32_t *>([pipeline->guard_zero contents]) = 0u;
   if (profile_steps) {
     auto *const controls = static_cast<PreparedPipelineStepControl *>(
         [pipeline->step_control contents]);
@@ -101,8 +78,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
           needs_import, !pipeline->telemetry.empty(), profile_steps,
           reset_owner, import_owner, reduce_owner, complete_owner,
           telemetry_owner, !native_publications.empty(), publish_owner,
-          !native_windows.empty(), advance_owner, !native_windows.empty(),
-          gate_owner)) {
+          !native_windows.empty(), advance_owner)) {
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
   reset = (__bridge id<MTLComputePipelineState>)reset_owner.get();
@@ -112,15 +88,13 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
   telemetry = (__bridge id<MTLComputePipelineState>)telemetry_owner.get();
   publish = (__bridge id<MTLComputePipelineState>)publish_owner.get();
   advance = (__bridge id<MTLComputePipelineState>)advance_owner.get();
-  gate = (__bridge id<MTLComputePipelineState>)gate_owner.get();
-  pipeline->gate = gate;
   if ((pipeline->uses_status_arena &&
        (reduce == nil || [reduce maxTotalThreadsPerThreadgroup] <
                              kMetalPipelineReductionWidth)) ||
       (needs_reset && reset == nil) || (needs_import && import == nil) ||
       complete == nil || (!pipeline->telemetry.empty() && telemetry == nil) ||
       (!native_publications.empty() && publish == nil) ||
-      (!native_windows.empty() && (advance == nil || gate == nil))) {
+      (!native_windows.empty() && advance == nil)) {
     return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
   }
 
@@ -136,6 +110,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
       .generation_stride = status.generation_stride,
       .source_count = static_cast<std::uint32_t>(status_sources.size()),
       .phase = 1u,
+      .state_count = pipeline->state_count,
   };
 
   return rund::AccelCheck{true, "ok"};

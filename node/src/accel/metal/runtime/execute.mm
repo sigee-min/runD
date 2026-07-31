@@ -2,6 +2,8 @@
 
 #include <kernel/program/compute/lowering/artifact/admission.hpp>
 
+#include <array>
+
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
@@ -30,15 +32,25 @@ bool ExecuteMetal(void *const context, const rund::kernel::ComputePlan &plan,
       SetMetalLastError(*adapter, "compute_artifact_mismatch");
       return false;
     }
-    const rund::kernel::BindingValidation binding = BindingPlanCheck(
-        plan, bindings, artifact.metadata,
-        PlanBindingInputMode::StagedOrResident);
+    const rund::kernel::BindingValidation binding =
+        BindingPlanCheck(plan, bindings, artifact.metadata,
+                         PlanBindingInputMode::StagedOrResident);
     if (!binding.ok) {
       SetMetalLastError(*adapter, binding.reason);
       return false;
     }
     if (!RuntimeWindowsMatchPlan(plan, windows, window_count, bindings)) {
       SetMetalLastError(*adapter, "compute_dispatch_count_mismatch");
+      return false;
+    }
+    std::array<InputWindowPlan, rund::kernel::kMaxComputeBindingCount>
+        input_plan_storage{};
+    const std::span<InputWindowPlan> input_plans{
+        input_plan_storage.data(),
+        static_cast<std::size_t>(plan.input_buffer_count)};
+    if (!FreezeInputWindowPlans(artifact.metadata, plan.tile_count,
+                                input_plans)) {
+      SetMetalLastError(*adapter, "compute_binding_mismatch");
       return false;
     }
     std::shared_ptr<void> pipeline =
@@ -64,7 +76,7 @@ bool ExecuteMetal(void *const context, const rund::kernel::ComputePlan &plan,
         return false;
       }
       if (!ExecuteWindows(*adapter, pipeline, plan, windows, window_count,
-                          bindings, param_buffer, resident)) {
+                          bindings, param_buffer, resident, input_plans)) {
         return false;
       }
     } else if (plan.param_bytes != 0u &&
@@ -74,7 +86,7 @@ bool ExecuteMetal(void *const context, const rund::kernel::ComputePlan &plan,
     } else {
       for (rund::kernel::u64 index = 0u; index < window_count; ++index) {
         if (!ExecuteWindow(*adapter, pipeline, plan, windows[index], bindings,
-                           &param_buffer)) {
+                           &param_buffer, input_plans)) {
           return false;
         }
       }

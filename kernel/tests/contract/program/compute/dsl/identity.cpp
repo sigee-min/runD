@@ -42,6 +42,39 @@ int test_compute_repeated_equivalent_expressions_have_same_hash() {
   return 0;
 }
 
+int test_compute_uniform_read_has_distinct_canonical_identity() {
+  i32 input[1]{};
+  i32 output[4]{};
+  const auto body = rund::compute_dsl::bind(4u)
+                        .i32()
+                        .read<"uniform">(input)
+                        .write<"output">(output);
+  const auto direct = rund::compute_dsl::def("direct-i32")
+                          .on(body)
+                          .map([](auto index, auto bindings) {
+                            const auto source =
+                                bindings.template read<"uniform">();
+                            const auto target =
+                                bindings.template write<"output">();
+                            target[index] = source[index];
+                          });
+  const rund::kernel::ComputeIR uniform = BuildI32UniformReadIr();
+  const auto parsed =
+      rund::kernel::compute_lowering_detail::ParseComputeIR(uniform);
+
+  TEST_ASSERT(direct.ok());
+  TEST_ASSERT(uniform.ok);
+  TEST_ASSERT(parsed.ok);
+  TEST_ASSERT(parsed.nodes.size() == 2u);
+  TEST_ASSERT(static_cast<rund::kernel::IrOp>(parsed.nodes[0].op) ==
+              rund::kernel::IrOp::ReadUniform);
+  TEST_ASSERT(parsed.nodes[0].lhs == 0u && parsed.nodes[0].rhs == 0u);
+  TEST_ASSERT(uniform.canonical_bytes != direct.ir().canonical_bytes);
+  TEST_ASSERT(uniform.op_hash_hi != direct.ir().op_hash_hi ||
+              uniform.op_hash_lo != direct.ir().op_hash_lo);
+  return 0;
+}
+
 int test_compute_different_parameter_values_change_hash() {
   const auto first = BuildIntegrateOp(7);
   const auto second = BuildIntegrateOp(8);
@@ -415,6 +448,9 @@ int RunComputeDslIdentityContract() {
     return 1;
   }
   if (test_compute_repeated_equivalent_expressions_have_same_hash() != 0) {
+    return 1;
+  }
+  if (test_compute_uniform_read_has_distinct_canonical_identity() != 0) {
     return 1;
   }
   if (test_compute_different_parameter_values_change_hash() != 0) {

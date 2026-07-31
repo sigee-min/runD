@@ -67,6 +67,10 @@ MetadataFromParsed(const ComputeIR &ir, const ComputeApi api,
         read_slots[node.aux] < 64u) {
       metadata.direct_read_mask |= u64{1u} << read_slots[node.aux];
     }
+    if (node.op == static_cast<u8>(IrOp::ReadUniform) &&
+        read_slots[node.aux] < 64u) {
+      metadata.uniform_read_mask |= u64{1u} << read_slots[node.aux];
+    }
     if (node.op == static_cast<u8>(IrOp::ReadAt)) {
       const ReadRoute route{.source = read_slots[node.aux],
                             .index = read_slots[node.lhs],

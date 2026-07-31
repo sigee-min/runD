@@ -66,12 +66,13 @@ inline constexpr std::array<ExecuteFn, kCpuSimdExecutorCount> kExecutorTable{{
     ExecuteIndex,
     ExecuteQuantize,
     ExecuteReadAt,
+    ExecuteReadUniform,
     ExecuteReadFull,
     ExecuteReadStridedFull,
     ExecuteWriteFull,
 }};
-static_assert(kCpuSimdBaseExecutorCount == 62u);
-static_assert(kCpuSimdExecutorCount == 65u);
+static_assert(kCpuSimdBaseExecutorCount == 63u);
+static_assert(kCpuSimdExecutorCount == 66u);
 
 [[nodiscard]] ExecuteFn
 ExecutorFor(const CpuSimdExecutorSlot executor_slot) noexcept {

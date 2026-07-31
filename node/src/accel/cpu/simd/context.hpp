@@ -2,8 +2,8 @@
 
 #include <node/accel/cpu/simd.hpp>
 
-#include <kernel/program/compute/retention.hpp>
 #include <kernel/program/compute/lowering/model.hpp>
+#include <kernel/program/compute/retention.hpp>
 
 #include <array>
 #include <cstddef>
@@ -15,7 +15,7 @@ namespace rund::node::accel::cpu_simd_detail {
 using CpuSimdExecutorSlot = std::uint8_t;
 
 inline constexpr std::size_t kCpuSimdBaseExecutorCount =
-    static_cast<std::size_t>(rund::kernel::IrOp::ReadAt) + 1u;
+    static_cast<std::size_t>(rund::kernel::IrOp::ReadUniform) + 1u;
 inline constexpr CpuSimdExecutorSlot kCpuSimdReadFullExecutorSlot =
     static_cast<CpuSimdExecutorSlot>(kCpuSimdBaseExecutorCount);
 inline constexpr CpuSimdExecutorSlot kCpuSimdReadStridedFullExecutorSlot =
