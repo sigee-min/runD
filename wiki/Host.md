@@ -5,16 +5,16 @@ Entry header: `<rund/host.hpp>`
 Namespaces: `rund::host::chrono`, `rund::host::env`, `rund::host`,
 `rund::host::io`, `rund::host::random`, and `rund::host::timer`
 
-[Back to API Reference](https://github.com/sigee-min/runD/blob/main/wiki/API) | [Network](https://github.com/sigee-min/runD/blob/main/wiki/Network)
+[Back to API Reference](./API.md) | [Network](./Network.md)
 
 ## When To Use
 
 Use this header for host-facing operations modeled through runD task results:
 logical time, environment reads, file descriptor IO, random streams,
 canonical task sleeps, and deadline timer projection. Ordered opaque workload
-inputs belong to the root [Replay API](https://github.com/sigee-min/runD/blob/main/wiki/Replay).
+inputs belong to the root [Replay API](./Replay.md).
 
-For sockets and network readiness, use [Network](https://github.com/sigee-min/runD/blob/main/wiki/Network).
+For sockets and network readiness, use [Network](./Network.md).
 
 ## Key Types
 

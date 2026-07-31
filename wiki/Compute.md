@@ -1,5 +1,7 @@
 # Compute API
 
+**One typed Flow, three explicit backends, one authoritative result.**
+
 Default header: `<rund/compute.hpp>`
 
 Focused Pipeline header: `<rund/compute/pipeline.hpp>`
@@ -23,6 +25,36 @@ Compiler diagnostics name an input-bound Flow with `input::Bound` and a
 compile-once Flow with `input::Deferred`; no implementation-only type is part
 of Flow's public identity. These are compile-time markers only and occupy no
 runtime storage.
+
+## One Flow, Three Backends
+
+Backend selection is an input to the same Flow construction language:
+
+```cpp fragment
+const auto execute = [&input](rund::compute::Target target) {
+  return rund::compute::on(target, input)
+      .map("step", [](auto value) { return value * 2 + 1; })
+      .collect();
+};
+
+const auto cpu = execute(rund::compute::Target::cpu());
+const auto metal = execute(rund::compute::Target::metal());
+const auto vulkan = execute(rund::compute::Target::vulkan());
+```
+
+The target changes physical execution, not graph meaning. Graph identity,
+ordered inputs and outputs, numeric policy, bounds, and failure semantics
+remain authoritative across CPU, Metal, and Vulkan. No selected accelerator
+silently retries on CPU.
+
+Bit identity is defined over admitted Compute values and operations. The public
+Compute scalar domain is `int32_t`, `uint32_t`, `int64_t`, `uint64_t`, and
+`Fixed<I, F>` with explicit storage and quantization policy; arbitrary C++
+floating-point callbacks are not part of the Compute language. The installed
+consumer contracts compare backend outputs and execution evidence exactly.
+
+See the complete [three-backend example](../README.md#see-it), then use the
+short CPU first success below to verify package integration.
 
 ## First Success
 
@@ -63,7 +95,7 @@ accelerator is unavailable.
 Element count alone does not determine whether an accelerator wins. Submission,
 synchronization, transfer, arithmetic intensity, and device-memory traffic all
 participate in the boundary. Use
-[GPU Performance](https://github.com/sigee-min/runD/blob/main/wiki/Performance) to choose
+[GPU Performance](./Performance.md) to choose
 between `collect()`, reusable Program execution, resident Job, Pipeline, and
 Batch without changing the canonical graph.
 

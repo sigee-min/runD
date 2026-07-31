@@ -56,5 +56,5 @@ physical execution plan may change.
 - A regression limit is not a portable speed claim.
 
 See the [measurement method](https://github.com/sigee-min/runD/blob/main/docs/reference/performance/method.md)
-and [Compute API](https://github.com/sigee-min/runD/blob/main/wiki/Compute) before
+and [Compute API](./Compute.md) before
 publishing a comparison.

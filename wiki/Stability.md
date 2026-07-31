@@ -8,6 +8,6 @@ not maintain a second header list, version rule, or binary tuple.
 - [Machine-readable direct entries](https://github.com/sigee-min/runD/blob/main/package/docs/surface/headers.tsv)
 - [Artifact platform policy](https://github.com/sigee-min/runD/blob/main/package/docs/platform/support.md)
 
-Use [Public API Surface](https://github.com/sigee-min/runD/blob/main/wiki/Surface) to navigate from product areas
+Use [Public API Surface](./Surface.md) to navigate from product areas
 to their Wiki reference pages. Use the package links above to decide what may
 be included, what is versioned, and which artifact tuple may be consumed.

@@ -1,53 +1,93 @@
 # runD
 
-runD is a C++20 SDK for deterministic Compute, replay, bounded runtime work,
-networking, telemetry, and optional cluster placement. Applications keep
-ownership of physics, game state, protocols, and storage schemas; runD owns
-execution order, numeric policy, evidence, and replay mechanics.
+> **Write one C++20 Flow. Run it on CPU, Metal, or Vulkan. Keep the same
+> authoritative bits.**
+
+runD is a deterministic Compute and replay SDK for systems where “close
+enough” is a correctness failure. The application owns its simulation, game
+state, protocol, and storage schema. runD owns the typed execution graph,
+numeric law, ordering, bounded resources, evidence, and replay mechanics.
 
 ```text
-canonical input → runD Pipeline → deterministic state
-                       ├─ live
-                       ├─ record / replay
-                       └─ CPU / Metal / Vulkan
+                         one typed Flow
+                               │
+                 ┌─────────────┼─────────────┐
+                 │             │             │
+                CPU          Metal         Vulkan
+                 │             │             │
+                 └─────────────┼─────────────┘
+                               │
+                    identical state bytes
 ```
+
+## The Core Idea
+
+Declare the computation once and make backend selection explicit:
+
+```cpp fragment
+const auto execute = [&input](rund::compute::Target target) {
+  return rund::compute::on(target, input)
+      .map("step", [](auto value) { return value * 2 + 1; })
+      .collect();
+};
+```
+
+The same typed Flow produces the canonical graph for
+`Target::cpu()`, `Target::metal()`, and `Target::vulkan()`. A selected backend
+either executes that graph or returns a typed failure; it never silently
+changes the algorithm or falls back to CPU.
+
+See the complete, verified three-backend example in the
+[repository README](../README.md#see-it).
+
+## Why It Is Different
+
+| Contract | What it gives you |
+| --- | --- |
+| One graph identity | Backend selection does not create a second algorithm or code path. |
+| Explicit numeric law | Integer and fixed-point width, rounding, overflow, and approximation participate in execution identity. |
+| Stable ordering | Scheduling, reductions, conflicts, publication, and replay observations have defined order. |
+| Bounded execution | Graph size, memory, queues, compilation, iterations, retention, and failures are admitted explicitly. |
+| Executable evidence | Installed contracts compare exact output bytes, hashes, graph identity, and replay evidence across available backends. |
+
+This makes runD a fit for deterministic simulations, lockstep state, replayable
+systems, reproducible Compute pipelines, and other authoritative workloads.
 
 ## Start Here
 
 | Goal | Page |
 | --- | --- |
-| Install and run the first program | [Quick Start](https://github.com/sigee-min/runD/blob/main/wiki/Start) |
-| Integrate the installed CMake package | [SDK Installation](https://github.com/sigee-min/runD/blob/main/wiki/SDK) |
-| Build a typed compute graph | [Compute](https://github.com/sigee-min/runD/blob/main/wiki/Compute) |
-| Record, replay, and resume state | [Replay](https://github.com/sigee-min/runD/blob/main/wiki/Replay) |
-| Choose a CPU or GPU execution shape | [GPU Performance](https://github.com/sigee-min/runD/blob/main/wiki/Performance) |
-| Browse the complete product surface | [API Overview](https://github.com/sigee-min/runD/blob/main/wiki/API) |
-| Diagnose an integration failure | [Troubleshooting](https://github.com/sigee-min/runD/blob/main/wiki/Troubleshooting) |
+| Install the `1.0.0` Alpha and run the first Flow | [Quick Start](./Start.md) |
+| Understand bit-identical CPU/GPU execution | [Compute](./Compute.md) |
+| Choose `collect`, Program, resident Job, Pipeline, or Batch | [GPU Performance](./Performance.md) |
+| Record, replay, and resume canonical input | [Replay](./Replay.md) |
+| Integrate the installed CMake package | [SDK Consumption](./SDK.md) |
+| Browse every public entry header | [API Reference](./API.md) |
+| Diagnose an installation or runtime failure | [Troubleshooting](./Troubleshooting.md) |
 
-## Requirements
+## Published Alpha
 
-- A runD SDK tuple listed as `supported` by
-  [Platform Support](https://github.com/sigee-min/runD/blob/main/wiki/Platforms).
-- CMake 3.20 or newer.
-- A C++20 compiler.
-- One target linked to `runD::sdk`.
+The public `1.0.0` Alpha ships a verified Darwin ARM64 SDK with CPU, native
+Metal, and Vulkan through MoltenVK. Linux x64 is a validated source candidate,
+not a supported binary release. See [Platform Support](./Platforms.md) for the
+exact artifact boundary.
 
-The published runD 1.0.0 consumer release supports Darwin ARM64. Linux remains
-a validated source candidate and is not a supported release artifact.
+Applications link one CMake target, `runD::sdk`, and include focused
+`<rund/*.hpp>` headers. Kernel, Accel, Node, and backend headers remain private
+implementation layers.
 
-## Integration Boundary
+## Determinism Boundary
 
-Treat runD as a black-box SDK. Link `runD::sdk` `PRIVATE` when runD names stay
-inside implementation files. Link the containing target `PUBLIC` only when a
-documented runD type intentionally appears in that target's public
-declarations.
+Bit-identical Compute requires the documented integer or fixed-point value
+domain, numeric policy, graph operations, and supported backend contract.
+Arbitrary host callbacks, unconstrained floating point, wall-clock timing, and
+native network arrival order do not become deterministic automatically.
 
-Do not include Kernel, Accel, Node, backend, or transitive support headers.
-Those layers are implementation-only.
+Host observations become deterministic after admission into the canonical
+input stream. Read [Numeric Policy](../docs/architecture/numeric.md),
+[Compute](./Compute.md), and [Evidence](./Evidence.md) before making an
+authoritative-state claim.
 
-This Wiki is the readable integration surface. Canonical architecture,
-behavior, support, and performance evidence remain versioned with the source
-under [repository documentation](https://github.com/sigee-min/runD/blob/main/docs/README.md).
-Use [API Stability](https://github.com/sigee-min/runD/blob/main/wiki/Stability) and the
-[Release Checklist](https://github.com/sigee-min/runD/blob/main/wiki/Checklist) before
-changing SDK versions.
+This Wiki is the readable integration surface. Versioned architecture,
+behavior, support, and acceptance authority remains under
+[repository documentation](../docs/README.md).

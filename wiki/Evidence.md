@@ -4,7 +4,7 @@ Entry header: `<rund/evidence.hpp>`
 
 Namespace: `rund::evidence`
 
-[Back to API Reference](https://github.com/sigee-min/runD/blob/main/wiki/API)
+[Back to API Reference](./API.md)
 
 ## When To Use
 

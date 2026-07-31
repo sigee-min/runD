@@ -1,7 +1,7 @@
 # Release Artifacts
 
 Use only an SDK archive attached to the selected release and listed as
-`supported` in [Platform Support](https://github.com/sigee-min/runD/blob/main/wiki/Platforms). Source compilation and
+`supported` in [Platform Support](./Platforms.md). Source compilation and
 temporary CI artifacts do not establish a supported binary tuple.
 
 ## Artifact Names
@@ -31,7 +31,7 @@ place on the same filesystem. Each rename is atomic, but the three-file set is
 not a single transaction under an uncatchable termination.
 
 Triplet meanings and current support status are owned only by the canonical
-policy reached through [Platform Support](https://github.com/sigee-min/runD/blob/main/wiki/Platforms); this artifact
+policy reached through [Platform Support](./Platforms.md); this artifact
 guide does not mirror that matrix.
 
 The manual Linux workflow produces a temporary candidate archive after

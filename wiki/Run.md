@@ -4,7 +4,7 @@ Entry header: `<rund/session.hpp>`
 
 Namespace: `rund`
 
-[Back to API Reference](https://github.com/sigee-min/runD/blob/main/wiki/API)
+[Back to API Reference](./API.md)
 
 ## When To Use
 
@@ -13,7 +13,7 @@ execute a local session. `rund::run` opens a Session, applies the supplied
 limits, runs the callback, drains scheduled work, closes the Session, and
 returns a single `Session::Result`.
 
-For task APIs used inside the callback, see [Tasks](https://github.com/sigee-min/runD/blob/main/wiki/Tasks).
+For task APIs used inside the callback, see [Tasks](./Tasks.md).
 
 The focused `<rund/session.hpp>` header exposes Session lifecycle, one-shot
 `run`, configuration, Result, and telemetry through `runD::sdk`. Include the
@@ -37,8 +37,8 @@ success at Stopped.
 
 ## Related APIs
 
-- [Replay](https://github.com/sigee-min/runD/blob/main/wiki/Replay) records and checks canonical session evidence.
-- [Telemetry](https://github.com/sigee-min/runD/blob/main/wiki/Telemetry) observes terminal Session work through one sink.
+- [Replay](./Replay.md) records and checks canonical session evidence.
+- [Telemetry](./Telemetry.md) observes terminal Session work through one sink.
 
 ## Key Types
 
@@ -87,7 +87,7 @@ Common `SessionConfig` fields:
   bytes.
 - `replay`: bounded replay input, storage, and optional raw-diagnostic policy.
   Execution selection and expected evidence belong to the scope-level
-  [Replay API](https://github.com/sigee-min/runD/blob/main/wiki/Replay), not Session configuration.
+  [Replay API](./Replay.md), not Session configuration.
 - `random_seed`: seed used by `rund::host::random::active_run_seed()` and
   default random streams.
 

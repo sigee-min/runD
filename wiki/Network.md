@@ -4,7 +4,7 @@ Entry header: `<rund/net.hpp>`
 
 Namespace: `rund::net`
 
-[Back to API Reference](https://github.com/sigee-min/runD/blob/main/wiki/API)
+[Back to API Reference](./API.md)
 
 ## Purpose
 

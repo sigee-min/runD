@@ -193,4 +193,4 @@ diagnostic, guarantees shutdown, and avoids a caller-authored
 
 The normative ordering, hash, lineage, storage, and failure laws are in the
 [Replay contract](https://github.com/sigee-min/runD/blob/main/node/docs/contracts/replay.md). Session lifecycle is in
-[Run](https://github.com/sigee-min/runD/blob/main/wiki/Run), and diagnostics are in [Telemetry](https://github.com/sigee-min/runD/blob/main/wiki/Telemetry).
+[Run](./Run.md), and diagnostics are in [Telemetry](./Telemetry.md).

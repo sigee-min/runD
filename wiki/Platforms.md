@@ -22,7 +22,7 @@ Before choosing an archive:
 2. Run the adjacent `rund-verify`; it checks the archive's sealed identity,
    compiler, standard library, Apple SDK where applicable, and external backend
    dependencies against the current host before installing the prefix.
-3. Follow the [Release Checklist](https://github.com/sigee-min/runD/blob/main/wiki/Checklist).
+3. Follow the [Release Checklist](./Checklist.md).
 
 This wiki page is a consumer navigation page. It intentionally carries no
 second platform matrix or promotion authority.
