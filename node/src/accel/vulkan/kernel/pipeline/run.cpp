@@ -121,14 +121,11 @@ SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
     if (pipeline->dispatch_count == 0u) {
       submitted = true;
     } else {
-      const bool reset = ResetVulkanWindow(pipeline->window);
-      submitted = reset && SubmitVulkanExternal(*pipeline->adapter,
-                                                pipeline->command.buffer,
-                                                pipeline->command.fence,
-                                                CompleteVulkanPipeline, &state);
+      submitted = SubmitVulkanExternal(
+          *pipeline->adapter, pipeline->command.buffer, pipeline->command.fence,
+          CompleteVulkanPipeline, &state);
       if (!submitted) {
-        failure_reason = reset ? VulkanLastError(pipeline->adapter)
-                               : "accel_vulkan_memory_unavailable";
+        failure_reason = VulkanLastError(pipeline->adapter);
       }
     }
   }

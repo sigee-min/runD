@@ -129,7 +129,7 @@ void PrepareTask(compute_detail::TaskState &slot,
   slot.stats = {};
   slot.job_result.reset();
   slot.pipeline_evidence.reset();
-  slot.step_cursor = 0u;
+  slot.pipeline_schedule = {};
   slot.cancel_requested.store(false, std::memory_order_relaxed);
   slot.backend_submitted.store(false, std::memory_order_relaxed);
   slot.completion_phase.store(0u, std::memory_order_relaxed);

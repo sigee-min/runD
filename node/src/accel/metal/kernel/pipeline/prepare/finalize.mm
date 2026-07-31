@@ -28,7 +28,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
   pipeline->control_command_count =
       2u + import_count + static_cast<std::uint32_t>(needs_reset) +
       static_cast<std::uint32_t>(pipeline->telemetry.size()) + fold_count +
-      seal_count;
+      advance_count + seal_count;
   [encoder setComputePipelineState:complete];
   [encoder setBuffer:pipeline->control offset:0u atIndex:0u];
   [encoder setBytes:&status_params length:sizeof(status_params) atIndex:1u];
@@ -100,10 +100,14 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
     descriptor.inheritPipelineState = NO;
     descriptor.inheritBuffers = NO;
     descriptor.maxKernelBufferBindCount = captured.highest_binding;
+    // Cold finalization authors every retained indirect command on the CPU.
+    // Metal validation therefore requires CPU-accessible ICB storage; Private
+    // storage is valid only when command encoding itself is performed by the
+    // GPU.
     pipeline->commands = [device
         newIndirectCommandBufferWithDescriptor:descriptor
                                maxCommandCount:captured.commands.size()
-                                       options:MTLResourceStorageModePrivate];
+                                       options:MTLResourceStorageModeShared];
     if (pipeline->commands == nil) {
       return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
     }

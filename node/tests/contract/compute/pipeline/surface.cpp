@@ -38,6 +38,9 @@ template <class T>
 concept PreparesRvalue = requires(T value) { std::move(value).prepare(); };
 
 template <class T>
+concept HasRunSurface = requires(T value) { value.run(); };
+
+template <class T>
 concept RetainsColdPipelineBindings = requires(T value) {
   value.inputs;
   value.outputs;
@@ -57,6 +60,47 @@ concept CanRepeat =
     requires(Builder builder, Program program, Input input, Output output) {
       builder.template repeat<8u>(program, rund::compute::read(input),
                                   rund::compute::write(output));
+    };
+
+template <std::size_t N, class Seed, class Action, class Fold>
+concept CanMakeTileRepeat = requires(Seed seed, Action action, Fold fold) {
+  rund::compute::tile_repeat<N>(seed, action, fold);
+};
+
+template <class Builder, class Body, class Count, class Outer, class Seed,
+          class Output>
+concept CanTileWindowsLvalue = requires(Builder builder, Body body, Count count,
+                                        Outer outer, Seed seed, Output output) {
+  builder.template windows<64u, 8u>(body, rund::compute::window(count),
+                                    rund::compute::read(outer, seed),
+                                    rund::compute::write(output));
+};
+
+template <class Builder, class Body, class Count, class Outer, class Seed,
+          class Output>
+concept CanTileWindowsRvalue = requires(Builder builder, Body body, Count count,
+                                        Outer outer, Seed seed, Output output) {
+  std::move(builder).template windows<64u, 8u>(
+      body, rund::compute::window(count), rund::compute::read(outer, seed),
+      rund::compute::write(output));
+};
+
+template <class Builder, class Body, class Count, class Outer, class Output>
+concept CanTileWindowsWithoutSeed = requires(
+    Builder builder, Body body, Count count, Outer outer, Output output) {
+  builder.template windows<64u, 8u>(body, rund::compute::window(count),
+                                    rund::compute::read(outer),
+                                    rund::compute::write(output));
+};
+
+template <std::size_t Terminal, class Builder, class Body, class Count,
+          class Outer, class Seed, class Output>
+concept CanTerminalTileWindows =
+    requires(Builder builder, Body body, Count count, Outer outer, Seed seed,
+             Output output) {
+      builder.template windows<64u, 8u>(
+          body, rund::compute::window(count).template until<Terminal>(),
+          rund::compute::read(outer, seed), rund::compute::write(output));
     };
 
 using ReadPack =
@@ -84,6 +128,7 @@ static_assert(!PreparesLvalue<PipelineBuilder>);
 static_assert(PreparesRvalue<PipelineBuilder>);
 static_assert(rund::compute::PipelineStepCapacity == 64u);
 static_assert(rund::compute::PipelineIterationCapacity == 1024u);
+static_assert(rund::compute::PipelineInnerIterationCapacity == 1024u);
 static_assert(rund::compute::detail::PipelineBindingCapacity ==
               rund::compute::PipelineIterationCapacity *
                   rund::compute::detail::PipelineLeafCapacity);
@@ -103,6 +148,91 @@ static_assert(CanRepeat<PipelineBuilder, IntProgram, Buffer<std::int32_t>,
                         Buffer<std::int32_t>>);
 static_assert(!CanRepeat<PipelineBuilder, IntProgram, Buffer<std::uint32_t>,
                          Buffer<std::int32_t>>);
+
+using TileSeedProgram =
+    rund::compute::Program<rund::compute::Outputs<std::int32_t, std::int16_t>(
+        std::int64_t, std::uint32_t, std::uint32_t)>;
+using TileActionProgram =
+    rund::compute::Program<std::int32_t(std::int32_t, std::int16_t)>;
+using TileFoldProgram = rund::compute::Program<std::uint32_t(
+    std::uint32_t, std::int32_t, std::int16_t)>;
+using TileSeedNoExternalProgram =
+    rund::compute::Program<rund::compute::Outputs<std::int32_t, std::int16_t>(
+        std::uint32_t, std::uint32_t)>;
+using TileBody = decltype(rund::compute::tile_repeat<8u>(
+    std::declval<const TileSeedProgram &>(),
+    std::declval<const TileActionProgram &>(),
+    std::declval<const TileFoldProgram &>()));
+using TileBodyNoExternal = decltype(rund::compute::tile_repeat<8u>(
+    std::declval<const TileSeedNoExternalProgram &>(),
+    std::declval<const TileActionProgram &>(),
+    std::declval<const TileFoldProgram &>()));
+using BadTileSeedCoordinateProgram =
+    rund::compute::Program<rund::compute::Outputs<std::int32_t, std::int16_t>(
+        std::int64_t, std::uint32_t, std::int32_t)>;
+using BadTileActionInputProgram =
+    rund::compute::Program<std::int32_t(std::int16_t, std::int16_t)>;
+using BadTileActionOutputProgram =
+    rund::compute::Program<std::int16_t(std::int32_t, std::int16_t)>;
+using BadTileFoldProgram = rund::compute::Program<std::uint32_t(
+    std::uint32_t, std::int16_t, std::int32_t)>;
+
+static_assert(
+    CanMakeTileRepeat<8u, TileSeedProgram, TileActionProgram, TileFoldProgram>);
+static_assert(CanMakeTileRepeat<8u, TileSeedNoExternalProgram,
+                                TileActionProgram, TileFoldProgram>);
+static_assert(!CanMakeTileRepeat<0u, TileSeedProgram, TileActionProgram,
+                                 TileFoldProgram>);
+static_assert(
+    !CanMakeTileRepeat<rund::compute::PipelineInnerIterationCapacity + 1u,
+                       TileSeedProgram, TileActionProgram, TileFoldProgram>);
+static_assert(!CanMakeTileRepeat<8u, BadTileSeedCoordinateProgram,
+                                 TileActionProgram, TileFoldProgram>);
+static_assert(!CanMakeTileRepeat<8u, TileSeedProgram, BadTileActionInputProgram,
+                                 TileFoldProgram>);
+static_assert(!CanMakeTileRepeat<8u, TileSeedProgram,
+                                 BadTileActionOutputProgram, TileFoldProgram>);
+static_assert(!CanMakeTileRepeat<8u, TileSeedProgram, TileActionProgram,
+                                 BadTileFoldProgram>);
+static_assert(std::is_nothrow_copy_constructible_v<TileBody>);
+static_assert(std::is_nothrow_move_constructible_v<TileBody>);
+static_assert(!std::is_copy_assignable_v<TileBody>);
+static_assert(!std::is_move_assignable_v<TileBody>);
+static_assert(!std::is_constructible_v<TileBody, TileSeedProgram,
+                                       TileActionProgram, TileFoldProgram>);
+static_assert(!PreparesLvalue<TileBody>);
+static_assert(!PreparesRvalue<TileBody>);
+static_assert(!HasRunSurface<TileBody>);
+static_assert(
+    CanTileWindowsLvalue<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                         Buffer<std::uint32_t>, Buffer<std::int64_t>,
+                         Buffer<std::uint32_t>>);
+static_assert(
+    CanTileWindowsRvalue<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                         Buffer<std::uint32_t>, Buffer<std::int64_t>,
+                         Buffer<std::uint32_t>>);
+static_assert(
+    !CanTileWindowsLvalue<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                          Buffer<std::int64_t>, Buffer<std::uint32_t>,
+                          Buffer<std::uint32_t>>);
+static_assert(
+    !CanTileWindowsLvalue<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                          Buffer<std::uint32_t>, Buffer<std::int64_t>,
+                          Buffer<std::int32_t>>);
+static_assert(
+    !CanTileWindowsWithoutSeed<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                               Buffer<std::uint32_t>, Buffer<std::uint32_t>>);
+static_assert(CanTileWindowsWithoutSeed<
+              PipelineBuilder, TileBodyNoExternal, Buffer<std::uint32_t>,
+              Buffer<std::uint32_t>, Buffer<std::uint32_t>>);
+static_assert(
+    CanTerminalTileWindows<0u, PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                           Buffer<std::uint32_t>, Buffer<std::int64_t>,
+                           Buffer<std::uint32_t>>);
+static_assert(
+    !CanTerminalTileWindows<1u, PipelineBuilder, TileBody,
+                            Buffer<std::uint32_t>, Buffer<std::uint32_t>,
+                            Buffer<std::int64_t>, Buffer<std::uint32_t>>);
 
 struct ValueField final {};
 struct WeightField final {};

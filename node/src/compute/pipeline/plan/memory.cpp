@@ -1,5 +1,7 @@
 #include "arena.hpp"
+#include "compare.hpp"
 #include "local.hpp"
+#include "prepare.hpp"
 
 #include "../../buffer/local.hpp"
 #include "../../job/local.hpp"
@@ -18,6 +20,7 @@
 #include <numeric>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -28,6 +31,164 @@ plan_memory(const PipelineBuildState &build) {
   try {
     auto result = std::make_shared<PipelineMemoryPlan>();
     PipelinePlan &summary = result->summary;
+    std::unordered_set<const ProgramState *> programs;
+    programs.reserve(build.steps.size());
+    for (const PipelineBuildStep &step : build.steps) {
+      if (step.program == nullptr) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineInvalid);
+      }
+      if (programs.insert(step.program.get()).second &&
+          !kernel::checked::add(
+              summary.node_count,
+              static_cast<std::uint64_t>(step.program->graph_info.nodes.size()),
+              summary.node_count)) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineCapacity);
+      }
+    }
+    std::uint64_t nested_commands = 0u;
+    std::uint64_t nested_templates = 0u;
+    std::uint64_t logical_workspace = 0u;
+    std::uint64_t live_workspace = 0u;
+    std::size_t covered_until = 0u;
+    for (std::size_t nested_index = 0u;
+         nested_index < build.nested_windows.size(); ++nested_index) {
+      const PipelineBuildNestedWindow &nested =
+          build.nested_windows[nested_index];
+      const std::size_t step_count = build.steps.size();
+      const bool seed_range =
+          nested.seed_first < step_count && nested.seed_count != 0u &&
+          nested.seed_count <= step_count - nested.seed_first;
+      const std::size_t expected_action_first =
+          seed_range ? nested.seed_first + nested.seed_count : step_count;
+      const bool action_range =
+          seed_range && nested.action_first == expected_action_first &&
+          nested.action_first < step_count && nested.action_count != 0u &&
+          nested.action_count <= step_count - nested.action_first;
+      const std::size_t expected_fold_first =
+          action_range ? nested.action_first + nested.action_count : step_count;
+      const bool fold_range = action_range &&
+                              nested.fold_first == expected_fold_first &&
+                              nested.fold_first < step_count &&
+                              3u <= step_count - nested.fold_first;
+      const std::size_t expected_end =
+          fold_range ? nested.fold_first + 3u : step_count;
+      const bool window_shape =
+          nested.maximum != 0u && nested.tile != 0u &&
+          nested.tile <= nested.maximum &&
+          nested.seed_count == nested.maximum / nested.tile +
+                                   (nested.maximum % nested.tile != 0u);
+      if (nested_index >= std::numeric_limits<std::uint16_t>::max() ||
+          nested.begin < covered_until || nested.begin != nested.seed_first ||
+          nested.begin >= nested.end || !fold_range ||
+          nested.end != expected_end || !window_shape) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineInvalid);
+      }
+      const auto nested_id = static_cast<std::uint16_t>(nested_index + 1u);
+      const auto valid_phase = [&](const std::size_t first,
+                                   const std::size_t count,
+                                   const PipelineRoute route) {
+        const ProgramState *const program = build.steps[first].program.get();
+        for (std::size_t offset = 0u; offset < count; ++offset) {
+          const PipelineBuildStep &step = build.steps[first + offset];
+          if (step.program.get() != program || step.nested != nested_id ||
+              step.route != route || step.iteration != offset ||
+              step.iteration_bound != count) {
+            return false;
+          }
+        }
+        return true;
+      };
+      if (!valid_phase(nested.seed_first, nested.seed_count,
+                       PipelineRoute::NestedSeed) ||
+          !valid_phase(nested.action_first, nested.action_count,
+                       PipelineRoute::NestedAction) ||
+          !valid_phase(nested.fold_first, 3u, PipelineRoute::NestedFold)) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineInvalid);
+      }
+      covered_until = nested.end;
+      summary.outer_window_count =
+          std::max(summary.outer_window_count,
+                   static_cast<std::uint64_t>(nested.seed_count));
+      summary.tile_capacity = std::max(summary.tile_capacity,
+                                       static_cast<std::uint64_t>(nested.tile));
+      summary.inner_iteration_count =
+          std::max(summary.inner_iteration_count,
+                   static_cast<std::uint64_t>(nested.action_count));
+      std::uint64_t commands_per_window = 0u;
+      std::uint64_t commands = 0u;
+      if (!kernel::checked::add(static_cast<std::uint64_t>(nested.action_count),
+                                2u, commands_per_window) ||
+          !kernel::checked::mul(static_cast<std::uint64_t>(nested.seed_count),
+                                commands_per_window, commands) ||
+          !kernel::checked::add(nested_commands, commands, nested_commands)) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineCapacity);
+      }
+      std::uint64_t templates = 0u;
+      if (!kernel::checked::add(static_cast<std::uint64_t>(nested.seed_count),
+                                static_cast<std::uint64_t>(nested.action_count),
+                                templates) ||
+          !kernel::checked::add(templates, 3u, templates) ||
+          !kernel::checked::add(nested_templates, templates,
+                                nested_templates)) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineCapacity);
+      }
+      const graph::MemoryPlan &seed_memory =
+          build.steps[nested.seed_first].program->graph_info.memory;
+      const graph::MemoryPlan &action_memory =
+          build.steps[nested.action_first].program->graph_info.memory;
+      const graph::MemoryPlan &fold_memory =
+          build.steps[nested.fold_first].program->graph_info.memory;
+      std::uint64_t per_window = 0u;
+      std::uint64_t action_total = 0u;
+      std::uint64_t all_windows = 0u;
+      if (!kernel::checked::mul(action_memory.logical_bytes,
+                                static_cast<std::uint64_t>(nested.action_count),
+                                action_total) ||
+          !kernel::checked::add(seed_memory.logical_bytes, action_total,
+                                per_window) ||
+          !kernel::checked::add(per_window, fold_memory.logical_bytes,
+                                per_window) ||
+          !kernel::checked::mul(per_window,
+                                static_cast<std::uint64_t>(nested.seed_count),
+                                all_windows) ||
+          !kernel::checked::add(logical_workspace, all_windows,
+                                logical_workspace)) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineCapacity);
+      }
+    }
+    std::size_t nested_index = 0u;
+    for (std::size_t step_index = 0u; step_index < build.steps.size();
+         ++step_index) {
+      while (nested_index < build.nested_windows.size() &&
+             step_index >= build.nested_windows[nested_index].end) {
+        ++nested_index;
+      }
+      const bool nested =
+          nested_index < build.nested_windows.size() &&
+          step_index >= build.nested_windows[nested_index].begin;
+      const PipelineBuildStep &step = build.steps[step_index];
+      if (!nested) {
+        if (step.nested != 0u || step.route != PipelineRoute::Ordinary) {
+          return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+              Reason::PipelineInvalid);
+        }
+        if (!kernel::checked::add(logical_workspace,
+                                  step.program->graph_info.memory.logical_bytes,
+                                  logical_workspace)) {
+          return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+              Reason::PipelineCapacity);
+        }
+      }
+      live_workspace =
+          std::max(live_workspace, step.program->graph_info.memory.live_bytes);
+    }
     std::unordered_map<const BufferState *, std::uint8_t> external;
     external.reserve(std::min(build.binding_count, PipelineResourceCapacity));
     const auto admit = [&](const PipelineBinding &binding) {
@@ -94,6 +255,11 @@ plan_memory(const PipelineBuildState &build) {
             Reason::PipelineCapacity);
       }
     }
+    const Status schedule = plan_pipeline_schedule(build, *result);
+    if (!schedule) {
+      return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+          schedule.reason());
+    }
 
     const Status arena =
         plan_pipeline_arena(*build.device, build.steps, *result);
@@ -116,15 +282,51 @@ plan_memory(const PipelineBuildState &build) {
     summary.allocation_count = build.internals.size() + result->chunks.size() +
                                result->view_chunks.size() +
                                result->scratch_chunks.size();
-    summary.peak_bytes = summary.state_bytes;
-    if (!kernel::checked::add(summary.peak_bytes, summary.transient_bytes,
-                              summary.peak_bytes) ||
-        !kernel::checked::add(summary.peak_bytes, summary.prepared_bytes,
+    std::uint64_t infrastructure_bytes = 0u;
+    if (!kernel::checked::add(summary.state_bytes, summary.prepared_bytes,
+                              infrastructure_bytes) ||
+        !kernel::checked::add(infrastructure_bytes, summary.transient_bytes,
                               summary.peak_bytes) ||
         !kernel::checked::add(summary.persistent_bytes, summary.peak_bytes,
                               summary.total_bytes)) {
       return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
           Reason::PipelineCapacity);
+    }
+    std::uint64_t flat_templates = 0u;
+    std::uint64_t flat_commands = 0u;
+    for (std::size_t index = 0u; index < build.steps.size(); ++index) {
+      const PipelineBuildStep &step = build.steps[index];
+      if (step.route != PipelineRoute::Ordinary) {
+        continue;
+      }
+      ++flat_commands;
+      const std::uint32_t reusable_from = 3u;
+      const bool reused = step.iteration_bound > 1u &&
+                          step.iteration >= reusable_from && index >= 2u &&
+                          same_recurrence_phase(step, build.steps[index - 2u]);
+      if (!reused) {
+        ++flat_templates;
+      }
+    }
+    if (!kernel::checked::add(flat_templates, nested_templates,
+                              summary.prepared_template_count) ||
+        !kernel::checked::add(flat_commands, nested_commands,
+                              summary.prepared_command_count)) {
+      return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+          Reason::PipelineCapacity);
+    }
+    if (!kernel::checked::add(infrastructure_bytes, logical_workspace,
+                              summary.logical_bytes) ||
+        !kernel::checked::add(infrastructure_bytes, live_workspace,
+                              summary.live_bytes) ||
+        !kernel::checked::add(infrastructure_bytes, summary.transient_bytes,
+                              summary.physical_bytes)) {
+      return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+          Reason::PipelineCapacity);
+    }
+    if (summary.physical_bytes != summary.peak_bytes) {
+      return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+          Reason::PipelineInvalid);
     }
     return Result<std::shared_ptr<const PipelineMemoryPlan>>::success(
         std::move(result));

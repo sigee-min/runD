@@ -7,7 +7,7 @@ if(NOT DEFINED RUND_EXPECTED_PACKAGE_DIR OR
     "component probe requires the freshly installed package directory")
 endif()
 
-find_package(runD 1.0.0 EXACT CONFIG QUIET COMPONENTS unsupported)
+find_package(runD 1.0.1 EXACT CONFIG QUIET COMPONENTS unsupported)
 if(runD_FOUND)
   message(FATAL_ERROR "runD unexpectedly accepted an unsupported component")
 endif()

@@ -351,11 +351,117 @@ performs a count or payload readback or warm allocation. The same plan supplies
 CPU, Metal, and Vulkan the same explicit window order, Program chunks,
 barriers, reset ranges, and fingerprint input.
 
+#### Nested Tile-Local Repeat
+
+Use `tile_repeat<N>(seed_program, action_program, fold_program)` when each
+active resident window must run a fixed recurrence before contributing to one
+outer state:
+
+```cpp fragment
+auto body = rund::compute::tile_repeat<N>(
+    seed_program,
+    action_program,
+    fold_program);
+
+auto prepared =
+    rund::compute::pipeline(device)
+        .windows<Max, Tile>(
+            body,
+            rund::compute::window(count),
+            rund::compute::read(outer_seed, seed_external),
+            rund::compute::write(outer_result))
+        .prepare();
+```
+
+The declaration is not independently executable or preparable; the enclosing
+Pipeline retains the three compiled Programs once. With flattened tuples
+`S` for Seed-external input, `T` for complete tile state, `P` for inner carry,
+and `O` for outer state, admission requires:
+
+```text
+Seed  : (S..., U32 count, U32 ordinal) -> (T...)
+Action: (T...)                         -> (P...), P is a prefix of T
+Fold  : (O..., T...)                   -> (O...)
+
+windows reads  (O..., S...)
+windows writes (O...)
+```
+
+Writing `T = P || Q`, one active window seeds `T`, evaluates Action exactly
+`N` times by alternating two `P` banks while retaining one `Q` bank, then
+folds the final `T` into `O`. The complete Fold precedes the next Seed.
+Only Seed receives the canonical total runtime count and outer ordinal; it
+derives the tile-local tail count with `resident<Max, Tile>`. Any Action
+invariant derived from either coordinate is explicit in `Q`.
+
+The prepared schedule is hierarchical. It retains `O(K + N)` route templates
+and fixed control, not a flattened `K * N` collection of Program graphs, Jobs,
+workspaces, bindings, or banks. Seed, Action, and Fold share the maximum
+serial workspace, dense-View, and primitive-scratch envelopes. Native command
+references and observed dispatches remain separate evidence because generic
+Action work can execute `K_active * N` Program invocations even though its
+prepared action body is stored once. The current nested lowering executes all
+`N` ordered Action invocations for each active window; the independent
+top-level Map register-recurrence specialization does not classify a
+Seed/Action/Fold subrange.
+
+`C = 0` performs only resident preflight and publishes the initial `O`.
+A partial last window receives its exact active count. Seed must retain that
+count in invariant `Q` whenever Action or Fold needs bounded tail access; the
+Pipeline preserves it but does not infer a new count lineage across compiled
+Program boundaries. `C > Max` suppresses every nested payload command and
+publication before returning `compute_bounded_count_invalid`. An optional
+`until<Index>` observes a U32 leaf of current `O` between outer windows; a
+Fold-produced match suppresses only subsequent windows, never a suffix of the
+current fixed inner recurrence. Seed, Action, or Fold failure suppresses all
+later work and publication, and mutable route status is consumed before route
+reuse. Telemetry checks the same resident stopped state before reading a
+mutable route counter, so an inactive occurrence cannot count data left by an
+earlier active occurrence.
+
+Plan, status, statistics, and profile evidence retain the logical Pipeline
+step plus independent outer-window and inner-iteration coordinates; Seed and
+Fold identify their phase without a synthetic inner iteration. Bounds and
+locations are never represented by `k * N + j`. CPU follows that order in one
+Pipeline run. Metal and Vulkan reuse at most two parity Action
+Job/prepared-resource owners across the frozen native command references and
+perform one native submission with no warm allocation, compilation,
+descriptor growth, rebind, count readback, or fallback.
+
+Metal normal command buffers are single-use. The current Metal warm path
+therefore traverses its frozen direct-command and ICB-range tables to encode
+the one outer command buffer. The walk is count-independent, performs no
+binding-identity mutation, and adds no submission, but it is still host
+descriptor traversal whose size can grow with the prepared schedule. The
+literal nested-window “no host loop” requirement remains open until that walk
+is replaced by a fully guarded static ICB or a persistent device scheduler;
+one-submit evidence alone does not close it. Vulkan's primary command buffer
+is recorded during cold preparation.
+
+The corresponding `rebinding_count` means mutations of those retained
+Job/Buffer/View/prepared-owner identities after preparation. Cold native
+capture and emission of already frozen descriptors are not mutations. The
+counter is zero by construction and is interpreted together with the
+`compute.window` frozen-binding snapshot oracle; a zero counter alone is not
+the ownership proof.
+
 `PipelineBuilder::plan()` returns the exact public `PipelinePlan` summary used
 by `prepare()`: caller-owned `persistent_bytes`, Pipeline-owned state and
 transient logical Buffer bytes, typed backend View and primitive scratch
 storage in `prepared_bytes`, publication traffic, `peak_bytes`, `total_bytes`,
 allocation/reuse/publication counts, and largest/peak coordinates.
+
+For nested tile-local recurrence, that summary additionally distinguishes
+outer-window count, `Tile`, inner-iteration count, compact route-template
+count, and native command-reference capacity. Its largest, peak, and View
+locations carry separate outer and inner coordinates. Runtime dispatch totals
+remain `Stats` evidence and are not synthesized from either prepared count.
+`barrier_count` likewise reports the exact nonzero boundaries in the compact
+schedule produced by the canonical resource hazard analysis plus shared-arena
+reuse. It is not `prepared_command_count - 1`; native expansion can grow as
+`K * (N + 2)` while a pure nested route table has at most `K + N + 2`
+boundaries. `plan()` freezes that boundary vector and `prepare()` consumes it
+without reconstructing another hazard policy.
 
 ```text
 peak_bytes = state_bytes + transient_bytes + prepared_bytes
@@ -818,6 +924,9 @@ Contract evidence must prove:
 - `PipelineBuilder::plan()` and prepared `Pipeline::plan()` report the same
   `PipelinePlan`; a budget below `peak_bytes` fails before Pipeline-owned
   Buffer materialization;
+- flat-only, pure nested, and nested-plus-ordinary plans report the exact
+  compact hazard/workspace boundary population independently of expanded
+  prepared command-reference count;
 - cache hit, miss, coalesced concurrent miss, capacity eviction, clear, and
   device isolation;
 - exact oldest-to-newest touch and eviction order, allocation-free ready hits,

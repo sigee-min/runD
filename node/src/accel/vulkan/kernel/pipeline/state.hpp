@@ -10,7 +10,9 @@
 #include "../window.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -37,12 +39,15 @@ struct VulkanPipelineTelemetryParams final {
   std::uint32_t predicate_word_offset{};
   std::uint32_t indirect_dispatch_count{};
   std::uint32_t declared_step{};
+  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
   std::uint64_t capacity{};
   std::uint64_t predicate_expected{};
   std::uint64_t work_item_count{};
 };
 
 static_assert(sizeof(VulkanPipelineTelemetryParams) == 72u);
+static_assert(offsetof(VulkanPipelineTelemetryParams, state) == 44u);
+static_assert(offsetof(VulkanPipelineTelemetryParams, capacity) == 48u);
 
 struct VulkanPipelineProfileTelemetryParams final {
   VulkanPipelineTelemetryParams telemetry{};
@@ -56,9 +61,12 @@ struct VulkanPipelineProfile final {
   std::array<PreparedPipelineStepEvidence, PreparedPipelineStepCapacity> rows{};
   std::array<PreparedPipelineStepControl, PreparedPipelineStepCapacity>
       controls{};
-  std::array<bool, PreparedPipelineStepCapacity> timestamped{};
   std::array<std::uint32_t, PreparedPipelineStepCapacity> declared_steps{};
+  std::vector<std::uint8_t> timestamped;
+  std::vector<std::uint32_t> command_templates;
+  std::vector<std::uint64_t> timestamp_values;
   std::uint32_t active_step_count{};
+  std::uint32_t command_count{};
   std::uint32_t declared_step_count{};
   std::uint32_t query_count{};
   std::uint64_t instrumentation_command_count{};

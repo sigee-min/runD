@@ -36,7 +36,8 @@ RunPreparedMetalBatch(std::span<const BackendBatchEntry> entries,
                       std::shared_ptr<void> &workspace,
                       rund::RuntimeStats &stats);
 [[nodiscard]] rund::AccelCheck
-PrepareMetalPipeline(std::span<const BackendBatchEntry> entries,
+PrepareMetalPipeline(std::span<const BackendBatchEntry> templates,
+                     std::span<const BackendBatchEntry> entries,
                      std::span<const std::uint8_t> barriers,
                      std::span<const BackendPublish> publications,
                      PreparedPipelineStatusLayout &status, bool profile_steps,
@@ -63,7 +64,8 @@ RunPreparedVulkanBatch(std::span<const BackendBatchEntry> entries,
                        std::shared_ptr<void> &workspace,
                        rund::RuntimeStats &stats);
 [[nodiscard]] rund::AccelCheck
-PrepareVulkanPipeline(std::span<const BackendBatchEntry> entries,
+PrepareVulkanPipeline(std::span<const BackendBatchEntry> templates,
+                      std::span<const BackendBatchEntry> entries,
                       std::span<const std::uint8_t> barriers,
                       std::span<const BackendPublish> publications,
                       PreparedPipelineStatusLayout &status, bool profile_steps,

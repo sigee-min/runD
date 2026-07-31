@@ -257,9 +257,16 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.0` is the current
+The CMake version file uses exact-version matching. `1.0.1` is the current
 artifact identity; a major-only version range is not a supported consumption
 contract.
+
+The `1.0.1` Alpha extends by-value Compute reports and the inline `Run` receipt
+for nested Pipeline evidence. It deliberately uses a new exact SDK identity
+because those headers and libraries are not binary-compatible with the
+published `1.0.0` tuple. Consumers must build and consume headers and libraries
+from one matched exact artifact; `1.0.0` remains a historical identity and may
+not be mixed with `1.0.1`.
 
 ## Compute Contract
 
@@ -282,8 +289,8 @@ parse the future/task construction templates.
 functions and matrix, transform, factor, solve, and spectrum stages. It owns
 no second graph, target, compilation, or execution authority.
 `<rund/compute/pipeline.hpp>` is the opt-in focused direct owner of `pipeline`,
-`read`, `write`, `PipelineBuilder`, `Pipeline`, copyable `StateSnapshot`, and
-the bounded profile vocabulary `PipelineProfile`, `StepClock`,
+`read`, `write`, `tile_repeat`, `PipelineBuilder`, `Pipeline`, copyable
+`StateSnapshot`, and the bounded profile vocabulary `PipelineProfile`, `StepClock`,
 `StepTimingRelation`, `StepTiming`, `PipelineStepStats`,
 `PipelineStepProfile`, and `PipelineProfileSnapshot`; the basic
 `<rund/compute.hpp>` entry deliberately excludes it, while `<rund/rund.hpp>`
@@ -339,10 +346,42 @@ The body derives its canonical `base`, active `count`, and ordinal through
 `resident<Max, Tile>` and therefore authors tile-sized intermediates while
 keeping the full input Buffer resident. It is not a request to resize an
 already authored full-capacity Program.
+`tile_repeat<N>(seed_program, action_program, fold_program)` is the
+hierarchical body spelling for a fixed tile-local recurrence inside those
+windows. It is a declaration value with no independent `prepare`, `run`,
+binding, or observation surface. The enclosing Pipeline retains each compiled
+Program once. For flattened tuples `S`, `T`, `P`, and `O`, Seed has signature
+`T(S..., U32 total_count, U32 outer_ordinal)`, Action has signature `P(T...)` with `P`
+an exact prefix of `T`, and Fold has signature `O(O..., T...)`.
+`windows` consequently reads `(O..., S...)` and writes `(O...)`.
+The `T` suffix after `P` is one invariant tile bank and Action alternates
+exactly two `P` banks for its positive compile-time bound `N`.
+Preparation retains `O(ceil(Max / Tile) + N)` compact routes rather than the
+outer-times-inner product. It never duplicates the three Program graphs,
+Jobs, workspace/View/scratch envelope, or banks per outer/inner pair.
+CPU executes one Pipeline semantic order, and Metal/Vulkan retain one
+submission with no warm allocation, binding-identity mutation, count readback,
+or fallback. `rebinding_count` names post-prepare mutations; cold encoding of
+frozen descriptors is not a mutation, and the contract fixture independently
+compares all retained owner and View identities across warm executions.
+Metal's current warm path still walks those frozen direct-command and
+ICB-range descriptors to construct the API-required single-use outer command
+buffer. That count-independent walk performs no rebind and adds no submit, but
+it is not literal zero host traversal; the nested-window “no host loop”
+requirement remains open for the next backend lowering.
+Seed derives the active tail count through `resident<Max, Tile>`. Zero,
+partial-tail, overflow, terminal, and first-failure behavior is the
+resident-window contract; evidence names phase, outer window, and inner
+iteration as separate coordinates instead of flattening them.
 `plan()` returns the immutable `PipelinePlan` before allocation. It separates
 referenced `persistent_bytes` from Pipeline-owned `peak_bytes`, publishes their
 checked `total_bytes`, and identifies the largest single workspace with
 `largest_bytes`, `largest_step`, `largest_iteration`, and `largest_chunk`.
+For `tile_repeat`, the plan also distinguishes outer-window count, tile
+capacity, inner-iteration count, route-template count, native
+command-reference capacity, and separate outer/inner coordinates for
+largest, peak, and View locations. Observed dispatches remain runtime
+statistics and are not inferred from prepared-route cardinality.
 `budget(MemoryBudget)` compares the Pipeline-owned `peak_bytes` before
 Pipeline-owned Buffer materialization. `peak_bytes` is exactly
 `state_bytes + transient_bytes + prepared_bytes`; the prepared term contains
@@ -381,7 +420,7 @@ Unavailable timing has an explicit clock and zero sample count; a measured
 zero duration remains available. `Stats`, `PipelineStats`, `MemoryEntry`,
 `MemoryStats`, and `compute::telemetry::Profile` retain their meanings, while
 the recurrence release adds the two explicit iteration fields to
-`PipelineStepProfile`. The Pipeline terminal-control ABI occupies 80 bytes.
+`PipelineStepProfile`. The Pipeline terminal-control ABI occupies 128 bytes.
 Profiling mode and observations never enter the Pipeline fingerprint, Replay,
 output, snapshot, publication, or failure identity.
 
@@ -437,7 +476,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.0 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.1 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

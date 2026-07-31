@@ -58,12 +58,15 @@ Status bind_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     const PhysicalOutputProjection &physical_output =
         physical_outputs[step_index];
     const std::shared_ptr<JobWorkspace> &workspace = memory->steps[step_index];
-    // After the seed occurrence, a two-bank recurrence has exactly two
-    // binding phases.  Reuse their private Job/prepared owners instead of
-    // retaining another complete graph-buffer set for every authored
-    // iteration.  The native command stream still consumes every occurrence
-    // in canonical order; only identical cold ownership is shared.
-    if (declared.iteration_bound > 1u && declared.iteration >= 3u) {
+    // A nested action begins directly on its seeded first bank, so its two
+    // parity routes repeat from iteration two.  The legacy top-level repeat
+    // keeps its distinct seed route and begins owner reuse at iteration three.
+    // In both cases the native command stream still consumes every occurrence;
+    // only identical cold Job/prepared ownership is shared.
+    const std::uint32_t reusable_from =
+        declared.route == PipelineRoute::NestedAction ? 2u : 3u;
+    if (declared.iteration_bound > 1u &&
+        declared.iteration >= reusable_from) {
       if (step_index < 2u) {
         return Status::fail(Reason::PipelineInvalid);
       }
@@ -150,6 +153,7 @@ Status bind_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   std::vector<PipelineBuildStatePair>{}.swap(build->state_pairs);
   std::vector<PipelineBuildPublish>{}.swap(build->publications);
   std::vector<PipelineInternal>{}.swap(build->internals);
+  std::vector<PipelineBuildNestedWindow>{}.swap(build->nested_windows);
   build->memory.reset();
   state->status_entry_count = status_entry_count;
   state->stats.pipeline.status_entry_count = state->status_entry_count;

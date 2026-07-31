@@ -135,6 +135,15 @@ rund::AccelCheck MetalPipelineBuild::EncodeTelemetry(
       [encoder setBuffer:pipeline->step_control offset:0u atIndex:5u];
       [encoder setBytes:&declared_step length:sizeof(declared_step) atIndex:6u];
     }
+    id<MTLBuffer> const states =
+        pipeline->states == nil ? pipeline->control : pipeline->states;
+    if (states == nil) {
+      return rund::AccelCheck{false, "accel_metal_buffer_failed"};
+    }
+    [encoder setBuffer:states offset:0u atIndex:7u];
+    [encoder setBytes:&captured.owner
+               length:sizeof(captured.owner)
+              atIndex:8u];
     [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
         threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
     captured.commands.back().kind = MetalGrid::DirectThreads;

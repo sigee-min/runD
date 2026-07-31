@@ -5,6 +5,7 @@ namespace rund::node::accel::detail {
 #if !defined(__APPLE__) || !defined(RUND_NODE_HAVE_METAL_SDK)
 
 rund::AccelCheck PrepareMetalPipeline(const std::span<const BackendBatchEntry>,
+                                      const std::span<const BackendBatchEntry>,
                                       const std::span<const std::uint8_t>,
                                       const std::span<const BackendPublish>,
                                       PreparedPipelineStatusLayout &,

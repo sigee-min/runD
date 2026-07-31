@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   message(FATAL_ERROR
     "positive installed package consumer must use the producer Release build type")
 endif()
-find_package(runD 1.0.0 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
 
 file(REAL_PATH "${RUND_EXPECTED_PACKAGE_DIR}" expected_runD_dir)
 file(REAL_PATH "${runD_DIR}" resolved_runD_dir)
@@ -25,7 +25,7 @@ endif()
 get_filename_component(runD_install_prefix "${resolved_runD_dir}/../../.."
                        ABSOLUTE)
 
-if(NOT DEFINED runD_VERSION OR NOT runD_VERSION STREQUAL "1.0.0")
+if(NOT DEFINED runD_VERSION OR NOT runD_VERSION STREQUAL "1.0.1")
   message(FATAL_ERROR
     "installed package resolved a non-current SDK version: ${runD_VERSION}")
 endif()

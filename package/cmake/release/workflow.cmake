@@ -222,8 +222,8 @@ execute_process(
   OUTPUT_VARIABLE package_version
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(NOT version_result STREQUAL "0" OR
-   NOT package_version STREQUAL "1.0.0")
-  message(FATAL_ERROR "package version owner did not resolve SDK 1.0.0")
+   NOT package_version STREQUAL "1.0.1")
+  message(FATAL_ERROR "package version owner did not resolve SDK 1.0.1")
 endif()
 
 file(STRINGS "${platform_registry_path}" platform_rows)
@@ -310,7 +310,7 @@ if(NOT package_route STREQUAL
 endif()
 
 set(verifier_fixture "${BUILD}/package-verifier-contract")
-set(verifier_name "rund-sdk-1.0.0-darwin-arm64")
+set(verifier_name "rund-sdk-1.0.1-darwin-arm64")
 set(verifier_payload "${verifier_fixture}/payload")
 set(verifier_archive "${verifier_fixture}/${verifier_name}.tar.gz")
 set(verifier_checksum "${verifier_fixture}/${verifier_name}.sha256")
@@ -376,17 +376,17 @@ rund_write_source_identity(
 
 set(darwin_identity "${fixture}/darwin.tsv")
 rund_write_artifact_identity_fixture(
-  "${darwin_identity}" darwin-arm64 "${public_target}" 1.0.0)
+  "${darwin_identity}" darwin-arm64 "${public_target}" 1.0.1)
 
 set(linux_identity "${fixture}/linux.tsv")
 rund_write_artifact_identity_fixture(
-  "${linux_identity}" linux-x64 "${public_target}" 1.0.0)
+  "${linux_identity}" linux-x64 "${public_target}" 1.0.1)
 
 function(run_identity identity triplet result output)
   execute_process(
     COMMAND "${CMAKE_COMMAND}"
       -D "IDENTITY=${identity}"
-      -D "EXPECTED_SDK_VERSION=1.0.0"
+      -D "EXPECTED_SDK_VERSION=1.0.1"
       -D "EXPECTED_TRIPLET=${triplet}"
       -D "PUBLIC_TARGET=${public_target}"
       -D "IDENTITY_OWNER=fixture"

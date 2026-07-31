@@ -99,7 +99,7 @@ ValidValues(const std::span<const std::int32_t> input,
          pipeline.failed_step_index ==
              ::rund::compute::PipelineStats::no_failed_step &&
          pipeline.status_entry_count == 0u &&
-         pipeline.control_byte_count == 80u &&
+         pipeline.control_byte_count == 128u &&
          pipeline.control_command_count == control_commands;
 }
 

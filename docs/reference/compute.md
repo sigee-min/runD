@@ -166,6 +166,13 @@ algorithm has a named SDK primitive. The normal-form argument is:
    plus one Program-internal workspace. Pipeline orders cross-Program
    transitions, consumes occurrence-local telemetry before route reuse, and
    publishes persistent state only at `commit()`.
+   A fixed inner solver inside each bounded window uses
+   `tile_repeat<N>(seed, action, fold)`. Seed constructs tile-local state from
+   the active count and ordinal, Action updates an exact carried prefix `N`
+   times while retaining the remaining tile state, and Fold updates the outer
+   recurrence. Preparation keeps the three Programs once and stores a
+   hierarchical `O(ceil(Max / Tile) + N)` schedule rather than a flattened
+   outer-times-inner graph.
 
 By induction over that finite transition graph, every admitted bounded
 word-array program has a Flow/Pipeline representation. The converse is
@@ -1020,6 +1027,39 @@ the Program-workspace coordinates. `view_span_bytes`, `view_backing_bytes`, `vie
 selected backend's `storage_alignment` and per-binding `storage_bytes` limit.
 `persistent_bytes` reports referenced caller Buffer storage, and `total_bytes`
 is the checked sum of persistent and peak bytes.
+
+The three Pipeline workspace reports consume each Program's public
+`graph().memory` contract without substituting retained chunk extents for
+authored bytes. Let `B = state_bytes + prepared_bytes`, let `L(p)` and `V(p)`
+be Program `p`'s `logical_bytes` and `live_bytes`, and let an ordinary Program
+occurrence be `o`. For every nested group `g`, let `K_g` be its outer-window
+count, `N_g` its Action count, and `s_g`, `a_g`, and `f_g` its Seed, Action,
+and Fold Programs. The checked plan equations are
+
+```text
+W_log  = sum(o, L(o))
+       + sum(g, K_g * (L(s_g) + N_g * L(a_g) + L(f_g)))
+W_live = max(V(p)) for every executable ordinary, Seed, Action, or Fold template p
+logical_bytes  = B + W_log
+live_bytes     = B + W_live
+physical_bytes = B + transient_bytes = peak_bytes
+```
+
+`B` is fixed Pipeline infrastructure and is included identically in all three
+reports. `persistent_bytes` is caller-owned and excluded from all three;
+publication traffic is also excluded. The equations are exact checked sums,
+not lower bounds: none of the reports is clamped upward to another report.
+
+For `tile_repeat<N>`, write Action input state as `T = P || Q`, where `P` is
+the Action output prefix and `Q` is invariant. The retained nested state is
+the required outer state plus one `Q` bank and exactly two alternating `P`
+banks. Seed, Action, and Fold share the componentwise maximum Program
+workspace, dense-View, and primitive-scratch envelopes. Compact control,
+command references, and prepared metadata grow as
+`O(ceil(Max / Tile) + N)`; no state, graph, Job, workspace, or bank grows as
+the outer-times-inner product or as `Max` elements. Plan and runtime evidence
+keep outer window, inner iteration, native command reference, and observed
+dispatch counts as different coordinates.
 
 `MemoryBudget` compares `peak_bytes` before any Pipeline-owned View, scratch,
 state, or workspace Buffer is materialized because caller Buffers already

@@ -1,4 +1,5 @@
 #include "window/local.hpp"
+#include "window/nested/local.hpp"
 
 #include "../target/selection.hpp"
 
@@ -7,6 +8,7 @@
 namespace {
 
 using rund::node::test_contract::window::Backend;
+using rund::node::test_contract::window::CheckNestedWindow;
 using rund::node::test_contract::window::CheckOverflow32;
 using rund::node::test_contract::window::CheckOverflow64;
 using rund::node::test_contract::window::CheckParity32;
@@ -57,6 +59,9 @@ using rund::node::test_contract::window::Identity;
           CheckWindowTerminal(*opened, backend, identity.terminal);
       terminal != 0) {
     return 180 + terminal;
+  }
+  if (const int nested = CheckNestedWindow(*opened, backend); nested != 0) {
+    return 220 + nested;
   }
   return 0;
 }

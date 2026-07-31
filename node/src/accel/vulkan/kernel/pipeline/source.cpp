@@ -14,6 +14,7 @@ layout(set=0,binding=0,std430) readonly buffer Primary { uint primary[]; };
 layout(set=0,binding=1,std430) readonly buffer Count { uint count_words[]; };
 layout(set=0,binding=2,std430) readonly buffer Predicate { uint predicate_words[]; };
 layout(set=0,binding=3,std430) buffer Control { uint control[]; };
+layout(set=0,binding=4,std430) readonly buffer States { uvec2 states[]; };
 layout(push_constant) uniform Params {
   uint kind;
   uint primary_word_count;
@@ -26,6 +27,7 @@ layout(push_constant) uniform Params {
   uint predicate_word_offset;
   uint indirect_dispatch_count;
   uint declared_step;
+  uint state;
   uint64_t capacity;
   uint64_t predicate_expected;
   uint64_t work_item_count;
@@ -66,6 +68,9 @@ void add_control(uint at, uint64_t value) {
   store_control(at, saturating_add(load_control(at), value));
 }
 void main() {
+  if (p.state != 0xffffffffu && states[p.state].y != 0u) {
+    return;
+  }
   if (control[1] != 0u && control[2] != p.declared_step) {
     return;
   }
@@ -175,7 +180,7 @@ void main() {
                  "control[]; };\n",
                  "layout(set=0,binding=3,std430) buffer Control { uint "
                  "control[]; };\n"
-                 "layout(set=0,binding=4,std430) buffer StepControl { uint "
+                 "layout(set=0,binding=5,std430) buffer StepControl { uint "
                  "step_control[]; };\n") ||
         !replace("  uint64_t work_item_count;\n} p;\n",
                  "  uint64_t work_item_count;\n"

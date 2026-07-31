@@ -13,6 +13,7 @@ usage() {
     "       tools/measure/compute/run --pipeline <metal|vulkan>" \
     "       tools/measure/compute/run --pipeline-profile <metal|vulkan>" \
     "       tools/measure/compute/run --recurrence <metal|vulkan>" \
+    "       tools/measure/compute/run --window-repeat <metal|vulkan>" \
     "       -h, --help  Show this help."
 }
 
@@ -28,7 +29,8 @@ if [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--batch" ] ||
   [ "$1" = "--pipeline" ] ||
   [ "$1" = "--pipeline-profile" ] ||
-  [ "$1" = "--recurrence" ]; }; then
+  [ "$1" = "--recurrence" ] ||
+  [ "$1" = "--window-repeat" ]; }; then
   case "$2" in
     cpu|metal|vulkan)
       mode=${1#--}
@@ -40,7 +42,8 @@ if [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
       ;;
   esac
   if { [ "$mode" = pipeline ] || [ "$mode" = pipeline-profile ] ||
-    [ "$mode" = recurrence ] || [ "$mode" = batch ]; } &&
+    [ "$mode" = recurrence ] || [ "$mode" = window-repeat ] ||
+    [ "$mode" = batch ]; } &&
     [ "$backend" = cpu ]; then
     usage >&2
     exit 2

@@ -21,6 +21,7 @@
 #include <span>
 
 #include <accel/kernel/evidence.hpp>
+#include <rund/counter.hpp>
 
 namespace rund::compute::detail {
 namespace {
@@ -28,29 +29,16 @@ namespace {
 [[nodiscard]] PipelineOutcome run_cpu(PipelineState &state) {
   PipelineOutcome outcome{.publication_suppressed = true};
   reset_cpu_resident(state);
-  for (std::size_t index = 0u; index < state.steps.size(); ++index) {
+  const auto execute = [&](const std::size_t index) {
+    if (index >= state.steps.size()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
     PipelineStep &step = state.steps[index];
     begin_pipeline_profile_step(state, index);
     const auto finish_step = [&](const bool executed) noexcept {
       capture_cpu_pipeline_step(state, index, executed);
       finish_pipeline_profile_step(state, index);
     };
-    bool active = true;
-    const Status window_ready =
-        prepare_cpu_pipeline_window(state, index, active);
-    if (!window_ready) {
-      finish_step(false);
-      outcome.status =
-          pipeline_window_status(state, step, window_ready, state.stats);
-      outcome.failed_step = index;
-      outcome.failure_step_known = true;
-      return outcome;
-    }
-    if (!active) {
-      finish_step(false);
-      ++outcome.verified;
-      continue;
-    }
     outcome.writes_possible = outcome.writes_possible || step.writes;
     const std::shared_ptr<JobState> &job =
         state.transactional && state.parity != 0u ? step.alternate_job
@@ -58,38 +46,161 @@ namespace {
     const Status gathered = gather_cpu_pipeline_views(job);
     if (!gathered) {
       finish_step(false);
-      outcome.status = gathered;
-      outcome.failed_step = index;
-      outcome.failure_step_known = true;
-      return outcome;
+      return gathered;
     }
     const Status ran = run_pipeline_job(job);
     if (!ran) {
       const Status consumed = consume_cpu_pipeline_step(state, index, ran);
       finish_step(true);
-      outcome.status = pipeline_window_status(
-          state, step, consumed ? ran : consumed, state.stats);
-      outcome.failed_step = index;
-      outcome.failure_step_known = true;
-      return outcome;
+      return consumed ? ran : consumed;
     }
     const Status published = publish_cpu_pipeline_views(job);
     if (!published) {
       finish_step(true);
-      outcome.status = published;
-      outcome.failed_step = index;
-      outcome.failure_step_known = true;
-      return outcome;
+      return published;
     }
     const Status consumed = consume_cpu_pipeline_step(state, index);
-    if (!consumed) {
-      finish_step(true);
-      outcome.status = consumed;
+    finish_step(true);
+    return consumed;
+  };
+
+  for (std::size_t index = 0u; index < state.steps.size(); ++index) {
+    PipelineStep &step = state.steps[index];
+    if (step.route == PipelineRoute::NestedSeed) {
+      if (step.window == 0u || step.window > state.windows.size()) {
+        outcome.status = Status::fail(Reason::PipelineInvalid);
+        outcome.failed_step = index;
+        outcome.failure_step_known = true;
+        return outcome;
+      }
+      PipelineWindow &nested = state.windows[step.window - 1u];
+      if (!nested.nested || index != nested.begin ||
+          nested.seed_first != nested.begin || nested.seed_count == 0u ||
+          nested.action_count == 0u ||
+          nested.action_first != nested.seed_first + nested.seed_count ||
+          nested.fold_first != nested.action_first + nested.action_count ||
+          nested.end != nested.fold_first + 3u ||
+          nested.end > state.steps.size()) {
+        outcome.status = Status::fail(Reason::PipelineInvalid);
+        outcome.failed_step = index;
+        outcome.failure_step_known = true;
+        return outcome;
+      }
+
+      std::size_t executed_outer = 0u;
+      for (std::size_t outer = 0u; outer < nested.seed_count; ++outer) {
+        PipelineStep occurrence = state.steps[nested.fold_first];
+        occurrence.iteration = static_cast<std::uint32_t>(outer);
+        occurrence.iteration_bound =
+            static_cast<std::uint32_t>(nested.seed_count);
+        bool active = true;
+        const Status ready =
+            prepare_cpu_pipeline_window(state, occurrence, active);
+        if (!ready) {
+          outcome.status =
+              pipeline_window_status(state, occurrence, ready, state.stats);
+          outcome.failed_step = nested.begin;
+          outcome.failure_step_known = true;
+          state.stats.pipeline.failed_outer_window = outer;
+          state.stats.pipeline.failed_nested_phase =
+              PipelineNestedPhase::Seed;
+          nested.stopped = true;
+          return outcome;
+        }
+        if (!active) {
+          continue;
+        }
+
+        const std::size_t seed_index = nested.seed_first + outer;
+        Status status = execute(seed_index);
+        if (!status) {
+          outcome.status = status;
+          outcome.failed_step = seed_index;
+          outcome.failure_step_known = true;
+          state.stats.pipeline.failed_outer_window = outer;
+          state.stats.pipeline.failed_nested_phase =
+              PipelineNestedPhase::Seed;
+          nested.stopped = true;
+          return outcome;
+        }
+        for (std::size_t inner = 0u; inner < nested.action_count; ++inner) {
+          const std::size_t action_index = nested.action_first + inner;
+          status = execute(action_index);
+          if (!status) {
+            outcome.status = status;
+            outcome.failed_step = action_index;
+            outcome.failure_step_known = true;
+            state.stats.pipeline.failed_outer_window = outer;
+            state.stats.pipeline.failed_inner_iteration = inner;
+            state.stats.pipeline.failed_nested_phase =
+                PipelineNestedPhase::Action;
+            nested.stopped = true;
+            return outcome;
+          }
+          ++state.stats.pipeline.executed_inner_iteration_count;
+        }
+        const std::size_t fold_route =
+            outer == 0u ? 0u : ((outer & 1u) != 0u ? 1u : 2u);
+        const std::size_t fold_index = nested.fold_first + fold_route;
+        status = execute(fold_index);
+        if (!status) {
+          outcome.status = status;
+          outcome.failed_step = fold_index;
+          outcome.failure_step_known = true;
+          state.stats.pipeline.failed_outer_window = outer;
+          state.stats.pipeline.failed_nested_phase =
+              PipelineNestedPhase::Fold;
+          nested.stopped = true;
+          return outcome;
+        }
+        nested.current = PipelineWindow::first +
+                         static_cast<std::uint32_t>(outer & 1u);
+        ++executed_outer;
+        ++state.stats.pipeline.executed_outer_window_count;
+        ::rund::detail::counter::Accumulate(
+            state.stats.control.iteration_count, 1u);
+      }
+      const std::size_t skipped = nested.seed_count - executed_outer;
+      ::rund::detail::counter::Accumulate(
+          state.stats.pipeline.skipped_outer_window_count,
+          static_cast<std::uint64_t>(skipped));
+      ::rund::detail::counter::Accumulate(
+          state.stats.pipeline.skipped_inner_iteration_count,
+          ::rund::detail::counter::SaturatingMultiply(
+              static_cast<std::uint64_t>(skipped),
+              static_cast<std::uint64_t>(nested.action_count)));
+      outcome.verified = nested.end;
+      index = nested.end - 1u;
+      continue;
+    }
+    if (step.route != PipelineRoute::Ordinary) {
+      outcome.status = Status::fail(Reason::PipelineInvalid);
       outcome.failed_step = index;
       outcome.failure_step_known = true;
       return outcome;
     }
-    finish_step(true);
+    bool active = true;
+    const Status window_ready =
+        prepare_cpu_pipeline_window(state, index, active);
+    if (!window_ready) {
+      outcome.status =
+          pipeline_window_status(state, step, window_ready, state.stats);
+      outcome.failed_step = index;
+      outcome.failure_step_known = true;
+      return outcome;
+    }
+    if (!active) {
+      ++outcome.verified;
+      continue;
+    }
+    const Status executed = execute(index);
+    if (!executed) {
+      outcome.status =
+          pipeline_window_status(state, step, executed, state.stats);
+      outcome.failed_step = index;
+      outcome.failure_step_known = true;
+      return outcome;
+    }
     ++outcome.verified;
   }
   const Status published = publish_cpu_pipeline(state);

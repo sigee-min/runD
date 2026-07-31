@@ -43,8 +43,10 @@ namespace rund_node_test_pipeline {
           .then(*first, read(*first_source), write(*first_output))
           .then(*second, read(*second_source), write(*second_output));
   const auto plan = builder.plan();
-  if (!plan || plan->peak_bytes != plan->state_bytes + plan->transient_bytes +
-                                       plan->prepared_bytes) {
+  if (!plan ||
+      plan->peak_bytes !=
+          plan->state_bytes + plan->transient_bytes + plan->prepared_bytes ||
+      plan->prepared_command_count != 2u || plan->barrier_count != 1u) {
     return 2;
   }
   const bool accelerated =

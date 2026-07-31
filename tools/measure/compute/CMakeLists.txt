@@ -27,6 +27,7 @@ else()
   add_executable(
     runD-compute-focus EXCLUDE_FROM_ALL
     main.cpp
+    pipeline/nested.cpp
     pipeline/profile.cpp
     pipeline/recurrence.cpp
     pipeline/run.cpp

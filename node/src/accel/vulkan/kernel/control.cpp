@@ -42,9 +42,13 @@ struct ControlParams final {
   std::uint32_t count{};
   std::uint32_t declared_step{};
   std::uint32_t phase{};
+  std::uint32_t failed_outer_window{PreparedPipelineNoStep};
+  std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
+  std::uint32_t failed_nested_phase{};
+  std::uint32_t reserved{};
 };
 
-static_assert(sizeof(ControlParams) == 16u);
+static_assert(sizeof(ControlParams) == 32u);
 
 [[nodiscard]] std::uint64_t SourceHash(const std::string &source) noexcept {
   ::rund::node::hash_detail::Fnv hash{};
@@ -137,6 +141,10 @@ layout(push_constant) uniform Params {
   uint count;
   uint declared_step;
   uint phase;
+  uint failed_outer_window;
+  uint failed_inner_iteration;
+  uint failed_nested_phase;
+  uint reserved;
 } p;
 void main() {
   if (p.phase == 2u) {
@@ -146,6 +154,11 @@ void main() {
     for (uint index = 4u; index < 18u; ++index) { control[index] = 0u; }
     control[18] = 0xffffffffu;
     control[19] = 0xffffffffu;
+    control[20] = 0xffffffffu;
+    control[21] = 0xffffffffu;
+    control[22] = 0u;
+    control[23] = 0u;
+    for (uint index = 24u; index < 32u; ++index) { control[index] = 0u; }
     return;
   }
   if (p.phase != 1u) { return; }
@@ -177,6 +190,10 @@ layout(push_constant) uniform Params {
   uint count;
   uint declared_step;
   uint phase;
+  uint failed_outer_window;
+  uint failed_inner_iteration;
+  uint failed_nested_phase;
+  uint reserved;
 } p;
 shared uint ordinals[256];
 shared uint reasons[256];
@@ -190,6 +207,11 @@ void main() {
       for (uint index = 4u; index < 18u; ++index) { control[index] = 0u; }
       control[18] = 0xffffffffu;
       control[19] = 0xffffffffu;
+      control[20] = 0xffffffffu;
+      control[21] = 0xffffffffu;
+      control[22] = 0u;
+      control[23] = 0u;
+      for (uint index = 24u; index < 32u; ++index) { control[index] = 0u; }
     }
     return;
   }
@@ -236,6 +258,9 @@ void main() {
     if (ordinals[0] != 0xffffffffu) {
       control[1] = reasons[0];
       control[2] = p.declared_step;
+      control[20] = p.failed_outer_window;
+      control[21] = p.failed_inner_iteration;
+      control[22] = p.failed_nested_phase;
     }
 )GLSL";
   source += "  }\n}\n";
@@ -483,15 +508,21 @@ EncodeVulkanPipelineControl(const VkCommandBuffer command,
 
 } // namespace
 
-bool FoldVulkanPipelineControl(const VkCommandBuffer command,
-                               const VulkanPipelineControlResources &control,
-                               const PreparedProgramStatusSlice slice,
-                               const std::uint32_t declared_step) noexcept {
+bool FoldVulkanPipelineControl(
+    const VkCommandBuffer command,
+    const VulkanPipelineControlResources &control,
+    const PreparedProgramStatusSlice slice, const std::uint32_t declared_step,
+    const std::uint32_t failed_outer_window,
+    const std::uint32_t failed_inner_iteration,
+    const std::uint32_t failed_nested_phase) noexcept {
   return EncodeVulkanPipelineControl(
       command, control,
       ControlParams{.first = slice.first,
                     .count = slice.count,
-                    .declared_step = declared_step});
+                    .declared_step = declared_step,
+                    .failed_outer_window = failed_outer_window,
+                    .failed_inner_iteration = failed_inner_iteration,
+                    .failed_nested_phase = failed_nested_phase});
 }
 
 bool OpenVulkanPipelineControl(

@@ -84,6 +84,11 @@ struct PipelineMemoryPlan final {
   };
 
   PipelinePlan summary{};
+  // Cold schedule authority shared by plan() and prepare(). Resource hazards
+  // come from resource::analyze; schedule_barriers is their executable
+  // boundary projection plus the shared-workspace reuse frontiers.
+  resource::Plan hazards;
+  std::vector<std::uint8_t> schedule_barriers;
   std::vector<std::size_t> steps;
   std::vector<std::size_t> owners;
   std::vector<std::size_t> offsets;
@@ -92,6 +97,18 @@ struct PipelineMemoryPlan final {
   std::vector<std::size_t> view_chunks;
   std::vector<std::size_t> scratch_chunks;
   std::vector<node::accel::detail::KernelViewLayout> views;
+};
+
+// A nested window keeps one compact table of reusable routes.  Route entries
+// are not execution occurrences: seed has one ordinal-specific route per
+// outer window, action has one route per inner parity occurrence, and fold has
+// the three seed/first/second outer-state transitions.  The warm executor
+// interprets the two independent bounds without materializing their product.
+enum class PipelineRoute : std::uint8_t {
+  Ordinary,
+  NestedSeed,
+  NestedAction,
+  NestedFold,
 };
 
 struct PipelineBuildStep final {
@@ -105,6 +122,23 @@ struct PipelineBuildStep final {
   std::size_t window_tile{};
   std::size_t window_terminal{NoWindowTerminal};
   std::uint32_t window_expected{1u};
+  std::uint16_t nested{};
+  PipelineRoute route{PipelineRoute::Ordinary};
+};
+
+struct PipelineBuildNestedWindow final {
+  PipelineBinding count;
+  std::size_t begin{};
+  std::size_t end{};
+  std::size_t seed_first{};
+  std::size_t seed_count{};
+  std::size_t action_first{};
+  std::size_t action_count{};
+  std::size_t fold_first{};
+  std::size_t maximum{};
+  std::size_t tile{};
+  std::size_t terminal{NoWindowTerminal};
+  std::uint32_t expected{1u};
 };
 
 struct PipelineBuildStatePair final {
@@ -128,6 +162,7 @@ struct PipelineBuildState final {
   std::vector<PipelineBuildStatePair> state_pairs;
   std::vector<PipelineBuildPublish> publications;
   std::vector<PipelineInternal> internals;
+  std::vector<PipelineBuildNestedWindow> nested_windows;
   std::shared_ptr<const PipelineMemoryPlan> memory;
   std::shared_ptr<StateSnapshotState> seed;
   std::size_t binding_count{};
@@ -141,12 +176,9 @@ struct PipelineBuildState final {
 };
 
 struct PipelineProfileState final {
-  std::array<PipelineStepProfile,
-             node::accel::detail::PreparedPipelineStepCapacity>
-      steps{};
-  std::array<std::uint64_t, node::accel::detail::PreparedPipelineStepCapacity>
-      started_ns{};
-  std::array<bool, node::accel::detail::PreparedPipelineStepCapacity> started{};
+  std::vector<PipelineStepProfile> steps;
+  std::vector<std::uint64_t> started_ns;
+  std::vector<bool> started;
   std::uint64_t instrumentation_command_count{};
   std::uint64_t instrumentation_byte_count{};
 };
@@ -188,8 +220,8 @@ struct PipelineStep final {
   // are not retained after the two private Jobs/native streams are frozen.
   // Warm execution needs only whether this step can make a write observable.
   bool writes{};
-  // One-based index into PipelineState::windows. Fits the existing tail
-  // padding; warm execution does not retain a second binding descriptor.
+  PipelineRoute route{PipelineRoute::Ordinary};
+  // One-based index into PipelineState::windows.
   std::uint16_t window{};
 };
 
@@ -210,6 +242,14 @@ struct PipelineWindow final {
   std::uint32_t terminal_output{};
   std::uint32_t expected{1u};
   std::uint32_t current{seed};
+  std::size_t begin{};
+  std::size_t end{};
+  std::size_t seed_first{};
+  std::size_t seed_count{};
+  std::size_t action_first{};
+  std::size_t action_count{};
+  std::size_t fold_first{};
+  bool nested{};
   bool stopped{};
 };
 

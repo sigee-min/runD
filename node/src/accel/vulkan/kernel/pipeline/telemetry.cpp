@@ -27,7 +27,7 @@ namespace rund::node::accel::detail {
       profile_steps ? VulkanProfileSource() : VulkanTelemetrySource();
   artifact.ok = true;
   artifact.reason = "ok";
-  const std::uint32_t descriptor_count = profile_steps ? 5u : 4u;
+  const std::uint32_t descriptor_count = profile_steps ? 6u : 5u;
   const std::uint32_t parameter_bytes =
       profile_steps ? sizeof(VulkanPipelineProfileTelemetryParams)
                     : sizeof(VulkanPipelineTelemetryParams);
@@ -39,6 +39,10 @@ namespace rund::node::accel::detail {
       (profile_steps && pipeline.control.profile.buffer == VK_NULL_HANDLE)) {
     return false;
   }
+  const VulkanBuffer *const states =
+      pipeline.window.states.buffer == VK_NULL_HANDLE
+          ? &pipeline.control.summary
+          : &pipeline.window.states;
   auto *const prior = pipeline.adapter->active_descriptor_leases;
   pipeline.adapter->active_descriptor_leases =
       &pipeline.control.descriptor_leases;
@@ -68,14 +72,14 @@ namespace rund::node::accel::detail {
         break;
       }
       if (profile_steps) {
-        const std::array<const VulkanBuffer *, 5u> buffers{
+        const std::array<const VulkanBuffer *, 6u> buffers{
             primary, count, predicate, &pipeline.control.summary,
-            &pipeline.control.profile};
+            states, &pipeline.control.profile};
         ready = WriteVulkanStorageDescriptorSet(*pipeline.adapter,
                                                 record.descriptor, buffers);
       } else {
-        const std::array<const VulkanBuffer *, 4u> buffers{
-            primary, count, predicate, &pipeline.control.summary};
+        const std::array<const VulkanBuffer *, 5u> buffers{
+            primary, count, predicate, &pipeline.control.summary, states};
         ready = WriteVulkanStorageDescriptorSet(*pipeline.adapter,
                                                 record.descriptor, buffers);
       }
@@ -84,16 +88,13 @@ namespace rund::node::accel::detail {
     ready = false;
   }
   pipeline.adapter->active_descriptor_leases = prior;
-  if (ready) {
-    pipeline.control.command_count += pipeline.telemetry.size();
-  }
   return ready;
 }
 
 [[nodiscard]] bool EncodeVulkanTelemetry(
     const VulkanPipeline &pipeline, const VkCommandBuffer command,
     const std::span<const VulkanPipelineTelemetryRecord> telemetry,
-    const bool visible) noexcept {
+    const std::uint32_t state, const bool visible) noexcept {
   if (telemetry.empty()) {
     return true;
   }
@@ -123,6 +124,7 @@ namespace rund::node::accel::detail {
             source.predicate_offset / sizeof(std::uint32_t)),
         .indirect_dispatch_count = source.indirect_dispatch_count,
         .declared_step = record.declared_step,
+        .state = state,
         .capacity = source.capacity,
         .predicate_expected = source.control.predicate_expected,
         .work_item_count = source.work_item_count,
@@ -198,30 +200,46 @@ void ObserveVulkanProfile(VulkanPipeline &pipeline,
     row.relation = PreparedPipelineStepTimingRelation::Unavailable;
   }
   if (profile.timestamps != VK_NULL_HANDLE && profile.query_count != 0u) {
-    std::array<std::uint64_t, PreparedPipelineStepCapacity * 2u> timestamps{};
+    if (profile.timestamp_values.size() < profile.query_count ||
+        profile.timestamped.size() < profile.command_count ||
+        profile.command_templates.size() < profile.command_count) {
+      return;
+    }
     const VkResult queried = vkGetQueryPoolResults(
         pipeline.adapter->device, profile.timestamps, 0u, profile.query_count,
         static_cast<std::size_t>(profile.query_count) * sizeof(std::uint64_t),
-        timestamps.data(), sizeof(std::uint64_t),
+        profile.timestamp_values.data(), sizeof(std::uint64_t),
         VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
     if (queried == VK_SUCCESS) {
-      for (std::size_t active = 0u; active < profile.active_step_count;
-           ++active) {
-        if (!profile.timestamped[active]) {
+      for (std::size_t command = 0u; command < profile.command_count;
+           ++command) {
+        if (profile.timestamped[command] == 0u) {
           continue;
         }
-        const std::uint32_t declared = profile.declared_steps[active];
-        if (declared >= profile.declared_step_count) {
+        const std::uint32_t template_index = profile.command_templates[command];
+        if (template_index >= profile.active_step_count) {
+          continue;
+        }
+        const std::uint32_t declared = profile.declared_steps[template_index];
+        if (declared >= profile.declared_step_count ||
+            command > (profile.timestamp_values.size() - 2u) / 2u) {
           continue;
         }
         PreparedPipelineStepEvidence &row = profile.rows[declared];
         if (row.work_sample_count == 0u) {
           continue;
         }
-        row.duration_ns =
-            timestamp_ns(*pipeline.adapter, timestamps[2u * active],
-                         timestamps[2u * active + 1u]);
-        row.timing_sample_count = 1u;
+        const std::uint64_t duration = timestamp_ns(
+            *pipeline.adapter, profile.timestamp_values[2u * command],
+            profile.timestamp_values[2u * command + 1u]);
+        row.duration_ns = duration > std::numeric_limits<std::uint64_t>::max() -
+                                         row.duration_ns
+                              ? std::numeric_limits<std::uint64_t>::max()
+                              : row.duration_ns + duration;
+        if (row.timing_sample_count !=
+            std::numeric_limits<std::uint64_t>::max()) {
+          ++row.timing_sample_count;
+        }
         row.clock = PreparedPipelineStepClock::Device;
         row.relation = PreparedPipelineStepTimingRelation::NonAdditive;
       }

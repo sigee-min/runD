@@ -6,6 +6,7 @@
 #include <rund/compute/pipeline/memory.hpp>
 #include <rund/compute/pipeline/profile.hpp>
 #include <rund/compute/pipeline/shape.hpp>
+#include <rund/compute/pipeline/tile.hpp>
 #include <rund/compute/pipeline/window.hpp>
 #include <rund/compute/program.hpp>
 #include <rund/compute/stats.hpp>
@@ -66,6 +67,14 @@ void append_pipeline_windows(const std::shared_ptr<PipelineBuildState> &build,
                              std::size_t maximum, std::size_t tile,
                              std::size_t terminal,
                              std::uint32_t expected) noexcept;
+void append_pipeline_window_repeat(
+    const std::shared_ptr<PipelineBuildState> &build,
+    const std::shared_ptr<ProgramState> &seed,
+    const std::shared_ptr<ProgramState> &action,
+    const std::shared_ptr<ProgramState> &fold, const ResourceView &resident,
+    std::span<const ResourceView> inputs, std::span<const ResourceView> outputs,
+    std::size_t maximum, std::size_t tile, std::size_t inner,
+    std::size_t terminal, std::uint32_t expected) noexcept;
 void append_pipeline_state(const std::shared_ptr<PipelineBuildState> &build,
                            const std::shared_ptr<BufferState> &published,
                            const std::shared_ptr<BufferState> &pending,
@@ -377,6 +386,76 @@ public:
                             detail::WritePack<O...> outputs) && noexcept {
     static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
         program, resident, std::move(inputs), std::move(outputs));
+    return std::move(*this);
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            std::size_t N, class SeedSignature, class ActionSignature,
+            class FoldSignature, class... I, class... O>
+    requires(
+        Max != 0u && Tile != 0u && Tile <= Max &&
+        (Max + Tile - 1u) / Tile <= PipelineIterationCapacity && N != 0u &&
+        N <= PipelineInnerIterationCapacity &&
+        detail::TileRepeatContract<SeedSignature, ActionSignature,
+                                   FoldSignature>::valid &&
+        std::is_same_v<
+            detail::TypeList<I...>,
+            typename detail::Join<
+                typename detail::TileRepeatContract<
+                    SeedSignature, ActionSignature, FoldSignature>::FoldOutputs,
+                typename detail::TileRepeatContract<
+                    SeedSignature, ActionSignature,
+                    FoldSignature>::SeedExternalInputs>::type> &&
+        std::is_same_v<
+            detail::TypeList<O...>,
+            typename detail::TileRepeatContract<SeedSignature, ActionSignature,
+                                                FoldSignature>::FoldOutputs> &&
+        (Terminal == NoWindowTerminal ||
+         (Terminal < sizeof...(O) &&
+          detail::U32At<Terminal, detail::TypeList<O...>>::value)))
+  PipelineBuilder &windows(
+      const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
+      const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+      detail::WritePack<O...> outputs) & noexcept {
+    detail::append_pipeline_window_repeat(
+        state_, detail::ProgramAccess::state(body.seed_),
+        detail::ProgramAccess::state(body.action_),
+        detail::ProgramAccess::state(body.fold_), resident.count_,
+        inputs.views_, outputs.views_, Max, Tile, N, Terminal,
+        resident.expected_);
+    return *this;
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            std::size_t N, class SeedSignature, class ActionSignature,
+            class FoldSignature, class... I, class... O>
+    requires(
+        Max != 0u && Tile != 0u && Tile <= Max &&
+        (Max + Tile - 1u) / Tile <= PipelineIterationCapacity && N != 0u &&
+        N <= PipelineInnerIterationCapacity &&
+        detail::TileRepeatContract<SeedSignature, ActionSignature,
+                                   FoldSignature>::valid &&
+        std::is_same_v<
+            detail::TypeList<I...>,
+            typename detail::Join<
+                typename detail::TileRepeatContract<
+                    SeedSignature, ActionSignature, FoldSignature>::FoldOutputs,
+                typename detail::TileRepeatContract<
+                    SeedSignature, ActionSignature,
+                    FoldSignature>::SeedExternalInputs>::type> &&
+        std::is_same_v<
+            detail::TypeList<O...>,
+            typename detail::TileRepeatContract<SeedSignature, ActionSignature,
+                                                FoldSignature>::FoldOutputs> &&
+        (Terminal == NoWindowTerminal ||
+         (Terminal < sizeof...(O) &&
+          detail::U32At<Terminal, detail::TypeList<O...>>::value)))
+  PipelineBuilder &&windows(
+      const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
+      const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+      detail::WritePack<O...> outputs) && noexcept {
+    static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
+        body, resident, std::move(inputs), std::move(outputs));
     return std::move(*this);
   }
 

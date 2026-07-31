@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rund/compute/backend.hpp>
+#include <rund/compute/pipeline/coordinate.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +49,8 @@ struct PublicationStats final {
 struct PipelineStats final {
   static constexpr std::uint64_t no_failed_step =
       std::numeric_limits<std::uint64_t>::max();
+  static constexpr std::uint64_t no_coordinate =
+      std::numeric_limits<std::uint64_t>::max();
 
   std::uint64_t step_count{};
   std::uint64_t resource_count{};
@@ -58,6 +61,21 @@ struct PipelineStats final {
   std::uint64_t status_entry_count{};
   std::uint64_t control_byte_count{};
   std::uint64_t control_command_count{};
+  std::uint64_t executed_outer_window_count{};
+  std::uint64_t skipped_outer_window_count{};
+  std::uint64_t executed_inner_iteration_count{};
+  std::uint64_t skipped_inner_iteration_count{};
+  std::uint64_t failed_outer_window{no_coordinate};
+  std::uint64_t failed_inner_iteration{no_coordinate};
+  PipelineNestedPhase failed_nested_phase{PipelineNestedPhase::None};
+  std::uint64_t prepared_template_count{};
+  std::uint64_t prepared_command_count{};
+  // Post-prepare mutations of retained Job/Buffer/View binding identity.
+  // Encoding an immutable descriptor into a fresh native command buffer is
+  // not a mutation. The current prepared Pipeline has no warm mutation path,
+  // so this is zero by construction; structural contract tests independently
+  // compare the frozen owners and descriptors across executions.
+  std::uint64_t rebinding_count{};
   std::uint64_t claim_ns{};
   std::uint64_t control_ns{};
 };

@@ -106,6 +106,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/chain.cpp|compute.window"
   "tests/contract/compute/window/freeze.cpp|compute.window"
   "tests/contract/compute/window/matrix.cpp|compute.window"
+  "tests/contract/compute/window/nested.cpp|compute.window"
   "tests/contract/compute/window/parity.cpp|compute.window"
   "tests/contract/compute/window/plan.cpp|compute.window"
   "tests/contract/compute/window/terminal.cpp|compute.window"
@@ -217,6 +218,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/chain.cpp
   tests/contract/compute/window/freeze.cpp
   tests/contract/compute/window/matrix.cpp
+  tests/contract/compute/window/nested.cpp
   tests/contract/compute/window/parity.cpp
   tests/contract/compute/window/plan.cpp
   tests/contract/compute/window/terminal.cpp

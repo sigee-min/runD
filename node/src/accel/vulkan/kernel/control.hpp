@@ -51,7 +51,9 @@ void DestroyVulkanPipelineControl(
 
 [[nodiscard]] bool FoldVulkanPipelineControl(
     VkCommandBuffer command, const VulkanPipelineControlResources &control,
-    PreparedProgramStatusSlice slice, std::uint32_t declared_step) noexcept;
+    PreparedProgramStatusSlice slice, std::uint32_t declared_step,
+    std::uint32_t failed_outer_window, std::uint32_t failed_inner_iteration,
+    std::uint32_t failed_nested_phase) noexcept;
 
 [[nodiscard]] bool OpenVulkanPipelineControl(
     VkCommandBuffer command,

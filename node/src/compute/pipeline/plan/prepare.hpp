@@ -5,7 +5,6 @@
 
 #include <rund/compute/status.hpp>
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -14,13 +13,14 @@
 namespace rund::compute::detail {
 
 struct PipelineBuildState;
+struct PipelineMemoryPlan;
 struct PipelineState;
 
 struct PipelinePrepare final {
   std::shared_ptr<PipelineState> state;
   std::vector<PipelinePlanStep> steps;
   std::vector<PipelineResourceAdmission> admissions;
-  std::array<PhysicalOutputProjection, PipelineIterationCapacity> outputs{};
+  std::vector<PhysicalOutputProjection> outputs;
   PipelineHash hash{};
   std::size_t output_count{};
   std::size_t binding_count{};
@@ -31,6 +31,8 @@ struct PipelinePrepare final {
 [[nodiscard]] Status
 admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                PipelinePrepare &prepare);
+[[nodiscard]] Status plan_pipeline_schedule(const PipelineBuildState &build,
+                                            PipelineMemoryPlan &plan);
 [[nodiscard]] Status
 schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                   PipelinePrepare &prepare);

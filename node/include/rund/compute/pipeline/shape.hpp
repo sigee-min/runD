@@ -11,6 +11,8 @@ inline constexpr std::size_t PipelineTransferCapacity =
     PipelineLeafCapacity * 2u;
 inline constexpr std::size_t PipelineBindingCapacity =
     PipelineIterationCapacity * PipelineLeafCapacity;
+inline constexpr std::size_t PipelineRouteBindingCapacity =
+    PipelineRouteCapacity * PipelineLeafCapacity;
 inline constexpr std::size_t PipelineResourceCapacity = 2048u;
 
 } // namespace rund::compute::detail

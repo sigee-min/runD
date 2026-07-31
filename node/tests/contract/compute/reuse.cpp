@@ -110,7 +110,10 @@ SameMemory(const rund::compute::MemoryStats &left,
   return hash;
 }
 
-static_assert(sizeof(rund::compute::Run) == 1024u);
+static_assert(sizeof(rund::compute::Run) == 1152u);
+static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1160u);
+static_assert(sizeof(rund::compute::PipelineStats) == 168u);
+static_assert(sizeof(rund::compute::Stats) == 616u);
 static_assert(alignof(rund::compute::Run) == alignof(std::uint64_t));
 static_assert(std::is_nothrow_copy_constructible_v<rund::compute::Run>);
 static_assert(std::is_nothrow_move_constructible_v<rund::compute::Run>);

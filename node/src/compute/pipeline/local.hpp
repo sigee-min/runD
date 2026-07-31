@@ -16,6 +16,22 @@ struct CpuView;
 using PipelineCompletion =
     void (*)(void *, node::accel::detail::PreparedPipelineEvidence &&) noexcept;
 
+struct CpuPipelineSchedule final {
+  std::size_t step{};
+  std::size_t outer{};
+};
+
+struct CpuPipelineSelection final {
+  Status status{Status::success()};
+  std::shared_ptr<JobState> job{};
+  std::size_t step{};
+  bool complete{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status);
+  }
+};
+
 [[nodiscard]] bool
 valid_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] inline std::size_t
@@ -41,6 +57,9 @@ consume_cpu_pipeline_step(PipelineState &state, std::size_t index,
                           Status execution = Status::success()) noexcept;
 [[nodiscard]] Status prepare_cpu_pipeline_window(PipelineState &state,
                                                  std::size_t index,
+                                                 bool &active) noexcept;
+[[nodiscard]] Status prepare_cpu_pipeline_window(PipelineState &state,
+                                                 const PipelineStep &step,
                                                  bool &active) noexcept;
 [[nodiscard]] Status cpu_resident_view(PipelineState &state,
                                        const PipelineWindow &window,
@@ -86,6 +105,15 @@ begin_pipeline_step(const std::shared_ptr<PipelineState> &state,
 [[nodiscard]] Status
 complete_pipeline_step(const std::shared_ptr<PipelineState> &state,
                        std::size_t index, Status result) noexcept;
+[[nodiscard]] Status initialize_cpu_pipeline_schedule(
+    const std::shared_ptr<PipelineState> &state,
+    CpuPipelineSchedule &schedule) noexcept;
+[[nodiscard]] CpuPipelineSelection select_cpu_pipeline_step(
+    const std::shared_ptr<PipelineState> &state,
+    CpuPipelineSchedule &schedule) noexcept;
+[[nodiscard]] Status complete_cpu_pipeline_schedule_step(
+    const std::shared_ptr<PipelineState> &state,
+    CpuPipelineSchedule &schedule, Status result) noexcept;
 [[nodiscard]] Status
 complete_cpu_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status

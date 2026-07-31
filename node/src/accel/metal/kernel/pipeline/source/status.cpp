@@ -21,6 +21,9 @@ struct StatusSource {
   uint indirect_dispatch_count;
   uint work_item_count_low;
   uint work_item_count_high;
+  uint failed_outer_window;
+  uint failed_inner_iteration;
+  uint failed_nested_phase;
 };
 
 struct StatusEntry {
@@ -57,6 +60,14 @@ struct PipelineControl {
   ulong skipped_iteration_count;
   ulong conflict_count;
   ulong overflow_ordinal;
+  uint failed_outer_window;
+  uint failed_inner_iteration;
+  uint failed_nested_phase;
+  uint reserved;
+  ulong executed_outer_window_count;
+  ulong skipped_outer_window_count;
+  ulong executed_inner_iteration_count;
+  ulong skipped_inner_iteration_count;
 };
 
 struct PublishParams {
@@ -82,6 +93,10 @@ struct WindowParams {
   uint state;
   uint has_terminal;
   uint range_count;
+  uint phase;
+  uint declared_step;
+  uint overflow_reason;
+  uint inner_bound;
   uint reserved;
 };
 
@@ -123,6 +138,14 @@ inline void reset_telemetry(device PipelineControl *control) {
   control->skipped_iteration_count = 0ul;
   control->conflict_count = 0ul;
   control->overflow_ordinal = 0xfffffffffffffffful;
+  control->failed_outer_window = 0xffffffffu;
+  control->failed_inner_iteration = 0xffffffffu;
+  control->failed_nested_phase = 0u;
+  control->reserved = 0u;
+  control->executed_outer_window_count = 0ul;
+  control->skipped_outer_window_count = 0ul;
+  control->executed_inner_iteration_count = 0ul;
+  control->skipped_inner_iteration_count = 0ul;
 }
 
 inline StepControl empty_step_control() {
@@ -274,26 +297,87 @@ kernel void rund_pipeline_advance(
     device ResidentState *states [[buffer(4)]],
     device uint2 *ranges [[buffer(5)]],
     device const uint *owners [[buffer(6)]],
-    constant WindowParams &params [[buffer(7)]],
+    device PipelineControl *control [[buffer(7)]],
+    constant WindowParams &params [[buffer(8)]],
     uint lane [[thread_index_in_threadgroup]]) {
   threadgroup uint active;
   threadgroup uint fresh;
   if (lane == 0u) {
     device ResidentState &state = states[params.state];
-    const uint items = resident[params.count_offset_words];
-    const ulong base = ulong(params.iteration) * ulong(params.tile);
-    device const uint *terminal =
-        state.current == 1u
-            ? terminal1
-            : (state.current == 2u ? terminal2 : terminal0);
-    const bool ended =
-        params.has_terminal != 0u &&
-        terminal[params.terminal_offset_words[state.current]] == params.expected;
-    active = state.stopped == 0u && items <= params.maximum &&
-                     base < ulong(items) && !ended
-                 ? 1u
-                 : 0u;
-    fresh = state.stopped == 0u && active == 0u ? 1u : 0u;
+    // Nested action/fold controls run after canonical status reduction. They
+    // count only successfully completed occurrences; a failure closes all
+    // remaining dispatch ranges before the next physical command.
+    if (params.phase == 4u) {
+      // A seed status is known only after its reducer. Close later ranges on
+      // failure without replaying seed admission, counters, or selector work.
+      fresh = state.stopped == 0u && control->reason != 0u ? 1u : 0u;
+      active = fresh == 0u ? 1u : 0u;
+    } else if (params.phase == 3u) {
+      active = state.stopped == 0u && control->reason == 0u ? 1u : 0u;
+      fresh = state.stopped == 0u && active == 0u ? 1u : 0u;
+      if (active != 0u) {
+        control->iteration_count =
+            control->iteration_count == 0xfffffffffffffffful
+                ? 0xfffffffffffffffful
+                : control->iteration_count + 1ul;
+        control->executed_outer_window_count =
+            control->executed_outer_window_count == 0xfffffffffffffffful
+                ? 0xfffffffffffffffful
+                : control->executed_outer_window_count + 1ul;
+      }
+    } else if (params.phase == 2u) {
+      active = state.stopped == 0u && control->reason == 0u ? 1u : 0u;
+      fresh = state.stopped == 0u && active == 0u ? 1u : 0u;
+      if (active != 0u) {
+        control->executed_inner_iteration_count =
+            control->executed_inner_iteration_count == 0xfffffffffffffffful
+                ? 0xfffffffffffffffful
+                : control->executed_inner_iteration_count + 1ul;
+      }
+    } else {
+      const uint items = resident[params.count_offset_words];
+      const ulong base = ulong(params.iteration) * ulong(params.tile);
+      device const uint *terminal =
+          state.current == 1u
+              ? terminal1
+              : (state.current == 2u ? terminal2 : terminal0);
+      const bool ended =
+          params.has_terminal != 0u &&
+          terminal[params.terminal_offset_words[state.current]] ==
+              params.expected;
+      const bool overflow = state.stopped == 0u && items > params.maximum;
+      if (overflow && control->reason == 0u) {
+        control->reason = params.overflow_reason;
+        control->failed_step = params.declared_step;
+        control->overflow_ordinal = ulong(params.maximum);
+        control->failed_outer_window =
+            params.phase == 1u ? params.iteration : 0xffffffffu;
+        control->failed_inner_iteration = 0xffffffffu;
+        control->failed_nested_phase = params.phase == 1u ? 1u : 0u;
+      }
+      active = state.stopped == 0u && control->reason == 0u &&
+                       base < ulong(items) && !ended
+                   ? 1u
+                   : 0u;
+      fresh = state.stopped == 0u && active == 0u ? 1u : 0u;
+      if (params.phase == 1u && control->reason == 0u && active == 0u) {
+        control->skipped_iteration_count =
+            control->skipped_iteration_count == 0xfffffffffffffffful
+                ? 0xfffffffffffffffful
+                : control->skipped_iteration_count + 1ul;
+        control->skipped_outer_window_count =
+            control->skipped_outer_window_count == 0xfffffffffffffffful
+                ? 0xfffffffffffffffful
+                : control->skipped_outer_window_count + 1ul;
+        control->skipped_inner_iteration_count =
+            ulong(params.inner_bound) >
+                    0xfffffffffffffffful -
+                        control->skipped_inner_iteration_count
+                ? 0xfffffffffffffffful
+                : control->skipped_inner_iteration_count +
+                      ulong(params.inner_bound);
+      }
+    }
   }
   threadgroup_barrier(mem_flags::mem_threadgroup);
   if (fresh != 0u) {
@@ -307,7 +391,9 @@ kernel void rund_pipeline_advance(
   if (lane == 0u) {
     device ResidentState &state = states[params.state];
     if (active != 0u) {
-      state.current = 1u + (params.iteration & 1u);
+      if (params.phase == 0u || params.phase == 3u) {
+        state.current = 1u + (params.iteration & 1u);
+      }
     } else if (state.stopped == 0u) {
       state.stopped = params.iteration + 1u;
     }
@@ -521,8 +607,11 @@ kernel void rund_pipeline_status_reduce(
     const uint failed = keys[0];
     if (failed != 0xffffffffu) {
       control->reason = reasons[0];
-      control->failed_step =
-          sources[entries[failed].source].declared_step;
+      const StatusSource source = sources[entries[failed].source];
+      control->failed_step = source.declared_step;
+      control->failed_outer_window = source.failed_outer_window;
+      control->failed_inner_iteration = source.failed_inner_iteration;
+      control->failed_nested_phase = source.failed_nested_phase;
     }
     ulong generated_item_count = 0ul;
     ulong generated_capacity = 0ul;
@@ -613,8 +702,11 @@ kernel void rund_pipeline_status_reduce_profiled(
     const uint failed = keys[0];
     if (failed != 0xffffffffu) {
       control->reason = reasons[0];
-      control->failed_step =
-          sources[entries[failed].source].declared_step;
+      const StatusSource source = sources[entries[failed].source];
+      control->failed_step = source.declared_step;
+      control->failed_outer_window = source.failed_outer_window;
+      control->failed_inner_iteration = source.failed_inner_iteration;
+      control->failed_nested_phase = source.failed_nested_phase;
     }
     StepControl total = empty_step_control();
     for (uint source_index = 0u; source_index < params.source_count;

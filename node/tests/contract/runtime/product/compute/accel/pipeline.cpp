@@ -242,7 +242,7 @@ int Check(const rund::compute::Target target, rund::compute::Device &device) {
       stats.pipeline.verified_step_count != 2u ||
       stats.pipeline.failed_step_index !=
           rund::compute::PipelineStats::no_failed_step ||
-      stats.pipeline.control_byte_count != 80u ||
+      stats.pipeline.control_byte_count != 128u ||
       stats.pipeline.control_command_count != 2u ||
       stats.command_submits != 1u || stats.dispatches != 2u ||
       prepared->generation() != 1u) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rund/compute/graph/info.hpp>
+#include <rund/compute/pipeline/coordinate.hpp>
 #include <rund/compute/stats.hpp>
 
 #include <cstddef>
@@ -67,9 +68,17 @@ struct PipelineStepStats final {
 };
 
 struct PipelineStepProfile final {
+  static constexpr std::uint32_t no_coordinate =
+      std::numeric_limits<std::uint32_t>::max();
+
   std::uint32_t index{};
   std::uint32_t iteration{};
   std::uint32_t iteration_bound{1u};
+  std::uint32_t outer_window{no_coordinate};
+  std::uint32_t outer_window_bound{};
+  std::uint32_t inner_iteration{no_coordinate};
+  std::uint32_t inner_iteration_bound{};
+  PipelineNestedPhase nested_phase{PipelineNestedPhase::None};
   graph::Fingerprint program{};
   StepTiming timing{};
   PipelineStepStats execution{};

@@ -55,6 +55,7 @@ int Run() {
       {"state publication", 500, Publish},
       {"state failure", 600, Failure},
       {"state cancel", 700, StateCancel},
+      {"nested work totals", 750, NestedWorkTotals},
   };
   for (const Contract &contract : contracts) {
     if (const int result = contract.run(session, *device); result != 0) {

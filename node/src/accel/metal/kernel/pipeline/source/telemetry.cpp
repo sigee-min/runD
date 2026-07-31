@@ -151,8 +151,13 @@ kernel void rund_pipeline_telemetry_accumulate(
     device const uint *predicate_words [[buffer(2)]],
     device PipelineControl *control [[buffer(3)]],
     constant TelemetryParams &params [[buffer(4)]],
+    device const ResidentState *states [[buffer(7)]],
+    constant uint &state [[buffer(8)]],
     uint gid [[thread_position_in_grid]]) {
   if (gid != 0u) { return; }
+  if (state != 0xffffffffu && states[state].stopped != 0u) {
+    return;
+  }
   if (control->reason != 0u &&
       control->failed_step != params.declared_step) {
     return;
@@ -283,8 +288,13 @@ kernel void rund_pipeline_telemetry_accumulate_profiled(
     constant TelemetryParams &params [[buffer(4)]],
     device StepControl *steps [[buffer(5)]],
     constant uint &declared_step [[buffer(6)]],
+    device const ResidentState *states [[buffer(7)]],
+    constant uint &state [[buffer(8)]],
     uint gid [[thread_position_in_grid]]) {
   if (gid != 0u) {
+    return;
+  }
+  if (state != 0xffffffffu && states[state].stopped != 0u) {
     return;
   }
   if (control->reason != 0u &&

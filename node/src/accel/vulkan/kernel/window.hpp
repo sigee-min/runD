@@ -26,10 +26,13 @@ struct VulkanWindowParams final {
   std::uint32_t state{};
   std::uint32_t has_terminal{};
   std::uint32_t command_count{};
-  std::uint32_t reserved{};
+  std::uint32_t phase{};
+  std::uint32_t declared_step{};
+  std::uint32_t overflow_reason{};
+  std::uint32_t inner_bound{1u};
 };
 
-static_assert(sizeof(VulkanWindowParams) == 64u);
+static_assert(sizeof(VulkanWindowParams) == 80u);
 
 struct VulkanWindowRoute final {
   VulkanResidentBufferResult count{};
@@ -52,6 +55,7 @@ struct VulkanWindowResources final {
   VulkanCollectivePipeline *gate_pipeline{};
   VulkanBuffer states{};
   VulkanBuffer arguments{};
+  VulkanBuffer original_arguments{};
   VulkanBuffer owners{};
   std::vector<VkDispatchIndirectCommand> original;
   std::vector<VulkanWindowRoute> routes;
@@ -63,15 +67,20 @@ struct VulkanWindowResources final {
 
 [[nodiscard]] rund::AccelCheck PrepareVulkanWindow(
     VulkanAdapter &adapter, std::span<const BackendBatchEntry> entries,
-    std::uint64_t dispatch_capacity, VulkanWindowResources &resources);
+    std::uint64_t dispatch_capacity, const PreparedPipelineStatusLayout &status,
+    const VulkanBuffer &control, VulkanWindowResources &resources);
 
 void DestroyVulkanWindow(VulkanWindowResources &resources) noexcept;
 
 [[nodiscard]] bool EncodeVulkanWindow(VkCommandBuffer command,
                                       const VulkanWindowResources &resources,
-                                      std::uint32_t entry) noexcept;
-void EncodeVulkanWindowStart(VkCommandBuffer command) noexcept;
-[[nodiscard]] bool ResetVulkanWindow(VulkanWindowResources &resources) noexcept;
+                                      std::uint32_t entry,
+                                      bool preflight = false) noexcept;
+[[nodiscard]] bool
+EncodeVulkanWindowStart(VkCommandBuffer command,
+                        const VulkanWindowResources &resources) noexcept;
+[[nodiscard]] bool
+FreezeVulkanWindow(VulkanWindowResources &resources) noexcept;
 
 [[nodiscard]] std::uint64_t
 VulkanWindowHostBytes(const VulkanWindowResources &resources) noexcept;

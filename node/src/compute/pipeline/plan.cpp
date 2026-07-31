@@ -83,8 +83,11 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
   if (build->steps.empty()) {
     return Result<std::shared_ptr<PipelineState>>::fail(Reason::PipelineEmpty);
   }
-  if (build->steps.size() > PipelineIterationCapacity ||
-      build->binding_count > PipelineBindingCapacity ||
+  const bool nested = !build->nested_windows.empty();
+  if (build->steps.size() >
+          (nested ? PipelineRouteCapacity : PipelineIterationCapacity) ||
+      build->binding_count >
+          (nested ? PipelineRouteBindingCapacity : PipelineBindingCapacity) ||
       build->state_pairs.size() > PipelineLeafCapacity ||
       build->publications.size() > PipelineLeafCapacity) {
     return Result<std::shared_ptr<PipelineState>>::fail(

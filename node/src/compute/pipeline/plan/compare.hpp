@@ -33,6 +33,7 @@ same_recurrence_phase(const PipelineBuildStep &left,
   return left.program == right.program &&
          left.logical_step == right.logical_step &&
          left.iteration_bound == right.iteration_bound &&
+         left.nested == right.nested && left.route == right.route &&
          left.window_max == right.window_max &&
          left.window_tile == right.window_tile &&
          left.window_terminal == right.window_terminal &&

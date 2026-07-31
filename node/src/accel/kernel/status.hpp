@@ -17,10 +17,10 @@
 namespace rund::node::accel::detail {
 
 inline constexpr std::size_t PreparedPipelineStepCapacity =
-    rund::compute::PipelineIterationCapacity;
+    rund::compute::PipelineRouteCapacity;
 inline constexpr std::uint32_t PreparedPipelineNoStep =
     std::numeric_limits<std::uint32_t>::max();
-inline constexpr std::uint32_t PreparedPipelineControlBytes = 80u;
+inline constexpr std::uint32_t PreparedPipelineControlBytes = 128u;
 
 // One immutable slice of canonical U32 Reason entries for one active Program.
 struct PreparedProgramStatusSlice final {
@@ -34,7 +34,11 @@ struct PreparedProgramStatusSlice final {
 struct PreparedPipelineStatusLayout final {
   std::array<PreparedProgramStatusSlice, PreparedPipelineStepCapacity> slices{};
   std::array<std::uint32_t, PreparedPipelineStepCapacity> declared_steps{};
+  // active_step_count owns compact route templates. command_count owns native
+  // command occurrences; nested schedules may reference one template many
+  // times without duplicating status slices or prepared-resource ownership.
   std::uint32_t active_step_count{};
+  std::uint32_t command_count{};
   std::uint32_t declared_step_count{};
   std::uint32_t status_entry_count{};
   // One native control belongs to each physical stream. Transactional
@@ -59,6 +63,14 @@ struct PreparedPipelineControl final {
   std::uint64_t skipped_iteration_count{};
   std::uint64_t conflict_count{};
   std::uint64_t overflow_ordinal{std::numeric_limits<std::uint64_t>::max()};
+  std::uint32_t failed_outer_window{PreparedPipelineNoStep};
+  std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
+  std::uint32_t failed_nested_phase{};
+  std::uint32_t reserved{};
+  std::uint64_t executed_outer_window_count{};
+  std::uint64_t skipped_outer_window_count{};
+  std::uint64_t executed_inner_iteration_count{};
+  std::uint64_t skipped_inner_iteration_count{};
 };
 
 static_assert(sizeof(PreparedPipelineControl) == PreparedPipelineControlBytes);
@@ -71,6 +83,17 @@ static_assert(offsetof(PreparedPipelineControl, failed_step) == 8u);
 static_assert(offsetof(PreparedPipelineControl, verified_prefix) == 12u);
 static_assert(offsetof(PreparedPipelineControl, generated_item_count) == 16u);
 static_assert(offsetof(PreparedPipelineControl, overflow_ordinal) == 72u);
+static_assert(offsetof(PreparedPipelineControl, failed_outer_window) == 80u);
+static_assert(offsetof(PreparedPipelineControl, failed_inner_iteration) == 84u);
+static_assert(offsetof(PreparedPipelineControl, failed_nested_phase) == 88u);
+static_assert(offsetof(PreparedPipelineControl,
+                       executed_outer_window_count) == 96u);
+static_assert(offsetof(PreparedPipelineControl,
+                       skipped_outer_window_count) == 104u);
+static_assert(offsetof(PreparedPipelineControl,
+                       executed_inner_iteration_count) == 112u);
+static_assert(offsetof(PreparedPipelineControl,
+                       skipped_inner_iteration_count) == 120u);
 
 using PreparedPipelineStepControl = rund::compute::ControlStats;
 inline constexpr std::uint32_t PreparedPipelineStepControlBytes =
@@ -244,11 +267,12 @@ CanonicalPipelineFailureKeyValue(const std::uint32_t status_ordinal,
 PreparePipelineStatusLayout(PreparedPipelineStatusLayout &layout,
                             const std::span<const std::uint32_t> declared_steps,
                             const std::uint32_t declared_step_count,
+                            const std::uint32_t command_count,
                             const std::uint32_t generation_stride) noexcept {
   layout = {};
   if (declared_steps.empty() ||
       declared_steps.size() > PreparedPipelineStepCapacity ||
-      declared_step_count == 0u ||
+      command_count == 0u || declared_step_count == 0u ||
       (generation_stride != 1u && generation_stride != 2u)) {
     return false;
   }
@@ -264,6 +288,7 @@ PreparePipelineStatusLayout(PreparedPipelineStatusLayout &layout,
     previous = declared;
   }
   layout.active_step_count = static_cast<std::uint32_t>(declared_steps.size());
+  layout.command_count = command_count;
   layout.declared_step_count = declared_step_count;
   layout.generation_stride = generation_stride;
   return true;
@@ -292,11 +317,13 @@ SetPreparedProgramStatusSlice(PreparedPipelineStatusLayout &layout,
 [[nodiscard]] constexpr bool ValidPreparedPipelineStatusLayout(
     const PreparedPipelineStatusLayout &layout,
     const std::span<const std::uint32_t> declared_steps,
-    const std::uint32_t declared_step_count,
+    const std::uint32_t declared_step_count, const std::uint32_t command_count,
     const std::uint32_t generation_stride) noexcept {
   if (layout.active_step_count != declared_steps.size() ||
       layout.active_step_count == 0u ||
       layout.active_step_count > PreparedPipelineStepCapacity ||
+      layout.command_count != command_count ||
+      layout.command_count == 0u ||
       layout.declared_step_count != declared_step_count ||
       layout.generation_stride != generation_stride ||
       (generation_stride != 1u && generation_stride != 2u) ||
@@ -319,18 +346,45 @@ SetPreparedProgramStatusSlice(PreparedPipelineStatusLayout &layout,
   return first == layout.status_entry_count;
 }
 
+[[nodiscard]] constexpr bool ValidPreparedPipelineFailureCoordinate(
+    const PreparedPipelineControl &control) noexcept {
+  const auto phase = static_cast<rund::compute::PipelineNestedPhase>(
+      control.failed_nested_phase);
+  switch (phase) {
+  case rund::compute::PipelineNestedPhase::None:
+    return control.failed_outer_window == PreparedPipelineNoStep &&
+           control.failed_inner_iteration == PreparedPipelineNoStep;
+  case rund::compute::PipelineNestedPhase::Seed:
+  case rund::compute::PipelineNestedPhase::Fold:
+    return control.failed_outer_window != PreparedPipelineNoStep &&
+           control.failed_inner_iteration == PreparedPipelineNoStep;
+  case rund::compute::PipelineNestedPhase::Action:
+    return control.failed_outer_window != PreparedPipelineNoStep &&
+           control.failed_inner_iteration != PreparedPipelineNoStep;
+  }
+  return false;
+}
+
 [[nodiscard]] constexpr bool ValidPreparedPipelineControl(
     const PreparedPipelineControl &control,
     const PreparedPipelineStatusLayout &layout) noexcept {
   if (!CanonicalReasonStatus(control.reason) ||
-      control.verified_prefix > layout.declared_step_count) {
+      control.verified_prefix > layout.declared_step_count ||
+      control.failed_nested_phase >
+          static_cast<std::uint32_t>(
+              rund::compute::PipelineNestedPhase::Fold) ||
+      control.reserved != 0u ||
+      !ValidPreparedPipelineFailureCoordinate(control)) {
     return false;
   }
   const bool success =
       control.reason == static_cast<std::uint32_t>(rund::compute::Reason::Ok);
   if (success) {
     return control.failed_step == PreparedPipelineNoStep &&
-           control.verified_prefix == layout.declared_step_count;
+           control.verified_prefix == layout.declared_step_count &&
+           control.failed_nested_phase ==
+               static_cast<std::uint32_t>(
+                   rund::compute::PipelineNestedPhase::None);
   }
   if (control.failed_step == PreparedPipelineNoStep) {
     return true;

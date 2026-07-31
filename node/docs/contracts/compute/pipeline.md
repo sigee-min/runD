@@ -219,16 +219,17 @@ used on CPU, Metal, and Vulkan; the frozen target limit may only lower that
 ceiling.
 
 For `W` pre-existing device-capacity windows, the canonical multi-dispatch
-route performs `N * W` dispatches, `N - 1` visibility
-boundaries, and at least `Theta(N * E * (S + C + O))` global-memory traffic.
-The proved element-local Map route performs `W` dispatches, no
-inter-iteration visibility boundary, and `Theta(E * (S + C + O))`
-global-memory traffic while
-retaining `Theta(N * E)` arithmetic. Its dispatch and payload-traffic reduction
-is therefore exactly linear in `N`; wall-time improvement is measured rather
-than inferred because arithmetic cost, occupancy, driver submission, and cache
-behavior remain device facts. A body with more than one physical dispatch or
-any collective dependency keeps `Theta(N * D)` physical dispatch work.
+route performs `N * W` dispatches and `N - 1` visibility boundaries. Its
+authored commands expose `Theta(N * E * (S + C + O))` payload loads and
+stores. The proved element-local Map route performs `W` dispatches, has no
+inter-iteration visibility boundary, and exposes
+`Theta(E * (S + C + O))` payload loads and stores while retaining
+`Theta(N * E)` arithmetic. Dispatches and program-visible payload operations
+therefore decrease linearly in `N`. Physical memory traffic and wall time
+remain measurements because compiler register allocation, spills, cache,
+occupancy, arithmetic cost, driver submission, and device behavior are not
+algebraic constants. A body with more than one physical dispatch or any
+collective dependency keeps `Theta(N * D)` physical dispatch work.
 
 The 1,024 bound admits multiple bounded solver phases while keeping the
 command stream statically finite. A bounded resident count may suppress later work
@@ -278,7 +279,7 @@ in the user read pack.
 ```cpp fragment
 auto prepared =
     rund::compute::pipeline(device)
-        .windows<516096, 8192>(
+        .windows<516096, 1024>(
             fold,
             rund::compute::window(active).until<1>(7u),
             rund::compute::read(accumulator, terminal, geometry),
@@ -325,14 +326,26 @@ trees, source ordinals, grouping, and storage extents are fixed by
 cannot change Fixed quantization, overflow, reduction order, or output bits.
 
 The prepared window entries are part of the existing Pipeline command graph.
-There is no window executor, tile mode, host loop, workload-size branch,
-alternate graph, or fallback. CPU traverses the same frozen entries under one
-Pipeline run. A nonempty Metal or Vulkan attempt records and commits the
-preflight, all window work, status reduction, and publication in exactly one
-native submission. It performs no count or payload readback, graph rebuild,
-descriptor growth, or warm allocation. `Max` is positive by the public
-template contract; a device-resident `C = 0` still submits the control
+There is no caller-visible or count-driven window executor, tile mode,
+workload-size branch, alternate graph, or fallback. CPU traverses the same
+frozen entries under one Pipeline run. A nonempty Metal or Vulkan attempt
+commits the preflight, all window work, status reduction, and publication in
+exactly one native submission. It performs no count or payload readback, graph
+rebuild, descriptor growth, or warm allocation. `Max` is positive by the
+public template contract; a device-resident `C = 0` still submits the control
 preflight because the host does not read the count.
+
+The current Metal executor does, however, construct Metal's required
+single-use outer command buffer on every warm run by traversing the frozen
+direct-command and ICB-range descriptor tables. That traversal is independent
+of `C` and neither mutates retained binding identity nor adds a submission, but
+it is still a warm host encoder loop and can grow with the prepared schedule.
+Consequently this source revision does not yet satisfy the stronger literal
+interpretation of “no host loop” in the nested-window request. Vulkan records
+its immutable primary command buffer during cold preparation. This limitation
+is release-blocking for that literal requirement; one-submit and
+no-host-driven-submit evidence must not be reported as zero-host-traversal
+evidence.
 
 Preparation also seals the rank of window entries in every physical-step
 prefix:
@@ -417,11 +430,170 @@ bank topology, and publication route are frozen into the Pipeline fingerprint.
 The backend gate schedule is a deterministic lowering of that identity and
 the backend ABI. Pointer identity and the runtime selector value are not.
 
+#### Nested Tile-Local Repeat
+
+`tile_repeat<N>(seed_program, action_program, fold_program)` composes a fixed
+inner recurrence inside each bounded resident window without materializing
+maximum-domain recurrent state. It is a declaration value accepted only as the
+body of `windows<Max, Tile>(...)`:
+
+```cpp fragment
+auto body = rund::compute::tile_repeat<64>(
+    seed_program,
+    action_program,
+    fold_program);
+
+auto prepared =
+    rund::compute::pipeline(device)
+        .windows<516096, 1024>(
+            body,
+            rund::compute::window(active),
+            rund::compute::read(outer_seed, seed_external),
+            rund::compute::write(outer_result))
+        .prepare();
+```
+
+The declaration has no independent `prepare`, `run`, binding, memory, or
+readback authority. It retains each of the three already compiled immutable
+Programs exactly once and becomes executable only when the enclosing
+Pipeline is prepared. `N` is a positive compile-time inner bound. Let the
+flattened type tuples be:
+
+```text
+S = seed-external inputs
+T = complete tile-local state
+P = inner carried state
+Q = invariant tail of T, so T = P || Q
+O = outer recurrent state
+
+Seed  : (S..., U32 count, U32 ordinal) -> (T...)
+Action: (T...)                         -> (P...)
+Fold  : (O..., T...)                   -> (O...)
+
+windows read pack  = (O..., S...)
+windows write pack = (O...)
+```
+
+`P` must be an exact type prefix of `T`; `Q` is the remaining suffix. The
+Action updates only `P`, while `Q` is invariant across all `N` inner
+iterations. Fold outputs must exactly match the prefix `O` of its inputs.
+These equalities include scalar type, Fixed format, flattened leaf order, and
+leaf count and are enforced at template admission. The count and ordinal are
+runtime-owned trailing Seed inputs and never appear in the caller read pack.
+If Action needs either value, Seed must place it in `Q`; there is no hidden
+Action input.
+
+For `K = ceil(Max / Tile)`, valid resident count `C`, outer state `O_k`, and
+window-local count `c_k`, the canonical order is:
+
+```text
+active(k) = k * Tile < C && terminal(O_k) != expected
+c_k       = min(Tile, C - k * Tile)
+T(k, 0)   = Seed(S, C, k)
+P(k, j+1) = Action(P(k, j), Q(k)) for j = 0 .. N-1
+T(k, j)   = P(k, j) || Q(k)
+O(k+1)    = Fold(O_k, T(k, N))
+```
+
+Seed receives the canonical total count `C`, just like the ordinary
+`windows` body, and derives `c_k` through `resident<Max, Tile>(C, k)`. If
+Action needs `c_k`, Seed retains it explicitly in `Q`. The Action equation
+means that only its `P` prefix changes; every evaluation observes the same
+`Q` produced by Seed. The next outer window cannot seed until the preceding
+Fold has completed. Seed, every Action iteration, and Fold
+preserve their compiled Program node order, Fixed policy, reductions, resets,
+and status priority. No cross-Program fusion, reassociation, or approximate
+termination is implied.
+
+A count of zero executes no Seed, Action, or Fold and publishes the initial
+`O` through the ordinary final route. A partial final window receives its
+exact `c_k` and ordinal. Seed must place that count in `Q` whenever Action or
+Fold needs bounded tail access; the Pipeline preserves the value exactly but
+does not infer a new count lineage across the three already compiled Program
+boundaries. The Programs must initialize or avoid every capacity-tail byte
+they read. `C > Max` fails the resident preflight before every payload command
+and publishes neither output nor generation. `until<Index>(expected)` names a
+U32 leaf of `O`; equality in the current outer state suppresses that window,
+and a value produced by Fold at window `k` suppresses window `k + 1` and all
+later windows. It never shortens the fixed `N` Action recurrence of an already
+active window.
+
+Failure order is lexicographic in outer window, phase
+`Seed < Action < Fold`, Action iteration, and Program node. The first failure
+stops all later nested payload work and prevents publication. Before a
+prepared route or raw backend status slot is reused, its result is folded into
+the canonical fixed-width Pipeline status; route reuse therefore cannot erase
+the first failure. Telemetry for an inactive occurrence observes the same
+resident stopped state before reading mutable route counters, so it cannot
+re-accumulate values left by an earlier active occurrence. Diagnostics,
+profiles, and memory-plan locations retain the logical Pipeline step plus
+separate outer-window and inner-iteration coordinates. Seed and Fold identify
+their phase and have no fabricated inner iteration. The product `k * N + j`
+is never a storage, capacity, ordering, or failure authority.
+
+The four nested-work totals are attempt-wide saturating sums across every
+nested logical Pipeline step. Entering a later nested step, including one with
+different `K` or `N`, never resets or replaces work already attributed to an
+earlier step.
+
+Preparation freezes `O(K + N)` route templates plus fixed control routes. It
+does not freeze `K * N` Program graphs, Jobs, workspaces, bindings, or state
+banks. In particular, the retained owner graph contains one Seed Program, one
+Action Program, one Fold Program, one tile-local invariant `Q` bank, exactly
+two alternating carried `P` banks, the required outer-state banks, and one
+maximum workspace/View/scratch envelope shared serially by all three Programs
+and every outer window. A backend may retain native command references that
+select those templates. Route-template count, native command-reference count,
+and backend-reported dispatch-command count are distinct report coordinates;
+none may be inferred from another or used to justify allocating `K * N`
+Program/Job/workspace owners.
+
+`PipelinePlan::barrier_count` is the exact number of nonzero boundaries in
+that compact route-template schedule. The cold planner projects the canonical
+`resource::analyze` hazards to one bit per route boundary, adds the boundaries
+required when distinct Programs reuse the shared workspace, and freezes that
+same vector for `prepare()`. It is independent of native command-reference
+expansion: a pure nested body has at most `K + N + 2` compact boundaries even
+though `prepared_command_count = K * (N + 2)`. Ordinary steps composed before
+or after the nested body contribute their own exact route boundaries; no
+`prepared_command_count - 1` proxy is valid.
+
+The Action compiled artifact is retained once. Its alternating views require
+at most two parity Job/prepared-resource owners, which all outer windows
+reuse. Cold backend preparation records the `K * N` ordered native command
+references in Metal's ICB stream or Vulkan's immutable primary stream without
+duplicating those owners. The current nested lowering retains all `N` ordered
+Action invocations for each active window; the separate top-level Map
+register-recurrence proof does not classify a Seed/Action/Fold subrange. Metal
+and Vulkan still use one Pipeline submission, with no warm count readback,
+allocation, compilation, descriptor growth, binding mutation, or fallback.
+CPU executes the identical nested semantic order inside one Pipeline run and
+retains the same compact prepared ownership. Metal's count-independent warm
+descriptor traversal described above remains an implementation limitation; it
+is not per-tile rebinding, but it prevents literal zero-host-loop closure.
+
+`PipelineStats::rebinding_count` counts post-prepare mutations of the retained
+Job, Buffer, View, or prepared-owner binding identity. It is zero by
+construction because warm execution has no such mutation path. Metal's and
+Vulkan's cold preparation, and Metal's emission of an already frozen
+descriptor into a fresh single-use command buffer, are encoding operations,
+not binding mutations. The zero counter is diagnostic rather than standalone
+proof: `compute.window` snapshots every unique nested normal `JobState`; a
+transactional recurrence in the same binding oracle also captures each normal
+and alternate `JobState`. Both capture Program/workspace/Buffer owners, typed
+Views, arena bindings, and the available primary/alternate
+`PreparedKernelPipeline` owners, then compare the complete snapshot after
+successive executions; the nested oracle also compares overflow.
+
 Logical output leaves are the user-facing binding order. Preparation maps them
 through the Program's existing logical-to-physical output projection. If two
 logical leaves name one physical Program output, both leaves must bind the same
 Buffer owner; Pipeline then retains that physical owner once. Distinct Buffer
 owners never trigger an implicit copy to satisfy one aliased physical output.
+The current nested Seed/Action/Fold bank model requires distinct physical
+outputs and rejects a Program with logical output aliases as
+`BindingAliasUnsupported`; ordinary Pipeline steps retain the general alias
+projection above.
 
 `PipelineBuilder` and `Pipeline` are move-only. Immutable `StateSnapshot` is a
 copyable shared evidence value suitable for a bounded checkpoint ring. The transient binding packs
@@ -436,9 +608,12 @@ The fixed product envelope is:
 
 ```text
 steps <= 64
-prepared iterations <= 1024
+flat prepared iterations <= 1024
+compact nested route templates <= 2051 (= 2 * 1024 + 3)
+nested contribution is O(outer windows + inner iterations), never their product
 combined logical input and output leaves per Program <= 32
-binding occurrences <= 32768 (= 1024 * 32)
+flat binding occurrences <= 32768 (= 1024 * 32)
+nested route binding occurrences <= 65632 (= 2051 * 32)
 unique resources <= 2048
 native commands <= the selected Device's checked command capacity
 ```
@@ -446,8 +621,12 @@ native commands <= the selected Device's checked command capacity
 Preparation allocates exact retained storage inside that bound. It never
 spills, grows on demand, or switches execution strategy. Capacity failure is
 typed and occurs before backend preparation. The common prepared owner checks
-Pipeline entries against `PipelineIterationCapacity`; the independent Batch
-capacity is not a Pipeline limit and is never consulted by this path.
+the sum of flat entries and compact nested route templates against
+`PipelineRouteCapacity`; it neither checks nor allocates from a flattened
+outer-times-inner cardinality. Flat-only schedules retain the narrower
+`PipelineIterationCapacity`. Each reported nested coordinate retains its own
+range proof. The independent Batch capacity is not a Pipeline limit and is
+never consulted by this path.
 
 Standalone `Pipeline::run()` and `Session::compute(Pipeline&)` execute the same
 private operation authority. Pipeline exposes `stats()`, `memory()`,
@@ -884,6 +1063,17 @@ between them. There is no fallback selection: preparation freezes the sole
 ICB/direct partition, and every warm run consumes it unchanged. Batch's
 independent-Map packing and host pack/unpack path are never used by Pipeline.
 
+This `Theta(K + R)` warm encoder traversal is the outstanding nested-window
+host-loop gap. Merely placing fixed `DirectThreads` controls in the ICB does
+not close it: state-dependent `IndirectGroups` dispatches still require the
+ordinary encoder, and owner ranges still require separate execution-range
+commands. A safe literal closure needs either a fully guarded static ICB
+lowering, in which every payload kernel accepts a logical-grid/resident-state
+guard, or a persistent tile scheduler lowering that represents
+Seed/Action/Fold as device-callable tile work. Same-ICB mutation of later
+commands is not an accepted shortcut because Metal provides no command-fetch
+coherency contract for that execution pattern.
+
 ### Vulkan
 
 Each private Program is prepared in Pipeline-only mode and therefore does not
@@ -899,7 +1089,7 @@ canonicalized immediately after its producing primitive. The following fixed
 tree fold consumes that canonical slice before any later primitive may reset or
 reuse native status storage. This removes native-buffer alias analysis and
 keeps one lexicographic failure authority in declaration order. The stream ends
-with one deterministic close that reads and overwrites the mapped 80-byte
+with one deterministic close that reads and overwrites the mapped 128-byte
 terminal block directly. The canonical writers
 cover `[0, status_entry_count)` exactly, so a preceding arena fill, transfer
 barrier, device-only control mirror, and device-to-staging copy would be
@@ -947,14 +1137,15 @@ mirrors it.
   upload, payload download, or Flow reconstruction occurs in the warm run;
 - every device status entry stores zero or one canonical typed Reason code;
 - one deterministic fixed-tree fold immediately after each status-bearing
-  primitive selects the first nonzero local status ordinal while the 80-byte
+  primitive selects the first nonzero local status ordinal while the 128-byte
   control is still open; later folds cannot replace the first failing Program,
   and one terminal close writes generation and verified prefix;
 - each bounded-control source is consumed immediately after its owning
   occurrence, before a reused recurrence route may overwrite that mutable
   native source; the resulting values are accumulated on-device into the
-  remaining eight U64 fields before the single fixed 80-byte host observation;
-- the fixed 80-byte control observation is not payload readback and is reported
+  eight legacy U64 telemetry fields and four nested-work U64 fields before the
+  single fixed 128-byte host observation;
+- the fixed 128-byte control observation is not payload readback and is reported
   separately from payload transfer;
 - output payload and hash remain unavailable until explicit `read(...)`.
 
@@ -1145,8 +1336,9 @@ the control, so the result is the lexicographic minimum
 `(step ordinal, primitive ordinal, status ordinal)` independent of worker or
 workgroup completion order.
 
-The sole host control record is exactly 80 bytes: a four-U32 status prefix and
-eight U64 bounded-control telemetry fields:
+The sole host control record is exactly 128 bytes: a four-U32 status prefix,
+eight U64 bounded-control telemetry fields, four U32 nested failure-coordinate
+fields, and four U64 nested-work totals:
 
 ```text
 PreparedPipelineControl = {
@@ -1161,9 +1353,17 @@ PreparedPipelineControl = {
   iteration_count,
   skipped_iteration_count,
   conflict_count,
-  overflow_ordinal
+  overflow_ordinal,
+  failed_outer_window,
+  failed_inner_iteration,
+  failed_nested_phase,
+  reserved,
+  executed_outer_window_count,
+  skipped_outer_window_count,
+  executed_inner_iteration_count,
+  skipped_inner_iteration_count
 }
-sizeof(PreparedPipelineControl) == 80
+sizeof(PreparedPipelineControl) == 128
 ```
 
 `reason` is the raw canonical `compute::Reason` value and zero means success.
@@ -1174,9 +1374,11 @@ record is visible produces an unknown step instead of fabricating a prefix.
 The public projection converts the sentinel to
 `PipelineStats::no_failed_step`.
 
-The eight U64 suffix fields are generated and accumulated by the device in
-canonical occurrence and primitive order through the first failing Program,
-inclusive. Each telemetry dispatch reads the state immediately after its
+The eight legacy telemetry U64 fields and four nested-work U64 fields are
+generated and accumulated by the device in canonical occurrence and primitive
+order through the first failing Program, inclusive. The three nested failure
+coordinates use `UINT32_MAX` when unknown; the fourth U32 preserves eight-byte
+alignment. Each telemetry dispatch reads the state immediately after its
 occurrence, then a compute-visibility barrier publishes that accumulation
 before the next occurrence may reuse the same route. A Program boundary fold
 merges that Program's status-owned telemetry exactly once and records its
@@ -1378,7 +1580,7 @@ publication. Pre-backend cancel or close releases them and returns the Pipeline
 to Ready. CPU cancellation after a write can start records a known failed step
 when the ordered executor can prove it. GPU cancellation after accepted native
 submission waits for backend completion and names a failed step only from a
-valid observed 80-byte control record. In either path, declared transactional
+valid observed 128-byte control record. In either path, declared transactional
 pending state is discarded with parity/generation unchanged; only non-state
 writes are poisoned. Session close stops admission, requests cancellation,
 waits one terminal Completion for each accepted Compute operation, releases its
@@ -1412,13 +1614,16 @@ projection rather than parallel top-level counters:
 | --- | --- |
 | `step_count` | Frozen Program step count. |
 | `resource_count` | First-use canonical Buffer-resource count. |
-| `barrier_count` | Frozen conflicting step boundaries. |
+| `barrier_count` | Exact nonzero boundaries in the compact frozen schedule: canonical resource hazards plus shared-workspace reuse; independent of `prepared_command_count`. |
 | `claim_conflict_count` | Complete Pipeline admissions rejected by one Buffer claim conflict. |
 | `verified_step_count` | Contiguous declaration-ordered prefix whose Program completion is known successful. |
 | `failed_step_index` | First known failed step, or `PipelineStats::no_failed_step` when no failed step is known. |
 | `status_entry_count` | Packed device status entries owned by all steps. |
-| `control_byte_count` | Host-observed control bytes; exactly 80 iff the backend reports `control_observed`, otherwise zero, including CPU, zero-work, and control-lost failure. |
+| `control_byte_count` | Host-observed control bytes; exactly 128 iff the backend reports `control_observed`, otherwise zero, including CPU, zero-work, and control-lost failure. |
 | `control_command_count` | Exact `2 + C + F + T + R + M` Metal, `2 + C + F + T` Vulkan, or zero-work command law above; separate from Program dispatches and barriers. |
+| `prepared_template_count` | Compact retained route-template count. It does not count native occurrence references. |
+| `prepared_command_count` | Checked native command-reference capacity, including nested physical occurrences. It does not imply distinct Program, Job, or binding owners. |
+| `rebinding_count` | Post-prepare retained binding-identity mutations. The immutable prepared executor reports zero by construction; cold native descriptor encoding is not a mutation, and the structural owner/View snapshot is the independent proof. |
 | `claim_ns` | Saturating nanoseconds spent in the resource-claim boundary; diagnostic timing, not a portable performance claim. |
 | `control_ns` | Saturating nanoseconds spent resetting, reducing, and observing control state; diagnostic timing, not payload-readback time. |
 
@@ -1533,7 +1738,7 @@ reconciliation formula. Truncating caller row storage changes neither totals
 nor the complete-memory summary.
 
 Profiling preserves the existing terminal-control ABI. The sole
-`PreparedPipelineControl` observation remains exactly 80 bytes and
+`PreparedPipelineControl` observation remains exactly 128 bytes and
 `control_byte_count` retains its current meaning. An enabled native profile
 uses a separate preparation-bounded evidence block observed at the same
 submission completion boundary. Its exact additional native commands, bytes,
@@ -1586,7 +1791,7 @@ binding owners, the hazard frontier, fingerprint storage, and typed operation
 table are Host/Metadata. Caller Buffers remain caller-owned physical storage.
 Program-private intermediates, the status arena, the Metal parameter arena,
 and backend command resources are retained Internal storage. A Vulkan mapped
-80-byte terminal block is Staging. Snapshot rows enumerate each retained owner once;
+128-byte terminal block is Staging. Snapshot rows enumerate each retained owner once;
 warm execution may change contents and generations but not retained capacity.
 
 Pipeline workspace placement consumes Program chunks without narrowing the
@@ -1847,7 +2052,7 @@ accounting or pool lifetime authority.
 
 `memory_snapshot()` emits one Pipeline metadata group, one aggregate internal
 group for private step storage when nonempty, one native prepared-owner group,
-one 80-byte control staging group when that retained mapping exists, and the
+one 128-byte control staging group when that retained mapping exists, and the
 existing explicit-read/checkpoint staging and traffic meters. Vulkan
 checkpoint staging records cumulative `B` snapshot bytes or `2B` restore bytes
 while each live chunk is bounded by `max(L, max(b_i))`; small operations that
@@ -1878,7 +2083,7 @@ For `N` Programs, total useful device work `K`, materialized intermediate
 traffic `M`, one native submit-and-completion cost `S`, per-Program separate
 host encode cost `E_i`, retained Pipeline execution cost `E_p`, resource-claim
 cost `C_r`, cross-step barrier cost `B`, and device status reset/reduction plus
-ordered telemetry accumulation plus 80-byte observation cost `C_s`:
+ordered telemetry accumulation plus 128-byte observation cost `C_s`:
 
 ```text
 T_separate = N*S + sum(E_i) + K + M
@@ -1915,7 +2120,7 @@ per-Job terminal state. CPU execution advances the same private owners under
 the Pipeline phase authority without a second Job lifecycle.
 Metal resets only its compact private raw prefix and imports each public raw
 range once; it owns no canonical arena or raw-to-canonical copy. Host
-observation remains exactly 80 bytes. The hazard plan and fingerprint are
+observation remains exactly 128 bytes. The hazard plan and fingerprint are
 cold-only. Metal's cold status layout uses one binding pass, one private/public
 raw-offset partition pass, and one metadata rewrite pass, `Theta(B + Q)` for
 `B` bindings and `Q` observed entries. Measurements must separate wall,
@@ -2032,11 +2237,12 @@ The CPU Session integration case keeps its one registry symbol in
 owner alone constructs the CPU Device and Session, owns the common exact-read
 oracle, preserves diagnostic labels and result offsets, and runs the semantic
 leaves in canonical order. `lifecycle`, `claim`, `cancel`, `status`, `view`,
-and `state` create all operation-local Programs, Pipelines, Buffers, and result
-storage themselves; no result depends on translation-unit initialization or an
-earlier leaf's mutable fixture. Editing one semantic leaf therefore compiles
-that leaf and relinks the existing `runtime.compute-pipeline` runner instead of
-compiling the complete integration contract.
+`state`, and `nested` create all operation-local Programs, Pipelines, Buffers,
+and result storage themselves; no result depends on translation-unit
+initialization or an earlier leaf's mutable fixture. Editing one semantic leaf
+therefore compiles that leaf and relinks the existing
+`runtime.compute-pipeline` runner instead of compiling the complete integration
+contract.
 
 The three selected `compute.pipeline` routes own standalone type, binding,
 order, hazard, fingerprint, claim, poison, read/hash, memory, status, counter,
@@ -2077,8 +2283,9 @@ can claim the Pipeline contract:
    a success-shaped output;
 10. repeated warm ticks with zero SDK allocation growth, compile, descriptor
     growth, upload, payload download, implicit payload readback, and round trip;
-11. GPU terminal observation is exactly 80 bytes, follows canonical Reason and
+11. GPU terminal observation is exactly 128 bytes, follows canonical Reason and
     failing-ordinal selection, appends eight device-generated bounded-control
+    U64 fields, three nested failure coordinates, and four nested work-total
     U64 fields, and is reported only as control evidence;
 12. on Metal/Vulkan, `dispatches == final_dispatches == authored final
     dispatches + required device View gather/scatter dispatches` and
@@ -2148,6 +2355,36 @@ can claim the Pipeline contract:
     allocation. `PipelineBuilder::plan()` and the prepared Pipeline report the
     same `PipelinePlan`, and a budget below `peak_bytes` fails before Pipeline
     allocation.
+27. `tile_repeat<N>` proves its Seed/Action/Fold type laws and canonical
+    outer-window/inner-iteration order for `N = 1`, even and odd `N`, and more
+    than one window. Counts `0`, `1`, `Tile - 1`, `Tile`, `Tile + 1`, `Max`,
+    and `Max + 1`, high sparse ordinals, the last ordinal alone, and canonical
+    producer conflicts exercise empty, tail, full, and overflow behavior.
+    Initial and Fold-produced terminal values prove early stop. Injected Seed,
+    first/middle/last Action, and Fold failures prove canonical first-failure
+    attribution; a later higher-priority failure after an otherwise
+    publishable Fold result still suppresses publication. A telemetry-bearing
+    Action compares one active tile in a three-window terminal schedule with
+    the same tile in a one-window schedule, proving stopped occurrences cannot
+    re-accumulate stale route counters. Two nested logical steps with different
+    `K` and `N`, zero and partial counts prove that outer/inner work totals are
+    attempt-wide saturating sums rather than the final step's values on
+    standalone CPU/GPU and CPU Session execution. CPU, Metal, Vulkan, and
+    native Windows Vulkan where available produce matching results, failure
+    coordinates, and outer/inner work totals against a serial oracle;
+    each GPU attempt submits once, warm counters report zero compilation,
+    allocation, descriptor growth, binding mutation, count readback, and
+    fallback, and an independent frozen-owner/View snapshot proves that the
+    zero binding-mutation count is structural rather than an unwritten
+    counter. `N = 1` and `N = 64` retain the same Action scratch allocation
+    count and one Action fingerprint rather than graph expansion. A plan-only
+    large `Max` proves route-template and retained-memory growth is `O(K + N)`,
+    not `O(K * N)`, while the tile invariant bank, two carried banks, and
+    maximum shared workspace/View/scratch envelope remain independent of `K`;
+    a one-byte-short budget rejects before backend allocation. Flat-only,
+    pure nested, and nested-plus-ordinary plans prove that `barrier_count`
+    equals the prepared compact boundary vector and does not grow as
+    `prepared_command_count - 1`.
 
 An unavailable backend capability, typed rejection, partial implementation,
 direct-encode fallback, skipped native Vulkan run, or documentation-only API is

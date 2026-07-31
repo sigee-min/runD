@@ -14,10 +14,18 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
 rund::AccelCheck MetalPipelineBuild::Admit() {
-  if (entries.empty() || entries.size() != barriers.size() ||
-      entries.size() != status.active_step_count ||
+  if (templates.empty() || entries.empty() ||
+      entries.size() != barriers.size() ||
+      templates.size() != status.active_step_count ||
+      entries.size() != status.command_count ||
       entries.front().run == nullptr || entries.front().run->pick == nullptr) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+  }
+  for (std::size_t index = 0u; index < entries.size(); ++index) {
+    if (entries[index].occurrence_index != index ||
+        entries[index].template_index >= templates.size()) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
   }
   recurrence = BuildMapRecurrence(entries, barriers);
   if (recurrence.invalid()) {
@@ -109,6 +117,19 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       if (window == nullptr) {
         continue;
       }
+      const bool nested = window->nested();
+      const bool nested_shape_valid =
+          !nested ||
+          (window->outer_bound != 0u &&
+           window->outer_iteration < window->outer_bound &&
+           window->inner_bound != 0u &&
+           ((window->phase == BackendWindowPhase::NestedSeed &&
+             window->route == 0u) ||
+            (window->phase == BackendWindowPhase::NestedAction &&
+             window->inner_iteration < window->inner_bound &&
+             window->route == 0u) ||
+            (window->phase == BackendWindowPhase::NestedFold &&
+             window->route < 3u)));
       const MetalResidentBufferResult count = ResolveMetalResidentBuffer(
           resident, window->count.source, window->count.handle,
           "accel_metal_resident_id_unavailable", true);
@@ -116,6 +137,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           window->maximum == 0u || window->tile == 0u ||
           window->tile > window->maximum || window->bound == 0u ||
           window->iteration >= window->bound ||
+          !nested_shape_valid ||
           window->count.source.count != 1u ||
           window->count.source.element_bytes != sizeof(std::uint32_t) ||
           (window->count.source.offset_bytes % sizeof(std::uint32_t)) != 0u) {
@@ -142,6 +164,10 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
         }
       }
       state_count = std::max(state_count, window->state + 1u);
+      const std::uint32_t template_index = entries[entry_index].template_index;
+      if (template_index >= status.active_step_count) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
       native_windows.push_back(MetalWindow{
           .resident = count.device_buffer,
           .terminals = {terminals[0].device_buffer, terminals[1].device_buffer,
@@ -171,6 +197,11 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                   .has_terminal =
                       static_cast<std::uint32_t>(window->has_terminal),
                   .range_count = 0u,
+                  .phase = static_cast<std::uint32_t>(window->phase),
+                  .declared_step = status.declared_steps[template_index],
+                  .overflow_reason = static_cast<std::uint32_t>(
+                      rund::compute::Reason::BoundedCountInvalid),
+                  .inner_bound = window->inner_bound,
               },
           .entry = static_cast<std::uint32_t>(entry_index),
       });

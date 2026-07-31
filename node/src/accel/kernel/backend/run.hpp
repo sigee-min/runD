@@ -10,6 +10,7 @@
 #include <accel/check.hpp>
 #include <accel/context/value.hpp>
 #include <accel/runtime.hpp>
+#include <rund/compute/pipeline/coordinate.hpp>
 
 #include <array>
 #include <cstddef>
@@ -131,6 +132,17 @@ struct ResidentState final {
 
 static_assert(sizeof(ResidentState) == 8u);
 
+// A compact nested Pipeline retains one route template for every outer seed,
+// inner action, and fold-bank transition. Cold native capture expands those
+// templates into physical command occurrences without manufacturing another
+// Job/prepared-resource owner per occurrence.
+enum class BackendWindowPhase : std::uint8_t {
+  Ordinary,
+  NestedSeed,
+  NestedAction,
+  NestedFold,
+};
+
 // Authored recurrence identity is carried from Pipeline planning so a backend
 // never guesses that an ordinary ping-pong chain is disposable. A bound of one
 // is the canonical non-recurrence value.
@@ -155,11 +167,46 @@ struct BackendWindow final {
   std::array<BackendRead, 3u> terminal{};
   std::uint32_t maximum{};
   std::uint32_t tile{};
+  // Legacy one-dimensional coordinate. For expanded nested occurrences it is
+  // the outer coordinate/bound so existing admission remains fail-closed while
+  // phase-aware backends consume the explicit two-dimensional coordinates.
   std::uint32_t iteration{};
   std::uint32_t bound{};
   std::uint32_t expected{1u};
   std::uint32_t state{};
+  std::uint32_t outer_iteration{};
+  std::uint32_t outer_bound{1u};
+  std::uint32_t inner_iteration{};
+  std::uint32_t inner_bound{1u};
+  // Fold route 0 consumes the authored seed accumulator, route 1 the first
+  // carried bank, and route 2 the second carried bank.
+  std::uint32_t route{};
+  BackendWindowPhase phase{BackendWindowPhase::Ordinary};
   bool has_terminal{};
+
+  [[nodiscard]] constexpr bool nested() const noexcept {
+    return phase != BackendWindowPhase::Ordinary;
+  }
+
+  [[nodiscard]] constexpr bool advances_outer_state() const noexcept {
+    return phase == BackendWindowPhase::Ordinary ||
+           phase == BackendWindowPhase::NestedFold;
+  }
+
+  [[nodiscard]] constexpr rund::compute::PipelineNestedPhase
+  nested_phase() const noexcept {
+    switch (phase) {
+    case BackendWindowPhase::NestedSeed:
+      return rund::compute::PipelineNestedPhase::Seed;
+    case BackendWindowPhase::NestedAction:
+      return rund::compute::PipelineNestedPhase::Action;
+    case BackendWindowPhase::NestedFold:
+      return rund::compute::PipelineNestedPhase::Fold;
+    case BackendWindowPhase::Ordinary:
+      return rund::compute::PipelineNestedPhase::None;
+    }
+    return rund::compute::PipelineNestedPhase::None;
+  }
 };
 
 // Terminal publication is deliberately outside the authored Program graph.
@@ -184,6 +231,11 @@ struct BackendBatchEntry final {
   const std::shared_ptr<void> *prepared = nullptr;
   rund::RuntimeStats *stats = nullptr;
   BackendRecurrence recurrence{};
+  // Status/resource description is owned once per compact template. Native
+  // capture may reference that template many times; occurrence_index is the
+  // lexicographic command-order failure key.
+  std::uint32_t template_index{};
+  std::uint32_t occurrence_index{};
 };
 
 struct BoundRun final {

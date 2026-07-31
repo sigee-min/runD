@@ -18,7 +18,7 @@ namespace rund_node_test_pipeline {
          stats.pipeline.status_entry_count == status_entries &&
          stats.command_submits == (backend == Backend::Cpu ? 0u : 1u) &&
          (backend == Backend::Cpu ? stats.pipeline.control_byte_count == 0u
-                                  : stats.pipeline.control_byte_count == 80u) &&
+                                  : stats.pipeline.control_byte_count == 128u) &&
          stats.pipeline.control_command_count == control_commands &&
          pipeline.run().reason() == Reason::PipelinePoisoned &&
          reason != Reason::Ok;
@@ -252,7 +252,7 @@ namespace rund_node_test_pipeline {
         stats.pipeline.verified_step_count != 0u ||
         stats.pipeline.failed_step_index != 0u ||
         stats.pipeline.status_entry_count != alias_steps ||
-        stats.pipeline.control_byte_count != 80u ||
+        stats.pipeline.control_byte_count != 128u ||
         stats.pipeline.control_command_count != expected_commands) {
       std::fprintf(
           stderr,

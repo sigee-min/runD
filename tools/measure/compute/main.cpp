@@ -30,11 +30,15 @@ int main(const int argc, char **const argv) {
   const bool recurrence = argc == 3 &&
                           std::string_view{argv[1]} == "--recurrence" &&
                           ParseBackend(argv[2], focus) && focus != Backend::Cpu;
+  const bool window_repeat =
+      argc == 3 && std::string_view{argv[1]} == "--window-repeat" &&
+      ParseBackend(argv[2], focus) && focus != Backend::Cpu;
   const bool pipeline_profile =
       argc == 3 && std::string_view{argv[1]} == "--pipeline-profile" &&
       ParseBackend(argv[2], focus) && focus != Backend::Cpu;
   const bool focused = collective || sort || bulk || resident || batch ||
-                       pipeline || recurrence || pipeline_profile;
+                       pipeline || recurrence || window_repeat ||
+                       pipeline_profile;
   if (!focused) {
 #else
   (void)argv;
@@ -42,7 +46,8 @@ int main(const int argc, char **const argv) {
 #endif
     std::fputs("usage: runD-compute-measure "
                "[--resident|--collective|--sort|--bulk|--batch|--pipeline|"
-               "--recurrence|--pipeline-profile cpu|metal|vulkan]\n",
+               "--recurrence|--window-repeat|--pipeline-profile "
+               "cpu|metal|vulkan]\n",
                stderr);
     return 2;
   }
@@ -69,6 +74,9 @@ int main(const int argc, char **const argv) {
     } else if (recurrence) {
       rund::measure::compute::PrintRecurrenceColumns();
       ok = rund::measure::compute::MeasureRecurrence(focus, 4096u, 12u) && ok;
+    } else if (window_repeat) {
+      rund::measure::compute::PrintNestedRepeatColumns();
+      ok = rund::measure::compute::MeasureNestedRepeat(focus, 12u) && ok;
     } else if (batch) {
       std::fputs("batch_columns,backend,status,jobs,elements_per_job,samples,"
                  "serial_first,batch_first,serial_wall_median_us,"

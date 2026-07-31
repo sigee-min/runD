@@ -247,11 +247,11 @@ validation policies. Prepared native reset records compose their handle or
 descriptor around the common proved `Range`; repeated encoding performs no range,
 overflow, alignment, replacement, allocation, or payload-copy work.
 
-The public `Run` receipt retains its private state in a 1,280-byte,
-`uint64_t`-aligned inline store. The source-private `RunState` is 1,072 bytes
-with 8-byte alignment, so the checked bound is `1,072 <= 1,280` with 208 bytes
-of reserve. `Result<Run>` is 1,288 bytes on the checked 64-bit ABI. The reserve is
-an explicit stack and ABI footprint tradeoff for isolating private layout
+The public `Run` receipt retains its private state in a 1,152-byte,
+`uint64_t`-aligned inline store. The source-private `RunState` is 1,104 bytes
+with 8-byte alignment, so the checked bound is `1,104 <= 1,152` with 48 bytes
+of reserve. `Result<Run>` is 1,160 bytes on the checked 64-bit ABI. The reserve
+is an explicit stack and ABI footprint tradeoff for isolating private layout
 growth; it is neither heap storage nor extra initialized/copied payload.
 Construction, copying, moving, and destruction are compiled owners; public
 headers never require the complete private state. A warm
@@ -394,6 +394,17 @@ uses. They are suballocated at the maximum of that alignment and the selected
 backend's storage-offset alignment, so both alignment holes and backing-owner
 count are known before allocation.
 
+Pipeline logical, live, and physical workspace reports share the fixed base
+`B = state_bytes + prepared_bytes`; `persistent_bytes` is excluded because its
+Buffers remain caller-owned. The logical term adds each ordinary Program's
+`graph_info.memory.logical_bytes` per occurrence and, for every nested group,
+adds `K * (L_seed + N * L_action + L_fold)`. The live term adds only the
+maximum `graph_info.memory.live_bytes` across executable ordinary, Seed,
+Action, and Fold templates. The physical term adds `transient_bytes` and is
+exactly `peak_bytes`. Every multiplication and addition is checked and no
+report is clamped to another report. The public equations and symbols are
+owned by [Compute](../../../../docs/reference/compute.md).
+
 The scratch planner consumes the admitted Kernel operation sequence and emits
 the exact temporary requests used by Scan, segmented Scan/Reduce, Sort,
 Compact, Partition, Reduce, and ScatterReduce. For storage-page size `P`,
@@ -444,6 +455,14 @@ shared owners once and labels scratch separately in both Resident and Device
 categories; Device bytes are the actual physical allocation and may exceed the
 logical plan through backend allocation granularity. Native allocation failure
 retains its owning typed reason.
+
+The frozen preflight plan also owns one compact Pipeline boundary vector.
+Canonical `resource::analyze` hazards and shared-workspace reuse set its bits;
+`PipelinePlan::barrier_count` is their exact population count. Preparation
+consumes the same resource plan and vector, so command-reference capacity,
+backend expansion, and allocation placement cannot invent a second barrier
+count.
+
 Budget cannot change `Max`, `Tile`, occurrence count, Program shape, chunk
 placement, or backend. CPU, Metal, and Vulkan consume the same canonical graph
 and Pipeline ownership law; the selected backend contributes only the dense
@@ -456,6 +475,90 @@ fold, barrier frontier, and publication order remain unchanged, so
 suballocation cannot change result bits. A warm Pipeline run changes only
 resident control values; it performs no payload allocation, plan mutation, or
 placement search.
+
+For a nested `tile_repeat<N>` body, let Action input tuple
+`T = P || Q`, where `P` is the Action output prefix and `Q` is its invariant
+tail. Let `K = ceil(Max / Tile)`. The cold planner retains disjoint owner
+families with the following conceptual decomposition:
+
+```text
+NestedFootprint =
+    PersistentCompactQueue
+  + OuterState(O)
+  + ScheduleControl(K + N)
+  + bytes(Q)
+  + 2 * bytes(P)
+  + max_X Workspace(X)
+  + max_X View(X)
+  + max_X Scratch(X)
+  + PreparedMetadata(K + N)
+
+where X is one of {Seed, Action, Fold}
+```
+
+Each `max_X` is the capacity of one serially reused owner family, not a sum
+over Programs. `PersistentCompactQueue` is the one caller-owned queue and
+count already included in `persistent_bytes`; Pipeline retains its owner but
+does not duplicate its payload. `OuterState(O)` is the ordinary
+publication/transaction state required for `O` and does not grow with `K`.
+`ScheduleControl` is the fixed-width resident selector, status,
+command-reference, and outer/inner schedule payload. `PreparedMetadata` is
+retained host/native description measured in its existing metadata category
+rather than mixed into logical Buffer payload. The plan accounts for any
+resident control Buffer in `state_bytes`, shared Program workspace in
+`transient_bytes`, and dense View/scratch backing in `prepared_bytes`;
+complete `memory()` observation adds the compact retained metadata exactly
+once. Consequently `peak_bytes` excludes the caller-owned compact queue while
+`total_bytes` includes it once through `persistent_bytes`.
+
+Seed writes the initial `P` bank and the sole `Q` bank. The two `P` banks then
+alternate for all Action iterations and all outer windows; Fold borrows the
+selected `P || Q` view. No owner is sized as `Max * bytes(T)`, `K * Tile`
+scratch, `N` workspaces, or `K * N` Jobs or banks. Compiled Program ownership
+is three immutable handles regardless of both bounds. Route-template and
+prepared-metadata growth is `O(K + N)`. Native command references and
+observed dispatches are accounted independently and cannot be presented as a
+duplicated Program graph or payload owner.
+
+Nested planning preserves two coordinates. The plan publishes `K`, `Tile`,
+and `N`, and every largest-workspace, peak-envelope, and View location records
+outer window and inner iteration independently when applicable. Seed and Fold
+locations retain their phase without inventing an Action iteration. A
+flattened `k * N + j` value is neither a location nor an admission count.
+Each coordinate is range-checked, then only the compact `O(K + N)` route
+total contributes to `PipelineRouteCapacity`; flat-only schedules retain
+`PipelineIterationCapacity`, and the product contributes to neither.
+Native command capacity is checked separately against the selected backend's
+published limit.
+
+The zero-count plan owns the same cold capacities but executes no Seed,
+Action, or Fold. A tail window changes only live count, not any retained
+capacity. Count overflow fails before payload writes, so it cannot make a
+speculative tile owner live or publish an outer bank. A Seed, Action, or Fold
+failure is folded into the fixed control owner before the corresponding
+mutable route is reused. Warm CPU, Metal, and Vulkan execution may change
+control contents and counters, but it cannot allocate, resize, rebind, or
+re-place any owner.
+
+Here, rebind means a post-prepare mutation of retained Job, Buffer, typed View,
+arena descriptor, or prepared-pipeline owner identity. Re-emitting an already
+frozen descriptor while constructing a fresh single-use Metal command buffer
+does not change that identity and is not a rebind. The public
+`rebinding_count` is therefore zero by construction, not sufficient evidence
+by itself. The nested-window contract fixture captures the unique normal and
+transactional alternate Jobs across its nested and transactional binding
+oracles, their Program/workspace/Buffer owners and View descriptors, shared
+arena bindings, and the available primary/alternate opaque prepared-pipeline
+owners; every identity must compare equal after successive executions, and
+the nested identities must also survive overflow.
+
+That definition must not erase Metal encoder work from the execution model.
+The current Metal warm path walks the immutable direct-command and ICB-range
+tables while constructing the single-use outer command buffer. It allocates
+and rebinds nothing, but the walk can scale with prepared schedule size and is
+the outstanding literal “no host loop” gap. It is excluded from
+`rebinding_count` only because that counter measures identity mutation, not
+because the CPU work is absent.
 
 The planner admits a nonzero arena range only after a dense `Full` write or a
 proved `Domain` write. Domain coverage uses canonical count identity and

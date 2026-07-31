@@ -22,7 +22,7 @@ bytes.
 | `tools/sanitize/run thread` | TSan concurrency-owner matrix. |
 | `tools/check/leaks` | Native Apple leak checks for the four lifetime owners. |
 | `tools/measure/scheduler/run` | Installed scheduler latency, scaling, and memory workloads. |
-| `tools/measure/compute/run [--pipeline\|--recurrence metal\|vulkan]` | Installed Compute execution, scaling, parity, and warm-cost workloads; focused modes build one physical backend projection while retaining its CPU oracle. |
+| `tools/measure/compute/run [--pipeline\|--recurrence\|--window-repeat metal\|vulkan]` | Installed Compute execution, scaling, parity, and warm-cost workloads; focused modes build one physical backend projection while retaining its CPU oracle. |
 | `tools/measure/flow/run` | Installed Flow construction and C++ frontend workloads. |
 | `tools/measure/graph/services/run` | Installed Program-cache, async-coalescing, and bounded-graph workloads. |
 | `tools/measure/telemetry/run` | Installed Disabled, Basic, and Detail Replay telemetry cost and parity. |
@@ -415,7 +415,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.0 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.1 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

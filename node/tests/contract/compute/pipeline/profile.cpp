@@ -217,7 +217,7 @@ namespace rund_node_test_pipeline {
       warm_profile->execution.pipeline.failed_step_index !=
           PipelineStats::no_failed_step ||
       warm_profile->execution.pipeline.control_byte_count !=
-          (backend == Backend::Cpu ? 0u : 80u) ||
+          (backend == Backend::Cpu ? 0u : 128u) ||
       warm_profile->referenced_resource_bytes != sizeof(input_values) * 3u ||
       !warm_profile->observation.available() ||
       warm_profile->observation.clock != StepClock::HostSteady ||

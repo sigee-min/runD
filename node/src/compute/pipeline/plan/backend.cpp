@@ -7,6 +7,7 @@
 #include "../../status.hpp"
 #include "../local.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -78,16 +79,16 @@ Status prepare_backend(PipelineState &value) noexcept {
     }
     const auto prepare_stream = [&](const bool alternate)
         -> Result<node::accel::detail::PreparedKernelPipeline> {
-      std::array<const node::accel::detail::PreparedKernelRun *,
-                 PipelineIterationCapacity>
-          prepared{};
-      std::array<std::uint8_t, PipelineIterationCapacity> barriers{};
-      std::array<std::uint32_t, PipelineIterationCapacity> declared_steps{};
-      std::array<node::accel::detail::BackendRecurrence,
-                 PipelineIterationCapacity>
-          recurrences{};
+      std::vector<const node::accel::detail::PreparedKernelRun *> prepared;
+      std::vector<std::uint8_t> barriers;
+      std::vector<std::uint32_t> declared_steps;
+      std::vector<node::accel::detail::BackendRecurrence> recurrences;
       std::array<node::accel::detail::BackendPublish, PipelineLeafCapacity>
           publications{};
+      prepared.reserve(state->steps.size());
+      barriers.reserve(state->steps.size());
+      declared_steps.reserve(state->steps.size());
+      recurrences.reserve(state->steps.size());
       std::size_t window_count = 0u;
       for (std::size_t index = 0u; index < state->steps.size(); ++index) {
         const PipelineStep &step = state->steps[index];
@@ -160,8 +161,8 @@ Status prepare_backend(PipelineState &value) noexcept {
           return Result<node::accel::detail::PreparedKernelPipeline>::fail(
               Reason::PipelineInvalid);
         }
-        prepared[active] = &job->prepared;
-        declared_steps[active] = static_cast<std::uint32_t>(index);
+        prepared.push_back(&job->prepared);
+        declared_steps.push_back(static_cast<std::uint32_t>(index));
         const PipelineStep &step = state->steps[index];
         const node::accel::detail::BackendWindow *window = nullptr;
         if (step.window != 0u) {
@@ -196,27 +197,63 @@ Status prepare_backend(PipelineState &value) noexcept {
               }
             }
           }
+          const auto phase = [&] {
+            using Phase = node::accel::detail::BackendWindowPhase;
+            switch (step.route) {
+            case PipelineRoute::NestedSeed:
+              return Phase::NestedSeed;
+            case PipelineRoute::NestedAction:
+              return Phase::NestedAction;
+            case PipelineRoute::NestedFold:
+              return Phase::NestedFold;
+            case PipelineRoute::Ordinary:
+              return Phase::Ordinary;
+            }
+            return Phase::Ordinary;
+          }();
+          const std::uint32_t outer_iteration =
+              step.route == PipelineRoute::NestedSeed ||
+                      step.route == PipelineRoute::Ordinary
+                  ? step.iteration
+                  : 0u;
+          const std::uint32_t outer_bound =
+              declared.nested ? static_cast<std::uint32_t>(declared.seed_count)
+                              : step.iteration_bound;
+          const std::uint32_t inner_iteration =
+              step.route == PipelineRoute::NestedAction ? step.iteration : 0u;
+          const std::uint32_t inner_bound =
+              declared.nested
+                  ? static_cast<std::uint32_t>(declared.action_count)
+                  : 1u;
+          const std::uint32_t route =
+              step.route == PipelineRoute::NestedFold ? step.iteration : 0u;
           windows.push_back(node::accel::detail::BackendWindow{
               .count = std::move(count),
               .terminal = std::move(terminal),
               .maximum = declared.maximum,
               .tile = declared.tile,
-              .iteration = step.iteration,
-              .bound = step.iteration_bound,
+              .iteration = outer_iteration,
+              .bound = outer_bound,
               .expected = declared.expected,
               .state = static_cast<std::uint32_t>(step.window - 1u),
+              .outer_iteration = outer_iteration,
+              .outer_bound = outer_bound,
+              .inner_iteration = inner_iteration,
+              .inner_bound = inner_bound,
+              .route = route,
+              .phase = phase,
               .has_terminal = has_terminal,
           });
           window = &windows.back();
         }
-        recurrences[active] = node::accel::detail::BackendRecurrence{
+        recurrences.push_back(node::accel::detail::BackendRecurrence{
             .logical_step = state->steps[index].logical_step,
             .iteration = state->steps[index].iteration,
             .bound = state->steps[index].iteration_bound,
             .window = window,
-        };
-        barriers[active] =
-            active == 0u ? 0u : static_cast<std::uint8_t>(pending_barrier);
+        });
+        barriers.push_back(
+            active == 0u ? 0u : static_cast<std::uint8_t>(pending_barrier));
         pending_barrier = false;
         ++active;
       }
@@ -247,7 +284,35 @@ Status prepare_backend(PipelineState &value) noexcept {
           }
         }
         node::accel::detail::BackendRead target;
-        if (!resolve_view(*state, publication.target, publication.target_offset,
+        const std::shared_ptr<BufferState> *target_owner = &publication.target;
+        if (alternate) {
+          const auto canonical =
+              std::find_if(state->resources.begin(), state->resources.end(),
+                           [&](const PipelineResource &resource) {
+                             return resource.buffer == publication.target;
+                           });
+          const std::size_t ordinal =
+              static_cast<std::size_t>(canonical - state->resources.begin());
+          if (canonical == state->resources.end() ||
+              state->alternate_claims.size() != state->resources.size() ||
+              state->alternate_claims[ordinal].buffer == nullptr) {
+            return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                Reason::PipelineInvalid);
+          }
+          const BufferState *const alternate_target =
+              state->alternate_claims[ordinal].buffer;
+          const auto owner =
+              std::find_if(state->resources.begin(), state->resources.end(),
+                           [&](const PipelineResource &resource) {
+                             return resource.buffer.get() == alternate_target;
+                           });
+          if (owner == state->resources.end()) {
+            return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                Reason::PipelineInvalid);
+          }
+          target_owner = &owner->buffer;
+        }
+        if (!resolve_view(*state, *target_owner, publication.target_offset,
                           publication.count, publication.target_stride,
                           publication.element_bytes,
                           kernel::kResidentUsageWrite, target)) {
@@ -261,7 +326,10 @@ Status prepare_backend(PipelineState &value) noexcept {
             .state = static_cast<std::uint32_t>(publication.window - 1u),
             .final =
                 1u +
-                ((state->steps[published_window.first_step].iteration_bound -
+                (((published_window.nested
+                       ? static_cast<std::uint32_t>(published_window.seed_count)
+                       : state->steps[published_window.first_step]
+                             .iteration_bound) -
                   1u) &
                  1u),
         };

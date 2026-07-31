@@ -44,7 +44,7 @@ struct TaskState final {
   std::optional<compute::Result<compute::detail::RunState>> job_result{};
   std::optional<node::accel::detail::PreparedPipelineEvidence>
       pipeline_evidence{};
-  std::size_t step_cursor{};
+  compute::detail::CpuPipelineSchedule pipeline_schedule{};
   std::atomic_bool cancel_requested{false};
   std::atomic_bool backend_submitted{false};
   std::atomic<std::uint8_t> completion_phase{0u};

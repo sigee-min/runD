@@ -66,11 +66,14 @@ namespace rund_node_test_pipeline {
     return 6;
   }
 
-  auto rr = pipeline(device)
-                .then(*add, read(*restored_a), write(*b))
-                .then(*multiply, read(*restored_a), write(*d))
-                .prepare();
-  if (!rr || !rr->run() || rr->stats().pipeline.barrier_count != 0u ||
+  auto rr_builder = pipeline(device);
+  rr_builder.then(*add, read(*restored_a), write(*b))
+      .then(*multiply, read(*restored_a), write(*d));
+  const auto rr_plan = rr_builder.plan();
+  auto rr = std::move(rr_builder).prepare();
+  if (!rr_plan || rr_plan->prepared_command_count != 2u ||
+      rr_plan->barrier_count != 0u || !rr || rr->plan() != *rr_plan ||
+      !rr->run() || rr->stats().pipeline.barrier_count != 0u ||
       !ReadExact(*rr, *b, observed) ||
       observed != std::array<std::int32_t, 4u>{11, 12, 13, 14} ||
       !ReadExact(*rr, *d, observed) ||

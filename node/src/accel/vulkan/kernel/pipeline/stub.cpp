@@ -5,6 +5,7 @@ namespace rund::node::accel::detail {
 #if !defined(RUND_NODE_HAVE_VULKAN_SDK)
 
 rund::AccelCheck PrepareVulkanPipeline(const std::span<const BackendBatchEntry>,
+                                       const std::span<const BackendBatchEntry>,
                                        const std::span<const std::uint8_t>,
                                        const std::span<const BackendPublish>,
                                        PreparedPipelineStatusLayout &,

@@ -373,11 +373,13 @@ boundaries is regenerated from the current manifest through
 identity and telemetry-event leaves so an operation-vocabulary regression is
 visible as an increased reverse-reachable set.
 
-The public `Run` inline store is 1,024 bytes with `uint64_t` alignment. The
-private state must satisfy the compile-time size, alignment, and nothrow
-construction/destruction checks. `compute.reuse` additionally proves that warm
-Buffer-backed convenience execution and receipt copy/move perform no SDK heap
-allocation.
+The public `Run` inline store is 1,152 bytes with `uint64_t` alignment. The
+private `RunState` is 1,104 bytes on the checked 64-bit ABI, leaving 48 bytes
+of inline reserve after the complete nested Pipeline statistics report. It
+must satisfy the compile-time size, reserve, alignment, and nothrow
+construction/destruction checks. `compute.reuse` additionally proves the
+1,160-byte `Result<Run>` footprint and that warm Buffer-backed convenience
+execution and receipt copy/move perform no SDK heap allocation.
 
 Program convenience-execution templates and their compiled bridge declarations
 live in `rund/compute/program/run.hpp`. Shared ABI consumers import only their

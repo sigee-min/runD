@@ -12,7 +12,7 @@ namespace rund::node::accel::detail {
 [[nodiscard]] bool
 EncodeVulkanTelemetry(const VulkanPipeline &pipeline, VkCommandBuffer command,
                       std::span<const VulkanPipelineTelemetryRecord> telemetry,
-                      bool visible = true) noexcept;
+                      std::uint32_t state, bool visible = true) noexcept;
 void ObserveVulkanProfile(VulkanPipeline &pipeline,
                           KernelResult &result) noexcept;
 

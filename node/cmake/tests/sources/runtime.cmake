@@ -28,6 +28,7 @@ set(NODE_TEST_RUNTIME_COMPUTE_SOURCES
   tests/contract/runtime/product/compute/pipeline/claim.cpp
   tests/contract/runtime/product/compute/pipeline/lifecycle.cpp
   tests/contract/runtime/product/compute/pipeline/local/model.cpp
+  tests/contract/runtime/product/compute/pipeline/nested.cpp
   tests/contract/runtime/product/compute/pipeline/state.cpp
   tests/contract/runtime/product/compute/pipeline/status.cpp
   tests/contract/runtime/product/compute/pipeline/view.cpp

@@ -61,7 +61,7 @@ namespace rund_node_test_pipeline {
     if (first.pipeline.control_byte_count != 0u) {
       return 4;
     }
-  } else if (first.pipeline.control_byte_count != 80u ||
+  } else if (first.pipeline.control_byte_count != 128u ||
              first.pipeline.status_entry_count != 0u ||
              first.pipeline.control_command_count != 2u) {
     return 5;

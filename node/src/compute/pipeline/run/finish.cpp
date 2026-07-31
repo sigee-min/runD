@@ -35,6 +35,12 @@ void reset_pipeline_stats(PipelineState &state) noexcept {
       .claim_conflict_count = conflicts,
       .failed_step_index = PipelineStats::no_failed_step,
       .status_entry_count = state.status_entry_count,
+      .prepared_template_count = state.plan.prepared_template_count,
+      .prepared_command_count = state.plan.prepared_command_count,
+      // Binding owners and descriptors are sealed by prepare(). There is no
+      // warm mutation operation to count; contract tests compare their exact
+      // identities across runs instead of scanning them here.
+      .rebinding_count = 0u,
   };
   state.stats.publication = publication;
 }
@@ -100,6 +106,26 @@ PipelineOutcome finish_accel_pipeline(
       result.failed_step = evidence.control.failed_step;
     }
     result.publication_suppressed = evidence.control.reason != 0u;
+    const auto coordinate = [](const std::uint32_t value) noexcept {
+      return value == node::accel::detail::PreparedPipelineNoStep
+                 ? PipelineStats::no_coordinate
+                 : static_cast<std::uint64_t>(value);
+    };
+    stats.pipeline.failed_outer_window =
+        coordinate(evidence.control.failed_outer_window);
+    stats.pipeline.failed_inner_iteration =
+        coordinate(evidence.control.failed_inner_iteration);
+    stats.pipeline.failed_nested_phase =
+        static_cast<PipelineNestedPhase>(
+            evidence.control.failed_nested_phase);
+    stats.pipeline.executed_outer_window_count =
+        evidence.control.executed_outer_window_count;
+    stats.pipeline.skipped_outer_window_count =
+        evidence.control.skipped_outer_window_count;
+    stats.pipeline.executed_inner_iteration_count =
+        evidence.control.executed_inner_iteration_count;
+    stats.pipeline.skipped_inner_iteration_count =
+        evidence.control.skipped_inner_iteration_count;
   } else if (result.status && !result.submitted) {
     result.verified = state.steps.size();
   }

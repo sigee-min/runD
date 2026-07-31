@@ -7,9 +7,64 @@
 #include "../../cpu/graph.hpp"
 #include "../../job/local.hpp"
 
+#include <rund/counter.hpp>
+
+#include <algorithm>
 #include <cstddef>
 
 namespace rund::compute::detail {
+namespace {
+
+void accumulate(PipelineStepStats &target,
+                const PipelineStepStats &source) noexcept {
+  if (target.sample_count == 0u) {
+    target = source;
+    return;
+  }
+  ::rund::detail::counter::Accumulate(target.sample_count,
+                                      source.sample_count);
+  ::rund::detail::counter::Accumulate(target.original_dispatches,
+                                      source.original_dispatches);
+  ::rund::detail::counter::Accumulate(target.final_dispatches,
+                                      source.final_dispatches);
+  ::rund::detail::counter::Accumulate(target.barrier_count,
+                                      source.barrier_count);
+  target.worker_count = std::max(target.worker_count, source.worker_count);
+  target.participating_workers =
+      std::max(target.participating_workers, source.participating_workers);
+  ::rund::detail::counter::Accumulate(target.tile_count, source.tile_count);
+  target.tile_size = std::max(target.tile_size, source.tile_size);
+  ::rund::detail::counter::Accumulate(target.vector_chunks,
+                                      source.vector_chunks);
+  ::rund::detail::counter::Accumulate(target.tail_chunks, source.tail_chunks);
+  ::rund::detail::counter::Accumulate(target.workgroup_count,
+                                      source.workgroup_count);
+  ::rund::detail::counter::Accumulate(target.work_item_count,
+                                      source.work_item_count);
+  ::rund::detail::counter::Accumulate(
+      target.control.generated_item_count,
+      source.control.generated_item_count);
+  ::rund::detail::counter::Accumulate(target.control.generated_capacity,
+                                      source.control.generated_capacity);
+  ::rund::detail::counter::Accumulate(
+      target.control.indirect_dispatch_count,
+      source.control.indirect_dispatch_count);
+  ::rund::detail::counter::Accumulate(
+      target.control.indirect_work_item_count,
+      source.control.indirect_work_item_count);
+  ::rund::detail::counter::Accumulate(target.control.iteration_count,
+                                      source.control.iteration_count);
+  ::rund::detail::counter::Accumulate(
+      target.control.skipped_iteration_count,
+      source.control.skipped_iteration_count);
+  ::rund::detail::counter::Accumulate(target.control.conflict_count,
+                                      source.control.conflict_count);
+  target.control.overflow_ordinal =
+      std::min(target.control.overflow_ordinal,
+               source.control.overflow_ordinal);
+}
+
+} // namespace
 
 void reset_pipeline_profile(PipelineState &state) noexcept {
   if (state.profile == nullptr) {
@@ -18,7 +73,7 @@ void reset_pipeline_profile(PipelineState &state) noexcept {
   PipelineProfileState &profile = *state.profile;
   for (std::size_t index = 0u; index < state.steps.size(); ++index) {
     const PipelineStep &step = state.steps[index];
-    profile.steps[index] = PipelineStepProfile{
+    PipelineStepProfile row{
         .index = step.logical_step,
         .iteration = step.iteration,
         .iteration_bound = step.iteration_bound,
@@ -26,8 +81,29 @@ void reset_pipeline_profile(PipelineState &state) noexcept {
                        ? graph::Fingerprint{}
                        : step.program->graph_info.fingerprint,
     };
+    const PipelineWindow *const nested =
+        step.window != 0u && step.window <= state.windows.size() &&
+                state.windows[step.window - 1u].nested
+            ? &state.windows[step.window - 1u]
+            : nullptr;
+    if (nested != nullptr) {
+      row.outer_window_bound =
+          static_cast<std::uint32_t>(nested->seed_count);
+      row.inner_iteration_bound =
+          static_cast<std::uint32_t>(nested->action_count);
+    }
+    if (step.route == PipelineRoute::NestedSeed) {
+      row.outer_window = step.iteration;
+      row.nested_phase = PipelineNestedPhase::Seed;
+    } else if (step.route == PipelineRoute::NestedAction) {
+      row.inner_iteration = step.iteration;
+      row.nested_phase = PipelineNestedPhase::Action;
+    } else if (step.route == PipelineRoute::NestedFold) {
+      row.nested_phase = PipelineNestedPhase::Fold;
+    }
+    profile.steps[index] = row;
   }
-  profile.started.fill(false);
+  std::fill(profile.started.begin(), profile.started.end(), false);
   profile.instrumentation_command_count = 0u;
   profile.instrumentation_byte_count = 0u;
 }
@@ -50,11 +126,12 @@ void finish_pipeline_profile_step(PipelineState &state,
   const std::uint64_t finished = pipeline_clock();
   const std::uint64_t started = state.profile->started_ns[index];
   state.profile->started[index] = false;
-  state.profile->steps[index].timing =
-      StepTiming{.duration_ns = finished >= started ? finished - started : 0u,
-                 .sample_count = 1u,
-                 .clock = StepClock::HostSteady,
-                 .relation = StepTimingRelation::Exclusive};
+  StepTiming &timing = state.profile->steps[index].timing;
+  ::rund::detail::counter::Accumulate(
+      timing.duration_ns, finished >= started ? finished - started : 0u);
+  ::rund::detail::counter::Accumulate(timing.sample_count, 1u);
+  timing.clock = StepClock::HostSteady;
+  timing.relation = StepTimingRelation::Exclusive;
 }
 
 void capture_cpu_pipeline_step(PipelineState &state, const std::size_t index,
@@ -93,7 +170,7 @@ void capture_cpu_pipeline_step(PipelineState &state, const std::size_t index,
     stats.control.conflict_count = job->cpu->graph->conflict_count;
     stats.control.overflow_ordinal = job->cpu->graph->overflow_ordinal;
   }
-  state.profile->steps[index].execution = stats;
+  accumulate(state.profile->steps[index].execution, stats);
 }
 
 void capture_accel_pipeline_profile(

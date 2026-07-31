@@ -10,16 +10,19 @@ namespace rund::node::accel::detail {
 rund::AccelCheck MetalPipelineBuild::Describe() {
   try {
     const std::size_t binding_capacity =
-        entries.size() * kMetalPipelineStatusBindingCapacity;
+        templates.size() * kMetalPipelineStatusBindingCapacity;
     status_bindings.reserve(binding_capacity);
     status_sources.reserve(binding_capacity);
     status_resets.reserve(binding_capacity);
   } catch (const std::bad_alloc &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
-  for (std::size_t entry_index = 0u; entry_index < entries.size();
-       ++entry_index) {
-    const BackendBatchEntry &entry = entries[entry_index];
+  // Describe immutable status and telemetry ownership exactly once per compact
+  // route template. Physical nested occurrences reference these slices during
+  // capture instead of manufacturing K*N status arenas or retained owners.
+  for (std::size_t template_index = 0u; template_index < templates.size();
+       ++template_index) {
+    const BackendBatchEntry &entry = templates[template_index];
     auto *const resources =
         entry.prepared == nullptr
             ? nullptr
@@ -32,37 +35,11 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         current.adapter != context.adapter) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
-    const std::uint32_t declared_step = status.declared_steps[entry_index];
-    if (declared_step >= status.declared_step_count ||
-        (!recurrence.ready() &&
-         resources->dispatch_count > std::numeric_limits<std::uint64_t>::max() -
-                                         pipeline->dispatch_count)) {
+    const std::uint32_t declared_step =
+        status.declared_steps[template_index];
+    if (entry.template_index != template_index ||
+        declared_step >= status.declared_step_count) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    }
-    if (recurrence.ready()) {
-      if (entry_index == 0u) {
-        pipeline->dispatch_count = recurrence.window_count;
-      }
-    } else {
-      pipeline->dispatch_count += resources->dispatch_count;
-      pipeline->reset_count = ::rund::detail::counter::SaturatingAdd(
-          pipeline->reset_count, resources->reset_count);
-      pipeline->reset_bytes = ::rund::detail::counter::SaturatingAdd(
-          pipeline->reset_bytes, resources->reset_bytes);
-    }
-    if (profile_steps) {
-      const bool recurrence_owner = recurrence.ready() && entry_index == 0u;
-      pipeline->step_evidence[declared_step] = PreparedPipelineStepEvidence{
-          .original_dispatch_count = entry.run->original_dispatch_count,
-          .final_dispatch_count =
-              recurrence.ready()
-                  ? (recurrence_owner ? recurrence.window_count : 0u)
-                  : entry.run->final_dispatch_count,
-          .physical_dispatch_count =
-              recurrence.ready()
-                  ? (recurrence_owner ? recurrence.window_count : 0u)
-                  : resources->dispatch_count,
-      };
     }
     const std::size_t telemetry_begin = telemetry_steps.size();
     for (std::size_t step_index = 0u; step_index < resources->size();
@@ -106,7 +83,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         telemetry_count > std::numeric_limits<std::uint32_t>::max()) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-    telemetry_ranges[entry_index] = PreparedProgramStatusSlice{
+    telemetry_ranges[template_index] = PreparedProgramStatusSlice{
         .first = static_cast<std::uint32_t>(telemetry_begin),
         .count = static_cast<std::uint32_t>(telemetry_count),
     };
@@ -126,13 +103,78 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     if (binding_begin > std::numeric_limits<std::uint32_t>::max() ||
         binding_size > std::numeric_limits<std::uint32_t>::max() ||
         !SetPreparedProgramStatusSlice(
-            status, static_cast<std::uint32_t>(entry_index), status_size)) {
+            status, static_cast<std::uint32_t>(template_index), status_size)) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-    binding_slices[entry_index] = PreparedProgramStatusSlice{
+    binding_slices[template_index] = PreparedProgramStatusSlice{
         .first = static_cast<std::uint32_t>(binding_begin),
         .count = static_cast<std::uint32_t>(binding_size),
     };
+  }
+  // Dispatch/reset evidence follows physical command occurrences. Profile
+  // rows aggregate repeated occurrences back into their declared compact step.
+  for (std::size_t entry_index = 0u; entry_index < entries.size();
+       ++entry_index) {
+    const BackendBatchEntry &entry = entries[entry_index];
+    if (entry.template_index >= templates.size() ||
+        entry.occurrence_index != entry_index ||
+        entry.run != templates[entry.template_index].run ||
+        entry.prepared != templates[entry.template_index].prepared) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
+    auto *const resources =
+        entry.prepared == nullptr
+            ? nullptr
+            : static_cast<MetalKernelResources *>(entry.prepared->get());
+    if (resources == nullptr) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
+    const std::uint32_t declared_step =
+        status.declared_steps[entry.template_index];
+    if (declared_step >= status.declared_step_count) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    if (recurrence.ready()) {
+      if (entry_index == 0u) {
+        pipeline->dispatch_count = recurrence.window_count;
+      }
+    } else {
+      if (resources->dispatch_count >
+          std::numeric_limits<std::uint64_t>::max() -
+              pipeline->dispatch_count) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      }
+      pipeline->dispatch_count += resources->dispatch_count;
+      pipeline->reset_count = ::rund::detail::counter::SaturatingAdd(
+          pipeline->reset_count, resources->reset_count);
+      pipeline->reset_bytes = ::rund::detail::counter::SaturatingAdd(
+          pipeline->reset_bytes, resources->reset_bytes);
+    }
+    if (profile_steps) {
+      const bool recurrence_owner = recurrence.ready() && entry_index == 0u;
+      PreparedPipelineStepEvidence &row =
+          pipeline->step_evidence[declared_step];
+      const std::uint64_t original = entry.run->original_dispatch_count;
+      const std::uint64_t final =
+          recurrence.ready()
+              ? (recurrence_owner ? recurrence.window_count : 0u)
+              : entry.run->final_dispatch_count;
+      const std::uint64_t physical =
+          recurrence.ready()
+              ? (recurrence_owner ? recurrence.window_count : 0u)
+              : resources->dispatch_count;
+      if (original > std::numeric_limits<std::uint64_t>::max() -
+                         row.original_dispatch_count ||
+          final > std::numeric_limits<std::uint64_t>::max() -
+                      row.final_dispatch_count ||
+          physical > std::numeric_limits<std::uint64_t>::max() -
+                         row.physical_dispatch_count) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      }
+      row.original_dispatch_count += original;
+      row.final_dispatch_count += final;
+      row.physical_dispatch_count += physical;
+    }
   }
   // Private replacement ranges are packed first.  Only those words need an
   // initial value: public ranges are overwritten in full by their import
@@ -169,9 +211,10 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   std::size_t status_index = 0u;
-  for (std::size_t entry_index = 0u; entry_index < entries.size();
-       ++entry_index) {
-    const PreparedProgramStatusSlice bindings = binding_slices[entry_index];
+  for (std::size_t template_index = 0u; template_index < templates.size();
+       ++template_index) {
+    const PreparedProgramStatusSlice bindings =
+        binding_slices[template_index];
     const std::size_t binding_end =
         static_cast<std::size_t>(bindings.first) + bindings.count;
     if (binding_end > status_bindings.size()) {

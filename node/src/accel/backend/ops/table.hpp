@@ -74,6 +74,7 @@ struct BackendOps final {
                                 std::shared_ptr<void> &,
                                 rund::RuntimeStats &) = nullptr;
   rund::AccelCheck (*prepare_pipeline)(std::span<const BackendBatchEntry>,
+                                       std::span<const BackendBatchEntry>,
                                        std::span<const std::uint8_t>,
                                        std::span<const BackendPublish>,
                                        PreparedPipelineStatusLayout &, bool,

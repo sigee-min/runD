@@ -37,6 +37,9 @@ struct MetalPipelineStatusSourceMeta final {
   std::uint32_t indirect_dispatch_count{};
   std::uint32_t work_item_count_low{};
   std::uint32_t work_item_count_high{};
+  std::uint32_t failed_outer_window{PreparedPipelineNoStep};
+  std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
+  std::uint32_t failed_nested_phase{};
 };
 
 struct MetalPipelineStatusEntryMeta final {
@@ -79,7 +82,7 @@ struct MetalPipelineTelemetryParams final {
   std::uint64_t work_item_count{};
 };
 
-static_assert(sizeof(MetalPipelineStatusSourceMeta) == 52u);
+static_assert(sizeof(MetalPipelineStatusSourceMeta) == 64u);
 static_assert(sizeof(MetalPipelineStatusEntryMeta) == 8u);
 static_assert(sizeof(MetalPipelineStatusParams) == 32u);
 static_assert(sizeof(MetalPipelineResetMeta) == 8u);
@@ -117,10 +120,14 @@ struct MetalWindowParams final {
   std::uint32_t state{};
   std::uint32_t has_terminal{};
   std::uint32_t range_count{};
+  std::uint32_t phase{};
+  std::uint32_t declared_step{};
+  std::uint32_t overflow_reason{};
+  std::uint32_t inner_bound{1u};
   std::uint32_t reserved{};
 };
 
-static_assert(sizeof(MetalWindowParams) == 64u);
+static_assert(sizeof(MetalWindowParams) == 80u);
 
 struct MetalWindow final {
   std::shared_ptr<void> resident;

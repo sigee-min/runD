@@ -43,6 +43,26 @@ struct Join<TypeList<L...>, TypeList<R...>, Rest...> final {
   using type = typename Join<TypeList<L..., R...>, Rest...>::type;
 };
 
+template <class List> struct WindowCoordinateSplit final {
+  using Prefix = TypeList<>;
+  static constexpr bool valid = false;
+};
+template <class Count, class Ordinal>
+struct WindowCoordinateSplit<TypeList<Count, Ordinal>> final {
+  using Prefix = TypeList<>;
+  static constexpr bool valid = std::is_same_v<Count, std::uint32_t> &&
+                                std::is_same_v<Ordinal, std::uint32_t>;
+};
+template <class Head, class Next, class Last, class... Tail>
+struct WindowCoordinateSplit<TypeList<Head, Next, Last, Tail...>> final {
+private:
+  using Rest = WindowCoordinateSplit<TypeList<Next, Last, Tail...>>;
+
+public:
+  using Prefix = typename Join<TypeList<Head>, typename Rest::Prefix>::type;
+  static constexpr bool valid = Rest::valid;
+};
+
 template <class T> struct SchemaTypes final { using type = TypeList<T>; };
 template <class T> struct SchemaTypes<Scalar<T>> final {
   using type = TypeList<T>;

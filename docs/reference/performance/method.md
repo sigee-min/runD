@@ -201,8 +201,10 @@ packet. Same-path regression additionally requires the sealed backend name,
 driver, and driver-details identity to remain the same; a driver-path change is
 a new environment, not a performance regression sample.
 
-The optional current-source `--resident`, `--bulk`, `--sort`, and `--pipeline`
-diagnostics are intentionally outside the installed-Release baseline route. `--resident`
+The optional current-source `--resident`, `--collective`, `--sort`, `--bulk`,
+`--batch`, `--pipeline`, `--pipeline-profile`, `--recurrence`, and
+`--window-repeat` diagnostics are intentionally outside the installed-Release
+baseline route. `--resident`
 isolates resident creation at 1,024 and 1,048,576 elements, validates the first
 execution and output, and reports CPU plus one selected backend without
 changing the canonical algorithm or memory placement. `--bulk` compiles one canonical
@@ -398,7 +400,7 @@ between serial and Pipeline for every sample.
 The parser admits only `count=4096`, `samples=12`, three serial submits, one
 Pipeline submit, three dispatches on both paths, three steps, four resources,
 two hazard barriers, no claim conflict, a fully verified prefix, no failed
-step, zero Map status entries, and an 80-byte terminal control observation.
+step, zero Map status entries, and a 128-byte terminal control observation.
 This all-Map workload has no imported or private replacement status words and
 no bounded-control telemetry sources, so Metal and Vulkan each report exactly
 two control commands: one prepared open and one terminal close. Before each
@@ -427,19 +429,50 @@ proof. The element-local lowering removes those physical inter-iteration
 barriers; it does not rewrite the public logical plan.
 
 For `N` iterations, `E` elements, carried payload `S`, invariant payload `C`,
-output payload `O`, and `W` device-capacity windows, the serial prepared command
-shape has `N * W` Map dispatches and payload traffic
-`Theta(N * E * (S + C + O))`. The proved register recurrence has `W`
-dispatches and `Theta(E * (S + C + O))` payload traffic while retaining the
-same `Theta(N * E)` arithmetic in the same per-element iteration order.
-Therefore dispatch and global-memory traffic improve by the exact factor `N`;
-the reported wall ratio remains a measurement because arithmetic, occupancy,
-cache, driver, and submission costs are not algebraic constants.
+output payload `O`, and `W` device-capacity windows, the serial prepared
+command shape has `N * W` Map dispatches and exposes
+`Theta(N * E * (S + C + O))` payload loads and stores. The proved
+single-dispatch element-local recurrence has `W` dispatches and exposes
+`Theta(E * (S + C + O))` payload loads and stores while retaining the same
+`Theta(N * E)` arithmetic in the same per-element iteration order. Dispatch
+and generated-program payload operations improve by the exact factor `N`.
+Physical memory traffic and the reported wall ratio remain measurements
+because compiler register allocation, spills, arithmetic, occupancy, cache,
+driver, and submission costs are device facts.
+
+`tools/measure/compute/run --window-repeat <metal|vulkan>` fixes
+`Max = 516096`, `Tile = 1024`, `K = 504`, and `N = 64`. Its serial comparator
+precomputes the same 504 tile seeds outside the timed region, then times
+32,256 independently submitted one-Action Pipeline runs. The nested route
+times one complete Seed/Action/Fold Pipeline execution. Twelve samples use
+balanced ABBA order after both routes are warm; observation and the serial
+outer Fold occur after timing.
+
+The nested row is admissible only with 571 retained route templates, 33,264
+native command references, 504 executed outer windows, 32,256 executed inner
+iterations, one nested submission, no failed coordinate, exact serial/nested
+result parity, and zero warm compile, allocation, upload, download,
+binding-mutation, and fallback evidence. The CSV
+`*_warm_binding_mutation_count` columns are the public
+`PipelineStats::rebinding_count`: they count post-prepare retained-binding
+mutations, not cold native capture or emission of frozen descriptors. Their
+zero is interpreted with the `compute.window` owner/View identity snapshot and
+is not standalone no-rebinding proof. Program-internal normalization traffic
+remains visible through the round-trip counters. The measured dispatch count
+is reported independently because Seed, Action, and Fold Programs may each
+lower to more than one native dispatch. The wall ratio therefore measures
+submission, control, and backend command-path effects for this declared
+workload; it is not an algebraic claim about every Action body.
 
 Metal rows on Apple identify the reusable ICB path. Vulkan rows whose
 environment reports MoltenVK prove the Vulkan API, SPIR-V, descriptor,
 push-constant, command-buffer, and barrier path over that translation layer;
 they are not native Vulkan throughput evidence.
+The Metal wall time includes the current warm traversal of frozen
+direct-command and ICB-range descriptors needed to construct Metal's
+single-use outer command buffer. One nested submit and zero binding mutation
+must not be interpreted as zero host encoder work; the literal no-host-loop
+gap is owned by the Pipeline contract.
 
 ## Telemetry Overhead Method
 

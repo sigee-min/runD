@@ -125,12 +125,12 @@ Read the exact [numeric policy](docs/architecture/numeric.md),
 
 ## Quick start
 
-The `1.0.0` Alpha ships a verified Darwin ARM64 SDK. Download these three
-adjacent files from [Releases](https://github.com/sigee-min/runD/releases/tag/1.0.0):
+The `1.0.1` Alpha ships a verified Darwin ARM64 SDK. Download these three
+adjacent files from [Releases](https://github.com/sigee-min/runD/releases/tag/1.0.1):
 
 ```text
-rund-sdk-1.0.0-darwin-arm64.tar.gz
-rund-sdk-1.0.0-darwin-arm64.sha256
+rund-sdk-1.0.1-darwin-arm64.tar.gz
+rund-sdk-1.0.1-darwin-arm64.sha256
 rund-verify
 ```
 
@@ -139,8 +139,8 @@ Verify the sealed producer tuple and install the SDK:
 ```sh
 chmod +x ./rund-verify
 sh ./rund-verify \
-  ./rund-sdk-1.0.0-darwin-arm64.tar.gz \
-  ./rund-sdk-1.0.0-darwin-arm64.sha256 \
+  ./rund-sdk-1.0.1-darwin-arm64.tar.gz \
+  ./rund-sdk-1.0.1-darwin-arm64.sha256 \
   "$PWD"
 ```
 
@@ -150,7 +150,7 @@ Link the single public target:
 cmake_minimum_required(VERSION 3.20)
 project(example LANGUAGES CXX)
 
-find_package(runD 1.0.0 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
 
 add_executable(example main.cpp)
 target_link_libraries(example PRIVATE runD::sdk)
@@ -158,7 +158,7 @@ target_link_libraries(example PRIVATE runD::sdk)
 
 ```sh
 cmake -S . -B build \
-  -DCMAKE_PREFIX_PATH=/path/to/rund-sdk-1.0.0-darwin-arm64
+  -DCMAKE_PREFIX_PATH=/path/to/rund-sdk-1.0.1-darwin-arm64
 cmake --build build
 ./build/example
 ```
@@ -180,8 +180,8 @@ or presentation floating point cannot feed authoritative state.
 
 ## Alpha platform status
 
-`1.0.0` is the first public alpha. The SDK surface and deterministic contracts
-are tested, but compatibility may change before a stable release.
+`1.0.1` is the current public alpha; `1.0.0` was the first. The SDK surface and
+deterministic contracts are tested, but compatibility may change before a stable release.
 
 | Platform | Status | Backends |
 | --- | --- | --- |

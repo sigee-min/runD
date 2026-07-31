@@ -28,16 +28,19 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   state->windows.reserve(build->logical_step_count);
   if (build->profile == PipelineProfile::Steps) {
     state->profile = std::make_unique<PipelineProfileState>();
+    state->profile->steps.resize(build->steps.size());
+    state->profile->started_ns.resize(build->steps.size());
+    state->profile->started.resize(build->steps.size());
   }
   std::vector<PipelinePlanStep> plan_steps(build->steps.size());
   std::vector<PipelineResourceAdmission> resource_admissions;
   resource_admissions.reserve(
       std::min(build->binding_count, PipelineResourceCapacity));
-  std::array<PhysicalOutputProjection, PipelineIterationCapacity>
-      physical_outputs{};
+  std::vector<PhysicalOutputProjection> physical_outputs(build->steps.size());
   for (PhysicalOutputProjection &projection : physical_outputs) {
     projection.sources.fill(PhysicalOutputProjection::unassigned);
   }
+  std::vector<std::uint16_t> nested_windows(build->nested_windows.size());
   state->resources.reserve(
       std::min(build->binding_count, PipelineResourceCapacity));
   state->barriers.resize(build->steps.size());
@@ -49,6 +52,9 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   std::size_t observed_bindings = 0u;
   std::size_t output_count = 0u;
   std::uint64_t status_entry_count = 0u;
+  const std::size_t binding_capacity =
+      build->nested_windows.empty() ? PipelineBindingCapacity
+                                    : PipelineRouteBindingCapacity;
 
   const auto admit =
       [&](const PipelineBinding &binding, const Type slot_type,
@@ -159,9 +165,9 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
             PipelineLeafCapacity - declared.inputs.size()) {
       return Status::fail(Reason::PipelineCapacity);
     }
-    if (observed_bindings > PipelineBindingCapacity ||
+    if (observed_bindings > binding_capacity ||
         declared.inputs.size() + declared.outputs.size() >
-            PipelineBindingCapacity - observed_bindings) {
+            binding_capacity - observed_bindings) {
       return Status::fail(Reason::PipelineCapacity);
     }
     observed_bindings += declared.inputs.size() + declared.outputs.size();
@@ -173,7 +179,78 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     step.logical_step = declared.logical_step;
     step.iteration = declared.iteration;
     step.iteration_bound = declared.iteration_bound;
+    step.route = declared.route;
+    if (declared.nested != 0u) {
+      const std::size_t nested_index =
+          static_cast<std::size_t>(declared.nested - 1u);
+      if (nested_index >= build->nested_windows.size()) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      const PipelineBuildNestedWindow &nested =
+          build->nested_windows[nested_index];
+      if (nested.begin >= nested.end || nested.end > build->steps.size() ||
+          step_index < nested.begin || step_index >= nested.end ||
+          nested.seed_first != nested.begin || nested.seed_count == 0u ||
+          nested.action_count == 0u ||
+          nested.action_first != nested.seed_first + nested.seed_count ||
+          nested.fold_first != nested.action_first + nested.action_count ||
+          nested.end != nested.fold_first + 3u ||
+          nested.maximum == 0u || nested.tile == 0u ||
+          nested.tile > nested.maximum || nested.count.buffer == nullptr ||
+          nested.count.type != Type::U32 || nested.count.count != 1u ||
+          nested.count.element_bytes != sizeof(std::uint32_t)) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      if (step_index == nested.begin) {
+        if (state->windows.size() >=
+            std::numeric_limits<std::uint16_t>::max()) {
+          return Status::fail(Reason::PipelineCapacity);
+        }
+        auto fold_projection = project_outputs(build->steps[nested.fold_first]);
+        if (!fold_projection ||
+            (nested.terminal != NoWindowTerminal &&
+             nested.terminal >=
+                 build->steps[nested.fold_first].outputs.size())) {
+          return Status::fail(fold_projection ? Reason::PipelineInvalid
+                                              : fold_projection.reason());
+        }
+        state->windows.push_back(PipelineWindow{
+            .count = nested.count.buffer,
+            .count_offset = nested.count.offset,
+            .first_step = nested.fold_first,
+            .maximum = static_cast<std::uint32_t>(nested.maximum),
+            .tile = static_cast<std::uint32_t>(nested.tile),
+            .terminal =
+                nested.terminal == NoWindowTerminal
+                    ? std::numeric_limits<std::uint32_t>::max()
+                    : static_cast<std::uint32_t>(nested.terminal),
+            .terminal_output =
+                nested.terminal == NoWindowTerminal
+                    ? 0u
+                    : fold_projection
+                          ->logical_to_physical[nested.terminal],
+            .expected = nested.expected,
+            .begin = nested.begin,
+            .end = nested.end,
+            .seed_first = nested.seed_first,
+            .seed_count = nested.seed_count,
+            .action_first = nested.action_first,
+            .action_count = nested.action_count,
+            .fold_first = nested.fold_first,
+            .nested = true,
+        });
+        nested_windows[nested_index] =
+            static_cast<std::uint16_t>(state->windows.size());
+      }
+      if (nested_windows[nested_index] == 0u) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      step.window = nested_windows[nested_index];
+    }
     if (declared.window_tile != 0u) {
+      if (declared.nested != 0u) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
       if (declared.window_max == 0u ||
           declared.window_max > std::numeric_limits<std::uint32_t>::max() ||
           declared.window_tile > std::numeric_limits<std::uint32_t>::max() ||
@@ -236,6 +313,23 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
       profile.index = declared.logical_step;
       profile.iteration = declared.iteration;
       profile.iteration_bound = declared.iteration_bound;
+      if (declared.route == PipelineRoute::NestedSeed) {
+        profile.outer_window = declared.iteration;
+        profile.nested_phase = PipelineNestedPhase::Seed;
+      } else if (declared.route == PipelineRoute::NestedAction) {
+        profile.inner_iteration = declared.iteration;
+        profile.nested_phase = PipelineNestedPhase::Action;
+      } else if (declared.route == PipelineRoute::NestedFold) {
+        profile.nested_phase = PipelineNestedPhase::Fold;
+      }
+      if (declared.nested != 0u) {
+        const PipelineBuildNestedWindow &nested =
+            build->nested_windows[declared.nested - 1u];
+        profile.outer_window_bound =
+            static_cast<std::uint32_t>(nested.seed_count);
+        profile.inner_iteration_bound =
+            static_cast<std::uint32_t>(nested.action_count);
+      }
       profile.program = program->graph_info.fingerprint;
     }
     planned_step.inputs.resize(declared.inputs.size());
@@ -248,6 +342,20 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     hash.number(declared.window_tile);
     hash.number(declared.window_terminal);
     hash.number(declared.window_expected);
+    hash.number(declared.nested);
+    hash.byte(static_cast<std::uint8_t>(declared.route));
+    if (declared.nested != 0u) {
+      const PipelineBuildNestedWindow &nested =
+          build->nested_windows[declared.nested - 1u];
+      if (step_index == nested.begin) {
+        hash.number(nested.maximum);
+        hash.number(nested.tile);
+        hash.number(nested.seed_count);
+        hash.number(nested.action_count);
+        hash.number(nested.terminal);
+        hash.number(nested.expected);
+      }
+    }
     hash.number(program->graph_info.fingerprint.hi);
     hash.number(program->graph_info.fingerprint.lo);
     hash.number(declared.inputs.size());
@@ -404,13 +512,16 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     }
   }
   if (!state->windows.empty()) {
-    static_assert(PipelineIterationCapacity <=
+    static_assert(PipelineRouteCapacity <=
                   std::numeric_limits<std::uint16_t>::max());
     state->window_rank.resize(state->steps.size() + 1u);
     for (std::size_t index = 0u; index < state->steps.size(); ++index) {
       state->window_rank[index + 1u] = static_cast<std::uint16_t>(
           state->window_rank[index] +
-          (state->steps[index].window != 0u ? 1u : 0u));
+          (state->steps[index].window != 0u &&
+                   state->steps[index].route == PipelineRoute::Ordinary
+               ? 1u
+               : 0u));
     }
   }
   if (observed_bindings != build->binding_count) {

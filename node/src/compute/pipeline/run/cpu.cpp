@@ -193,13 +193,9 @@ void reset_cpu_resident(PipelineState &state) noexcept {
 }
 
 Status prepare_cpu_pipeline_window(PipelineState &state,
-                                   const std::size_t index,
+                                   const PipelineStep &step,
                                    bool &active) noexcept {
   active = true;
-  if (index >= state.steps.size()) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  const PipelineStep &step = state.steps[index];
   if (step.window == 0u) {
     return Status::success();
   }
@@ -249,6 +245,16 @@ Status prepare_cpu_pipeline_window(PipelineState &state,
   return Status::success();
 }
 
+Status prepare_cpu_pipeline_window(PipelineState &state,
+                                   const std::size_t index,
+                                   bool &active) noexcept {
+  if (index >= state.steps.size()) {
+    active = false;
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  return prepare_cpu_pipeline_window(state, state.steps[index], active);
+}
+
 Status consume_cpu_pipeline_step(PipelineState &state, const std::size_t index,
                                  const Status execution) noexcept {
   if (index >= state.steps.size()) {
@@ -280,7 +286,8 @@ Status consume_cpu_pipeline_step(PipelineState &state, const std::size_t index,
   const Status resolved = window_status(state, step, primary);
   accumulate(state.stats, job->cpu->stats, graph.conflict_count,
              graph.overflow_ordinal, !resident_overflow);
-  if (resolved && step.window != 0u) {
+  if (resolved && step.window != 0u &&
+      step.route == PipelineRoute::Ordinary) {
     PipelineWindow *const descriptor = step.window <= state.windows.size()
                                            ? &state.windows[step.window - 1u]
                                            : nullptr;

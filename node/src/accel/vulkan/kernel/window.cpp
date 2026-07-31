@@ -51,6 +51,9 @@ layout(set = 0, binding = 5, std430) buffer Arguments {
 layout(set = 0, binding = 6, std430) readonly buffer Owners {
   uint owners[];
 };
+layout(set = 0, binding = 7, std430) buffer Control {
+  uint control[];
+};
 layout(push_constant) uniform WindowParams {
   uint64_t count_offset_words;
   uint64_t terminal_offset_words[3];
@@ -61,28 +64,76 @@ layout(push_constant) uniform WindowParams {
   uint state;
   uint has_terminal;
   uint command_count;
-  uint reserved;
+  uint phase;
+  uint declared_step;
+  uint overflow_reason;
+  uint inner_bound;
 } p;
 shared uint enabled;
 shared uint fresh;
+uint64_t load64(uint word) {
+  return uint64_t(control[word]) | (uint64_t(control[word + 1u]) << 32u);
+}
+void store64(uint word, uint64_t value) {
+  control[word] = uint(value);
+  control[word + 1u] = uint(value >> 32u);
+}
+void add64(uint word, uint64_t value) {
+  const uint64_t current = load64(word);
+  const uint64_t maximum = uint64_t(0xfffffffffffffffful);
+  store64(word, value > maximum - current ? maximum : current + value);
+}
 void main() {
   const uint lane = gl_LocalInvocationID.x;
+  const uint phase = p.phase & 3u;
+  const bool preflight = (p.phase & 0x80000000u) != 0u;
   if (lane == 0u) {
     const uvec2 current = states[p.state];
-    const uint items = counts[uint(p.count_offset_words)];
-    const uint64_t base = uint64_t(p.iteration) * uint64_t(p.tile);
-    uint terminal = terminal0[uint(p.terminal_offset_words[0])];
-    if (current.x == 1u) {
-      terminal = terminal1[uint(p.terminal_offset_words[1])];
-    } else if (current.x == 2u) {
-      terminal = terminal2[uint(p.terminal_offset_words[2])];
+    const bool failed = control[1] != 0u;
+    if (phase == 2u) {
+      enabled = current.y == 0u && !failed ? 1u : 0u;
+      fresh = current.y == 0u && failed ? 1u : 0u;
+      if (enabled != 0u) { add64(28u, 1ul); }
+    } else if (phase == 3u) {
+      enabled = current.y == 0u && !failed ? 1u : 0u;
+      fresh = current.y == 0u && failed ? 1u : 0u;
+      if (enabled != 0u) {
+        add64(12u, 1ul);
+        add64(24u, 1ul);
+      }
+    } else if (phase == 1u && !preflight) {
+      enabled = current.y == 0u && !failed ? 1u : 0u;
+      fresh = current.y == 0u && failed ? 1u : 0u;
+    } else {
+      const uint items = counts[uint(p.count_offset_words)];
+      const uint64_t base = uint64_t(p.iteration) * uint64_t(p.tile);
+      uint terminal = terminal0[uint(p.terminal_offset_words[0])];
+      if (current.x == 1u) {
+        terminal = terminal1[uint(p.terminal_offset_words[1])];
+      } else if (current.x == 2u) {
+        terminal = terminal2[uint(p.terminal_offset_words[2])];
+      }
+      const bool ended = p.has_terminal != 0u && terminal == p.expected;
+      const bool overflow = current.y == 0u && items > p.maximum;
+      if (overflow && !failed) {
+        control[1] = p.overflow_reason;
+        control[2] = p.declared_step;
+        store64(18u, uint64_t(p.maximum));
+        control[20] = phase == 1u ? p.iteration : 0xffffffffu;
+        control[21] = 0xffffffffu;
+        control[22] = phase == 1u ? 1u : 0u;
+      }
+      enabled = current.y == 0u && control[1] == 0u &&
+                        base < uint64_t(items) && !ended
+                    ? 1u
+                    : 0u;
+      fresh = current.y == 0u && enabled == 0u ? 1u : 0u;
+      if (phase == 1u && control[1] == 0u && enabled == 0u) {
+        add64(14u, 1ul);
+        add64(26u, 1ul);
+        add64(30u, uint64_t(p.inner_bound));
+      }
     }
-    const bool ended = p.has_terminal != 0u && terminal == p.expected;
-    enabled = current.y == 0u && items <= p.maximum &&
-                      base < uint64_t(items) && !ended
-                  ? 1u
-                  : 0u;
-    fresh = current.y == 0u && enabled == 0u ? 1u : 0u;
   }
   barrier();
   if (fresh != 0u) {
@@ -98,7 +149,9 @@ void main() {
   barrier();
   if (lane == 0u) {
     if (enabled != 0u) {
-      states[p.state].x = 1u + (p.iteration & 1u);
+      if (phase == 0u || phase == 3u) {
+        states[p.state].x = 1u + (p.iteration & 1u);
+      }
     } else if (states[p.state].y == 0u) {
       states[p.state].y = p.iteration + 1u;
     }
@@ -161,7 +214,7 @@ AcquireWindowPipeline(VulkanAdapter &adapter) {
   artifact.ok = true;
   artifact.reason = "ok";
   return AcquireVulkanCollectivePipeline(
-      adapter, 7u, sizeof(VulkanWindowParams), plan, artifact);
+      adapter, 8u, sizeof(VulkanWindowParams), plan, artifact);
 }
 
 [[nodiscard]] VulkanCollectivePipeline *
@@ -287,6 +340,12 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
              : reason;
 }
 
+[[nodiscard]] bool SameBinding(const VulkanStorageBinding &left,
+                               const VulkanStorageBinding &right) noexcept {
+  return left.buffer == right.buffer && left.offset == right.offset &&
+         left.range == right.range;
+}
+
 void EncodeDispatchBarrier(const VkCommandBuffer command) noexcept {
   const VkMemoryBarrier barrier{
       .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -304,7 +363,9 @@ void EncodeDispatchBarrier(const VkCommandBuffer command) noexcept {
 
 rund::AccelCheck PrepareVulkanWindow(
     VulkanAdapter &adapter, const std::span<const BackendBatchEntry> entries,
-    const std::uint64_t dispatch_capacity, VulkanWindowResources &resources) {
+    const std::uint64_t dispatch_capacity,
+    const PreparedPipelineStatusLayout &status, const VulkanBuffer &control,
+    VulkanWindowResources &resources) {
   resources = {};
   std::size_t route_count = 0u;
   std::uint32_t state_count = 0u;
@@ -322,7 +383,8 @@ rund::AccelCheck PrepareVulkanWindow(
   if (route_count == 0u) {
     return rund::AccelCheck{true, "ok"};
   }
-  if (dispatch_capacity == 0u ||
+  if (dispatch_capacity == 0u || control.buffer == VK_NULL_HANDLE ||
+      control.bytes < sizeof(PreparedPipelineControl) ||
       dispatch_capacity > std::numeric_limits<std::uint32_t>::max() ||
       dispatch_capacity > std::numeric_limits<std::uint32_t>::max() / 3u ||
       dispatch_capacity > std::numeric_limits<std::size_t>::max() /
@@ -340,12 +402,17 @@ rund::AccelCheck PrepareVulkanWindow(
   const std::uint64_t owner_bytes = dispatch_capacity * sizeof(std::uint32_t);
   if (state_count == 0u ||
       !CreateVulkanBuffer(adapter, state_bytes,
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                           resources.states) ||
       !CreateVulkanBuffer(adapter, argument_bytes,
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                           resources.arguments) ||
+      !CreateVulkanBuffer(adapter, argument_bytes,
+                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                          resources.original_arguments) ||
       !CreateVulkanBuffer(adapter, owner_bytes,
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                           resources.owners) ||
@@ -359,7 +426,7 @@ rund::AccelCheck PrepareVulkanWindow(
   try {
     resources.original.resize(static_cast<std::size_t>(dispatch_capacity));
     resources.routes.reserve(route_count);
-    resources.descriptor_leases.reserve(route_count);
+    resources.descriptor_leases.reserve(state_count);
   } catch (const std::bad_alloc &) {
     DestroyVulkanWindow(resources);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -387,6 +454,19 @@ rund::AccelCheck PrepareVulkanWindow(
       if (window == nullptr) {
         continue;
       }
+      const bool nested = window->nested();
+      const bool nested_shape_valid =
+          !nested || (window->outer_bound != 0u &&
+                      window->outer_iteration < window->outer_bound &&
+                      window->inner_bound != 0u &&
+                      ((window->phase == BackendWindowPhase::NestedSeed &&
+                        window->route == 0u) ||
+                       (window->phase == BackendWindowPhase::NestedAction &&
+                        window->inner_iteration < window->inner_bound &&
+                        window->route == 0u) ||
+                       (window->phase == BackendWindowPhase::NestedFold &&
+                        window->route < 3u)));
+      const std::uint32_t template_index = entries[entry_index].template_index;
       VulkanResidentBufferResult count = ResolveVulkanResidentBuffer(
           resident, window->count.source, window->count.handle,
           "compute_resident_id_invalid", true);
@@ -395,7 +475,8 @@ rund::AccelCheck PrepareVulkanWindow(
           count.check.ok && count.device_buffer != nullptr &&
           window->maximum != 0u && window->tile != 0u &&
           window->tile <= window->maximum && window->bound != 0u &&
-          window->iteration < window->bound &&
+          window->iteration < window->bound && nested_shape_valid &&
+          template_index < status.active_step_count &&
           window->count.source.count == 1u &&
           window->count.source.element_bytes == sizeof(std::uint32_t) &&
           PlanVulkanCopyRange(adapter, window->count.source,
@@ -466,6 +547,11 @@ rund::AccelCheck PrepareVulkanWindow(
                       static_cast<std::uint32_t>(window->has_terminal),
                   .command_count =
                       static_cast<std::uint32_t>(dispatch_capacity),
+                  .phase = static_cast<std::uint32_t>(window->phase),
+                  .declared_step = status.declared_steps[template_index],
+                  .overflow_reason = static_cast<std::uint32_t>(
+                      rund::compute::Reason::BoundedCountInvalid),
+                  .inner_bound = window->inner_bound,
               },
           .entry = static_cast<std::uint32_t>(entry_index),
       });
@@ -474,29 +560,55 @@ rund::AccelCheck PrepareVulkanWindow(
 
   bool ready = false;
   try {
+    std::vector<std::size_t> descriptor_owners(
+        state_count, std::numeric_limits<std::size_t>::max());
     VulkanLeaseScope lease_scope{adapter, resources.descriptor_leases};
     resources.pipeline = AcquireWindowPipeline(adapter);
     resources.gate_pipeline = AcquireGatePipeline(adapter);
     ready = resources.pipeline != nullptr && resources.gate_pipeline != nullptr;
-    for (VulkanWindowRoute &route : resources.routes) {
+    for (std::size_t index = 0u; ready && index < resources.routes.size();
+         ++index) {
+      VulkanWindowRoute &route = resources.routes[index];
+      if (route.params.state >= descriptor_owners.size()) {
+        ready = false;
+        break;
+      }
+      const std::size_t owner = descriptor_owners[route.params.state];
+      if (owner != std::numeric_limits<std::size_t>::max()) {
+        const VulkanWindowRoute &first = resources.routes[owner];
+        bool same = SameBinding(route.count_binding, first.count_binding);
+        for (std::size_t bank = 0u;
+             same && bank < route.terminal_bindings.size(); ++bank) {
+          same = SameBinding(route.terminal_bindings[bank],
+                             first.terminal_bindings[bank]);
+        }
+        if (!same || first.descriptor == VK_NULL_HANDLE) {
+          ready = false;
+          break;
+        }
+        route.descriptor = first.descriptor;
+        continue;
+      }
       ready = ready && AcquireVulkanCollectiveDescriptorSet(
-                           adapter, *resources.pipeline, 7u, route.descriptor);
+                           adapter, *resources.pipeline, 8u, route.descriptor);
       if (!ready) {
         break;
       }
-      const std::array<VulkanStorageBinding, 7u> bindings{
+      const std::array<VulkanStorageBinding, 8u> bindings{
           route.terminal_bindings[0],
           route.terminal_bindings[1],
           route.terminal_bindings[2],
           route.count_binding,
           VulkanStorageBindingFor(resources.states),
           VulkanStorageBindingFor(resources.arguments),
-          VulkanStorageBindingFor(resources.owners)};
+          VulkanStorageBindingFor(resources.owners),
+          VulkanStorageBindingFor(control)};
       ready =
           WriteVulkanStorageDescriptorSet(adapter, route.descriptor, bindings);
       if (!ready) {
         break;
       }
+      descriptor_owners[route.params.state] = index;
     }
   } catch (const std::bad_alloc &) {
     DestroyVulkanWindow(resources);
@@ -515,6 +627,7 @@ void DestroyVulkanWindow(VulkanWindowResources &resources) noexcept {
     ReleaseVulkanLeases(resources.descriptor_leases);
     DestroyVulkanBuffer(*resources.adapter, resources.states);
     DestroyVulkanBuffer(*resources.adapter, resources.arguments);
+    DestroyVulkanBuffer(*resources.adapter, resources.original_arguments);
     DestroyVulkanBuffer(*resources.adapter, resources.owners);
   }
   resources = {};
@@ -522,7 +635,8 @@ void DestroyVulkanWindow(VulkanWindowResources &resources) noexcept {
 
 bool EncodeVulkanWindow(const VkCommandBuffer command,
                         const VulkanWindowResources &resources,
-                        const std::uint32_t entry) noexcept {
+                        const std::uint32_t entry,
+                        const bool preflight) noexcept {
   const auto begin = std::lower_bound(
       resources.routes.begin(), resources.routes.end(), entry,
       [](const VulkanWindowRoute &route, const std::uint32_t value) {
@@ -543,44 +657,62 @@ bool EncodeVulkanWindow(const VkCommandBuffer command,
   BindVulkanPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                      resources.pipeline->pipeline);
   for (auto route = begin; route != end; ++route) {
-    if (route->descriptor == VK_NULL_HANDLE) {
+    const auto phase = static_cast<BackendWindowPhase>(route->params.phase);
+    if (route->descriptor == VK_NULL_HANDLE ||
+        (preflight && phase != BackendWindowPhase::NestedSeed)) {
       return false;
+    }
+    VulkanWindowParams params = route->params;
+    if (preflight) {
+      params.phase |= 0x80000000u;
     }
     BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                           resources.pipeline->pipeline_layout, 0u, 1u,
                           &route->descriptor, 0u, nullptr);
     PushVulkanConstants(command, resources.pipeline->pipeline_layout,
-                        VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(route->params),
-                        &route->params);
+                        VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(params),
+                        &params);
     ::vkCmdDispatch(command, 1u, 1u, 1u);
   }
   EncodeDispatchBarrier(command);
   return true;
 }
 
-void EncodeVulkanWindowStart(const VkCommandBuffer command) noexcept {
+bool EncodeVulkanWindowStart(const VkCommandBuffer command,
+                             const VulkanWindowResources &resources) noexcept {
+  if (command == VK_NULL_HANDLE || resources.states.buffer == VK_NULL_HANDLE ||
+      resources.arguments.buffer == VK_NULL_HANDLE ||
+      resources.original_arguments.buffer == VK_NULL_HANDLE ||
+      resources.states.bytes == 0u || resources.arguments.bytes == 0u ||
+      resources.arguments.bytes != resources.original_arguments.bytes) {
+    return false;
+  }
+  vkCmdFillBuffer(command, resources.states.buffer, 0u, resources.states.bytes,
+                  0u);
+  const VkBufferCopy copy{.size = resources.arguments.bytes};
+  vkCmdCopyBuffer(command, resources.original_arguments.buffer,
+                  resources.arguments.buffer, 1u, &copy);
   const VkMemoryBarrier barrier{
       .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-      .srcAccessMask = VK_ACCESS_HOST_WRITE_BIT,
+      .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
       .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
                        VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
   };
-  vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_HOST_BIT,
+  vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                        0u, 1u, &barrier, 0u, nullptr, 0u, nullptr);
+  return true;
 }
 
-bool ResetVulkanWindow(VulkanWindowResources &resources) noexcept {
-  const std::uint64_t bytes =
-      static_cast<std::uint64_t>(resources.state_count) * sizeof(ResidentState);
+bool FreezeVulkanWindow(VulkanWindowResources &resources) noexcept {
   const std::uint64_t argument_bytes =
       static_cast<std::uint64_t>(resources.original.size()) *
       sizeof(VkDispatchIndirectCommand);
   return resources.state_count == 0u ||
-         (ClearVulkanBuffer(resources.states, bytes) &&
-          UploadVulkanBuffer(resources.arguments, resources.original.data(),
-                             argument_bytes));
+         (argument_bytes == resources.original_arguments.bytes &&
+          UploadVulkanBuffer(resources.original_arguments,
+                             resources.original.data(), argument_bytes));
 }
 
 std::uint64_t

@@ -39,6 +39,21 @@ struct View final {
   std::size_t alignment_words{1u};
 };
 
+[[nodiscard]] constexpr PipelineNestedPhase
+nested_phase(const PipelineRoute route) noexcept {
+  switch (route) {
+  case PipelineRoute::NestedSeed:
+    return PipelineNestedPhase::Seed;
+  case PipelineRoute::NestedAction:
+    return PipelineNestedPhase::Action;
+  case PipelineRoute::NestedFold:
+    return PipelineNestedPhase::Fold;
+  case PipelineRoute::Ordinary:
+    return PipelineNestedPhase::None;
+  }
+  return PipelineNestedPhase::None;
+}
+
 } // namespace
 
 Status plan_pipeline_views(const DeviceState &device,
@@ -72,13 +87,18 @@ Status plan_pipeline_views(const DeviceState &device,
       if (declared.program == nullptr) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      if (declared.iteration_bound > 1u && declared.iteration >= 3u) {
+      const std::uint32_t reusable_from =
+          declared.route == PipelineRoute::NestedAction ? 2u : 3u;
+      if (declared.iteration_bound > 1u &&
+          declared.iteration >= reusable_from) {
         if (pipeline_step < declared.iteration) {
           return Status::fail(Reason::PipelineInvalid);
         }
         const std::size_t first = pipeline_step - declared.iteration;
         const std::size_t phase =
-            first + ((declared.iteration & 1u) != 0u ? 1u : 2u);
+            declared.route == PipelineRoute::NestedAction
+                ? first + (declared.iteration & 1u)
+                : first + ((declared.iteration & 1u) != 0u ? 1u : 2u);
         if (phase >= pipeline_step) {
           return Status::fail(Reason::PipelineInvalid);
         }
@@ -256,6 +276,15 @@ Status plan_pipeline_views(const DeviceState &device,
             plan.summary.view_alignment = view.alignment;
             plan.summary.view_step = declared.logical_step;
             plan.summary.view_iteration = declared.iteration;
+            plan.summary.view_outer_window =
+                declared.route == PipelineRoute::NestedSeed
+                    ? static_cast<std::size_t>(declared.iteration)
+                    : std::numeric_limits<std::size_t>::max();
+            plan.summary.view_inner_iteration =
+                declared.route == PipelineRoute::NestedAction
+                    ? static_cast<std::size_t>(declared.iteration)
+                    : std::numeric_limits<std::size_t>::max();
+            plan.summary.view_nested_phase = nested_phase(declared.route);
             plan.summary.view_binding = view.binding;
           }
         }
@@ -405,6 +434,15 @@ Status plan_pipeline_arena(const DeviceState &device,
           plan.summary.largest_bytes = bytes;
           plan.summary.largest_step = step.logical_step;
           plan.summary.largest_iteration = step.iteration;
+          plan.summary.largest_outer_window =
+              step.route == PipelineRoute::NestedSeed
+                  ? static_cast<std::size_t>(step.iteration)
+                  : std::numeric_limits<std::size_t>::max();
+          plan.summary.largest_inner_iteration =
+              step.route == PipelineRoute::NestedAction
+                  ? static_cast<std::size_t>(step.iteration)
+                  : std::numeric_limits<std::size_t>::max();
+          plan.summary.largest_nested_phase = nested_phase(step.route);
           plan.summary.largest_chunk = ordinal;
         }
       }
@@ -533,6 +571,15 @@ Status plan_pipeline_arena(const DeviceState &device,
         peak_words = words;
         plan.summary.peak_step = step.logical_step;
         plan.summary.peak_iteration = step.iteration;
+        plan.summary.peak_outer_window =
+            step.route == PipelineRoute::NestedSeed
+                ? static_cast<std::size_t>(step.iteration)
+                : std::numeric_limits<std::size_t>::max();
+        plan.summary.peak_inner_iteration =
+            step.route == PipelineRoute::NestedAction
+                ? static_cast<std::size_t>(step.iteration)
+                : std::numeric_limits<std::size_t>::max();
+        plan.summary.peak_nested_phase = nested_phase(step.route);
       }
     }
 

@@ -43,6 +43,7 @@ int View(rund::Session &session, rund::compute::Device &device);
 int Publish(rund::Session &session, rund::compute::Device &device);
 int Failure(rund::Session &session, rund::compute::Device &device);
 int StateCancel(rund::Session &session, rund::compute::Device &device);
+int NestedWorkTotals(rund::Session &session, rund::compute::Device &device);
 int Close(rund::compute::Device &device);
 int Run();
 

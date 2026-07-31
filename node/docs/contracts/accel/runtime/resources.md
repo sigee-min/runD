@@ -227,7 +227,7 @@ failed-batch counts accumulate in that order, and the first non-success check
 terminates the fold. Backend finish functions retain only their native step
 observer and last-error publication. Pipeline control telemetry likewise has
 one common field projection into `RuntimeStats`; Metal and Vulkan own only how
-the 80-byte control is observed.
+the 128-byte control is observed.
 
 The common prepared implementation is physically owned by
 `kernel/prepared/{run,batch,pipeline,completion,evidence}.cpp`, with immutable
@@ -487,7 +487,7 @@ with one mapped readback range bounded by four U32 words. It copies
 `min(status_bytes, 16)` bytes, enough for the reason, first failing ordinal,
 and bounded telemetry header without making a large primitive status range
 host-visible. A Pipeline-private Vulkan status owner omits that range: the
-Pipeline's single 80-byte terminal control observation is its only
+Pipeline's single 128-byte terminal control observation is its only
 host-visible status allocation. The `C` private one-word sources use zero
 mapped bytes and zero staging allocations. Standalone finish records
 

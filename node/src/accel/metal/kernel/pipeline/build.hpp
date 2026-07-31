@@ -16,6 +16,7 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
 struct MetalPipelineBuild final {
+  std::span<const BackendBatchEntry> templates;
   std::span<const BackendBatchEntry> entries;
   std::span<const std::uint8_t> barriers;
   std::span<const BackendPublish> publications;
@@ -30,6 +31,7 @@ struct MetalPipelineBuild final {
 
   std::vector<MetalPipelineStatusBindingRecord> status_bindings;
   std::vector<MetalPipelineStatusSourceMeta> status_sources;
+  std::vector<MetalPipelineStatusSourceMeta> occurrence_status_sources;
   std::vector<MetalPipelineStatusEntryMeta> status_entries;
   std::vector<MetalPipelineResetMeta> status_resets;
   std::vector<PreparedProgramStatusSlice> telemetry_steps;
@@ -68,6 +70,7 @@ struct MetalPipelineBuild final {
   std::size_t reset_command_count{};
   std::uint32_t import_count{};
   std::uint32_t fold_count{};
+  std::uint32_t advance_count{};
   std::uint32_t seal_count{};
   bool finished{};
 
