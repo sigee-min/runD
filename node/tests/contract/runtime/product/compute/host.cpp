@@ -192,16 +192,42 @@ struct CommitToken final {
   const Stats submitted_stats = completion.stats();
   auto blocking_output = blocking->read();
   auto submitted_output = submitted->read();
-  return blocking_output && submitted_output && blocking_output->empty() &&
-         submitted_output->empty() &&
-         blocking_stats.graph_hash == submitted_stats.graph_hash &&
-         blocking_stats.graph_read_bytes == submitted_stats.graph_read_bytes &&
-         blocking_stats.dispatches == submitted_stats.dispatches &&
-         blocking_stats.worker_count == submitted_stats.worker_count &&
-         blocking_stats.tile_count == submitted_stats.tile_count &&
-         blocking_stats.tile_size == submitted_stats.tile_size &&
-         blocking_stats.vector_chunks == submitted_stats.vector_chunks &&
-         blocking_stats.tail_chunks == submitted_stats.tail_chunks;
+  const bool same =
+      blocking_output && submitted_output && blocking_output->empty() &&
+      submitted_output->empty() &&
+      blocking_stats.graph_hash == submitted_stats.graph_hash &&
+      blocking_stats.graph_read_bytes == submitted_stats.graph_read_bytes &&
+      blocking_stats.dispatches == submitted_stats.dispatches &&
+      blocking_stats.worker_count == submitted_stats.worker_count &&
+      blocking_stats.tile_count == submitted_stats.tile_count &&
+      blocking_stats.tile_size == submitted_stats.tile_size &&
+      blocking_stats.vector_chunks == submitted_stats.vector_chunks &&
+      blocking_stats.tail_chunks == submitted_stats.tail_chunks;
+  if (!same) {
+    std::fprintf(
+        stderr,
+        "cpu step parity output=%u/%u graph=%llu/%llu read=%llu/%llu "
+        "dispatches=%llu/%llu workers=%u/%u tiles=%llu/%llu "
+        "tile_size=%llu/%llu vectors=%llu/%llu tails=%llu/%llu\n",
+        blocking_output && blocking_output->empty() ? 1u : 0u,
+        submitted_output && submitted_output->empty() ? 1u : 0u,
+        static_cast<unsigned long long>(blocking_stats.graph_hash),
+        static_cast<unsigned long long>(submitted_stats.graph_hash),
+        static_cast<unsigned long long>(blocking_stats.graph_read_bytes),
+        static_cast<unsigned long long>(submitted_stats.graph_read_bytes),
+        static_cast<unsigned long long>(blocking_stats.dispatches),
+        static_cast<unsigned long long>(submitted_stats.dispatches),
+        blocking_stats.worker_count, submitted_stats.worker_count,
+        static_cast<unsigned long long>(blocking_stats.tile_count),
+        static_cast<unsigned long long>(submitted_stats.tile_count),
+        static_cast<unsigned long long>(blocking_stats.tile_size),
+        static_cast<unsigned long long>(submitted_stats.tile_size),
+        static_cast<unsigned long long>(blocking_stats.vector_chunks),
+        static_cast<unsigned long long>(submitted_stats.vector_chunks),
+        static_cast<unsigned long long>(blocking_stats.tail_chunks),
+        static_cast<unsigned long long>(submitted_stats.tail_chunks));
+  }
+  return same;
 }
 
 [[nodiscard]] bool CheckServerReplay(rund::Session &server) {

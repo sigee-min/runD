@@ -62,9 +62,8 @@ int main() {
   const auto metal = execute(rund::compute::Target::metal());
   const auto vulkan = execute(rund::compute::Target::vulkan());
 
-  if (!cpu || !metal || !vulkan) {
-    return !cpu ? cpu.exit_code()
-                : (!metal ? metal.exit_code() : vulkan.exit_code());
+  if (!cpu) {
+    return cpu.exit_code();
   }
 
   const auto same_bits = [](const auto& a, const auto& b) {
@@ -73,13 +72,21 @@ int main() {
                        a.size() * sizeof(a[0])) == 0;
   };
 
-  return same_bits(*cpu, *metal) && same_bits(*metal, *vulkan) ? 0 : 2;
+  const auto matches_or_unavailable = [&cpu, &same_bits](const auto& result) {
+    return result ? same_bits(*cpu, *result)
+                  : result.code() == rund::compute::Code::Unavailable;
+  };
+
+  return matches_or_unavailable(metal) && matches_or_unavailable(vulkan) ? 0
+                                                                         : 2;
 }
 ```
 
 There is no backend branch inside the computation, no backend-specific graph,
 and no silent CPU fallback. A selected backend either executes that graph or
-returns a typed failure.
+returns a typed failure. The portable executable accepts an absent accelerator
+only through the typed `Unavailable` code; every available backend must return
+the same bytes as CPU.
 
 ## Why the bits match
 
