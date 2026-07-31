@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  echo "usage: tools/internal/contract/pattern <release>" >&2
+  exit 2
+fi
+
+case "$1" in
+  release)
+    printf '%s\n' '^(package|math32|math64|kernel|node|accel|cluster)[.]'
+    ;;
+  *)
+    echo "unknown contract pattern: $1" >&2
+    exit 2
+    ;;
+esac

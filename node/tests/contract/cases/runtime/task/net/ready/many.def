@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-ready-many", RunRuntimeTaskNetReadyManyContract, "tests/contract/runtime/task/net/ready/many.cpp", runtime)

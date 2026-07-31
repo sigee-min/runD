@@ -1,0 +1,267 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 4 ]; then
+  echo "usage: tools/internal/case/catalog <root> <case|tag|list> <value-or-> <backend-or->" >&2
+  exit 2
+fi
+
+root=$1
+mode=$2
+value=$3
+backend=$4
+if [ ! -d "$root" ]; then
+  echo "case catalog root is unavailable: $root" >&2
+  exit 2
+fi
+root=$(CDPATH= cd -- "$root" && pwd -P)
+
+case "$mode" in
+  case)
+    case "$value" in
+      '' | *[!A-Za-z0-9_.-]* | [!A-Za-z0-9]*) exit 2 ;;
+    esac
+    case "$backend" in
+      - | cpu | metal | vulkan) ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  tag)
+    case "$value" in
+      '' | [!A-Za-z]* | *[!A-Za-z0-9_:-]* | *::* | *: | *:[!A-Za-z]*)
+        exit 2
+        ;;
+    esac
+    [ "$backend" = - ] || exit 2
+    ;;
+  list)
+    [ "$value" = - ] && [ "$backend" = - ] || exit 2
+    ;;
+  *) exit 2 ;;
+esac
+
+cache_dir="$root/.cache/case"
+cache="$cache_dir/catalog.tsv"
+lock="$root/.cache/locks/case/catalog"
+tab=$(printf '\t')
+
+hash_paths() {
+  paths=$1
+  output=$2
+  raw="$output.raw"
+  if command -v sha256sum >/dev/null 2>&1; then
+    if ! tr '\n' '\0' <"$paths" | xargs -0 sha256sum >"$raw"; then
+      rm -f "$raw"
+      return 1
+    fi
+  elif command -v shasum >/dev/null 2>&1; then
+    if ! tr '\n' '\0' <"$paths" | xargs -0 shasum -a 256 >"$raw"; then
+      rm -f "$raw"
+      return 1
+    fi
+  else
+    echo "case catalog requires shasum or sha256sum" >&2
+    return 1
+  fi
+  awk '{ print $1 }' "$raw" >"$output"
+  rm -f "$raw"
+}
+
+valid_catalog() {
+  candidate=$1
+  [ -f "$candidate" ] || return 1
+
+  work="$cache_dir/check.$$"
+  paths="$work.paths"
+  owners="$work.owners"
+  expected="$work.expected"
+  body="$work.body"
+  if ! awk -F "$tab" \
+    -v root="$root" \
+    -v paths="$paths" \
+    -v owners="$owners" \
+    -v expected="$expected" \
+    -v body="$body" '
+    BEGIN {
+      printf "" > paths
+      printf "" > owners
+      printf "" > expected
+      printf "" > body
+      close(paths)
+      close(owners)
+      close(expected)
+      close(body)
+    }
+    NR == 1 {
+      if ($0 != "catalog") exit 1
+      print $0 > body
+      next
+    }
+    $1 == "input" {
+      if (NF != 3 || length($2) != 64 || $2 ~ /[^0-9a-f]/ ||
+          $3 !~ "^[-A-Za-z0-9_./]+$" || seen_input[$3]++) exit 1
+      input_path[++inputs] = root "/" $3
+      input_hash[inputs] = $2
+      print $0 > body
+      next
+    }
+    $1 == "case" {
+      if (NF != 8 || $2 !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ ||
+          $3 !~ /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/ ||
+          $4 !~ /^(-|[A-Za-z][A-Za-z0-9_.-]*)$/ ||
+          $5 !~ /^[a-z][a-z0-9-]*$/ ||
+          $6 !~ /^(-|[A-Za-z][A-Za-z0-9_-]*(:[A-Za-z][A-Za-z0-9_-]*)*(\+[A-Za-z][A-Za-z0-9_-]*(:[A-Za-z][A-Za-z0-9_-]*)*)*)$/ ||
+          $7 !~ "^tests/contract/[-A-Za-z0-9_./]+[.]cpp$" ||
+          $8 !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ ||
+          seen_case[$2]++) exit 1
+      print root "/node/" $7 > owners
+      anchor[$2] = $8
+      cases += 1
+      print $0 > body
+      next
+    }
+    $1 == "cpu" {
+      if (NF != 6 || $2 !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ ||
+          $3 !~ /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/ || $4 != "-" ||
+          $5 !~ /^[a-z][a-z0-9-]*$/ ||
+          $6 !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ || seen_cpu[$2]++) exit 1
+      cpu_anchor[$2] = $6
+      print $0 > body
+      next
+    }
+    $1 == "seal" {
+      if (NF != 2 || NR == 1 || seal++) exit 1
+      seal_value = $2
+      next
+    }
+    { exit 1 }
+    END {
+      close(paths)
+      close(owners)
+      close(expected)
+      close(body)
+      if (inputs == 0 || cases == 0 || seal != 1 || $1 != "seal" ||
+          length(seal_value) != 64 || seal_value ~ /[^0-9a-f]/) exit 1
+      for (name in anchor)
+        if (!(anchor[name] in seen_case)) exit 1
+      for (name in seen_cpu)
+        if (!(name in seen_case) || !(cpu_anchor[name] in seen_case)) exit 1
+      print body > paths
+      print seal_value > expected
+      for (i = 1; i <= inputs; ++i) {
+        print input_path[i] > paths
+        print input_hash[i] > expected
+      }
+      close(paths)
+      close(expected)
+    }
+  ' "$candidate"; then
+    rm -f "$paths" "$owners" "$expected" "$body"
+    return 1
+  fi
+
+  actual="$work.actual"
+  if ! hash_paths "$paths" "$actual" 2>/dev/null ||
+     ! cmp -s "$expected" "$actual"; then
+    rm -f "$paths" "$owners" "$expected" "$body" "$actual"
+    return 1
+  fi
+  while IFS= read -r owner; do
+    if [ ! -f "$owner" ] || [ -L "$owner" ]; then
+      rm -f "$paths" "$owners" "$expected" "$body" "$actual"
+      return 1
+    fi
+  done <"$owners"
+  rm -f "$paths" "$owners" "$expected" "$body" "$actual"
+}
+
+publish_catalog() {
+  mkdir -p "$cache_dir"
+  temporary="$cache.tmp.$$"
+  trap 'rm -f "$temporary"' 0 HUP INT TERM
+  if ! cmake -D "ROOT=$root" -D CATALOG=ON \
+      -P "$root/tools/internal/case/query.cmake" >"$temporary"; then
+    return 1
+  fi
+  if ! valid_catalog "$temporary"; then
+    echo "canonical case parser produced an invalid catalog" >&2
+    return 1
+  fi
+  chmod 600 "$temporary"
+  mv "$temporary" "$cache"
+  trap - 0 HUP INT TERM
+}
+
+if ! valid_catalog "$cache"; then
+  if sh "$root/tools/internal/lock/run" --held "$lock"; then
+    publish_catalog
+  else
+    exec sh "$root/tools/internal/lock/run" --wait "$lock" \
+      "runD case catalog" sh "$0" "$root" "$mode" "$value" "$backend"
+  fi
+fi
+
+case "$mode:$backend" in
+  list:-)
+    awk -F "$tab" '$1 == "case" {
+      print $2 "\t" $3 "\t" $4 "\t" $5
+    }' "$cache"
+    ;;
+  tag:-)
+    awk -F "$tab" -v selected="$value" '$1 == "case" {
+      count = split($6, tags, "+")
+      for (i = 1; i <= count; ++i)
+        if (tags[i] == selected) {
+          print $2 "\t" $3 "\t" $4 "\t" $5
+          break
+        }
+    }' "$cache"
+    ;;
+  case:-)
+    awk -F "$tab" -v selected="$value" \
+      '$1 == "case" && $2 == selected {
+        print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $8
+        exit
+      }' "$cache"
+    ;;
+  case:cpu)
+    if awk -F "$tab" -v selected="$value" \
+        '$1 == "cpu" && $2 == selected { found = 1; exit }
+         END { exit !found }' "$cache"; then
+      awk -F "$tab" -v selected="$value" \
+        '$1 == "cpu" && $2 == selected {
+          print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6
+          exit
+        }' "$cache"
+    elif awk -F "$tab" -v selected="$value" \
+        '$1 == "case" && $2 == selected { found = 1; exit }
+         END { exit !found }' "$cache"; then
+      echo "Node test case $value does not support --backend cpu" >&2
+      exit 1
+    fi
+    ;;
+  case:metal | case:vulkan)
+    if awk -F "$tab" -v selected="$value" \
+        '$1 == "case" && $2 == selected {
+           seen = 1
+           count = split($6, tags, "+")
+           for (i = 1; i <= count; ++i)
+             if (tags[i] == "backend") {
+               supported = 1
+               exit
+             }
+         }
+         END { exit !(seen && supported) }' "$cache"; then
+      awk -F "$tab" -v selected="$value" \
+        '$1 == "case" && $2 == selected {
+          print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $8
+          exit
+        }' "$cache"
+    elif awk -F "$tab" -v selected="$value" \
+        '$1 == "case" && $2 == selected { found = 1; exit }
+         END { exit !found }' "$cache"; then
+      echo "Node test case $value does not support --backend $backend" >&2
+      exit 1
+    fi
+    ;;
+esac

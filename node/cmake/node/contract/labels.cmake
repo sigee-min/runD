@@ -1,0 +1,12 @@
+include_guard(GLOBAL)
+
+function(rund_node_labels out group)
+  set(labels)
+  if(group MATCHES "^accel(\\.|$)")
+    string(REPLACE "." "_" label "${group}")
+    list(APPEND labels rund_node_accel "rund_node_${label}")
+  elseif(group MATCHES "^compute(\\.|$)")
+    list(APPEND labels rund_node_compute)
+  endif()
+  set(${out} ${labels} PARENT_SCOPE)
+endfunction()

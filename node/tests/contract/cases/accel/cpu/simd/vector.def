@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.cpu-simd.vector", RunAccelCpuSimdVectorContract, "tests/contract/accel/cpu/vector/contract.cpp", cpu-simd)

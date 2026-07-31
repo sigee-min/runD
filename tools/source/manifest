@@ -1,0 +1,184 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+if [ "$#" -gt 1 ]; then
+  echo "usage: tools/source/manifest [output-path]" >&2
+  exit 64
+fi
+output=${1:-}
+case "$output" in
+  -*)
+    echo "usage: tools/source/manifest [output-path]" >&2
+    exit 64
+    ;;
+esac
+scratch="$root/.cache/source-manifest.$$"
+paths="$scratch.paths"
+raw_paths="$scratch.raw-paths"
+filtered_paths="$scratch.filtered-paths"
+hashes="$scratch.hashes"
+hash_values="$scratch.hash-values"
+mode_values="$scratch.mode-values"
+layout="$root/docs/architecture/root/layout.tsv"
+entries="$scratch.entries"
+root_entries="$scratch.root-entries"
+raw_root_entries="$scratch.raw-root-entries"
+known_entries="$scratch.known-entries"
+unknown_entries="$scratch.unknown-entries"
+debris_names="$scratch.debris-names"
+invalid_paths="$scratch.invalid-paths"
+special_entries="$scratch.special-entries"
+output_tmp=
+trap 'rm -f "$scratch" "$paths" "$raw_paths" "$filtered_paths" "$hashes" \
+  "$hash_values" "$mode_values" "$entries" "$root_entries" \
+  "$raw_root_entries" \
+  "$known_entries" "$unknown_entries" "$debris_names" \
+  "$invalid_paths" "$special_entries" \
+  ${output_tmp:+"$output_tmp"}' \
+  EXIT HUP INT TERM
+
+cd "$root"
+if [ ! -f "$layout" ]; then
+  echo "repository root layout registry is missing: $layout" >&2
+  exit 1
+fi
+if ! awk -F '\t' '
+  /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+  NF != 2 { exit 2 }
+  $1 != "admitted-file" && $1 != "admitted-dir" &&
+      $1 != "local-dir" && $1 != "debris" { exit 3 }
+  $2 == "" || $2 == "." || $2 == ".." || $2 ~ /\// { exit 4 }
+  seen[$2]++ { exit 5 }
+  { print $1 "\t" $2 }
+' "$layout" >"$entries"; then
+  echo "repository root layout registry is malformed: $layout" >&2
+  exit 1
+fi
+
+tab=$(printf '\t')
+while IFS="$tab" read -r kind name; do
+  case "$kind" in
+    admitted-file)
+      if [ ! -f "$name" ] || [ -L "$name" ]; then
+        echo "admitted repository root file is missing: $name" >&2
+        exit 1
+      fi
+      ;;
+    admitted-dir)
+      if [ ! -d "$name" ] || [ -L "$name" ]; then
+        echo "admitted repository root directory is missing: $name" >&2
+        exit 1
+      fi
+      ;;
+  esac
+done <"$entries"
+
+rm -f "$invalid_paths"
+find . -mindepth 1 -maxdepth 1 -exec sh -c '
+  marker=$1
+  shift
+  LC_ALL=C
+  export LC_ALL
+  for path do
+    case "$path" in
+      *\\*|*[![:print:]]*) : >"$marker" ;;
+    esac
+  done
+' sh "$invalid_paths" {} +
+if [ -e "$invalid_paths" ]; then
+  echo "unsupported repository path spelling" >&2
+  exit 1
+fi
+
+find . -mindepth 1 -maxdepth 1 -print >"$raw_root_entries"
+sed 's#^\./##' "$raw_root_entries" >"$root_entries"
+LC_ALL=C sort -u "$root_entries" -o "$root_entries"
+awk -F '\t' '{ print $2 }' "$entries" | LC_ALL=C sort -u >"$known_entries"
+comm -23 "$root_entries" "$known_entries" >"$unknown_entries"
+if [ -s "$unknown_entries" ]; then
+  echo "unadmitted repository root entries:" >&2
+  sed -n '1,40p' "$unknown_entries" >&2
+  exit 1
+fi
+awk -F '\t' '$1 == "debris" { print $2 }' "$entries" >"$debris_names"
+
+rm -f "$invalid_paths" "$special_entries"
+: >"$raw_paths"
+while IFS="$tab" read -r kind name; do
+  case "$kind" in
+    admitted-file) printf '%s\n' "$name" >>"$raw_paths" ;;
+    admitted-dir)
+      find "$name" ! -type d -exec sh -c '
+        invalid=$1
+        special=$2
+        shift 2
+        LC_ALL=C
+        export LC_ALL
+        for path do
+          case "$path" in
+            */__pycache__/*|*.pyc|*.pyo)
+              continue
+              ;;
+          esac
+          case "$path" in
+            *\\*|*[![:print:]]*) : >"$invalid"; continue ;;
+          esac
+          if [ -f "$path" ] && [ ! -L "$path" ]; then
+            printf "%s\n" "$path"
+          else
+            : >"$special"
+          fi
+        done
+      ' sh "$invalid_paths" "$special_entries" {} + \
+        >>"$raw_paths"
+      ;;
+  esac
+done <"$entries"
+awk -F '/' '
+  FILENAME == ARGV[1] {
+    debris[$1] = 1
+    next
+  }
+  !($NF in debris) { print }
+' "$debris_names" "$raw_paths" >"$filtered_paths"
+LC_ALL=C sort -u "$filtered_paths" >"$paths"
+if [ -e "$invalid_paths" ]; then
+  echo "unsupported repository path spelling" >&2
+  exit 1
+fi
+if [ -e "$special_entries" ]; then
+  echo "unsupported entries under admitted repository roots" >&2
+  exit 1
+fi
+if command -v shasum >/dev/null 2>&1; then
+  tr '\n' '\0' <"$paths" | xargs -0 shasum -a 256 >"$hashes"
+else
+  tr '\n' '\0' <"$paths" | xargs -0 sha256sum >"$hashes"
+fi
+awk '{ print $1 }' "$hashes" >"$hash_values"
+if stat -f '%Lp' "$layout" >/dev/null 2>&1; then
+  tr '\n' '\0' <"$paths" | xargs -0 stat -f '%Lp' >"$mode_values"
+else
+  tr '\n' '\0' <"$paths" | xargs -0 stat -c '%a' >"$mode_values"
+fi
+paste "$hash_values" "$mode_values" "$paths" | awk -F '\t' '
+  {
+    mode = $2 + 0
+    owner = int(mode / 100) % 10
+    group = int(mode / 10) % 10
+    other = mode % 10
+    executable = (owner % 2) || (group % 2) || (other % 2)
+    print $1 "\t" (executable ? "x" : "-") "\t" $3
+  }
+' >"$scratch"
+
+if [ -n "$output" ]; then
+  mkdir -p "$(dirname -- "$output")"
+  output_tmp="$output.tmp.$$"
+  cp "$scratch" "$output_tmp"
+  mv -f "$output_tmp" "$output"
+  output_tmp=
+else
+  cat "$scratch"
+fi

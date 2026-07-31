@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/release/provenance <root> <current-manifest>" >&2
+  exit 2
+fi
+
+root=$1
+current=$2
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+release_before="$release/.rund-source-manifest-before.tsv"
+release_after="$release/.rund-source-manifest-after.tsv"
+
+for manifest in "$current" "$release_before" "$release_after"; do
+  if [ ! -f "$manifest" ]; then
+    echo "Release provenance manifest is missing: $manifest" >&2
+    echo "run tools/release/run before consuming the installed SDK" >&2
+    exit 1
+  fi
+done
+
+if ! cmp -s "$release_before" "$release_after"; then
+  echo "Release source changed while its artifact was built" >&2
+  echo "rerun tools/release/run before consuming the installed SDK" >&2
+  exit 1
+fi
+
+if ! cmp -s "$current" "$release_before"; then
+  echo "installed Release artifact does not match the current product source" >&2
+  echo "rerun tools/release/run before consuming the installed SDK" >&2
+  exit 1
+fi

@@ -1,0 +1,98 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 5 ]; then
+  echo "usage: tools/internal/configure/contracts <root> <build> <local|sanitize|release|platform> <Debug|Release> <focus-or-> [platform-vulkan] [cmake-argument ...]" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+profile=$3
+build_type=$4
+focus=$5
+shift 5
+if [ "$focus" = - ]; then
+  focus=
+fi
+
+math32=ON
+math64=ON
+cluster=ON
+kernel=ON
+accel=ON
+vulkan=ON
+unavailable=OFF
+if [ -n "$focus" ]; then
+  math32=OFF
+  math64=OFF
+  cluster=OFF
+  kernel=OFF
+fi
+
+case "$profile" in
+  local|sanitize)
+    package_tests=OFF
+    ;;
+  release)
+    package_tests=ON
+    ;;
+  platform)
+    if [ "$#" -lt 1 ]; then
+      echo "platform contract configure requires Vulkan ON or OFF" >&2
+      exit 2
+    fi
+    vulkan=$1
+    shift
+    case "$vulkan" in
+      ON|OFF) ;;
+      *)
+        echo "platform contract configure requires Vulkan ON or OFF" >&2
+        exit 2
+        ;;
+    esac
+    package_tests=OFF
+    math32=OFF
+    math64=OFF
+    cluster=OFF
+    kernel=OFF
+    accel=OFF
+    unavailable=ON
+    ;;
+  *)
+    echo "unknown contract configure profile: $profile" >&2
+    exit 2
+    ;;
+esac
+
+if ! command -v ninja >/dev/null 2>&1; then
+  echo "contract verification requires Ninja" >&2
+  exit 1
+fi
+
+if [ -f "$build/CMakeCache.txt" ]; then
+  generator=$(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' \
+    "$build/CMakeCache.txt")
+  if [ "$generator" != Ninja ]; then
+    echo "contract build tree is not configured with Ninja: $build" >&2
+    exit 1
+  fi
+else
+  set -- -G Ninja "$@"
+fi
+set -- "$@" \
+  -DCMAKE_MAKE_PROGRAM:FILEPATH="$root/tools/internal/state/ninja"
+exec sh "$root/tools/internal/state/lock" --state "$root" "$build" \
+  cmake -S "$root" -B "$build" \
+  -DCMAKE_BUILD_TYPE="$build_type" "$@" \
+  -DRUND_STRICT_WARNINGS=ON \
+  -DRUND_ENABLE_VULKAN="$vulkan" \
+  -DRUND_FORCE_UNAVAILABLE_PLATFORM="$unavailable" \
+  -DRUND_NODE_FOCUSED_CASE:STRING="$focus" \
+  -DRUND_ENABLE_PACKAGE_RELEASE_TESTS="$package_tests" \
+  -DRUND_ENABLE_MATH32_CONTRACT_TESTS="$math32" \
+  -DRUND_ENABLE_MATH64_CONTRACT_TESTS="$math64" \
+  -DRUND_ENABLE_CLUSTER_CONTRACT_TESTS="$cluster" \
+  -DRUND_TEST_KERNEL="$kernel" \
+  -DRUND_TEST_NODE=ON \
+  -DRUND_TEST_ACCEL="$accel"

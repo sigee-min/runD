@@ -1,0 +1,21 @@
+set(NODE_TEST_REACTOR_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/reactor/apply/batch.cpp
+  tests/contract/runtime/task/reactor/drain/batch.cpp
+  tests/contract/runtime/task/reactor/backend/parity.cpp
+  tests/contract/runtime/task/reactor/budget.cpp
+  tests/contract/runtime/task/reactor/backlog/budget.cpp
+  tests/contract/runtime/task/reactor/cleanup/cancel.cpp
+  tests/contract/runtime/task/reactor/capacity.cpp
+  tests/contract/runtime/task/reactor/cleanup/invariants.cpp
+  tests/contract/runtime/task/reactor/generation/fd.cpp
+  tests/contract/runtime/task/reactor/registry.cpp
+  tests/contract/runtime/task/reactor/lifecycle.cpp
+  tests/contract/runtime/task/reactor/order.cpp
+  tests/contract/runtime/task/reactor/platform.cpp
+  tests/contract/runtime/task/reactor/persistent.cpp
+  tests/contract/runtime/task/reactor/rearm.cpp
+  tests/contract/runtime/task/reactor/registration.cpp
+  tests/contract/runtime/task/reactor/scratch.cpp
+  tests/contract/runtime/task/reactor/task/group/batch.cpp
+)

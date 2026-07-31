@@ -1,0 +1,10 @@
+set(NODE_TEST_NET_READINESS_TEST_SOURCES
+  tests/contract/runtime/task/net/readiness.cpp
+  tests/contract/runtime/task/net/readiness/basic.cpp
+  tests/contract/runtime/task/net/readiness/hup.cpp
+  tests/contract/runtime/task/net/readiness/invalid.cpp
+  tests/contract/runtime/task/net/readiness/local.cpp
+  tests/contract/runtime/task/net/readiness/park.cpp
+  tests/contract/runtime/task/net/readiness/writable.cpp
+  tests/contract/runtime/task/net/readiness/zero.cpp
+)

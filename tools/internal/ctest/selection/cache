@@ -1,0 +1,165 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 3 ]; then
+  echo "usage: tools/internal/ctest/selection/cache <root> <build> <selection>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+selection=$3
+routes="$build/rund-test-routes.tsv"
+cache_dir="$build/.rund-test-pass"
+
+if [ ! -f "$selection" ]; then
+  echo "CTest selection metadata is missing: $selection" >&2
+  exit 2
+fi
+if [ ! -s "$selection" ]; then
+  echo "CTest selection matched no tests: $selection" >&2
+  exit 2
+fi
+if [ ! -f "$routes" ]; then
+  echo "CTest route index is unavailable: $routes" >&2
+  exit 2
+fi
+
+mkdir -p "$cache_dir"
+scratch=$(mktemp -d "$cache_dir/check.XXXXXX")
+key_input="$scratch/key"
+artifacts="$scratch/artifacts"
+cache_tmp=
+cleanup() {
+  rm -rf "$scratch"
+  if [ -n "$cache_tmp" ]; then
+    rm -f "$cache_tmp"
+  fi
+}
+trap cleanup EXIT HUP INT TERM
+
+# The selection is an authenticated result of the configured route query, but
+# this boundary still validates it before using target names or caching a pass.
+if ! awk -F '\t' -v targets="$scratch/targets" -v tests="$scratch/tests" '
+    BEGIN { invalid = 0; test_count = 0 }
+    NF != 2 { invalid = 1; next }
+    $1 == "target" {
+      if ($2 !~ /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/ || target[$2]++) {
+        invalid = 1
+        next
+      }
+      print $2 > targets
+      next
+    }
+    $1 == "test" {
+      if ($2 !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ || test[$2]++) {
+        invalid = 1
+        next
+      }
+      print $2 > tests
+      test_count++
+      next
+    }
+    { invalid = 1 }
+    END { if (invalid || test_count == 0) exit 2 }
+  ' "$selection"; then
+  echo "CTest selection metadata is malformed: $selection" >&2
+  exit 2
+fi
+
+# Script-only tests do not have an executable artifact to authenticate.  A
+# resource runner can also depend on device state outside the build graph.
+# Both execute every time instead of accepting a weak cache key.
+if [ ! -s "$scratch/targets" ] || ! awk -F '\t' '
+    BEGIN { cacheable = 1 }
+    FNR == NR {
+      if ($1 == "target") target[$2] = 1
+      else if ($1 == "test") selected[$2] = 1
+      next
+    }
+    $1 == "route" && ($2 in selected) {
+      seen[$2]++
+      if ($3 == "-" || $6 != "direct" || !($3 in target))
+        cacheable = 0
+      next
+    }
+    END {
+      for (name in selected)
+        if (seen[name] != 1) cacheable = 0
+      if (!cacheable) exit 1
+    }
+  ' "$selection" "$routes"; then
+  exec sh "$root/tools/internal/ctest/selection/run" "$build" "$selection"
+fi
+
+hash_file() {
+  cmake -E sha256sum "$1" | awk '{ print $1 }'
+}
+
+selection_id=$(hash_file "$selection")
+{
+  printf 'schema\trund-ctest-pass-v1\n'
+  printf 'selection\t%s\n' "$selection_id"
+  printf 'routes\t%s\n' "$(hash_file "$routes")"
+  printf 'runner\t%s\n' \
+    "$(hash_file "$root/tools/internal/ctest/selection/run")"
+  printf 'host\t%s\n' "$(uname -srm)"
+  printf 'ctest\t%s\n' "$(ctest --version | sed -n '1p')"
+} >"$key_input"
+
+find "$build" -type f -name CTestTestfile.cmake -print |
+  LC_ALL=C sort | while IFS= read -r metadata; do
+    printf 'metadata\t%s\t%s\n' \
+      "${metadata#"$build"/}" "$(hash_file "$metadata")"
+  done >>"$key_input"
+
+: >"$artifacts"
+while IFS= read -r target; do
+  if artifact=$(sh "$root/tools/internal/state/ninja" \
+      -C "$build" -t query "$target" | awk -v target="$target" '
+        NR == 1 { if ($0 != target ":") invalid = 1; next }
+        $0 == "  input: phony" { inputs = 1; next }
+        $0 == "  outputs:" { inputs = 0; next }
+        inputs && /^    / {
+          value = substr($0, 5)
+          count++
+        }
+        END {
+          if (invalid || count != 1 || value == "-") exit 2
+          print value
+        }
+      '); then
+    :
+  else
+    exec sh "$root/tools/internal/ctest/selection/run" "$build" "$selection"
+  fi
+  case "$artifact" in
+    /*) artifact_path=$artifact ;;
+    *) artifact_path="$build/$artifact" ;;
+  esac
+  if [ ! -f "$artifact_path" ] || [ ! -x "$artifact_path" ]; then
+    exec sh "$root/tools/internal/ctest/selection/run" "$build" "$selection"
+  fi
+  printf '%s\t%s\t%s\n' \
+    "$target" "$artifact" "$(hash_file "$artifact_path")" >>"$artifacts"
+done <"$scratch/targets"
+LC_ALL=C sort "$artifacts" >>"$key_input"
+
+key=$(hash_file "$key_input")
+cache_file="$cache_dir/selection-$selection_id.sha256"
+if [ -f "$cache_file" ] && [ "$(sed -n '1p' "$cache_file")" = "$key" ]; then
+  test_count=$(wc -l <"$scratch/tests" | tr -d ' ')
+  printf 'CTest pass cache hit: %s selected test(s)\n' "$test_count"
+  exit 0
+fi
+
+if sh "$root/tools/internal/ctest/selection/run" "$build" "$selection"; then
+  cache_tmp=$(mktemp "$cache_dir/pass.XXXXXX")
+  printf '%s\n' "$key" >"$cache_tmp"
+  mv -f "$cache_tmp" "$cache_file"
+  cache_tmp=
+  exit 0
+else
+  status=$?
+  exit "$status"
+fi

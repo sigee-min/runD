@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 4 ]; then
+  echo "usage: tools/internal/artifact/identity <release-build> <output> <version> <triplet>" >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=$1
+output=$2
+version=$3
+triplet=$4
+observation="$output.observation.$$"
+identity_temporary="$output.tmp.$$"
+seal="$output.sha256"
+seal_temporary="$identity_temporary.sha256"
+
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  rm -f "$observation" "$identity_temporary" "$seal_temporary"
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+case "$triplet" in
+  darwin-arm64)
+    collector="$root/tools/internal/artifact/darwin"
+    ;;
+  linux-x64)
+    collector="$root/tools/internal/artifact/linux"
+    ;;
+  *)
+    echo "unsupported artifact identity triplet: $triplet" >&2
+    exit 1
+    ;;
+esac
+
+sh "$collector" "$build" "$observation" "$version" "$triplet"
+cmake \
+  -D "ARTIFACT_OBSERVATION=$observation" \
+  -D "ARTIFACT_IDENTITY_OUTPUT=$identity_temporary" \
+  -D "EXPECTED_SDK_VERSION=$version" \
+  -D "EXPECTED_TRIPLET=$triplet" \
+  -D "PUBLIC_TARGET=$build/runD-install/lib/cmake/runD/runDTargets.cmake" \
+  -D "IDENTITY_OWNER=producer" \
+  -P "$root/package/cmake/identity.cmake"
+mv -f "$identity_temporary" "$output"
+mv -f "$seal_temporary" "$seal"

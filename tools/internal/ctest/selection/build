@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 4 ]; then
+  echo "usage: tools/internal/ctest/selection/build <root> <build> <pattern> <output>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+pattern=$3
+output=$4
+output_tmp="$output.tmp.$$"
+routes="$build/rund-test-routes.tsv"
+snapshot="$output.routes.$$"
+trap 'rm -f "$output_tmp" "$snapshot"' EXIT HUP INT TERM
+
+selection_metadata() {
+  RUND_CTEST_ROUTES="$snapshot" RUND_CTEST_PATTERN="$pattern" \
+    cmake -P "$root/tools/internal/ctest/selection/query.cmake"
+}
+
+attempts=0
+while :; do
+  if ! cp "$routes" "$snapshot"; then
+    echo "CTest route index is unavailable: $routes" >&2
+    exit 2
+  fi
+  selection=$(selection_metadata)
+  targets=$(printf '%s\n' "$selection" |
+    awk -F '\t' '$1 == "target" { print $2 }')
+  if [ -n "$targets" ]; then
+    jobs=${CMAKE_BUILD_PARALLEL_LEVEL:-}
+    case "$jobs" in
+      '') ;;
+      *[!0-9]*|0)
+        echo "CMAKE_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+        exit 2
+        ;;
+    esac
+    # Target names are validated by the sealed route query. The configured
+    # Ninja owner authenticates and serializes this build tree.
+    # shellcheck disable=SC2086
+    if [ -n "$jobs" ]; then
+      sh "$root/tools/internal/state/ninja" -C "$build" -j "$jobs" $targets
+    else
+      sh "$root/tools/internal/state/ninja" -C "$build" $targets
+    fi
+  fi
+  if cmp -s "$snapshot" "$routes"; then
+    break
+  fi
+  attempts=$((attempts + 1))
+  if [ "$attempts" -ge 3 ]; then
+    echo "CTest route index did not stabilize after regeneration" >&2
+    exit 2
+  fi
+done
+
+mkdir -p "$(dirname -- "$output")"
+if [ -n "$selection" ]; then
+  printf '%s\n' "$selection" >"$output_tmp"
+else
+  : >"$output_tmp"
+fi
+mv -f "$output_tmp" "$output"

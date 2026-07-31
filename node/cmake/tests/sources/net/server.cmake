@@ -1,0 +1,21 @@
+set(NODE_TEST_NET_SERVER_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/net/server/core.cpp
+  tests/contract/runtime/task/net/server/core/inline.cpp
+  tests/contract/runtime/task/net/server/core/invalid.cpp
+  tests/contract/runtime/task/net/server/core/local/cleanup.cpp
+  tests/contract/runtime/task/net/server/core/local/client.cpp
+  tests/contract/runtime/task/net/server/core/local/listener.cpp
+  tests/contract/runtime/task/net/server/core/local/run.cpp
+)
+
+set(NODE_TEST_NET_SERVER_PARALLEL_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/net/server/parallel.cpp
+  tests/contract/runtime/task/net/server/parallel/failure.cpp
+  tests/contract/runtime/task/net/server/parallel/local/cleanup.cpp
+  tests/contract/runtime/task/net/server/parallel/local/client.cpp
+  tests/contract/runtime/task/net/server/parallel/local/listener.cpp
+  tests/contract/runtime/task/net/server/parallel/local/run.cpp
+  tests/contract/runtime/task/net/server/parallel/success.cpp
+)

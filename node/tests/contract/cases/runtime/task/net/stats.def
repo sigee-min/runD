@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-stats", RunRuntimeTaskNetStatsContract, "tests/contract/runtime/task/net/stats.cpp", runtime)

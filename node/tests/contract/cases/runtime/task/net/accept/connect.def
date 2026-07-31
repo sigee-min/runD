@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-accept-connect", RunRuntimeTaskNetAcceptConnectContract, "tests/contract/runtime/task/net/accept/connect.cpp", runtime)

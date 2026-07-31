@@ -1,0 +1,53 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd -P)
+driver=$(command -v ninja || true)
+if [ -z "$driver" ] || [ "$driver" = "$0" ]; then
+  echo "configured Ninja driver is unavailable" >&2
+  exit 1
+fi
+
+if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
+  exec "$driver" "$@"
+fi
+
+build=
+expect_build=false
+for argument do
+  if [ "$expect_build" = true ]; then
+    build=$argument
+    expect_build=false
+    continue
+  fi
+  case "$argument" in
+    -C)
+      expect_build=true
+      ;;
+    -C?*)
+      build=${argument#-C}
+      ;;
+  esac
+done
+if [ "$expect_build" = true ]; then
+  exec "$driver" "$@"
+fi
+if [ -z "$build" ]; then
+  build=$PWD
+elif [ "${build#/}" = "$build" ]; then
+  build="$PWD/$build"
+fi
+
+case "$build" in
+  "$root/.cache/"*)
+    if sh "$root/tools/internal/state/lock" --state --held \
+        "$root" "$build" 2>/dev/null; then
+      exec "$driver" "$@"
+    fi
+    exec sh "$root/tools/internal/state/lock" --state \
+      "$root" "$build" "$driver" "$@"
+    ;;
+esac
+
+echo "configured Ninja invocation has no owned build identity: $build" >&2
+exit 2

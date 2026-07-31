@@ -1,0 +1,152 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 9 ]; then
+  echo "usage: tools/internal/case/run <root> <build> <case> <backend-or-> <target> <resource> <profile> <focus> <route>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+name=$3
+backend=$4
+target=$5
+resource=$6
+profile=$7
+focus=$8
+route=$9
+
+case "$name" in
+  '' | *[!A-Za-z0-9_.-]* | [!A-Za-z0-9]*) exit 2 ;;
+esac
+case "$backend" in
+  -) backend= ;;
+  cpu | metal | vulkan) ;;
+  *) exit 2 ;;
+esac
+case "$target" in
+  '' | *[!A-Za-z0-9_.+-]* | [!A-Za-z0-9]*) exit 2 ;;
+esac
+case "$resource" in
+  - | rund_accel) ;;
+  *) exit 2 ;;
+esac
+case "$profile" in
+  '' | *[!a-z0-9-]* | [!a-z]*) exit 2 ;;
+esac
+case "$focus" in
+  '' | *[!A-Za-z0-9_.-]* | [!A-Za-z0-9]*) exit 2 ;;
+esac
+expected=$(printf '%s\t%s\t%s\t%s' \
+  "$name" "$target" "$resource" "$profile")
+if [ "$route" != "$expected" ] ||
+   [ "$build" != "$root/.cache/focus/$profile" ]; then
+  exit 2
+fi
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  echo "focused case execution requires its profile lock: $profile" >&2
+  exit 2
+fi
+
+case_row() {
+  index="$build/node/node-contract/index.tsv"
+  [ -f "$index" ] || return 1
+  awk -F '\t' -v selected="$name" \
+    '$1 == selected { print; exit }' "$index"
+}
+
+require_route() {
+  phase=$1
+  actual=$(case_row || true)
+  if [ "$actual" != "$route" ]; then
+    echo "Node contract route changed during $phase: $name" >&2
+    exit 2
+  fi
+}
+
+config_state() {
+  operation=$1
+  focus_route=$(printf '%s\t%s\t%s\t%s' \
+    "$focus" "$target" "$resource" "$profile")
+  sh "$root/tools/internal/configure/state" \
+    "$operation" "$root" "$build" local Debug "$focus" "$focus_route" \
+    -DRUND_NODE_TEST_TAG:STRING= \
+    -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend"
+}
+
+configured=$(case_row || true)
+if ! config_state matches || [ "$configured" != "$route" ]; then
+  sh "$root/tools/internal/configure/contracts" \
+    "$root" "$build" local Debug "$focus" \
+    -DRUND_NODE_TEST_TAG:STRING= \
+    -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend"
+  require_route configuration
+  config_state write
+fi
+
+(
+  cd "$build"
+  exec sh "$root/tools/internal/state/ninja" "$target"
+)
+require_route regeneration
+
+if [ -n "$backend" ]; then
+  set -- "$build/node/$target" --backend "$backend" --case "$name"
+else
+  set -- "$build/node/$target" --case "$name"
+fi
+if [ "$resource" = rund_accel ]; then
+  exec sh "$root/tools/internal/lock/accel" \
+    sh "$root/tools/internal/process/run" 900 "$name" "$@"
+fi
+
+binary=$1
+if [ "${RUND_TEST_FRESH:-0}" != 1 ] &&
+   [ -f "$binary" ] && [ -x "$binary" ]; then
+  cache_dir="$build/.rund-test-pass"
+  mkdir -p "$cache_dir"
+  key_input=$(mktemp "$cache_dir/case-key.XXXXXX")
+  cache_tmp=
+  cleanup() {
+    rm -f "$key_input"
+    if [ -n "$cache_tmp" ]; then
+      rm -f "$cache_tmp"
+    fi
+  }
+  trap cleanup EXIT HUP INT TERM
+  hash_file() {
+    cmake -E sha256sum "$1" | awk '{ print $1 }'
+  }
+  {
+    printf 'schema\trund-case-pass-v1\n'
+    printf 'route\t%s\n' "$route"
+    printf 'backend\t%s\n' "${backend:--}"
+    printf 'host\t%s\n' "$(uname -srm)"
+    printf 'binary\t%s\n' "$(hash_file "$binary")"
+    printf 'index\t%s\n' \
+      "$(hash_file "$build/node/node-contract/index.tsv")"
+    printf 'runner\t%s\n' \
+      "$(hash_file "$root/tools/internal/process/run")"
+  } >"$key_input"
+  key=$(hash_file "$key_input")
+  identity=$(printf '%s\n' "$route" | cmake -E sha256sum - | awk '{ print $1 }')
+  cache_file="$cache_dir/case-$identity.sha256"
+  if [ -f "$cache_file" ] &&
+     [ "$(sed -n '1p' "$cache_file")" = "$key" ]; then
+    printf 'Node case pass cache hit: %s\n' "$name"
+    exit 0
+  fi
+  if sh "$root/tools/internal/process/run" 900 "$name" "$@"; then
+    cache_tmp=$(mktemp "$cache_dir/pass.XXXXXX")
+    printf '%s\n' "$key" >"$cache_tmp"
+    mv -f "$cache_tmp" "$cache_file"
+    cache_tmp=
+    exit 0
+  else
+    status=$?
+    exit "$status"
+  fi
+fi
+
+exec sh "$root/tools/internal/process/run" 900 "$name" "$@"

@@ -1,0 +1,19 @@
+set(NODE_TEST_NET_LIMITS_TEST_SOURCES
+  tests/contract/runtime/task/net/limits.cpp
+  tests/contract/runtime/task/net/limits/local/address.cpp
+  tests/contract/runtime/task/net/limits/local/cleanup.cpp
+  tests/contract/runtime/task/net/limits/local/listener.cpp
+  tests/contract/runtime/task/net/limits/local/ready.cpp
+  tests/contract/runtime/task/net/limits/local/runtime.cpp
+  tests/contract/runtime/task/net/limits/local/socket.cpp
+  tests/contract/runtime/task/net/limits/ready.cpp
+  tests/contract/runtime/task/net/limits/ready/member.cpp
+  tests/contract/runtime/task/net/limits/ready/set.cpp
+  tests/contract/runtime/task/net/limits/io.cpp
+  tests/contract/runtime/task/net/limits/snapshot.cpp
+  tests/contract/runtime/task/net/limits/registry.cpp
+  tests/contract/runtime/task/net/limits/registry/accept.cpp
+  tests/contract/runtime/task/net/limits/registry/external.cpp
+  tests/contract/runtime/task/net/limits/registry/open.cpp
+  tests/contract/runtime/task/net/limits/registry/reuse.cpp
+)

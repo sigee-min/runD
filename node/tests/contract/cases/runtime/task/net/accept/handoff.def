@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-accept-handoff", RunRuntimeTaskNetAcceptHandoffContract, "tests/contract/runtime/task/net/accept/handoff.cpp", runtime)

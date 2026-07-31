@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 3 ]; then
+  echo "usage: tools/internal/source/verify <root> <before> <after>" >&2
+  exit 2
+fi
+
+root=$1
+before=$2
+after=$3
+seal="$after.sha256"
+identity="$after.identity.tsv"
+identity_seal="$identity.sha256"
+identity_tmp="$identity.tmp.$$"
+revision_before="$after.revision-before.$$"
+revision_after="$after.revision-after.$$"
+status_before="$after.status-before.$$"
+status_after="$after.status-after.$$"
+trap 'rm -f "$identity_tmp" "$identity_tmp.sha256" \
+  "$revision_before" "$revision_after" \
+  "$status_before" "$status_after"' \
+  EXIT HUP INT TERM
+rm -f "$seal" "$identity" "$identity_tmp" \
+  "$identity_seal" "$identity_tmp.sha256"
+
+if [ ! -f "$before" ]; then
+  echo "verification source manifest is missing: $before" >&2
+  exit 1
+fi
+
+git -C "$root" rev-parse HEAD >"$revision_before"
+git -C "$root" status --porcelain=v1 -z --untracked-files=all >"$status_before"
+"$root/tools/source/manifest" "$after"
+git -C "$root" rev-parse HEAD >"$revision_after"
+git -C "$root" status --porcelain=v1 -z --untracked-files=all >"$status_after"
+if ! cmp -s "$revision_before" "$revision_after" ||
+   ! cmp -s "$status_before" "$status_after"; then
+  echo "source identity changed during source stability check" >&2
+  exit 1
+fi
+revision=$(sed -n '1p' "$revision_after")
+if [ -s "$status_after" ]; then
+  dirty=true
+else
+  dirty=false
+fi
+tool_root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cmake \
+  -D "SOURCE_MANIFEST=$after" \
+  -D "SOURCE_IDENTITY_OUTPUT=$identity_tmp" \
+  -D "SOURCE_REVISION=$revision" \
+  -D "SOURCE_DIRTY=$dirty" \
+  -D "SOURCE_OWNER=producer" \
+  -P "$tool_root/package/cmake/identity.cmake"
+mv -f "$identity_tmp" "$identity"
+mv -f "$identity_tmp.sha256" "$identity_seal"
+if cmp -s "$before" "$after"; then
+  exit 0
+fi
+
+echo "product sources changed during verification" >&2
+diff -u "$before" "$after" | sed -n '1,120p' >&2 || true
+exit 1

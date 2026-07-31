@@ -1,0 +1,227 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+use Math::BigFloat;
+
+sub fail {
+  print STDERR "performance baseline project: $_[0]\n";
+  exit 1;
+}
+
+@ARGV == 17
+    or die "usage: tools/internal/measure/project <root> <profile> " .
+           "<scheduler1> <scheduler2> <scheduler3> " .
+           "<compute1> <compute2> <compute3> " .
+           "<flow1> <flow2> <flow3> <graph1> <graph2> <graph3> " .
+           "<telemetry1> <telemetry2> <telemetry3>\n";
+my ($root_argument, $requested_profile, @arguments) = @ARGV;
+$requested_profile =~ /\A[a-z0-9]+\z/ or fail('invalid requested profile');
+my $root = abs_path($root_argument) // fail("missing root $root_argument");
+require "$root/tools/internal/measure/schema.pm";
+my $schema;
+eval { $schema = RundMeasureSchema::load($root, 0); 1 }
+    or fail($@ =~ s/\n\z//r);
+my $selected_profile;
+eval { $selected_profile = RundMeasureSchema::select_profile($schema); 1 }
+    or fail($@ =~ s/\n\z//r);
+$selected_profile eq $requested_profile
+    or fail("current host selected $selected_profile, requested $requested_profile");
+
+sub projection {
+  my ($route, $packet) = @_;
+  open my $pipe, '-|', 'perl', "$root/tools/internal/measure/compare",
+      $root, $route, $packet, 'project'
+      or fail("cannot start canonical packet projection for $route");
+  my $profile_line = <$pipe> // '';
+  chomp $profile_line;
+  my ($kind, $profile, @profile_extra) = split /\t/, $profile_line, -1;
+  defined($kind) && $kind eq 'profile' && defined($profile) && !@profile_extra &&
+      $profile eq $requested_profile
+      or fail("invalid canonical profile projection for $route");
+  my @metadata_order = qw(path manifest identity revision dirty generator
+                           compiler compiler:sha256 artifact artifact:sha256
+                           log:sha256);
+  my %metadata;
+  for my $expected (@metadata_order) {
+    my $line = <$pipe> // '';
+    chomp $line;
+    my ($row, $name, $value, @extra) = split /\t/, $line, -1;
+    $row eq 'packet' && defined($name) && defined($value) && !@extra &&
+        $name eq $expected && $value ne ''
+        or fail("invalid packet projection field $expected for $route");
+    $metadata{$name} = $value;
+  }
+  my $header = <$pipe> // '';
+  chomp $header;
+  $header eq "metric\tvalue\tunit"
+      or fail("invalid canonical metric header for $route");
+  my %metric;
+  while (my $line = <$pipe>) {
+    chomp $line;
+    my ($name, $value, $unit, @extra) = split /\t/, $line, -1;
+    defined($name) && defined($value) && defined($unit) && !@extra &&
+        $name ne '' && $unit ne ''
+        or fail("malformed canonical metric for $route");
+    !exists $metric{$name}
+        or fail("duplicate canonical metric $route/$name");
+    $metric{$name} = {value => $value, unit => $unit};
+  }
+  close $pipe or fail("canonical packet projection failed for $route/$packet");
+  return {metadata => \%metadata, metric => \%metric};
+}
+
+sub maximum {
+  my ($left, $right) = @_;
+  return $left->bcmp($right) >= 0 ? $left->copy() : $right->copy();
+}
+
+sub admission_envelope {
+  my ($route, $metric, $unit, $base, $spread) = @_;
+  my ($effect, $variation);
+  if (($route eq 'measure-scheduler' && $unit eq 'bytes') ||
+      ($route eq 'measure-telemetry' && $unit eq 'count')) {
+    $effect = $base->copy()->bmul('0.10');
+    $variation = $spread->copy()->bmul('1.5');
+    return maximum($effect, $variation);
+  }
+  if ($route eq 'measure-flow' && $unit eq 'ms') {
+    $effect = $base->copy()->bmul('0.25');
+    $variation = $spread->copy()->bmul('5');
+    return maximum($effect, $variation);
+  }
+  if ($route eq 'measure-telemetry' && $unit eq 'ns') {
+    $metric =~
+        /\A(?:live|record|replay|scenario)\/(cold|warm)\/(?:wall|cpu)\/(?:median|p95)\z/
+        or fail("unsupported telemetry timing metric: $metric");
+    my $budget = Math::BigFloat->new($1 eq 'cold' ? '100000' : '5000');
+    my $budget_allowance = $budget->copy()->bsub($base);
+    $budget_allowance = Math::BigFloat->new(0)
+        if $budget_allowance->is_neg();
+    $effect = $base->copy()->bmul('0.25');
+    $variation = $spread->copy()->bmul('5');
+    return maximum(maximum($effect, $variation), $budget_allowance);
+  }
+  if (($route eq 'measure-scheduler' && $unit eq 'ns/op') ||
+      ($route eq 'measure-compute' && $unit eq 'us') ||
+      ($route eq 'measure-flow' && $unit eq 'us') ||
+      ($route eq 'measure-graph-services' && $unit eq 'us')) {
+    $effect = $base->copy()->bmul('2.5');
+    $variation = $spread->copy()->bmul('5');
+    return maximum($effect, $variation);
+  }
+  fail("unsupported admission unit: $route/$metric/$unit");
+}
+
+my @routes = RundMeasureSchema::routes();
+my %packet_path;
+my %log_hash;
+my %result;
+my $argument = 0;
+my $global;
+for my $route (@routes) {
+  my $spec = RundMeasureSchema::route($route);
+  my @triplet;
+  for my $number (1 .. 3) {
+    my $entry = projection($route, $arguments[$argument++]);
+    my $metadata = $entry->{metadata};
+    !$packet_path{$metadata->{path}}++
+        or fail("duplicate calibration packet: $metadata->{path}");
+    !$log_hash{$metadata->{'log:sha256'}}++
+        or fail('calibration raw-log identities are not globally unique');
+    my $identity = join("\t", @{$metadata}{qw(manifest identity revision dirty
+                                                generator compiler
+                                                compiler:sha256)});
+    if (defined $global) {
+      $identity eq $global
+          or fail("calibration source or toolchain identity differs: $metadata->{path}");
+    } else {
+      $global = $identity;
+    }
+    push @triplet, $entry;
+  }
+  my @sealed = map { {path => $_->{metadata}{path}} } @triplet;
+  eval { RundMeasureSchema::adjacent($root, $route, @sealed); 1 }
+      or fail($@ =~ s/\n\z//r);
+  my $artifact = join("\t", @{$triplet[0]{metadata}}
+      {qw(artifact artifact:sha256)});
+  for my $entry (@triplet[1, 2]) {
+    join("\t", @{$entry->{metadata}}{qw(artifact artifact:sha256)}) eq
+        $artifact
+        or fail("$route calibration executable artifact differs");
+  }
+  for my $entry (@triplet) {
+    scalar(keys %{$entry->{metric}}) == $spec->{metrics}
+        or fail("$route canonical metric cardinality changed");
+  }
+  my @sets = map { join("\n", sort keys %{$_->{metric}}) } @triplet;
+  $sets[0] eq $sets[1] && $sets[1] eq $sets[2]
+      or fail("$route calibration metric sets differ");
+  for my $metric (sort keys %{$triplet[2]{metric}}) {
+    my $unit = $triplet[2]{metric}{$metric}{unit};
+    $triplet[0]{metric}{$metric}{unit} eq $unit &&
+        $triplet[1]{metric}{$metric}{unit} eq $unit
+        or fail("$route/$metric unit differs across calibration");
+  }
+  $result{$route} = \@triplet;
+}
+$argument == @arguments or fail('unused calibration packet argument');
+
+my @output = ("profile\troute\tmetric\tpolicy\tvalue\tenvelope\tunit");
+my $manifest = $result{$routes[0]}[0]{metadata}{manifest};
+push @output, join("\t", $requested_profile, 'baseline', 'manifest',
+                   'identity', $manifest, '-', 'sha256');
+for my $route (@routes) {
+  my $spec = RundMeasureSchema::route($route);
+  for my $index (0 .. 2) {
+    push @output, join("\t", $requested_profile, 'baseline',
+        "$spec->{identity}" . ($index + 1), 'identity',
+        $result{$route}[$index]{metadata}{'log:sha256'}, '-', 'sha256');
+  }
+}
+
+my $environment = $schema->{profiles}{$requested_profile}{environment};
+my @environment_order = qw(system release machine workers);
+push @environment_order, qw(model cpu)
+    if $environment->{system}{value} eq 'Darwin';
+for my $metric (@environment_order) {
+  my $row = $environment->{$metric};
+  push @output, join("\t", $requested_profile, 'environment', $metric,
+                     'exact', $row->{value}, '-', $row->{unit});
+}
+
+for my $route (@routes) {
+  my ($first, $second, $frozen) = @{$result{$route}};
+  my $semantic = $frozen->{metric}{semantic}
+      // fail("$route projection has no semantic identity");
+  $first->{metric}{semantic}{value} eq $second->{metric}{semantic}{value} &&
+      $second->{metric}{semantic}{value} eq $semantic->{value} &&
+      $semantic->{value} =~ /\A[0-9a-f]{64}\z/ &&
+      $semantic->{unit} eq 'sha256'
+      or fail("$route semantic identity differs across calibration");
+  push @output, join("\t", $requested_profile, $route, 'semantic', 'exact',
+                     $semantic->{value}, '-', 'sha256');
+  for my $metric (sort grep { $_ ne 'semantic' } keys %{$frozen->{metric}}) {
+    my $x1 = $first->{metric}{$metric}{value};
+    my $x2 = $second->{metric}{$metric}{value};
+    my $b = $frozen->{metric}{$metric}{value};
+    RundMeasureSchema::decimal($x1) && RundMeasureSchema::decimal($x2) &&
+        RundMeasureSchema::decimal($b)
+        or fail("$route/$metric is not a canonical decimal observation");
+    my $base = Math::BigFloat->new($b);
+    my $e1 = Math::BigFloat->new($x1)->bsub($base)->babs();
+    my $e2 = Math::BigFloat->new($x2)->bsub($base)->babs();
+    my $spread = maximum($e1, $e2);
+    my $envelope = admission_envelope(
+        $route, $metric, $frozen->{metric}{$metric}{unit}, $base, $spread);
+    push @output, join("\t", $requested_profile, $route, $metric, 'upper',
+                       $b, $envelope->bstr(),
+                       $frozen->{metric}{$metric}{unit});
+  }
+}
+
+my $rows = RundMeasureSchema::data_rows($environment->{system}{value});
+@output == $rows + 1
+    or fail("candidate baseline does not contain exactly $rows data rows");
+print "$_\n" for @output;

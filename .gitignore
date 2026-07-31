@@ -1,0 +1,75 @@
+# Build outputs
+build/
+!node/docs/contracts/build/
+!node/docs/contracts/build/**
+!kernel/src/reduction/graph/build/
+!kernel/src/reduction/graph/build/**
+!kernel/tests/contract/program/compute/fusion/build/
+!kernel/tests/contract/program/compute/fusion/build/**
+!node/src/compute/graph/build/
+!node/src/compute/graph/build/**
+!tools/measure/build/
+!tools/measure/build/**
+cmake-build-*/
+out/
+dist/
+bin/
+lib/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Logs and local evidence
+*.log
+.cache/
+coverage/
+!node/tooling/lto/discovery/coverage/
+node/tooling/lto/discovery/coverage/**
+!node/tooling/lto/discovery/coverage/**/
+!node/tooling/lto/discovery/coverage/**/*.cpp
+!node/tooling/lto/discovery/coverage/**/*.hpp
+!node/cmake/tests/lto/coverage/
+node/cmake/tests/lto/coverage/**
+!node/cmake/tests/lto/coverage/**/
+!node/cmake/tests/lto/coverage/**/*.cmake
+*.profraw
+*.profdata
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment and private state
+.env
+.env.*
+!.env.example
+.envrc
+CMakeUserPresets.json
+
+# Credentials, SSH keys, OCI registry state, and local run artifacts.
+.private/

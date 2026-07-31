@@ -1,0 +1,1167 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Digest::SHA qw(sha256_hex);
+use Math::BigFloat;
+use Math::BigInt;
+use Text::ParseWords qw(parse_line);
+
+sub fail {
+  print STDERR "performance baseline: $_[0]\n";
+  exit 1;
+}
+
+sub decimal {
+  my ($value) = @_;
+  return defined($value) &&
+         $value =~ /\A(?:0|[1-9][0-9]*)(?:\.[0-9]+)?\z/;
+}
+
+sub require_decimal {
+  my ($value, $owner) = @_;
+  decimal($value) or fail("$owner is not a nonnegative finite decimal: $value");
+}
+
+sub record_observation {
+  my ($values, $units, $metric, $value, $unit, $duplicate) = @_;
+  !exists $values->{$metric} or fail("duplicate $duplicate metric: $metric");
+  defined($unit) && $unit ne '' or fail("missing observed unit for $metric");
+  $values->{$metric} = $value;
+  $units->{$metric} = $unit;
+}
+
+(@ARGV == 3 || @ARGV == 4)
+    or die "usage: tools/internal/measure/compare <root> <route> <log|packet> [observe|project]\n";
+my ($root, $route, $input, $mode) = @ARGV;
+defined($mode) && $mode ne 'observe' && $mode ne 'project'
+    and die "usage: tools/internal/measure/compare <root> <route> <log|packet> [observe|project]\n";
+my $observe = defined($mode);
+my $project = defined($mode) && $mode eq 'project';
+my $schema_path = "$root/tools/internal/measure/schema.pm";
+require $schema_path;
+my $schema;
+eval { $schema = RundMeasureSchema::load($root, !$project); 1 }
+    or fail($@ =~ s/\n\z//r);
+my @rules = @{$schema->{rules}};
+my $profile;
+eval { $profile = RundMeasureSchema::select_profile($schema); 1 }
+    or fail($@ =~ s/\n\z//r);
+my $packet;
+my $log = $input;
+if ($project) {
+  eval {
+    $packet = RundMeasureSchema::packet($root, $schema, $profile, $route, $input);
+    1;
+  } or fail($@ =~ s/\n\z//r);
+  $log = $packet->{log};
+} else {
+  -f $log or fail("missing measurement log $log");
+}
+
+sub row_key {
+  my ($kind, $values) = @_;
+  return "environment/$values->{backend}" if $kind eq 'environment';
+  return "resident/$values->{backend}/$values->{count}"
+      if $kind eq 'resident_setup';
+  return "workload/$values->{backend}/$values->{family}/$values->{variant}/$values->{input_count}"
+      if $kind eq 'workload';
+  return "host/$values->{host}/$values->{backend}/$values->{family}/$values->{count}"
+      if $kind eq 'host_map';
+  return "orchestration/$values->{backend}" if $kind eq 'orchestration';
+  return "inflight/$values->{backend}" if $kind eq 'inflight';
+  return "batch/$values->{backend}/jobs=$values->{jobs}/elements=$values->{elements_per_job}"
+      if $kind eq 'batch';
+  return "mixed/$values->{backends}" if $kind eq 'mixed';
+  return "warm/$values->{backend}/$values->{family}" if $kind eq 'warm';
+  fail("unsupported Compute row kind: $kind");
+}
+
+sub timed_compute_field {
+  my ($name) = @_;
+  return 1 if $name eq 'median_us' || $name =~ /_median_us\z/;
+  return 0;
+}
+
+sub diagnostic_compute_field {
+  my ($name) = @_;
+  return 1 if $name eq 'command_inflight_peak';
+  return 1 if $name =~ /(?:submit_wait|kernel|host_residual)_us\z/;
+  return $name =~ /(?:^|_)(?:kernel|shader_compile|spirv_compile|pipeline_create|descriptor_setup|submit_wait|readback)_ns\z/;
+}
+
+sub derived_compute_field {
+  my ($name) = @_;
+  return $name =~ /(?:items_per_s|jobs_per_s|speedup)\z/;
+}
+
+sub text_compute_field {
+  my ($name) = @_;
+  return $name =~ /\A(?:backend|status|error|name|driver|driver_details|family|variant|host|backends)\z/;
+}
+
+sub native_compute_backend {
+  my ($value) = @_;
+  return defined($value) && $value =~ /\A(?:cpu|metal|vulkan)\z/;
+}
+
+sub validate_inflight_columns {
+  my ($columns) = @_;
+  my @required = qw(
+      backend status k count samples serial_median_us concurrent_median_us
+      serial_jobs_per_s concurrent_jobs_per_s concurrent_items_per_s speedup
+      command_capacity command_inflight_peak command_capacity_rejections
+      graph_hash output_hash hash_parity warm_zero command_submits dispatches);
+  join("\n", @$columns) eq join("\n", @required)
+      or fail('Compute inflight columns changed');
+}
+
+sub validate_batch_columns {
+  my ($columns) = @_;
+  my @required = qw(
+      backend status jobs elements_per_job samples serial_first batch_first
+      serial_wall_median_us batch_wall_median_us serial_submit_wait_us batch_submit_wait_us
+      serial_kernel_us batch_kernel_us serial_host_residual_us
+      batch_host_residual_us serial_jobs_per_s batch_jobs_per_s speedup
+      paired_speedup serial_command_submits batch_command_submits job_command_submits
+      serial_dispatches batch_dispatches graph_hash output_hash hash_parity
+      warm_zero);
+  join("\n", @$columns) eq join("\n", @required)
+      or fail('Compute batch columns changed');
+}
+
+sub validate_mixed_columns {
+  my ($columns) = @_;
+  my @required = qw(
+      backends status serial_median_us mixed_median_us serial_jobs_per_s
+      mixed_jobs_per_s external_parks external_wakes cpu_graph_hash
+      cpu_output_hash metal_graph_hash metal_output_hash vulkan_graph_hash
+      vulkan_output_hash hash_parity warm_pipeline_compiles
+      warm_buffer_allocations warm_download_events warm_uploaded_bytes
+      warm_zero);
+  join("\n", @$columns) eq join("\n", @required)
+      or fail('Compute mixed columns changed');
+}
+
+sub validate_compute_values {
+  my ($kind, $columns, $values) = @_;
+  my %seen;
+  for my $index (0 .. $#$columns) {
+    my $column = $columns->[$index];
+    !$seen{$column}++ or fail("duplicate Compute column for $kind: $column");
+    my $value = $values->[$index];
+    defined($value) or fail("missing Compute value for $kind/$column");
+    if ($column eq 'backend') {
+      native_compute_backend($value)
+          or fail("unsupported native Compute backend for $kind: $value");
+      $kind ne 'batch' || $value =~ /\A(?:metal|vulkan)\z/
+          or fail("unsupported Compute batch backend: $value");
+    } elsif ($column eq 'backends') {
+      $value eq 'cpu+metal+vulkan'
+          or fail("unsupported native Compute backend set for $kind: $value");
+    }
+    if (text_compute_field($column)) {
+      if ($column ne 'error' && $column ne 'driver_details') {
+        $value ne '' or fail("empty Compute value for $kind/$column");
+      }
+    } else {
+      require_decimal($value, "Compute $kind/$column");
+    }
+  }
+}
+
+sub validate_inflight_values {
+  my ($values) = @_;
+  my $capacity = $values->{command_capacity};
+  my $peak = $values->{command_inflight_peak};
+  $capacity =~ /\A[1-9][0-9]*\z/
+      or fail("Compute inflight command capacity is not a positive integer: $capacity");
+  $peak =~ /\A[1-9][0-9]*\z/
+      or fail("Compute inflight command peak is not a positive integer: $peak");
+  Math::BigFloat->new($peak)->bcmp(Math::BigFloat->new($capacity)) <= 0
+      or fail("Compute inflight command peak exceeds capacity: peak=$peak capacity=$capacity");
+}
+
+sub parse_compute {
+  my ($path) = @_;
+  open my $input, '<', $path or fail("cannot read $path: $!");
+  my %headers;
+  my %timing;
+  my %units;
+  my @semantic;
+  while (my $line = <$input>) {
+    chomp $line;
+    $line ne '' or fail('empty Compute row');
+    $line !~ /\Abaseline\t/ or fail('injected baseline marker in Compute log');
+    my @field = parse_line(',', 0, $line);
+    @field or fail("invalid Compute CSV row: $line");
+    my $name = $field[0];
+    if ($name =~ /\A(.+)_columns\z/) {
+      my $kind = $1;
+      $kind =~ /\A(?:environment|resident_setup|workload|host_map|orchestration|inflight|batch|mixed|warm)\z/
+          or fail("unsupported Compute header: $name");
+      !exists $headers{$kind} or fail("duplicate Compute header: $kind");
+      @field > 1 or fail("empty Compute header: $kind");
+      $headers{$kind} = [@field[1 .. $#field]];
+      my %seen;
+      for my $column (@{$headers{$kind}}) {
+        $column ne '' or fail("empty Compute column for $kind");
+        !$seen{$column}++ or fail("duplicate Compute column for $kind: $column");
+      }
+      validate_inflight_columns($headers{$kind}) if $kind eq 'inflight';
+      validate_batch_columns($headers{$kind}) if $kind eq 'batch';
+      validate_mixed_columns($headers{$kind}) if $kind eq 'mixed';
+      push @semantic, join(',', $name, @{$headers{$kind}});
+      next;
+    }
+    if ($name eq 'hardware_workers') {
+      @field == 2 or fail('invalid hardware worker row');
+      require_decimal($field[1], 'Compute hardware_workers');
+      push @semantic, join(',', @field);
+      next;
+    }
+    if ($name eq 'cold') {
+      @field == 4 or fail("invalid cold row: $line");
+      require_decimal($field[2], "Compute cold/$field[1]/count");
+      require_decimal($field[3], "Compute cold/$field[1]/median_us");
+      my $key = "cold/$field[1]/$field[2]/median_us";
+      record_observation(\%timing, \%units, $key, $field[3], 'us',
+                         'timing');
+      push @semantic, join(',', @field[0 .. 2]);
+      next;
+    }
+    if ($name eq 'fixed_cold') {
+      @field == 5 or fail("invalid fixed cold row: $line");
+      native_compute_backend($field[1])
+          or fail("unsupported native Compute backend for fixed_cold: $field[1]");
+      require_decimal($field[3], "Compute fixed_cold/$field[1]/$field[2]/count");
+      require_decimal($field[4], "Compute fixed_cold/$field[1]/$field[2]/median_us");
+      my $key = "cold/$field[1]/$field[2]/$field[3]/median_us";
+      record_observation(\%timing, \%units, $key, $field[4], 'us',
+                         'timing');
+      push @semantic, join(',', @field[0 .. 3]);
+      next;
+    }
+
+    my $kind;
+    if ($name eq 'environment' || $name eq 'resident_setup' ||
+        $name eq 'workload' || $name eq 'orchestration' ||
+        $name eq 'inflight' || $name eq 'batch' || $name eq 'mixed') {
+      $kind = $name;
+    } elsif ($name eq 'standalone' || $name eq 'node') {
+      $kind = 'host_map';
+    } elsif ($name =~ /\A(?:cpu|metal|vulkan)\z/) {
+      $kind = 'warm';
+    } else {
+      fail("unrecognized Compute row: $line");
+    }
+    exists $headers{$kind} or fail("missing Compute header for $kind");
+    my @columns = @{$headers{$kind}};
+    my @values = $kind eq 'host_map' || $kind eq 'warm' ? @field : @field[1 .. $#field];
+    @values == @columns or fail("Compute column count changed for $kind");
+    validate_compute_values($kind, \@columns, \@values);
+    my %values;
+    @values{@columns} = @values;
+    validate_inflight_values(\%values) if $kind eq 'inflight';
+    my $key = row_key($kind, \%values);
+    my @exact;
+    for my $index (0 .. $#columns) {
+      my $column = $columns[$index];
+      my $value = $values[$index];
+      if (timed_compute_field($column)) {
+        my $metric = "$key/$column";
+        record_observation(\%timing, \%units, $metric, $value, 'us',
+                           'timing');
+      } elsif (!derived_compute_field($column) &&
+               !diagnostic_compute_field($column)) {
+        push @exact, "$column=$value";
+      }
+    }
+    push @semantic, "$kind/$key/" . join(',', @exact);
+  }
+  close $input or fail("cannot close $path: $!");
+  return (sha256_hex(join("\n", @semantic) . "\n"), \%timing, \%units);
+}
+
+sub parse_scheduler {
+  my ($path) = @_;
+  open my $input, '<', $path or fail("cannot read $path: $!");
+  my %timing;
+  my %units;
+  my @semantic;
+  while (my $line = <$input>) {
+    chomp $line;
+    $line ne '' or fail('empty scheduler row');
+    $line !~ /\Abaseline\t/ or fail('injected baseline marker in scheduler log');
+    my @token = split / /, $line, -1;
+    !grep { $_ eq '' } @token or fail("invalid scheduler spacing: $line");
+    my %value;
+    my %seen;
+    my @prefix;
+    for my $token (@token) {
+      if ($token =~ /\A([^=]+)=(.*)\z/) {
+        !$seen{$1}++ or fail("duplicate scheduler key $1: $line");
+        if ($1 ne 'reason') {
+          require_decimal($2, "scheduler $1");
+        } else {
+          $2 ne '' or fail("empty scheduler reason: $line");
+        }
+        $value{$1} = $2;
+      } else {
+        push @prefix, $token;
+      }
+    }
+    @prefix == 1 or fail("invalid scheduler row prefix: $line");
+    my $kind = $prefix[0];
+    $kind =~ /\A(?:spawn_complete|yield|timer_park_wake|channel_ping_pong|io_park_wake|reactor_ready_batch|join_tree|task_scale|task_memory)\z/
+        or fail("unsupported scheduler row: $line");
+    my $key = $kind;
+    if ($kind eq 'task_scale') {
+      $key .= "/workers=$value{task_scale_workers}/ops=$value{ops}/payload=$value{payload_ops}";
+    } elsif ($kind eq 'task_memory') {
+      $key .= "/workers=$value{workers}/tasks=$value{tasks}";
+    }
+    my @exact = @prefix;
+    for my $name (sort keys %value) {
+      my $memory_diagnostic =
+          $name =~ /\A(?:rss|heap)_(?:before|configured|active|configured_delta|live_delta)\z/;
+      $memory_diagnostic && $kind ne 'task_memory'
+          and fail("scheduler memory diagnostic on $kind: $name");
+      if ($name =~ /ns_per_op\z/ || $name eq 'rss_delta' ||
+          $name eq 'heap_delta') {
+        my $metric = "$key/$name";
+        my $unit = $name =~ /ns_per_op\z/ ? 'ns/op' : 'bytes';
+        record_observation(\%timing, \%units, $metric, $value{$name}, $unit,
+                           'scheduler');
+      } elsif (!$memory_diagnostic) {
+        push @exact, "$name=$value{$name}";
+      }
+    }
+    push @semantic, join(' ', @exact);
+  }
+  close $input or fail("cannot close $path: $!");
+  return (sha256_hex(join("\n", @semantic) . "\n"), \%timing, \%units);
+}
+
+sub parse_flow {
+  my ($path) = @_;
+  open my $input, '<', $path or fail("cannot read $path: $!");
+  my $header = <$input> // '';
+  chomp $header;
+  $header eq "metric\tsample\tunit\tvalue" or fail('Flow header changed');
+  my %timing;
+  my %units;
+  my @semantic = ($header);
+  while (my $line = <$input>) {
+    chomp $line;
+    $line ne '' or fail('empty Flow row');
+    $line !~ /\Abaseline\t/ or fail('injected baseline marker in Flow log');
+    my @field = split /\t/, $line, -1;
+    @field == 4 or fail("invalid Flow row: $line");
+    $field[0] ne '' && $field[2] ne '' or fail("empty Flow field: $line");
+    ($field[1] eq 'median' || $field[1] =~ /\A[1-9][0-9]*\z/)
+        or fail("invalid Flow sample: $field[1]");
+    require_decimal($field[3], "Flow $field[0]/$field[1]");
+    push @semantic, join("\t", @field[0 .. 2]);
+    if ($field[1] eq 'median') {
+      my $key = "$field[0]/median";
+      record_observation(\%timing, \%units, $key, $field[3], $field[2],
+                         'Flow');
+    }
+  }
+  close $input or fail("cannot close $path: $!");
+  return (sha256_hex(join("\n", @semantic) . "\n"), \%timing, \%units);
+}
+
+sub parse_graph {
+  my ($path) = @_;
+  open my $input, '<', $path or fail("cannot read $path: $!");
+  my %timing;
+  my %units;
+  my @semantic;
+  while (my $line = <$input>) {
+    chomp $line;
+    $line ne '' or fail('empty graph row');
+    $line !~ /\Abaseline\t/ or fail('injected baseline marker in graph log');
+    my @field = split /\t/, $line, -1;
+    @field >= 4 && (@field - 4) % 2 == 0
+        or fail("invalid graph-service row: $line");
+    my $name = $field[0];
+    $name ne '' or fail('empty graph metric');
+    require_decimal($field[1], "graph $name/count");
+    $field[2] ne '' or fail("empty graph field for $name");
+    require_decimal($field[3], "graph $name/$field[2]");
+    my %keys = ($field[2] => 1);
+    for (my $index = 4; $index < @field; $index += 2) {
+      my ($key, $value) = @field[$index, $index + 1];
+      $key ne '' or fail("empty graph key for $name");
+      !$keys{$key}++ or fail("duplicate graph key $name/$key");
+      require_decimal($value, "graph $name/$key");
+    }
+    if ($name eq 'async_same_key') {
+      @field == 10 && $field[1] eq '32' && $field[2] eq 'us' &&
+          join("\t", @field[4, 6, 8]) eq
+              "cache_misses\twaits\thits" &&
+          $field[5] eq '1' &&
+          $field[7] =~ /\A(?:0|[1-9][0-9]*)\z/ &&
+          $field[9] =~ /\A(?:0|[1-9][0-9]*)\z/
+          or fail('async_same_key must contain canonical integer counters');
+      my $accounted = Math::BigInt->new($field[5]);
+      $accounted->badd($field[7])->badd($field[9]);
+      $accounted->bcmp(Math::BigInt->new($field[1])) == 0
+          or fail('async_same_key request accounting is incomplete');
+    }
+    my @exact = @field;
+    if ($field[2] eq 'us') {
+      my $key = "$name/us";
+      record_observation(\%timing, \%units, $key, $field[3], 'us', 'graph');
+      splice @exact, 3, 1;
+    } elsif ($field[2] eq 'ratio') {
+      splice @exact, 3, 1;
+    }
+    for (my $index = 4; $index + 1 < @field; $index += 2) {
+      next unless $field[$index] =~ /_us\z/;
+      my $key = "$name/$field[$index]";
+      record_observation(\%timing, \%units, $key, $field[$index + 1], 'us',
+                         'graph');
+      for (my $exact_index = 0; $exact_index + 1 < @exact; ++$exact_index) {
+        if ($exact[$exact_index] eq $field[$index]) {
+          splice @exact, $exact_index, 2;
+          last;
+        }
+      }
+    }
+    if ($name eq 'async_same_key') {
+      # Whether a reuse observes the in-flight compile or the completed cache
+      # entry depends on host scheduling. The exact invariant partitions every
+      # request into one miss, a wait, or a hit; retain the two field names but
+      # not their runtime split.
+      @exact = @field[0, 1, 2, 4, 5, 6, 8];
+    }
+    push @semantic, join("\t", @exact);
+  }
+  close $input or fail("cannot close $path: $!");
+  return (sha256_hex(join("\n", @semantic) . "\n"), \%timing, \%units);
+}
+
+sub parse_telemetry {
+  my ($path) = @_;
+  open my $input, '<', $path or fail("cannot read $path: $!");
+  my @lines = <$input>;
+  close $input or fail("cannot close $path: $!");
+  chomp @lines;
+  @lines >= 9 or fail('telemetry log is incomplete');
+  !grep { $_ eq '' } @lines or fail('empty telemetry row');
+  !grep { /\Abaseline\t/ } @lines
+      or fail('injected baseline marker in telemetry log');
+
+  $lines[0] eq "telemetry\t1" or fail('telemetry schema changed');
+  my @manifest = split /\t/, $lines[1], -1;
+  my @artifact = split /\t/, $lines[2], -1;
+  @manifest == 4 && $manifest[0] eq 'identity' &&
+      $manifest[1] eq 'manifest' && $manifest[2] eq 'sha256' &&
+      $manifest[3] =~ /\A[0-9a-f]{64}\z/
+      or fail('invalid telemetry manifest identity');
+  @artifact == 4 && $artifact[0] eq 'identity' &&
+      $artifact[1] eq 'artifact' && $artifact[2] eq 'sha256' &&
+      $artifact[3] =~ /\A[0-9a-f]{64}\z/
+      or fail('invalid telemetry artifact identity');
+
+  my @pairs_row = split /\t/, $lines[3], -1;
+  my @warmups_row = split /\t/, $lines[4], -1;
+  @pairs_row == 4 && $pairs_row[0] eq 'config' &&
+      $pairs_row[1] eq 'pairs' && $pairs_row[2] eq 'count' &&
+      $pairs_row[3] eq '12'
+      or fail('telemetry paired sample count must be 12');
+  @warmups_row == 4 && $warmups_row[0] eq 'config' &&
+      $warmups_row[1] eq 'warmups' && $warmups_row[2] eq 'count' &&
+      $warmups_row[3] eq '2'
+      or fail('telemetry warm-up count must be 2');
+  my @operations_row = split /\t/, $lines[5], -1;
+  @operations_row == 4 && $operations_row[0] eq 'config' &&
+      $operations_row[1] eq 'operations' &&
+      $operations_row[2] eq 'count' && $operations_row[3] eq '4'
+      or fail('telemetry operation count must be 4');
+  $lines[6] eq "design\toperations\torder\twilliams"
+      or fail('telemetry operation order changed');
+  $lines[7] eq "design\tlevels\torder\tpermutations"
+      or fail('telemetry level order changed');
+  my $pairs = 12;
+  my @sample_columns = qw(
+      sample operation lifecycle pair level operation:order level:order
+      time:wall:ns time:cpu:ns memory:allocations
+      telemetry:detail:prepare:ns telemetry:detail:work:ns
+      telemetry:detail:finish:ns result:code result:input:hash
+      result:transcript:hash result:hash result:input:rows
+      result:observation:rows result:host:events result:trace:records
+      result:capture:records result:capture:hash storage:logical:bytes
+      storage:encoded:bytes storage:retained:bytes storage:copied:bytes
+      storage:cached:bytes storage:physical:bytes storage:allocated:bytes
+      storage:reserved:bytes storage:growths storage:chunks storage:segments
+      storage:cache:hits storage:cache:misses storage:cache:evictions
+      capture:retained:bytes capture:retained:records capture:evicted:records
+      capture:dropped:records public:input:rows public:input:bytes
+      public:produced:rows public:choices public:evidence:rows
+      public:evidence:bytes public:retained:bytes public:copied:bytes
+      public:physical:bytes public:allocated:bytes public:reserved:bytes
+      public:storage:growths public:result:hash event:source event:session
+      event:scope event:code event:mode event:plan event:input:rows
+      event:input:bytes event:produced:rows event:choices
+      event:evidence:rows event:evidence:bytes event:retained:bytes
+      event:copied:bytes event:physical:bytes event:allocated:bytes
+      event:reserved:bytes event:storage:growths event:result:hash);
+  $lines[8] eq "columns\t" . join("\t", @sample_columns)
+      or fail('telemetry sample columns changed');
+
+  my @operations = qw(live record replay scenario);
+  my @lifecycles = qw(cold warm);
+  my @levels = qw(disabled basic detail);
+  my @metrics = qw(wall cpu allocations copied prepare work finish);
+  my %units = (wall => 'ns', cpu => 'ns', allocations => 'count',
+               copied => 'bytes', prepare => 'ns', work => 'ns',
+               finish => 'ns');
+  my %sample;
+  my %delta;
+  my %reference;
+  my %summary;
+  my @sample_order;
+  # Manifest and artifact hashes identify this measurement packet, not the
+  # workload. Including them in the semantic digest would make a baseline cut
+  # self-referential: editing the baseline changes the source manifest, which
+  # would change the semantic digest again. Their shape is validated above and
+  # their exact values remain sealed by the evidence packet.
+  my @semantic = ($lines[0], @lines[3 .. 8]);
+
+  sub telemetry_u64 {
+    my ($value, $owner) = @_;
+    $value =~ /\A(?:0|[1-9][0-9]*)\z/
+        or fail("$owner is not an unsigned decimal: $value");
+    length($value) < 20 ||
+        (length($value) == 20 && $value le '18446744073709551615')
+        or fail("$owner exceeds uint64: $value");
+  }
+
+  for my $line (@lines[9 .. $#lines]) {
+    my @field = split /\t/, $line, -1;
+    if ($field[0] eq 'sample') {
+      @field == @sample_columns or fail("invalid telemetry sample row: $line");
+      my %value;
+      @value{@sample_columns} = @field;
+      my ($kind, $operation, $lifecycle, $pair, $level, $operation_order,
+          $level_order) = @field[0 .. 6];
+      grep { $_ eq $operation } @operations
+          or fail("invalid telemetry operation: $operation");
+      grep { $_ eq $lifecycle } @lifecycles
+          or fail("invalid telemetry lifecycle: $lifecycle");
+      $pair =~ /\A(?:[1-9]|1[0-2])\z/
+          or fail("invalid telemetry sample pair: $pair");
+      grep { $_ eq $level } @levels
+          or fail("invalid telemetry sample level: $level");
+      $operation_order =~ /\A(?:first|second|third|last)\z/
+          or fail("invalid telemetry operation position: $operation_order");
+      $level_order =~ /\A(?:first|middle|last)\z/
+          or fail("invalid telemetry level position: $level_order");
+      for my $column (@sample_columns[7 .. $#sample_columns]) {
+        next if $column eq 'event:source' || $column eq 'event:mode' ||
+            $column eq 'event:plan';
+        telemetry_u64($value{$column},
+                      "telemetry $operation/$lifecycle/$pair/$level $column");
+      }
+      $value{'event:source'} =~ /\A(?:none|replay)\z/
+          or fail("invalid telemetry source: $value{'event:source'}");
+      $value{'event:mode'} =~ /\A(?:none|live|record|replay|scenario)\z/
+          or fail("invalid telemetry mode: $value{'event:mode'}");
+      $value{'event:plan'} =~ /\A(?:none|built|reused)\z/
+          or fail("invalid telemetry plan: $value{'event:plan'}");
+      my $key = "$operation/$lifecycle/$pair/$level";
+      !exists $sample{$key} or fail("duplicate telemetry sample: $key");
+      $sample{$key} = {
+        operation_order => $operation_order, level_order => $level_order,
+        wall => $value{'time:wall:ns'}, cpu => $value{'time:cpu:ns'},
+        allocations => $value{'memory:allocations'},
+        prepare => $value{'telemetry:detail:prepare:ns'},
+        work => $value{'telemetry:detail:work:ns'},
+        finish => $value{'telemetry:detail:finish:ns'},
+        code => $value{'result:code'}, ordering => $value{'result:input:hash'},
+        transcript => $value{'result:transcript:hash'},
+        result => $value{'result:hash'}, inputs => $value{'result:input:rows'},
+        observations => $value{'result:observation:rows'},
+        host_events => $value{'result:host:events'},
+        traces => $value{'result:trace:records'},
+        captures => $value{'result:capture:records'},
+        capture_hash => $value{'result:capture:hash'},
+        logical => $value{'storage:logical:bytes'},
+        encoded => $value{'storage:encoded:bytes'},
+        retained => $value{'storage:retained:bytes'},
+        storage_copied => $value{'storage:copied:bytes'},
+        cached => $value{'storage:cached:bytes'},
+        physical => $value{'storage:physical:bytes'},
+        allocated => $value{'storage:allocated:bytes'},
+        reserved => $value{'storage:reserved:bytes'},
+        growths => $value{'storage:growths'}, chunks => $value{'storage:chunks'},
+        segments => $value{'storage:segments'},
+        hits => $value{'storage:cache:hits'},
+        misses => $value{'storage:cache:misses'},
+        evictions => $value{'storage:cache:evictions'},
+        capture_retained => $value{'capture:retained:bytes'},
+        capture_records => $value{'capture:retained:records'},
+        capture_evicted => $value{'capture:evicted:records'},
+        capture_dropped => $value{'capture:dropped:records'},
+        public_input_rows => $value{'public:input:rows'},
+        public_input_bytes => $value{'public:input:bytes'},
+        public_produced_rows => $value{'public:produced:rows'},
+        public_choices => $value{'public:choices'},
+        public_evidence_rows => $value{'public:evidence:rows'},
+        public_evidence_bytes => $value{'public:evidence:bytes'},
+        public_retained => $value{'public:retained:bytes'},
+        public_copied => $value{'public:copied:bytes'},
+        public_physical => $value{'public:physical:bytes'},
+        public_allocated => $value{'public:allocated:bytes'},
+        public_reserved => $value{'public:reserved:bytes'},
+        public_growths => $value{'public:storage:growths'},
+        public_hash => $value{'public:result:hash'},
+        source => $value{'event:source'}, session => $value{'event:session'},
+        scope => $value{'event:scope'}, event_code => $value{'event:code'},
+        mode => $value{'event:mode'}, plan => $value{'event:plan'},
+        event_input_rows => $value{'event:input:rows'},
+        event_input_bytes => $value{'event:input:bytes'},
+        event_produced_rows => $value{'event:produced:rows'},
+        event_choices => $value{'event:choices'},
+        event_evidence_rows => $value{'event:evidence:rows'},
+        event_evidence_bytes => $value{'event:evidence:bytes'},
+        event_retained => $value{'event:retained:bytes'},
+        event_copied => $value{'event:copied:bytes'},
+        event_physical => $value{'event:physical:bytes'},
+        event_allocated => $value{'event:allocated:bytes'},
+        event_reserved => $value{'event:reserved:bytes'},
+        event_growths => $value{'event:storage:growths'},
+        event_hash => $value{'event:result:hash'},
+        copied => $value{'public:copied:bytes'},
+      };
+      push @sample_order, $key;
+      # Wall, CPU, allocation count, and Detail phase durations are measured
+      # performance observations. Hashing any of them here would make the
+      # exact semantic row a second, stricter performance authority and would
+      # reject improvements before the one-sided upper rules are evaluated.
+      # copied_bytes remains exact through the public/storage fields below.
+      push @semantic, join("\t", @field[0 .. 6], @field[13 .. $#field]);
+      next;
+    }
+    if ($field[0] eq 'delta' || $field[0] eq 'reference') {
+      @field == 7 or fail("invalid telemetry delta row: $line");
+      my ($kind, $operation, $lifecycle, $pair, $metric, $direction,
+          $magnitude) = @field;
+      grep { $_ eq $operation } @operations
+          or fail("invalid telemetry delta operation: $operation");
+      grep { $_ eq $lifecycle } @lifecycles
+          or fail("invalid telemetry delta lifecycle: $lifecycle");
+      $pair =~ /\A(?:[1-9]|1[0-2])\z/
+          or fail("invalid telemetry delta pair: $pair");
+      grep { $_ eq $metric } @metrics
+          or fail("invalid telemetry delta metric: $metric");
+      my $direction_pattern = $kind eq 'delta'
+          ? qr/\A(?:basic|equal|detail)\z/
+          : qr/\A(?:disabled|equal|basic)\z/;
+      $direction =~ $direction_pattern
+          or fail("invalid telemetry delta direction: $direction");
+      telemetry_u64(
+          $magnitude,
+          "telemetry $operation/$lifecycle/$pair/$metric delta");
+      my $key = "$operation/$lifecycle/$pair/$metric";
+      my $owner = $kind eq 'delta' ? \%delta : \%reference;
+      !exists $owner->{$key} or fail("duplicate telemetry $kind: $key");
+      $owner->{$key} = {direction => $direction, magnitude => $magnitude};
+      push @semantic, join("\t", @field[0 .. 4]);
+      next;
+    }
+    if ($field[0] eq 'summary') {
+      @field == 9 or fail("invalid telemetry summary row: $line");
+      my (undef, $operation, $lifecycle, $level, $metric, $stat, $unit,
+          $direction, $magnitude) = @field;
+      grep { $_ eq $operation } @operations
+          or fail("invalid telemetry summary operation: $operation");
+      grep { $_ eq $lifecycle } @lifecycles
+          or fail("invalid telemetry summary lifecycle: $lifecycle");
+      $level =~ /\A(?:disabled|basic|detail|delta|reference)\z/
+          or fail("invalid telemetry summary level: $level");
+      grep { $_ eq $metric } @metrics
+          or fail("invalid telemetry summary metric: $metric");
+      $stat eq 'median' || $stat eq 'p95'
+          or fail("invalid telemetry summary statistic: $stat");
+      $unit eq $units{$metric}
+          or fail("invalid telemetry summary unit: $operation/$lifecycle/$metric/$unit");
+      if ($level eq 'delta' || $level eq 'reference') {
+        my $direction_pattern = $level eq 'delta'
+            ? qr/\A(?:basic|equal|detail)\z/
+            : qr/\A(?:disabled|equal|basic)\z/;
+        $direction =~ $direction_pattern
+            or fail("invalid telemetry summary direction: $direction");
+      } else {
+        $direction eq 'absolute'
+            or fail("absolute telemetry summary has direction $direction");
+      }
+      require_decimal($magnitude,
+                      "telemetry $operation/$lifecycle/$level/$metric/$stat");
+      my $key = "$operation/$lifecycle/$level/$metric/$stat";
+      !exists $summary{$key} or fail("duplicate telemetry summary: $key");
+      $summary{$key} = {direction => $direction, magnitude => $magnitude};
+      push @semantic, join("\t", @field[0 .. 6]);
+      next;
+    }
+    fail("unrecognized telemetry row: $line");
+  }
+
+  my @expected_order;
+  my @level_orders = (
+    [qw(disabled basic detail)], [qw(disabled detail basic)],
+    [qw(basic detail disabled)], [qw(detail basic disabled)],
+    [qw(basic disabled detail)], [qw(detail disabled basic)],
+  );
+  my @operation_orders = (
+    [qw(live record scenario replay)],
+    [qw(record replay live scenario)],
+    [qw(replay scenario record live)],
+    [qw(scenario live replay record)],
+  );
+  my @operation_positions = qw(first second third last);
+  my @level_positions = qw(first middle last);
+  for my $lifecycle (@lifecycles) {
+    for my $pair (1 .. $pairs) {
+      my @pair_operations =
+          @{$operation_orders[($pair - 1) % @operation_orders]};
+      my @pair_levels = @{$level_orders[($pair - 1) % @level_orders]};
+      for my $operation_index (0 .. 3) {
+        my $operation = $pair_operations[$operation_index];
+        for my $level_index (0 .. 2) {
+          my $level = $pair_levels[$level_index];
+          my $key = "$operation/$lifecycle/$pair/$level";
+          my $row = $sample{$key} // fail("missing telemetry sample: $key");
+          $row->{operation_order} eq $operation_positions[$operation_index] &&
+              $row->{level_order} eq $level_positions[$level_index]
+              or fail("telemetry sample order mismatch: $key");
+          push @expected_order, $key;
+        }
+      }
+    }
+  }
+  join("\n", @sample_order) eq join("\n", @expected_order)
+      or fail('telemetry sample sequence is not balanced and paired');
+
+  sub telemetry_add {
+    my @values = @_;
+    my $sum = Math::BigFloat->new(0);
+    $sum->badd($_) for @values;
+    my $maximum = Math::BigFloat->new('18446744073709551615');
+    return $sum->bcmp($maximum) > 0 ? $maximum : $sum;
+  }
+
+  my @public = qw(
+      code ordering transcript result inputs observations host_events traces
+      captures capture_hash logical encoded retained storage_copied cached
+      physical allocated reserved growths chunks segments hits misses evictions capture_retained
+      capture_records capture_evicted capture_dropped public_input_rows
+      public_input_bytes public_produced_rows public_choices
+      public_evidence_rows public_evidence_bytes public_retained public_copied
+      public_physical public_allocated public_reserved public_growths public_hash);
+  my @event = qw(
+      source session scope event_code mode plan event_input_rows
+      event_input_bytes event_produced_rows event_choices event_evidence_rows
+      event_evidence_bytes event_retained event_copied event_physical
+      event_allocated event_reserved event_growths event_hash);
+  for my $operation (@operations) {
+    for my $lifecycle (@lifecycles) {
+      for my $pair (1 .. $pairs) {
+        my $prefix = "$operation/$lifecycle/$pair";
+        my $basic = $sample{"$prefix/basic"};
+        my $detail = $sample{"$prefix/detail"};
+        my $disabled = $sample{"$prefix/disabled"};
+        for my $field (@public, @event) {
+          $basic->{$field} eq $detail->{$field}
+              or fail("telemetry semantic parity failed: $prefix/$field");
+        }
+        for my $field (@public) {
+          $disabled->{$field} eq $basic->{$field}
+              or fail("telemetry disabled parity failed: $prefix/$field");
+        }
+
+        my $expected_input_rows = $basic->{inputs};
+        my $expected_input_bytes =
+            $operation eq 'live' ? Math::BigFloat->new(32)
+                                 : Math::BigFloat->new($basic->{logical});
+        my $expected_produced =
+            $operation eq 'live' || $operation eq 'record'
+                ? Math::BigFloat->new($expected_input_rows)
+                : Math::BigFloat->new(0);
+        my $expected_choices =
+            Math::BigFloat->new($operation eq 'scenario' ? 1 : 0);
+        my $expected_evidence_rows =
+            $operation eq 'live'
+                ? telemetry_add($basic->{observations}, $basic->{host_events},
+                                $basic->{traces})
+                : telemetry_add($basic->{observations}, $basic->{host_events},
+                                $basic->{inputs}, $basic->{traces},
+                                $basic->{captures});
+        my $expected_evidence_bytes =
+            $operation eq 'live'
+                ? Math::BigFloat->new(0)
+                : telemetry_add($basic->{encoded},
+                                $basic->{capture_retained});
+        my $expected_retained =
+            $operation eq 'live'
+                ? Math::BigFloat->new(0)
+                : telemetry_add($basic->{retained},
+                                $basic->{capture_retained});
+        my $expected_copied =
+            $operation eq 'live'
+                ? Math::BigFloat->new(0)
+                : telemetry_add($basic->{storage_copied},
+                                $basic->{capture_retained});
+        my $expected_growths =
+            Math::BigFloat->new($operation eq 'live' ? 0 : $basic->{growths});
+        my $expected_physical = Math::BigFloat->new(
+            $operation eq 'live' ? 0 : $basic->{physical});
+        my $expected_allocated = Math::BigFloat->new(
+            $operation eq 'live' ? 0 : $basic->{allocated});
+        my $expected_reserved = Math::BigFloat->new(
+            $operation eq 'live' ? 0 : $basic->{reserved});
+        my %formula = (
+          public_input_rows => Math::BigFloat->new($expected_input_rows),
+          public_input_bytes => $expected_input_bytes,
+          public_produced_rows => $expected_produced,
+          public_choices => $expected_choices,
+          public_evidence_rows => $expected_evidence_rows,
+          public_evidence_bytes => $expected_evidence_bytes,
+          public_retained => $expected_retained,
+          public_copied => $expected_copied,
+          public_physical => $expected_physical,
+          public_allocated => $expected_allocated,
+          public_reserved => $expected_reserved,
+          public_growths => $expected_growths,
+          public_hash => Math::BigFloat->new($basic->{result}),
+        );
+        for my $field (sort keys %formula) {
+          Math::BigFloat->new($basic->{$field})->bcmp($formula{$field}) == 0
+              or fail("telemetry public formula mismatch: $prefix/$field");
+        }
+
+        $disabled->{source} eq 'none' && $disabled->{session} eq '0' &&
+            $disabled->{scope} eq '0' && $disabled->{event_code} eq '0' &&
+            $disabled->{mode} eq 'none' && $disabled->{plan} eq 'none' &&
+            $disabled->{event_input_rows} eq '0' &&
+            $disabled->{event_input_bytes} eq '0' &&
+            $disabled->{event_produced_rows} eq '0' &&
+            $disabled->{event_choices} eq '0' &&
+            $disabled->{event_evidence_rows} eq '0' &&
+            $disabled->{event_evidence_bytes} eq '0' &&
+            $disabled->{event_retained} eq '0' &&
+            $disabled->{event_copied} eq '0' &&
+            $disabled->{event_physical} eq '0' &&
+            $disabled->{event_allocated} eq '0' &&
+            $disabled->{event_reserved} eq '0' &&
+            $disabled->{event_growths} eq '0' &&
+            $disabled->{event_hash} eq '0'
+            or fail("disabled telemetry callback was installed: $prefix");
+        $basic->{source} eq 'replay' && $basic->{mode} eq $operation &&
+            $basic->{session} ne '0' && $basic->{scope} ne '0' &&
+            $basic->{event_code} eq $basic->{code}
+            or fail("invalid telemetry event projection: $prefix/basic");
+        my $expected_plan =
+            $operation eq 'live' ? 'none'
+          : ($operation eq 'record' || $lifecycle eq 'cold') ? 'built'
+                                                              : 'reused';
+        $basic->{plan} eq $expected_plan
+            or fail("telemetry plan mismatch: $prefix/basic");
+        my %event_formula = (
+          event_input_rows => 'public_input_rows',
+          event_input_bytes => 'public_input_bytes',
+          event_produced_rows => 'public_produced_rows',
+          event_choices => 'public_choices',
+          event_evidence_rows => 'public_evidence_rows',
+          event_evidence_bytes => 'public_evidence_bytes',
+          event_retained => 'public_retained',
+          event_copied => 'public_copied',
+          event_physical => 'public_physical',
+          event_allocated => 'public_allocated',
+          event_reserved => 'public_reserved',
+          event_growths => 'public_growths',
+          event_hash => 'public_hash',
+        );
+        for my $field (sort keys %event_formula) {
+          $basic->{$field} eq $basic->{$event_formula{$field}}
+              or fail("telemetry Event formula mismatch: $prefix/$field");
+        }
+        ($lifecycle ne 'warm' || $basic->{growths} eq '0')
+            or fail("warm telemetry storage grew: $operation/$pair");
+        for my $level (qw(disabled basic)) {
+          my $row = $sample{"$prefix/$level"};
+          $row->{prepare} eq '0' && $row->{work} eq '0' &&
+              $row->{finish} eq '0'
+              or fail("non-Detail telemetry phase was measured: $prefix/$level");
+        }
+        my $detail_phase = Math::BigFloat->new($detail->{prepare});
+        $detail_phase->badd($detail->{work});
+        $detail_phase->badd($detail->{finish});
+        $detail_phase->bcmp(Math::BigFloat->new($detail->{wall})) <= 0
+            or fail("Detail telemetry phases exceed wall time: $prefix");
+      }
+    }
+  }
+
+  sub telemetry_delta {
+    my ($left_value, $right_value, $left_direction, $right_direction) = @_;
+    my $left = Math::BigFloat->new($left_value);
+    my $right = Math::BigFloat->new($right_value);
+    my $comparison = $right->bcmp($left);
+    return ('equal', Math::BigFloat->new(0)) if $comparison == 0;
+    return ($right_direction, $right->copy()->bsub($left))
+        if $comparison > 0;
+    return ($left_direction, $left->copy()->bsub($right));
+  }
+
+  for my $operation (@operations) {
+    for my $lifecycle (@lifecycles) {
+      for my $pair (1 .. $pairs) {
+        my $prefix = "$operation/$lifecycle/$pair";
+        my $basic = $sample{"$prefix/basic"};
+        my $detail = $sample{"$prefix/detail"};
+        my $disabled = $sample{"$prefix/disabled"};
+        for my $metric (@metrics) {
+          my ($direction, $magnitude) =
+              telemetry_delta($basic->{$metric}, $detail->{$metric},
+                              'basic', 'detail');
+          my $key = "$prefix/$metric";
+          my $row = $delta{$key} // fail("missing telemetry delta: $key");
+          $row->{direction} eq $direction &&
+              Math::BigFloat->new($row->{magnitude})->bcmp($magnitude) == 0
+              or fail("telemetry delta mismatch: $key");
+          my ($reference_direction, $reference_magnitude) =
+              telemetry_delta($disabled->{$metric}, $basic->{$metric},
+                              'disabled', 'basic');
+          my $reference_row = $reference{$key}
+              // fail("missing telemetry reference delta: $key");
+          $reference_row->{direction} eq $reference_direction &&
+              Math::BigFloat->new($reference_row->{magnitude})
+                  ->bcmp($reference_magnitude) == 0
+              or fail("telemetry reference delta mismatch: $key");
+        }
+      }
+    }
+  }
+
+  my %timing;
+  my %timing_units;
+  for my $operation (@operations) {
+    for my $lifecycle (@lifecycles) {
+      my $prefix = "$operation/$lifecycle";
+      for my $metric (@metrics) {
+        my @disabled = map {
+          Math::BigFloat->new($sample{"$prefix/$_/disabled"}{$metric})
+        } 1 .. $pairs;
+        my @basic = map {
+          Math::BigFloat->new($sample{"$prefix/$_/basic"}{$metric})
+        } 1 .. $pairs;
+        my @detail = map {
+          Math::BigFloat->new($sample{"$prefix/$_/detail"}{$metric})
+        } 1 .. $pairs;
+        my @signed = map {
+          my $row = $delta{"$prefix/$_/$metric"};
+          my $value = Math::BigFloat->new($row->{magnitude});
+          $row->{direction} eq 'basic' ? $value->bneg() : $value;
+        } 1 .. $pairs;
+        my @reference_signed = map {
+          my $row = $reference{"$prefix/$_/$metric"};
+          my $value = Math::BigFloat->new($row->{magnitude});
+          $row->{direction} eq 'disabled' ? $value->bneg() : $value;
+        } 1 .. $pairs;
+        @disabled = sort { $a->bcmp($b) } @disabled;
+        @basic = sort { $a->bcmp($b) } @basic;
+        @detail = sort { $a->bcmp($b) } @detail;
+        @signed = sort { $a->bcmp($b) } @signed;
+        @reference_signed = sort { $a->bcmp($b) } @reference_signed;
+        my $disabled_median = $disabled[5]->copy();
+        $disabled_median->badd($disabled[6]);
+        $disabled_median->bdiv(2);
+        my $basic_median = $basic[5]->copy();
+        $basic_median->badd($basic[6]);
+        $basic_median->bdiv(2);
+        my $detail_median = $detail[5]->copy();
+        $detail_median->badd($detail[6]);
+        $detail_median->bdiv(2);
+        my $delta_median = $signed[5]->copy();
+        $delta_median->badd($signed[6]);
+        $delta_median->bdiv(2);
+        my $reference_median = $reference_signed[5]->copy();
+        $reference_median->badd($reference_signed[6]);
+        $reference_median->bdiv(2);
+        my %expected = (
+          'disabled/median' => $disabled_median,
+          'disabled/p95' => $disabled[11]->copy(),
+          'basic/median' => $basic_median,
+          'basic/p95' => $basic[11]->copy(),
+          'detail/median' => $detail_median,
+          'detail/p95' => $detail[11]->copy(),
+          'delta/median' => $delta_median,
+          'delta/p95' => $signed[11]->copy(),
+          'reference/median' => $reference_median,
+          'reference/p95' => $reference_signed[11]->copy(),
+        );
+        for my $level (qw(disabled basic detail delta reference)) {
+          for my $stat (qw(median p95)) {
+            my $key = "$prefix/$level/$metric/$stat";
+            my $row = $summary{$key}
+                // fail("missing telemetry summary: $key");
+            my $value = $expected{"$level/$stat"};
+            my $direction = 'absolute';
+            if ($level eq 'delta' || $level eq 'reference') {
+              my $comparison = $value->bcmp(0);
+              if ($level eq 'delta') {
+                $direction = $comparison < 0 ? 'basic'
+                           : $comparison > 0 ? 'detail' : 'equal';
+              } else {
+                $direction = $comparison < 0 ? 'disabled'
+                           : $comparison > 0 ? 'basic' : 'equal';
+              }
+              $value = $value->copy()->babs();
+            }
+            $row->{direction} eq $direction &&
+                Math::BigFloat->new($row->{magnitude})->bcmp($value) == 0
+                or fail("telemetry summary mismatch: $key");
+            if ($level eq 'delta' &&
+                ($metric eq 'wall' || $metric eq 'cpu' ||
+                 $metric eq 'allocations')) {
+              my $gate =
+                  $direction eq 'detail' ? $value : Math::BigFloat->new(0);
+              my $key = "$prefix/$metric/$stat";
+              record_observation(\%timing, \%timing_units, $key,
+                                 $gate->bstr(), $units{$metric}, 'telemetry');
+            }
+          }
+        }
+      }
+    }
+  }
+
+  scalar(keys %sample) == 4 * 2 * $pairs * 3
+      or fail('telemetry sample set is incomplete');
+  scalar(keys %delta) == 4 * 2 * $pairs * 7
+      or fail('telemetry delta set is incomplete');
+  scalar(keys %reference) == 4 * 2 * $pairs * 7
+      or fail('telemetry reference delta set is incomplete');
+  scalar(keys %summary) == 4 * 2 * 5 * 7 * 2
+      or fail('telemetry summary set is incomplete');
+  return (sha256_hex(join("\n", @semantic) . "\n"), \%timing,
+          \%timing_units);
+}
+
+my ($semantic, $observed, $observed_units);
+if ($route eq 'measure-compute') {
+  ($semantic, $observed, $observed_units) = parse_compute($log);
+} elsif ($route eq 'measure-scheduler') {
+  ($semantic, $observed, $observed_units) = parse_scheduler($log);
+} elsif ($route eq 'measure-flow') {
+  ($semantic, $observed, $observed_units) = parse_flow($log);
+} elsif ($route eq 'measure-graph-services') {
+  ($semantic, $observed, $observed_units) = parse_graph($log);
+} elsif ($route eq 'measure-telemetry') {
+  ($semantic, $observed, $observed_units) = parse_telemetry($log);
+} else {
+  fail("unregistered measurement route: $route");
+}
+$observed->{semantic} = $semantic;
+$observed_units->{semantic} = 'sha256';
+
+my %expected;
+for my $rule (@rules) {
+  next unless $rule->{profile} eq $profile && $rule->{route} eq $route;
+  $expected{$rule->{metric}} = $rule;
+}
+
+if ($project) {
+  print "profile\t$profile\n";
+  print "packet\tpath\t$packet->{path}\n";
+  print "packet\tmanifest\t$packet->{manifest}\n";
+  print "packet\tidentity\t$packet->{identity}\n";
+  print "packet\trevision\t$packet->{revision}\n";
+  print "packet\tdirty\t$packet->{dirty}\n";
+  print "packet\tgenerator\t$packet->{generator}\n";
+  print "packet\tcompiler\t$packet->{compiler}\n";
+  print "packet\tcompiler:sha256\t$packet->{compiler_sha256}\n";
+  print "packet\tartifact\t$packet->{artifact}\n";
+  print "packet\tartifact:sha256\t$packet->{artifact_sha256}\n";
+  print "packet\tlog:sha256\t$packet->{log_sha256}\n";
+  print "metric\tvalue\tunit\n";
+  for my $metric (sort keys %{$observed}) {
+    print join("\t", $metric, $observed->{$metric},
+               $observed_units->{$metric}), "\n";
+  }
+  exit 0;
+}
+
+%expected or fail("profile $profile has no $route baseline");
+
+if ($observe) {
+  for my $metric (sort keys %expected) {
+    exists $observed->{$metric}
+        or fail("observation is missing metric $metric");
+  }
+  for my $metric (sort keys %{$observed}) {
+    exists $expected{$metric}
+        or fail("observation has unbaselined metric $metric");
+  }
+  print "profile\t$profile\n";
+  print "metric\tvalue\tunit\n";
+  for my $metric (sort keys %{$observed}) {
+    print join("\t", $metric, $observed->{$metric},
+               $observed_units->{$metric}), "\n";
+  }
+  exit 0;
+}
+
+my @errors;
+for my $metric (sort keys %expected) {
+  my $rule = $expected{$metric};
+  if (!exists $observed->{$metric}) {
+    push @errors, "missing metric $metric";
+    next;
+  }
+  my $value = $observed->{$metric};
+  if ($observed_units->{$metric} ne $rule->{unit}) {
+    push @errors, "$metric unit expected=$rule->{unit} " .
+                  "observed=$observed_units->{$metric}";
+    next;
+  }
+  if ($rule->{policy} eq 'exact') {
+    push @errors, "$metric expected=$rule->{value} observed=$value"
+        if $value ne $rule->{value};
+  } elsif ($rule->{policy} eq 'upper') {
+    if ($value !~ /\A(?:0|[1-9][0-9]*)(?:\.[0-9]+)?\z/) {
+      push @errors, "$metric is not numeric: $value";
+      next;
+    }
+    my $baseline_value = Math::BigFloat->new($rule->{value});
+    my $envelope = Math::BigFloat->new($rule->{envelope});
+    my $observed_value = Math::BigFloat->new($value);
+    my $limit = $baseline_value->copy()->badd($envelope);
+    push @errors, sprintf('%s baseline=%s observed=%s limit=%s %s',
+                         $metric,
+                         $baseline_value->copy()->bfround(-6)->bstr(),
+                         $observed_value->copy()->bfround(-6)->bstr(),
+                         $limit->copy()->bfround(-6)->bstr(),
+                         $rule->{unit})
+        if $observed_value->bcmp($limit) > 0;
+  } else {
+    push @errors, "invalid route policy for $metric";
+  }
+}
+for my $metric (sort keys %{$observed}) {
+  push @errors, "unbaselined metric $metric=$observed->{$metric}"
+      unless exists $expected{$metric};
+}
+
+if (@errors) {
+  print STDERR "performance baseline: $route failed on $profile\n";
+  print STDERR "performance baseline: $_\n" for @errors;
+  exit 1;
+}
+print "baseline\t$route\tprofile=$profile\tmetrics=" .
+      scalar(keys %expected) . "\tstatus=passed\n";

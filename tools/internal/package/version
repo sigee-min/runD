@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  echo "usage: tools/internal/package/version <root>" >&2
+  exit 2
+fi
+
+root=$1
+authority="$root/cmake/root/package.cmake"
+if [ ! -f "$authority" ]; then
+  echo "package version authority is missing: $authority" >&2
+  exit 1
+fi
+
+versions=$(sed -n \
+  's/^set(RUND_PACKAGE_VERSION "\([^"]*\)")$/\1/p' "$authority")
+count=$(printf '%s\n' "$versions" | awk 'NF { count += 1 } END { print count + 0 }')
+if [ "$count" -ne 1 ]; then
+  echo "package version authority must contain exactly one version; found $count" >&2
+  exit 1
+fi
+
+version=$versions
+if ! printf '%s\n' "$version" | awk '
+    /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ { valid = 1 }
+    END { exit !valid }
+  '; then
+  echo "package version is not a numeric semantic version: $version" >&2
+  exit 1
+fi
+
+printf '%s\n' "$version"

@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-frame-io", RunRuntimeTaskNetFrameIoContract, "tests/contract/runtime/task/net/frame/io.cpp", runtime)

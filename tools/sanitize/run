@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Run the address/undefined or thread sanitizer contract matrix." \
+    "usage: tools/sanitize/run <address|thread>" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 1 ]; then
+  usage >&2
+  exit 2
+fi
+
+case "$1" in
+  address)
+    flags="-fsanitize=address,undefined -fno-omit-frame-pointer"
+    link="-fsanitize=address,undefined"
+    pattern='^(kernel\..*|node\..*|accel\..*|math32\..*|math64\..*|cluster\..*)$'
+    ;;
+  thread)
+    flags="-fsanitize=thread -fno-omit-frame-pointer"
+    link="-fsanitize=thread"
+    pattern='^(node\.thread\.runtime|node\.compute|node\.runtime\.(compute|compute\.accel|task|task\.reactor))$'
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" "sanitize/$1")
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+if [ "$1" = "address" ]; then
+  ASAN_OPTIONS=halt_on_error=1 \
+    UBSAN_OPTIONS=halt_on_error=1 \
+    sh "$root/tools/internal/contract/verify" \
+      "$root" "$build" sanitize Debug sanitize-address "$pattern" \
+      -DCMAKE_CXX_FLAGS="$flags" \
+      -DCMAKE_OBJCXX_FLAGS="$flags" \
+      -DCMAKE_EXE_LINKER_FLAGS="$link" \
+      -DRUND_INTERNAL_SANITIZER_PROFILE=ON
+else
+  TSAN_OPTIONS=halt_on_error=1 \
+    sh "$root/tools/internal/contract/verify" \
+      "$root" "$build" sanitize Debug sanitize-thread "$pattern" \
+      -DCMAKE_CXX_FLAGS="$flags" \
+      -DCMAKE_OBJCXX_FLAGS="$flags" \
+      -DCMAKE_EXE_LINKER_FLAGS="$link" \
+      -DRUND_INTERNAL_SANITIZER_PROFILE=ON \
+      -DRUND_NODE_TEST_TAG=thread
+fi

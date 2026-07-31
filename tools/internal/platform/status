@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/platform/status <root> <triplet>" >&2
+  exit 2
+fi
+
+root=$1
+triplet=$2
+registry="$root/package/docs/platform/tuples.tsv"
+if [ ! -f "$registry" ]; then
+  echo "platform tuple registry is missing: $registry" >&2
+  exit 1
+fi
+
+awk -F '\t' -v requested="$triplet" '
+  BEGIN { expected = "triplet\tstatus\tproducer\trunner\tcompiler\tartifact" }
+  NR == 1 {
+    if ($0 != expected) exit 2
+    next
+  }
+  {
+    if (NF != 6 || $1 !~ /^[a-z0-9]+-[a-z0-9]+$/ ||
+        $2 !~ /^(supported|validated|not-supported)$/ || seen[$1]++) exit 2
+    if ($3 == "" || $4 == "" || $5 == "" || $6 == "") exit 2
+    if ($2 == "supported" &&
+        ($3 == "none" || $4 == "none" || $5 == "none" ||
+         $6 != "release")) exit 2
+    if ($2 == "validated" &&
+        ($3 == "none" || $4 == "none" || $5 == "none" ||
+         $6 != "candidate")) exit 2
+    if ($2 == "not-supported" &&
+        ($3 != "none" || $4 != "none" || $5 != "none" ||
+         $6 != "none")) exit 2
+    if (previous != "" && $1 <= previous) exit 2
+    previous = $1
+    if ($1 == requested) {
+      status = $2
+      found += 1
+    }
+  }
+  END {
+    if (NR < 2 || found != 1) exit 1
+    print status
+  }
+' "$registry"

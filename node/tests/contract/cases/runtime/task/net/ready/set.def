@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-ready-set", RunRuntimeTaskNetReadySetContract, "tests/contract/runtime/task/net/ready/set.cpp", runtime)

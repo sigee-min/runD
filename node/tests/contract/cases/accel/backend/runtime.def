@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.backend-runtime", RunAccelBackendRuntimeContract, "tests/contract/accel/backend/runtime.cpp", accel)

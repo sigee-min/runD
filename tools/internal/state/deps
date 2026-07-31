@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/state/deps <build> <ninja>" >&2
+  exit 2
+fi
+
+build=$1
+make_program=$2
+if [ -z "$make_program" ] || [ ! -x "$make_program" ]; then
+  echo "configured Ninja executable is unavailable: $make_program" >&2
+  exit 1
+fi
+
+deps="$build/.rund-ninja-deps.txt"
+deps_pending="$deps.pending.$$"
+missing="$deps.missing.$$"
+status_file="$deps.status.$$"
+cleanup() {
+  rm -f "$deps_pending" "$missing" "$status_file"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+filter_status=0
+{
+  ninja_status=0
+  "$make_program" -C "$build" -t deps || ninja_status=$?
+  printf '%s\n' "$ninja_status" >"$status_file"
+} | LC_ALL=C grep -E '\.(o|obj): #deps [0-9]+,' >"$deps_pending" ||
+  filter_status=$?
+
+ninja_status=
+if [ -s "$status_file" ]; then
+  ninja_status=$(cat "$status_file")
+fi
+case "$ninja_status" in
+  ''|*[!0-9]*) filter_status=2 ;;
+esac
+case "$filter_status" in
+  0|1) ;;
+  *) filter_status=2 ;;
+esac
+
+if [ "$filter_status" -eq 2 ] || [ "$ninja_status" -ne 0 ]; then
+  echo "Ninja dependency audit failed" >&2
+  exit 1
+fi
+
+if [ "$filter_status" -eq 1 ]; then
+  mv -f "$deps_pending" "$deps"
+  echo "Ninja dependency audit found no compiled objects" >&2
+  exit 1
+fi
+
+missing_status=0
+LC_ALL=C grep -E '\.(o|obj): #deps 0,' "$deps_pending" >"$missing" ||
+  missing_status=$?
+case "$missing_status" in
+  0|1) ;;
+  *)
+    echo "Ninja dependency audit failed" >&2
+    exit 1
+    ;;
+esac
+
+mv -f "$deps_pending" "$deps"
+if [ -s "$missing" ]; then
+  echo "Ninja dependency audit found objects without dependencies:" >&2
+  cat "$missing" >&2
+  exit 1
+fi

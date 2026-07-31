@@ -1,0 +1,13 @@
+set(NODE_TEST_NET_VECTORED_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/net/vectored.cpp
+  tests/contract/runtime/task/net/vectored/local.cpp
+  tests/contract/runtime/task/net/vectored/meta.cpp
+  tests/contract/runtime/task/net/vectored/order.cpp
+  tests/contract/runtime/task/net/vectored/partial.cpp
+  tests/contract/runtime/task/net/vectored/reject.cpp
+  tests/contract/runtime/task/net/vectored/reject/capacity.cpp
+  tests/contract/runtime/task/net/vectored/reject/empty.cpp
+  tests/contract/runtime/task/net/vectored/reject/null.cpp
+  tests/contract/runtime/task/net/vectored/reject/would/block.cpp
+)

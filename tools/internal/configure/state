@@ -1,0 +1,71 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 8 ]; then
+  echo "usage: tools/internal/configure/state <matches|write> <root> <build> <profile> <build-type> <focus> <intent> <cmake-argument ...>" >&2
+  exit 2
+fi
+
+mode=$1
+root=$2
+build=$3
+profile=$4
+build_type=$5
+focus=$6
+intent=$7
+shift 7
+
+stamp="$build/.rund-contract-config"
+cache="$build/CMakeCache.txt"
+
+payload() {
+  printf '%s\n' \
+    "root=$root" \
+    "build=$build" \
+    "profile=$profile" \
+    "build_type=$build_type" \
+    "focus=$focus" \
+    "intent=$intent" \
+    "cmake=$(command -v cmake)"
+  for argument do
+    printf 'argument=%s\n' "$argument"
+  done
+  printf '%s\n' source_state
+  sh "$root/tools/internal/source/state" "$root"
+  cmake --version
+  cmake -E sha256sum \
+    "$root/tools/test/run" \
+    "$root/tools/internal/case/run" \
+    "$root/tools/internal/state/lock" \
+    "$root/tools/internal/state/ninja" \
+    "$root/tools/internal/configure/contracts" \
+    "$root/tools/internal/configure/state" \
+    "$root/tools/internal/lock/run" \
+    "$root/tools/internal/source/state" \
+    "$cache"
+}
+
+case "$mode" in
+  matches)
+    [ -f "$stamp" ] && [ -f "$cache" ] || exit 1
+    expected=$(payload "$@")
+    actual=$(cat "$stamp")
+    [ "$actual" = "$expected" ]
+    ;;
+  write)
+    [ -f "$cache" ] || {
+      echo "contract configuration has no CMake cache: $build" >&2
+      exit 1
+    }
+    umask 077
+    temporary="$stamp.tmp.$$"
+    trap 'rm -f "$temporary"' EXIT HUP INT TERM
+    payload "$@" > "$temporary"
+    mv "$temporary" "$stamp"
+    trap - EXIT HUP INT TERM
+    ;;
+  *)
+    echo "unknown contract configuration operation: $mode" >&2
+    exit 2
+    ;;
+esac

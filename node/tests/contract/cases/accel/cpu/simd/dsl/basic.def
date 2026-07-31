@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.cpu-simd.dsl-basic", RunAccelCpuSimdDslBasicContract, "tests/contract/accel/cpu/dsl/basic.cpp", cpu-simd)

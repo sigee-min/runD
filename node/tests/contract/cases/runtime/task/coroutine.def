@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.coroutine", RunRuntimeTaskCoroutineContract, "tests/contract/runtime/task/coroutine/lifecycle.cpp", runtime)

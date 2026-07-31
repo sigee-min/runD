@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Run the Release contracts and installed-package consumer matrix." \
+    "usage: tools/release/run" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" release)
+pattern=$(sh "$root/tools/internal/contract/pattern" release)
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+sh "$root/tools/internal/contract/verify" \
+  "$root" "$build" release Release release "$pattern"

@@ -1,0 +1,17 @@
+set(KERNEL_REDUCTION_TEST_SOURCES
+  tests/contract/run/reduction.cpp
+  tests/reduction/fold/graph.cpp
+  tests/reduction/fold/graph/custom.cpp
+  tests/reduction/fold/graph/reduction.cpp
+  tests/reduction/fold/graph/topology.cpp
+  tests/reduction/fold/graph/validation.cpp
+  tests/reduction/fold/hash.cpp
+  tests/reduction/fold/runner.cpp
+  tests/reduction/fold/slots.cpp
+  tests/reduction/fold/strict.cpp
+  tests/reduction/fold/strict/float/32/run.cpp
+  tests/reduction/fold/strict/float/32/associative.cpp
+  tests/reduction/fold/strict/float/64/run.cpp
+  tests/reduction/fold/strict/float/64/associative.cpp
+  tests/reduction/fold/strict/ordered.cpp
+)

@@ -1,0 +1,55 @@
+#pragma once
+
+#include <cstdint>
+#include <rund/net/socket.hpp>
+#include <rund/reason.hpp>
+
+#include "../../../reactor/readiness/state.hpp"
+
+namespace rund::node {
+
+struct ReactorManyRequest {
+  std::uint64_t group_id = 0u;
+  std::uint64_t wait_id = 0u;
+  ::rund::net::SocketView socket{};
+  ReactorHandle fd = kInvalidReactorHandle;
+  std::uint32_t slot = 0u;
+  std::uint32_t event_index = 0u;
+  ReactorInterest interest = ReactorInterest::None;
+};
+
+struct ReactorManyEvent {
+  std::uint64_t group_id = 0u;
+  ::rund::net::SocketView socket{};
+  ReactorHandle fd = kInvalidReactorHandle;
+  std::uint32_t slot = 0u;
+  std::uint32_t event_index = 0u;
+  ReactorInterest interest = ReactorInterest::None;
+  ReactorEvent events = ReactorEvent::None;
+  ReasonCode code = ReasonCode::Ok;
+};
+
+struct ReactorManyEventSlot {
+  bool occupied = false;
+  ReactorManyEvent event{};
+};
+
+struct ReactorManyGroup {
+  std::uint64_t group_id = 0u;
+  std::uint64_t task_id = 0u;
+  std::uint64_t ready_set_id = 0u;
+  std::uint64_t ready_set_generation = 0u;
+  std::uint64_t timer_wait_id = 0u;
+  std::uint64_t stop_source_id = 0u;
+  std::uint64_t stop_generation = 0u;
+  std::uint64_t stop_epoch = 0u;
+  std::uint32_t first_request = 0u;
+  std::uint32_t request_count = 0u;
+  std::uint32_t max_events = 0u;
+  std::uint32_t stored_event_count = 0u;
+  bool completed = false;
+  bool timed_out = false;
+  bool budget_exhausted = false;
+};
+
+} // namespace rund::node

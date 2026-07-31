@@ -1,0 +1,86 @@
+set(net_sources)
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net.def
+  ${NODE_TEST_NET_ROOT_TEST_SOURCES}
+  ${NODE_TEST_NET_BASIC_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/drain.def
+  ${NODE_TEST_NET_DRAIN_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/nonblocking.def
+  ${NODE_TEST_NET_NONBLOCKING_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/readiness.def
+  ${NODE_TEST_NET_READINESS_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/ready/many.def
+  ${NODE_TEST_NET_READY_MANY_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/ready/set.def
+  ${NODE_TEST_NET_READY_SET_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/registry/lifetime.def
+  ${NODE_TEST_NET_REGISTRY_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/datagram.def
+  ${NODE_TEST_NET_DATAGRAM_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/options.def
+  ${NODE_TEST_NET_OPTIONS_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/vectored.def
+  ${NODE_TEST_NET_VECTORED_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/accept/connect.def
+  ${NODE_TEST_NET_ACCEPT_CONNECT_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/accept/drain.def
+  ${NODE_TEST_NET_ACCEPT_DRAIN_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/accept/handoff.def
+  ${NODE_TEST_NET_ACCEPT_HANDOFF_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/server.def
+  ${NODE_TEST_NET_SERVER_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/server/parallel.def
+  ${NODE_TEST_NET_SERVER_PARALLEL_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/lifecycle.def
+  ${NODE_TEST_NET_LIFECYCLE_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/listener/lifecycle.def
+  ${NODE_TEST_NET_LISTENER_LIFECYCLE_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/limits.def
+  ${NODE_TEST_NET_LIMITS_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/write/drain.def
+  ${NODE_TEST_NET_WRITE_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/timed/readiness.def
+  ${NODE_TEST_NET_TIMED_READINESS_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/timed/suspend.def
+  ${NODE_TEST_NET_TIMED_READY_SUSPEND_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/cancellation.def
+  ${NODE_TEST_NET_CANCELLATION_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/frame.def
+  ${NODE_TEST_NET_FRAME_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/frame/io.def
+  ${NODE_TEST_NET_FRAME_IO_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/flow.def
+  ${NODE_TEST_NET_FLOW_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/client/multiple.def
+  ${NODE_TEST_NET_CLIENT_TEST_SOURCES})
+rund_node_select_suite_sources(net_sources
+  cases/runtime/task/net/stats.def
+  ${NODE_TEST_NET_STATS_TEST_SOURCES})
+rund_node_require_suite_partitions(runtime.task.net)
+rund_node_require_group_link_profiles(runtime.task.net RUNTIME_BASE runtime)
+list(REMOVE_DUPLICATES net_sources)

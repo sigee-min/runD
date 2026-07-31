@@ -1,0 +1,116 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Measure Compute setup, execution, orchestration, and backend parity." \
+    "usage: tools/measure/compute/run" \
+    "       tools/measure/compute/run --resident <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --collective <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --sort <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --bulk <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --batch <metal|vulkan>" \
+    "       tools/measure/compute/run --pipeline <metal|vulkan>" \
+    "       tools/measure/compute/run --pipeline-profile <metal|vulkan>" \
+    "       tools/measure/compute/run --recurrence <metal|vulkan>" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+mode=full
+backend=
+if [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
+  [ "$1" = "--collective" ] ||
+  [ "$1" = "--sort" ] || [ "$1" = "--bulk" ] ||
+  [ "$1" = "--batch" ] ||
+  [ "$1" = "--pipeline" ] ||
+  [ "$1" = "--pipeline-profile" ] ||
+  [ "$1" = "--recurrence" ]; }; then
+  case "$2" in
+    cpu|metal|vulkan)
+      mode=${1#--}
+      backend=$2
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  if { [ "$mode" = pipeline ] || [ "$mode" = pipeline-profile ] ||
+    [ "$mode" = recurrence ] || [ "$mode" = batch ]; } &&
+    [ "$backend" = cpu ]; then
+    usage >&2
+    exit 2
+  fi
+elif [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" measure/compute)
+
+if [ "$mode" != full ]; then
+  focus="$build/focus"
+  if ! sh "$root/tools/internal/state/lock" --held "$root" "$focus"; then
+    exec sh "$root/tools/internal/state/lock" "$root" "$focus" \
+      "$0" "$@"
+  fi
+  sh "$root/tools/internal/configure/contracts" \
+    "$root" "$focus" local Release compute.pipeline \
+    -DRUND_NODE_TEST_TAG:STRING= \
+    -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend"
+  sh "$root/tools/internal/state/ninja" -C "$focus" \
+    runD-compute-focus
+  if [ "$backend" = cpu ]; then
+    exec sh "$root/tools/internal/process/run" 900 \
+      compute.measure \
+      "$focus/tools/measure/compute/runD-compute-focus" \
+      --"$mode" "$backend"
+  fi
+  exec sh "$root/tools/internal/lock/accel" \
+    sh "$root/tools/internal/process/run" 900 \
+    compute.measure \
+    "$focus/tools/measure/compute/runD-compute-focus" \
+    --"$mode" "$backend"
+fi
+
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$release"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$release" \
+    "$0" "$@"
+fi
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+sh "$root/tools/internal/measure/attempt" "$root" measure-compute start
+attempt_failed() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  [ "$code" -ne 0 ] || code=1
+  sh "$root/tools/internal/measure/attempt" \
+    "$root" measure-compute fail "$code" || :
+  exit "$code"
+}
+trap attempt_failed EXIT HUP INT TERM
+sh "$root/tools/internal/measure/prepare" "$root" "$build" \
+  "$root/tools/measure/compute"
+log="$build/measure.log"
+if sh "$root/tools/internal/lock/accel" \
+    sh "$root/tools/internal/process/run" 900 \
+    compute.measure "$build/runD-compute-measure" >"$log" 2>&1; then
+  status=passed
+else
+  code=$?
+  status=failed
+fi
+cat "$log"
+sh "$root/tools/internal/measure/finish" "$root" "$build" \
+  measure-compute "$status" "$log" measure.log "${code:-0}"
+sh "$root/tools/internal/measure/attempt" "$root" measure-compute complete
+trap - EXIT HUP INT TERM

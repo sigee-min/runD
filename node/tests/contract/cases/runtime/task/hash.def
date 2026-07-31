@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.hash", RunRuntimeTaskHashContract, "tests/contract/runtime/task/hash.cpp", runtime)

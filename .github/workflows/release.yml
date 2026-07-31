@@ -1,0 +1,174 @@
+name: Manual Linux SDK Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Existing release tag whose version matches the checked-in SDK"
+        required: true
+        type: string
+      publish_to_release:
+        description: "Publish only after linux-x64 is promoted in platform authority with matching release evidence"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rund-release-linux-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  linux-x64-sdk:
+    name: Build Linux x64 SDK candidate
+    runs-on: ubuntu-24.04
+    env:
+      BUILD_DIR: .cache/release
+      GH_TOKEN: ${{ github.token }}
+      LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
+      Clang_DIR: /usr/lib/llvm-18/lib/cmake/clang
+      PUBLISH_TO_RELEASE: ${{ inputs.publish_to_release }}
+      RUND_SDK_TRIPLET: linux-x64
+      TAG_NAME: ${{ inputs.tag_name }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
+          fetch-depth: 0
+
+      - name: Verify exact release tag checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          checked_out_tag="$(git describe --tags --exact-match)"
+          test "$checked_out_tag" = "$TAG_NAME"
+          test "$(git rev-parse --verify HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG_NAME^{commit}")"
+          package_version="$(sh tools/internal/package/version "$PWD")"
+          test "$TAG_NAME" = "$package_version"
+          echo "RUND_PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
+
+      - name: Verify Linux candidate platform authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          platform_status="$(sh tools/internal/platform/status "$PWD" "$RUND_SDK_TRIPLET")"
+          if [ "$PUBLISH_TO_RELEASE" = true ]; then
+            test "$platform_status" = supported
+          else
+            test "$platform_status" = validated
+          fi
+
+      - name: Install Linux SDK toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-18 \
+            cmake \
+            g++-13 \
+            gcc-13 \
+            libclang-18-dev \
+            llvm-18 \
+            llvm-18-dev \
+            llvm-18-tools \
+            ninja-build \
+            util-linux
+
+      - name: Record toolchain tuple
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          flock --version
+          ninja --version
+          gcc-13 --version
+          g++-13 --version
+          /usr/lib/llvm-18/bin/clang++ --version
+          /usr/lib/llvm-18/bin/opt --version
+
+      - name: Open source identity boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -E remove_directory "$BUILD_DIR"
+          cmake -E make_directory "$BUILD_DIR"
+          tools/source/manifest "$BUILD_DIR/.rund-source-manifest-before.tsv"
+
+      - name: Configure package build
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh tools/internal/configure/contracts \
+            "$PWD" "$BUILD_DIR" release Release - \
+            -DCMAKE_C_COMPILER=gcc-13 \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DLLVM_DIR="$LLVM_DIR" \
+            -DClang_DIR="$Clang_DIR"
+
+      - name: Build SDK and contract targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern="$(sh tools/internal/contract/pattern release)"
+          sh tools/internal/ctest/selection/build \
+            "$PWD" "$BUILD_DIR" "$pattern" \
+            "$BUILD_DIR/.rund-workflow-selection.tsv"
+
+      - name: Run complete contract selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUND_VERIFIED_SOURCE_MANIFEST="$BUILD_DIR/.rund-source-manifest-before.tsv" \
+            sh tools/internal/ctest/selection/run \
+            "$BUILD_DIR" "$BUILD_DIR/.rund-workflow-selection.tsv"
+
+      - name: Seal source identity boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh tools/internal/state/verify "$PWD" "$BUILD_DIR"
+
+      - name: Create verified Linux SDK candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_identity="$BUILD_DIR/.rund-artifact-identity.tsv"
+          LLVM_CONFIG=/usr/lib/llvm-18/bin/llvm-config \
+            sh tools/internal/artifact/identity \
+            "$BUILD_DIR" "$artifact_identity" \
+            "$RUND_PACKAGE_VERSION" "$RUND_SDK_TRIPLET"
+          sh tools/internal/package/candidate \
+            "$PWD" "$BUILD_DIR" "$RUND_PACKAGE_VERSION" \
+            "$RUND_SDK_TRIPLET" "$artifact_identity"
+          artifact_name="rund-sdk-$RUND_PACKAGE_VERSION-$RUND_SDK_TRIPLET"
+          archive_path="$BUILD_DIR/dist/$artifact_name.tar.gz"
+          checksum_path="$BUILD_DIR/dist/$artifact_name.sha256"
+          verifier_path="$BUILD_DIR/dist/rund-verify"
+          echo "ARCHIVE_PATH=$archive_path" >> "$GITHUB_ENV"
+          echo "CHECKSUM_PATH=$checksum_path" >> "$GITHUB_ENV"
+          echo "VERIFIER_PATH=$verifier_path" >> "$GITHUB_ENV"
+          cat "$checksum_path"
+
+      - name: Upload temporary candidate workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rund-sdk-${{ inputs.tag_name }}-linux-x64-candidate
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            .cache/release/dist/rund-sdk-${{ inputs.tag_name }}-linux-x64.tar.gz
+            .cache/release/dist/rund-sdk-${{ inputs.tag_name }}-linux-x64.sha256
+            .cache/release/dist/rund-verify
+
+      - name: Publish promoted linux-x64 artifact to existing release
+        if: ${{ inputs.publish_to_release }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG_NAME" >/dev/null
+          gh release upload "$TAG_NAME" "$ARCHIVE_PATH" "$CHECKSUM_PATH" "$VERIFIER_PATH" --clobber

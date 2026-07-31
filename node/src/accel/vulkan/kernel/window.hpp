@@ -1,0 +1,81 @@
+#pragma once
+
+#include "../../kernel/backend/run.hpp"
+#include "../adapter/api.hpp"
+#include "../adapter/buffer.hpp"
+#include "../adapter/pipeline.hpp"
+#include "../buffer/resident/model.hpp"
+#include "../descriptor/binding.hpp"
+
+#include <array>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace rund::node::accel::detail {
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+
+struct VulkanWindowParams final {
+  std::uint64_t count_offset_words{};
+  std::array<std::uint64_t, 3u> terminal_offset_words{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t iteration{};
+  std::uint32_t expected{};
+  std::uint32_t state{};
+  std::uint32_t has_terminal{};
+  std::uint32_t command_count{};
+  std::uint32_t reserved{};
+};
+
+static_assert(sizeof(VulkanWindowParams) == 64u);
+
+struct VulkanWindowRoute final {
+  VulkanResidentBufferResult count{};
+  std::array<VulkanResidentBufferResult, 3u> terminals{};
+  VulkanStorageBinding count_binding{};
+  std::array<VulkanStorageBinding, 3u> terminal_bindings{};
+  VulkanWindowParams params{};
+  VkDescriptorSet descriptor{VK_NULL_HANDLE};
+  std::uint32_t entry{};
+};
+
+struct VulkanGateRoute final {
+  VulkanBuffer source{};
+  VkDescriptorSet descriptor{VK_NULL_HANDLE};
+};
+
+struct VulkanWindowResources final {
+  VulkanAdapter *adapter{};
+  VulkanCollectivePipeline *pipeline{};
+  VulkanCollectivePipeline *gate_pipeline{};
+  VulkanBuffer states{};
+  VulkanBuffer arguments{};
+  VulkanBuffer owners{};
+  std::vector<VkDispatchIndirectCommand> original;
+  std::vector<VulkanWindowRoute> routes;
+  std::vector<VulkanGateRoute> gates;
+  std::vector<VulkanCollectiveDescriptorLease> descriptor_leases;
+  VulkanDispatchCapture capture{};
+  std::uint32_t state_count{};
+};
+
+[[nodiscard]] rund::AccelCheck PrepareVulkanWindow(
+    VulkanAdapter &adapter, std::span<const BackendBatchEntry> entries,
+    std::uint64_t dispatch_capacity, VulkanWindowResources &resources);
+
+void DestroyVulkanWindow(VulkanWindowResources &resources) noexcept;
+
+[[nodiscard]] bool EncodeVulkanWindow(VkCommandBuffer command,
+                                      const VulkanWindowResources &resources,
+                                      std::uint32_t entry) noexcept;
+void EncodeVulkanWindowStart(VkCommandBuffer command) noexcept;
+[[nodiscard]] bool ResetVulkanWindow(VulkanWindowResources &resources) noexcept;
+
+[[nodiscard]] std::uint64_t
+VulkanWindowHostBytes(const VulkanWindowResources &resources) noexcept;
+
+#endif
+
+} // namespace rund::node::accel::detail

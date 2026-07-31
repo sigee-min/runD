@@ -1,0 +1,9 @@
+set(NODE_TEST_NET_NONBLOCKING_TEST_SOURCES
+  tests/contract/runtime/task/net/nonblocking.cpp
+  tests/contract/runtime/task/net/nonblocking/basic.cpp
+  tests/contract/runtime/task/net/nonblocking/guard.cpp
+  tests/contract/runtime/task/net/nonblocking/local.cpp
+  tests/contract/runtime/task/net/nonblocking/partial.cpp
+  tests/contract/runtime/task/net/nonblocking/pressure.cpp
+  tests/contract/runtime/task/net/nonblocking/replay.cpp
+)

@@ -1,0 +1,233 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Run the short contract loop, one exact case, a regex selection, or list cases." \
+    "usage: tools/test/run [--fresh] [case]" \
+    "       tools/test/run [--fresh] telemetry:detail" \
+    "       tools/test/run [--fresh] <case> --backend cpu|metal|vulkan" \
+    "       tools/test/run [--fresh] --match REGEX" \
+    "       tools/test/run [--fresh] --list" \
+    "       --fresh    Bypass the local pass cache." \
+    "       -h, --help  Show this help."
+}
+
+fresh=${RUND_TEST_FRESH:-0}
+if [ "$#" -gt 0 ] && [ "$1" = "--fresh" ]; then
+  fresh=1
+  export RUND_TEST_FRESH=1
+  shift
+fi
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+
+requested=
+backend=
+selector=
+tag=
+if [ "$#" -eq 1 ] && [ "$1" = "--list" ]; then
+  :
+elif [ "$#" -eq 2 ] && [ "$1" = "--match" ] && [ -n "$2" ]; then
+  :
+elif [ "$#" -eq 3 ] && [ "$2" = "--backend" ] &&
+     [ "${1#-}" = "$1" ]; then
+  case "$3" in
+    cpu | metal | vulkan) ;;
+    *) usage >&2; exit 2 ;;
+  esac
+  requested=$1
+  backend=$3
+elif [ "$#" -eq 1 ] && [ "${1#-}" = "$1" ]; then
+  requested=$1
+elif [ "$#" -gt 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+case "$requested" in
+  *:*)
+    selector=$requested
+    tag=$selector
+    requested=
+    ;;
+esac
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+base_build=$(sh "$root/tools/internal/state/root" "$root" dev)
+build="$base_build"
+
+configure() {
+  focus=
+  if [ "$#" -eq 1 ]; then
+    focus=$1
+  fi
+  if [ -z "$focus" ]; then
+    focus=-
+  fi
+  sh "$root/tools/internal/configure/contracts" \
+    "$root" "$build" local Debug "$focus" \
+    -DRUND_NODE_TEST_TAG:STRING="$tag" \
+    -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend"
+}
+
+query_case() {
+  if [ -n "$backend" ]; then
+    sh "$root/tools/internal/case/catalog" \
+      "$root" case "$1" "$backend"
+  else
+    sh "$root/tools/internal/case/catalog" "$root" case "$1" -
+  fi
+}
+
+query_tag() {
+  sh "$root/tools/internal/case/catalog" "$root" tag "$1" -
+}
+
+list_cases() {
+  sh "$root/tools/internal/case/catalog" "$root" list - -
+}
+
+ctest_route() {
+  index="$build/rund-test-routes.tsv"
+  [ -f "$index" ] || return 1
+  awk -F '\t' -v name="$1" \
+    '$1 == "route" && $2 == name { print $2; exit }' "$index"
+}
+
+exact_pattern() {
+  awk -v name="$1" 'BEGIN {
+    gsub(/[.]/, "[.]", name)
+    print "^" name "$"
+  }'
+}
+
+acquire_build() {
+  if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+    exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+      sh "$0" "$@"
+  fi
+}
+
+config_state() {
+  operation=$1
+  focus=$2
+  intent=$3
+  sh "$root/tools/internal/configure/state" \
+    "$operation" "$root" "$build" local Debug "$focus" "$intent" \
+    -DRUND_NODE_TEST_TAG:STRING="$tag" \
+    -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend"
+}
+
+sync_graph() {
+  (
+    cd "$build"
+    exec sh "$root/tools/internal/state/ninja" rund-contract-graph
+  )
+}
+
+if [ "$#" -eq 1 ] && [ "$1" = "--list" ]; then
+  printf 'case\ttarget\tresource\tprofile\n'
+  list_cases
+  exit 0
+fi
+
+if [ -n "$requested" ]; then
+  route=$(query_case "$requested")
+  if [ -n "$route" ]; then
+    # The shared CMake parser emits five grammar-validated, whitespace-free
+    # fields.  The fifth is the stable materialization anchor; execution still
+    # names only the requested case.
+    # shellcheck disable=SC2086
+    set -- $route
+    if [ "$#" -ne 5 ] || [ "$1" != "$requested" ]; then
+      echo "malformed exact Node contract route: $requested" >&2
+      exit 2
+    fi
+    expected_target=$2
+    expected_resource=$3
+    profile=$4
+    focus=$5
+    route=$(printf '%s\t%s\t%s\t%s' \
+      "$requested" "$expected_target" "$expected_resource" "$profile")
+    build="$root/.cache/focus/$profile"
+    if [ -n "$backend" ]; then
+      exact_backend=$backend
+    else
+      exact_backend=-
+    fi
+    set -- sh "$root/tools/internal/case/run" \
+      "$root" "$build" "$requested" "$exact_backend" \
+      "$expected_target" "$expected_resource" "$profile" "$focus" "$route"
+    if sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+      exec "$@"
+    fi
+    exec sh "$root/tools/internal/state/lock" "$root" "$build" "$@"
+  fi
+fi
+
+if [ -n "$tag" ]; then
+  if [ -n "$backend" ]; then
+    echo "backend selection does not apply to a contract group: $selector" >&2
+    exit 2
+  fi
+  tagged=$(query_tag "$tag")
+  if [ -z "$tagged" ]; then
+    echo "unknown contract group: $selector" >&2
+    exit 2
+  fi
+  tag_key=$(printf '%s\n' "$tag" | tr ':' '.')
+  build="$root/.cache/focus/$tag_key"
+fi
+
+if [ -n "$backend" ]; then
+  echo "backend selection requires an exact Node case: $requested" >&2
+  exit 2
+fi
+
+if [ -z "$tag" ]; then
+  build="$base_build"
+fi
+acquire_build "$@"
+if [ -n "$tag" ]; then
+  intent="selector=$selector"
+else
+  intent=local
+fi
+if ! config_state matches - "$intent"; then
+  configure ""
+  config_state write - "$intent"
+else
+  # This phony target performs no work of its own.  Building it makes the
+  # selected generator refresh CMake inputs before CTest metadata is read.
+  sync_graph
+fi
+
+if [ -n "$tag" ]; then
+  pattern="^node[.]$tag_key[.]"
+elif [ "$#" -eq 0 ]; then
+  pattern='^(kernel\.(core|compute)|node\.core|accel\.surface)$'
+elif [ "$#" -eq 2 ]; then
+  pattern=$2
+elif [ -n "$(ctest_route "$1" || true)" ]; then
+  pattern=$(exact_pattern "$1")
+else
+  echo "unknown exact case or CTest route: $1" >&2
+  echo "use 'tools/test/run --list' for Node cases or 'tools/test/run --match REGEX' for a selection" >&2
+  exit 2
+fi
+
+selection_file="$build/.rund-test-selection.tsv"
+sh "$root/tools/internal/ctest/selection/build" \
+  "$root" "$build" "$pattern" "$selection_file"
+
+if [ "$fresh" = 1 ]; then
+  sh "$root/tools/internal/ctest/selection/run" \
+    "$build" "$selection_file"
+else
+  sh "$root/tools/internal/ctest/selection/cache" \
+    "$root" "$build" "$selection_file"
+fi

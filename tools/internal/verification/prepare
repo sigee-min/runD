@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/verification/prepare <root> <build>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+
+row=$(sh "$root/tools/internal/state/root" --identify \
+  "$root" "$build" 2>/dev/null) || {
+  echo "verification build tree is outside the owned route paths: $build" >&2
+  exit 2
+}
+tab=$(printf '\t')
+old_ifs=$IFS
+IFS="$tab"
+set -- $row
+IFS=$old_ifs
+if [ "$#" -ne 3 ] || [ "$build" != "$2" ]; then
+  echo "verification requires an exact static build root: $build" >&2
+  exit 2
+fi
+
+cmake -E remove_directory "$build"
+cmake -E make_directory "$build"
+"$root/tools/source/manifest" \
+  "$build/.rund-source-manifest-before.tsv"

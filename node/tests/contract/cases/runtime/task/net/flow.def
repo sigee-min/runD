@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-flow", RunRuntimeTaskNetFlowContract, "tests/contract/runtime/task/net/flow.cpp", runtime)

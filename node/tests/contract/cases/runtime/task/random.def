@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.random", RunRuntimeTaskRandomContract, "tests/contract/runtime/task/random.cpp", runtime)

@@ -1,0 +1,2 @@
+RUND_NODE_TEST_CASE("runtime.task.basic", RunRuntimeTaskBasicContract, "tests/contract/runtime/task/basic.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.task.lane", RunRuntimeTaskLaneContract, "tests/contract/runtime/task/lane.cpp", runtime)

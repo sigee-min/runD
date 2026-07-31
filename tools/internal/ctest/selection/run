@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/ctest/selection/run <build> <selection>" >&2
+  exit 2
+fi
+
+build=$1
+selection=$2
+if [ ! -f "$selection" ]; then
+  echo "CTest selection metadata is missing: $selection" >&2
+  exit 2
+fi
+if [ ! -s "$selection" ]; then
+  echo "CTest selection matched no tests: $selection" >&2
+  exit 2
+fi
+
+if pattern=$(awk -F '\t' '
+    BEGIN { count = 0; invalid = 0 }
+    NF != 2 { invalid = 1; next }
+    $1 == "test" {
+      if ($2 !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ || seen[$2]++) {
+        invalid = 1
+        next
+      }
+      name = $2
+      gsub(/[.]/, "[.]", name)
+      names[count++] = name
+      next
+    }
+    $1 == "target" {
+      if ($2 !~ /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/ || target[$2]++)
+        invalid = 1
+      next
+    }
+    { invalid = 1 }
+    END {
+      if (invalid || count == 0)
+        exit 2
+      printf "^("
+      for (i = 0; i < count; i++) {
+        if (i != 0)
+          printf "|"
+        printf "%s", names[i]
+      }
+      print ")$"
+    }
+  ' "$selection"); then
+  :
+else
+  echo "CTest selection metadata is malformed: $selection" >&2
+  exit 2
+fi
+
+ctest --test-dir "$build" -R "$pattern" \
+  --output-on-failure --no-tests=error --parallel

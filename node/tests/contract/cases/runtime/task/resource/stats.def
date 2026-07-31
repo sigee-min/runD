@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.resource-stats", RunRuntimeTaskResourceStatsContract, "tests/contract/runtime/task/resource/stats.cpp", runtime)

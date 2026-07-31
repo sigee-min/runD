@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.replay.telemetry", RunRuntimeTaskReplayTelemetryContract, "tests/contract/runtime/task/replay/telemetry/parity.cpp", runtime, telemetry:detail)

@@ -1,0 +1,8 @@
+RUND_NODE_TEST_CASE("runtime.kernel", RunRuntimeKernelContract, "tests/contract/runtime/product/kernel.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.topology", RunRuntimeTopologyContract, "tests/contract/runtime/topology.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.reentry", RunRuntimeReentryContract, "tests/contract/runtime/reentry.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.lifecycle", RunRuntimeLifecycleContract, "tests/contract/runtime/product/lifecycle.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.memory", RunRuntimeMemoryContract, "tests/contract/runtime/memory.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.storage", RunRuntimeStorageContract, "tests/contract/runtime/storage.cpp", runtime, thread)
+RUND_NODE_TEST_CASE("runtime.platform-adapter", RunRuntimePlatformAdapterContract, "tests/contract/runtime/platform/adapter.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.stress", RunRuntimeStressContract, "tests/contract/runtime/stress.cpp", runtime, thread)

@@ -1,0 +1,278 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 4 ]; then
+  echo "usage: tools/internal/artifact/darwin <release-build> <observation> <version> <triplet>" >&2
+  exit 2
+fi
+
+build=$1
+observation=$2
+version=$3
+triplet=$4
+cache="$build/CMakeCache.txt"
+targets="$build/runD-install/lib/cmake/runD/runDTargets.cmake"
+
+if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ] ||
+   [ "$triplet" != darwin-arm64 ]; then
+  echo "Darwin artifact identity requires a native darwin-arm64 producer" >&2
+  exit 1
+fi
+if [ ! -f "$cache" ] || [ ! -f "$targets" ]; then
+  echo "Darwin artifact identity requires the completed Release install" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$version" | awk '
+    /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ { valid = 1 }
+    END { exit !valid }
+  '; then
+  echo "artifact SDK version is invalid: $version" >&2
+  exit 1
+fi
+
+cache_value() {
+  key=$1
+  awk -v key="$key" '
+    index($0, key ":") == 1 {
+      sub(/^[^=]*=/, "")
+      print
+      found += 1
+    }
+    END { if (found != 1) exit 1 }
+  ' "$cache"
+}
+
+cache_value_optional() {
+  key=$1
+  awk -v key="$key" '
+    index($0, key ":") == 1 {
+      sub(/^[^=]*=/, "")
+      print
+      found += 1
+    }
+    END { if (found > 1) exit 1 }
+  ' "$cache"
+}
+
+cmake_set_value() {
+  key=$1
+  file=$2
+  sed -n "s/^set(${key} \"\\([^\"]*\\)\")$/\\1/p" "$file" |
+    awk 'NF { value = $0; count += 1 } END {
+      if (count != 1) exit 1
+      print value
+    }'
+}
+
+require_under() {
+  label=$1
+  path=$2
+  prefix=$3
+  if [ ! -e "$path" ]; then
+    echo "artifact dependency path is missing for $label: $path" >&2
+    exit 1
+  fi
+  resolved_path=$(realpath "$path")
+  resolved_prefix=$(realpath "$prefix")
+  case "$resolved_path" in
+    "$resolved_prefix"/*) ;;
+    *)
+      echo "artifact dependency $label is not owned by $prefix: $resolved_path" >&2
+      exit 1
+      ;;
+  esac
+}
+
+formula_version() {
+  formula=$1
+  line=$($brew list --versions "$formula")
+  set -- $line
+  if [ "$#" -ne 2 ] || [ "$1" != "$formula" ]; then
+    echo "Homebrew must report one exact installed $formula version: $line" >&2
+    exit 1
+  fi
+  printf '%s\n' "$2"
+}
+
+set -- "$build"/CMakeFiles/*/CMakeCXXCompiler.cmake
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+  echo "Release compiler identity is not unique" >&2
+  exit 1
+fi
+compiler_file=$1
+compiler=$(cache_value CMAKE_CXX_COMPILER)
+compiler_id=$(cmake_set_value CMAKE_CXX_COMPILER_ID "$compiler_file")
+compiler_version=$(cmake_set_value CMAKE_CXX_COMPILER_VERSION "$compiler_file")
+compiler_target=$("$compiler" -dumpmachine)
+build_type=$(cache_value CMAKE_BUILD_TYPE)
+if [ "$compiler_id" != AppleClang ]; then
+  echo "Darwin artifact compiler is not AppleClang: $compiler_id" >&2
+  exit 1
+fi
+if [ "$build_type" != Release ]; then
+  echo "Darwin artifact was not produced by a Release build: $build_type" >&2
+  exit 1
+fi
+if [ ! -x "$compiler" ]; then
+  echo "Release C++ compiler is unavailable: $compiler" >&2
+  exit 1
+fi
+if ! grep -Fq 'INTERFACE_COMPILE_FEATURES cxx_std_20' "$targets"; then
+  echo "installed runD::sdk does not own the canonical C++20 feature" >&2
+  exit 1
+fi
+if grep -Fq 'INTERFACE_COMPILE_DEFINITIONS' "$targets"; then
+  echo "artifact identity owner must be updated for public compile definitions" >&2
+  exit 1
+fi
+public_compile_definitions=none
+public_target_sha256=$(/usr/bin/shasum -a 256 "$targets" |
+  awk 'NR == 1 { print $1 }')
+if ! printf '%s\n' "$public_target_sha256" |
+    grep -Eq '^[0-9a-f]{64}$'; then
+  echo "installed public target SHA-256 is unavailable" >&2
+  exit 1
+fi
+cxx_standard=20
+configured_architectures=$(cache_value CMAKE_OSX_ARCHITECTURES)
+if [ -n "$configured_architectures" ] &&
+   [ "$configured_architectures" != arm64 ]; then
+  echo "Darwin artifact target architecture is not exactly arm64: $configured_architectures" >&2
+  exit 1
+fi
+case "$compiler_target" in
+  arm64-apple-*|aarch64-apple-*) ;;
+  *)
+    echo "Darwin artifact compiler target is not arm64: $compiler_target" >&2
+    exit 1
+    ;;
+esac
+target_architecture=arm64
+
+if ! command -v xcrun >/dev/null 2>&1; then
+  echo "xcrun is required to identify the Apple SDK" >&2
+  exit 1
+fi
+apple_sdk_name=macosx
+apple_sdk_path=$(xcrun --sdk "$apple_sdk_name" --show-sdk-path)
+apple_sdk_version=$(xcrun --sdk "$apple_sdk_name" --show-sdk-version)
+apple_sdk_build=$(xcrun --sdk "$apple_sdk_name" --show-sdk-build-version)
+metal_framework=$(cache_value RUND_NODE_METAL_FRAMEWORK)
+foundation_framework=$(cache_value RUND_NODE_FOUNDATION_FRAMEWORK)
+require_under Metal "$metal_framework" "$apple_sdk_path"
+require_under Foundation "$foundation_framework" "$apple_sdk_path"
+metal_sdk_version=$apple_sdk_version
+foundation_sdk_version=$apple_sdk_version
+
+configured_deployment_target=$(cache_value CMAKE_OSX_DEPLOYMENT_TARGET)
+if [ -n "$configured_deployment_target" ]; then
+  stdlib_macros=$(printf '#include <version>\n' |
+    "$compiler" -std=c++20 -arch arm64 -isysroot "$apple_sdk_path" \
+      "-mmacosx-version-min=$configured_deployment_target" \
+      -dM -E -x c++ -)
+else
+  stdlib_macros=$(printf '#include <version>\n' |
+    "$compiler" -std=c++20 -arch arm64 -isysroot "$apple_sdk_path" \
+      -dM -E -x c++ -)
+fi
+if ! printf '%s\n' "$stdlib_macros" |
+    awk '$2 == "__arm64__" || $2 == "__aarch64__" { found = 1 }
+         END { exit !found }'; then
+  echo "Darwin artifact compiler probe did not target arm64" >&2
+  exit 1
+fi
+macos_deployment_target_macro=$(printf '%s\n' "$stdlib_macros" |
+  awk '$2 == "__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__" {
+    print $3
+    found += 1
+  } END { if (found != 1) exit 1 }')
+libcpp_version=$(printf '%s\n' "$stdlib_macros" |
+  awk '$2 == "_LIBCPP_VERSION" { print $3 }')
+libstdcpp_version=$(printf '%s\n' "$stdlib_macros" |
+  awk '$2 == "__GLIBCXX__" { print $3 }')
+if [ -n "$libcpp_version" ] && [ -z "$libstdcpp_version" ]; then
+  cxx_standard_library=libc++
+  cxx_standard_library_version=$libcpp_version
+elif [ -n "$libstdcpp_version" ] && [ -z "$libcpp_version" ]; then
+  cxx_standard_library=libstdc++
+  cxx_standard_library_version=$libstdcpp_version
+else
+  echo "Release C++ standard library identity is ambiguous" >&2
+  exit 1
+fi
+
+if ! brew=$(command -v brew) || [ -z "$brew" ]; then
+  echo "Homebrew metadata is required for Darwin backend identity" >&2
+  exit 1
+fi
+molten_vk_formula=molten-vk
+vulkan_headers_formula=vulkan-headers
+vulkan_loader_formula=vulkan-loader
+molten_vk_version=$(formula_version "$molten_vk_formula")
+vulkan_headers_version=$(formula_version "$vulkan_headers_formula")
+vulkan_loader_version=$(formula_version "$vulkan_loader_formula")
+molten_vk_prefix=$($brew --prefix "$molten_vk_formula")
+vulkan_headers_prefix=$($brew --prefix "$vulkan_headers_formula")
+vulkan_loader_prefix=$($brew --prefix "$vulkan_loader_formula")
+
+vulkan_include=$(cache_value_optional Vulkan_INCLUDE_DIR)
+if [ -z "$vulkan_include" ]; then
+  vulkan_include=$(cache_value RUND_NODE_VULKAN_INCLUDE_DIR)
+fi
+vulkan_library=$(cache_value_optional Vulkan_LIBRARY)
+if [ -z "$vulkan_library" ]; then
+  vulkan_library=$(cache_value RUND_NODE_VULKAN_LIBRARY)
+fi
+require_under vulkan-header "$vulkan_include/vulkan/vulkan.h" \
+  "$vulkan_headers_prefix"
+require_under vulkan-loader "$vulkan_library" "$vulkan_loader_prefix"
+require_under molten-vk-icd \
+  "$molten_vk_prefix/etc/vulkan/icd.d/MoltenVK_icd.json" \
+  "$molten_vk_prefix"
+
+observation_dir=$(dirname -- "$observation")
+mkdir -p "$observation_dir"
+temporary="$observation.tmp.$$"
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  rm -f "$temporary"
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+{
+  for pair in \
+    "apple_sdk_build=$apple_sdk_build" \
+    "apple_sdk_name=$apple_sdk_name" \
+    "apple_sdk_version=$apple_sdk_version" \
+    "build_type=$build_type" \
+    "compiler_id=$compiler_id" \
+    "compiler_target=$compiler_target" \
+    "compiler_version=$compiler_version" \
+    "cxx_standard=$cxx_standard" \
+    "cxx_standard_library=$cxx_standard_library" \
+    "cxx_standard_library_version=$cxx_standard_library_version" \
+    "foundation_sdk_version=$foundation_sdk_version" \
+    "macos_deployment_target_macro=$macos_deployment_target_macro" \
+    "metal_sdk_version=$metal_sdk_version" \
+    "molten_vk_formula=$molten_vk_formula" \
+    "molten_vk_version=$molten_vk_version" \
+    "platform_triplet=$triplet" \
+    "public_compile_definitions=$public_compile_definitions" \
+    "public_target_sha256=$public_target_sha256" \
+    "sdk_version=$version" \
+    "target_architecture=$target_architecture" \
+    "vulkan_headers_formula=$vulkan_headers_formula" \
+    "vulkan_headers_version=$vulkan_headers_version" \
+    "vulkan_loader_formula=$vulkan_loader_formula" \
+    "vulkan_loader_version=$vulkan_loader_version"; do
+    label=${pair%%=*}
+    value=${pair#*=}
+    printf '%s\t%s\n' "$label" "$value"
+  done
+} >"$temporary"
+mv -f "$temporary" "$observation"

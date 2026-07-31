@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-drain", RunRuntimeTaskNetDrainContract, "tests/contract/runtime/task/net/drain.cpp", runtime)

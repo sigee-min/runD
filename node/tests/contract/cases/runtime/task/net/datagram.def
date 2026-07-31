@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-datagram", RunRuntimeTaskNetDatagramContract, "tests/contract/runtime/task/net/datagram.cpp", runtime)

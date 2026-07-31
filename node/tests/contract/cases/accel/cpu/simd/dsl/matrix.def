@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.cpu-simd.dsl-matrix", RunAccelCpuSimdDslMatrixContract, "tests/contract/accel/cpu/dsl/matrix.cpp", cpu-simd)

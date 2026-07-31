@@ -1,0 +1,271 @@
+set(NODE_TEST_COMPUTE_COMMON_SOURCES
+  tests/contract/compute/allocation.cpp
+)
+
+set(NODE_TEST_COMPUTE_SOURCES
+  tests/contract/compute/numeric.cpp
+  tests/contract/compute/telemetry.cpp
+  tests/contract/compute/fixed/value.cpp
+  tests/contract/compute/result.cpp
+  tests/contract/compute/error.cpp
+  tests/contract/compute/reuse.cpp
+  tests/contract/compute/cpu/tiles.cpp
+  tests/contract/compute/cpu/view.cpp
+  tests/contract/compute/program/cache/concurrency.cpp
+  tests/contract/compute/program/cache/concurrency/async.cpp
+  tests/contract/compute/program/cache/concurrency/capacity.cpp
+  tests/contract/compute/program/cache/concurrency/failure.cpp
+  tests/contract/compute/program/cache/concurrency/lifetime.cpp
+  tests/contract/compute/program/cache/concurrency/service.cpp
+  tests/contract/compute/program/cache/index.cpp
+  tests/contract/compute/graph/build.cpp
+  tests/contract/compute/graph/services/boundary.cpp
+  tests/contract/compute/graph/services/birth.cpp
+  tests/contract/compute/graph/services/memory.cpp
+  tests/contract/compute/graph/services/plan.cpp
+  tests/contract/compute/graph/services/resource.cpp
+  tests/contract/compute/flow/primitives.cpp
+)
+
+set(NODE_TEST_COMPUTE_ACCEL_SOURCES
+  tests/contract/compute/device.cpp
+  tests/contract/compute/vulkan/cache.cpp
+  tests/contract/compute/map.cpp
+  tests/contract/compute/map/local/model.cpp
+  tests/contract/compute/map/canonical.cpp
+  tests/contract/compute/map/liveness.cpp
+  tests/contract/compute/map/envelope.cpp
+  tests/contract/compute/map/run.cpp
+  tests/contract/compute/fixed/multiply/declared.cpp
+  tests/contract/compute/fixed/predicate/wide.cpp
+  tests/contract/compute/resident/write.cpp
+  tests/contract/compute/flow.cpp
+  tests/contract/compute/flow/contract/backend.cpp
+  tests/contract/compute/flow/contract/basic.cpp
+  tests/contract/compute/flow/contract/compose.cpp
+  tests/contract/compute/flow/contract/device.cpp
+  tests/contract/compute/flow/contract/expression.cpp
+  tests/contract/compute/flow/contract/parity.cpp
+  tests/contract/compute/flow/contract/record.cpp
+  tests/contract/compute/flow/contract/shape.cpp
+  tests/contract/compute/flow/contract/surface.cpp
+  tests/contract/compute/flow/numeric.cpp
+  tests/contract/compute/flow/numeric/local/model.cpp
+  tests/contract/compute/flow/numeric/core.cpp
+  tests/contract/compute/flow/numeric/format.cpp
+  tests/contract/compute/flow/numeric/modes.cpp
+  tests/contract/compute/flow/numeric/modes/algebra.cpp
+  tests/contract/compute/flow/numeric/modes/golden.cpp
+  tests/contract/compute/flow/numeric/modes/policy.cpp
+  tests/contract/compute/flow/numeric/modes/transform.cpp
+)
+
+# A semantic leaf belongs to the registered case that calls it. Exact-focus and
+# subset targets use this one table to exclude unrelated leaves while keeping
+# unmapped support sources global. One row may name multiple cases when they
+# deliberately share one fixture authority.
+list(APPEND RUND_NODE_TEST_COMPANION_ROWS
+  "tests/contract/compute/cpu/view.cpp|compute.cpu-tiles"
+  "tests/contract/compute/map/local/model.cpp|compute.map"
+  "tests/contract/compute/map/canonical.cpp|compute.map"
+  "tests/contract/compute/map/liveness.cpp|compute.map"
+  "tests/contract/compute/map/envelope.cpp|compute.map"
+  "tests/contract/compute/map/run.cpp|compute.map"
+  "tests/contract/compute/flow/numeric/local/model.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/flow/numeric/core.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/flow/numeric/format.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/flow/numeric/modes/algebra.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/flow/numeric/modes/golden.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/flow/numeric/modes/policy.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/flow/numeric/modes/transform.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/graph/services/boundary.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/birth.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/resource.cpp|compute.graph-plan"
+  "tests/contract/compute/flow/shape/local/model.cpp|compute.static-matrix"
+  "tests/contract/compute/flow/shape/surface.cpp|compute.static-matrix"
+  "tests/contract/compute/flow/shape/run.cpp|compute.static-matrix"
+  "tests/contract/compute/pipeline/backend.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/binding.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/chunk.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/completion.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/empty.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/fixed.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/hazard.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/oracle.cpp|compute.pipeline,compute.window"
+  "tests/contract/compute/pipeline/identity.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/loss.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/profile.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/repeat.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/state.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/status.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/views.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/arena.cpp|compute.pipeline"
+  "tests/contract/compute/window/chain.cpp|compute.window"
+  "tests/contract/compute/window/freeze.cpp|compute.window"
+  "tests/contract/compute/window/matrix.cpp|compute.window"
+  "tests/contract/compute/window/parity.cpp|compute.window"
+  "tests/contract/compute/window/plan.cpp|compute.window"
+  "tests/contract/compute/window/terminal.cpp|compute.window"
+  "tests/contract/compute/memory/accel.cpp|compute.memory"
+  "tests/contract/compute/memory/arena.cpp|compute.memory"
+  "tests/contract/compute/memory/graph.cpp|compute.memory"
+  "tests/contract/compute/memory/observe.cpp|compute.memory"
+  "tests/contract/compute/memory/program.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch.cpp|compute.memory"
+  "tests/contract/compute/backend/domain.cpp|compute.backend"
+  "tests/contract/compute/backend/map.cpp|compute.backend"
+  "tests/contract/compute/backend/matrix.cpp|compute.backend"
+  "tests/contract/compute/backend/movement.cpp|compute.backend"
+  "tests/contract/compute/backend/observe.cpp|compute.backend"
+  "tests/contract/compute/backend/primitive.cpp|compute.backend"
+  "tests/contract/compute/backend/segment.cpp|compute.backend"
+  "tests/contract/compute/collective/modes/backend.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/bounded.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/cancel.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/core.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/empty.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/overflow.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/reduce.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/scale.cpp|compute.collective-modes"
+  "tests/contract/compute/bounded/backend.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/compact.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/cpu.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/expand.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/filter.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/group.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/invalid.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/parity.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/rewrite.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/surface.cpp|compute.bounded-parity"
+  "tests/contract/compute/bounded/vulkan.cpp|compute.bounded-parity"
+  "tests/contract/compute/graph/services/async.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/backend.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/bounded.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/cache.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/empty.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/fixed.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/oracle.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/identity.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/memory/reuse.cpp|compute.graph-services"
+  "tests/contract/compute/graph/services/policy.cpp|compute.graph-services"
+)
+
+set(NODE_TEST_COMPUTE_EXPRESSIONS_SOURCES
+  tests/contract/compute/expression/contract.cpp
+  tests/contract/compute/expression/integral.cpp
+  tests/contract/compute/expression/fixed/core.cpp
+  tests/contract/compute/expression/fixed/policy.cpp
+  tests/contract/compute/expression/function/core.cpp
+  tests/contract/compute/expression/function/fixed/32/linear.cpp
+  tests/contract/compute/expression/function/fixed/64/linear.cpp
+  tests/contract/compute/expression/function/geometry.cpp
+  tests/contract/compute/expression/function/algebra.cpp
+  tests/contract/compute/expression/function/approx.cpp
+  tests/contract/compute/expression/function/golden.cpp
+  tests/contract/compute/expression/cardinality.cpp
+)
+
+set(NODE_TEST_COMPUTE_LINE_TABLE_SOURCES
+  ${NODE_TEST_COMPUTE_EXPRESSIONS_SOURCES}
+  tests/contract/compute/memory.cpp
+  tests/contract/compute/memory/accel.cpp
+  tests/contract/compute/memory/arena.cpp
+  tests/contract/compute/memory/graph.cpp
+  tests/contract/compute/memory/observe.cpp
+  tests/contract/compute/memory/program.cpp
+  tests/contract/compute/memory/scratch.cpp
+)
+
+# These executable contracts print their own value/backend diagnostics. Keep
+# source lines for sanitizer and crash symbolization without emitting the full
+# template-local DWARF graph in Debug builds.
+set_property(SOURCE ${NODE_TEST_COMPUTE_LINE_TABLE_SOURCES}
+  APPEND PROPERTY COMPILE_OPTIONS
+    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang>>:-gline-tables-only>"
+    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANG_AND_ID:CXX,GNU>>:-g1>")
+
+set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
+  tests/contract/compute/flow/shape.cpp
+  tests/contract/compute/flow/shape/local/model.cpp
+  tests/contract/compute/flow/shape/surface.cpp
+  tests/contract/compute/flow/shape/run.cpp
+  tests/contract/compute/batch.cpp
+  tests/contract/compute/job.cpp
+  tests/contract/compute/pipeline.cpp
+  tests/contract/compute/pipeline/backend.cpp
+  tests/contract/compute/pipeline/binding.cpp
+  tests/contract/compute/pipeline/chunk.cpp
+  tests/contract/compute/pipeline/completion.cpp
+  tests/contract/compute/pipeline/empty.cpp
+  tests/contract/compute/pipeline/fixed.cpp
+  tests/contract/compute/pipeline/hazard.cpp
+  tests/contract/compute/pipeline/oracle.cpp
+  tests/contract/compute/pipeline/identity.cpp
+  tests/contract/compute/pipeline/loss.cpp
+  tests/contract/compute/pipeline/memory.cpp
+  tests/contract/compute/pipeline/profile.cpp
+  tests/contract/compute/pipeline/repeat.cpp
+  tests/contract/compute/pipeline/state.cpp
+  tests/contract/compute/pipeline/status.cpp
+  tests/contract/compute/pipeline/surface.cpp
+  tests/contract/compute/pipeline/views.cpp
+  tests/contract/compute/pipeline/view/arena.cpp
+  tests/contract/compute/window.cpp
+  tests/contract/compute/window/chain.cpp
+  tests/contract/compute/window/freeze.cpp
+  tests/contract/compute/window/matrix.cpp
+  tests/contract/compute/window/parity.cpp
+  tests/contract/compute/window/plan.cpp
+  tests/contract/compute/window/terminal.cpp
+  tests/contract/compute/memory.cpp
+  tests/contract/compute/memory/accel.cpp
+  tests/contract/compute/memory/arena.cpp
+  tests/contract/compute/memory/graph.cpp
+  tests/contract/compute/memory/observe.cpp
+  tests/contract/compute/memory/program.cpp
+  tests/contract/compute/memory/scratch.cpp
+  tests/contract/compute/backend.cpp
+  tests/contract/compute/backend/domain.cpp
+  tests/contract/compute/backend/map.cpp
+  tests/contract/compute/backend/matrix.cpp
+  tests/contract/compute/backend/movement.cpp
+  tests/contract/compute/backend/observe.cpp
+  tests/contract/compute/backend/primitive.cpp
+  tests/contract/compute/backend/segment.cpp
+  tests/contract/compute/collective/modes.cpp
+  tests/contract/compute/collective/modes/backend.cpp
+  tests/contract/compute/collective/modes/bounded.cpp
+  tests/contract/compute/collective/modes/cancel.cpp
+  tests/contract/compute/collective/modes/core.cpp
+  tests/contract/compute/collective/modes/empty.cpp
+  tests/contract/compute/collective/modes/overflow.cpp
+  tests/contract/compute/collective/modes/reduce.cpp
+  tests/contract/compute/collective/modes/scale.cpp
+  tests/contract/compute/boundary/modes.cpp
+  tests/contract/compute/bounded.cpp
+  tests/contract/compute/bounded/backend.cpp
+  tests/contract/compute/bounded/compact.cpp
+  tests/contract/compute/bounded/cpu.cpp
+  tests/contract/compute/bounded/expand.cpp
+  tests/contract/compute/bounded/filter.cpp
+  tests/contract/compute/bounded/group.cpp
+  tests/contract/compute/bounded/invalid.cpp
+  tests/contract/compute/bounded/parity.cpp
+  tests/contract/compute/bounded/rewrite.cpp
+  tests/contract/compute/bounded/surface.cpp
+  tests/contract/compute/bounded/vulkan.cpp
+  tests/contract/compute/graph/services.cpp
+  tests/contract/compute/graph/services/async.cpp
+  tests/contract/compute/graph/services/backend.cpp
+  tests/contract/compute/graph/services/bounded.cpp
+  tests/contract/compute/graph/services/cache.cpp
+  tests/contract/compute/graph/services/empty.cpp
+  tests/contract/compute/graph/services/fixed.cpp
+  tests/contract/compute/graph/services/oracle.cpp
+  tests/contract/compute/graph/services/identity.cpp
+  tests/contract/compute/graph/services/memory/reuse.cpp
+  tests/contract/compute/graph/services/policy.cpp
+)

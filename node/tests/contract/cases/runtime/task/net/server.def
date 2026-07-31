@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-server", RunRuntimeTaskNetServerContract, "tests/contract/runtime/task/net/server/core.cpp", runtime)

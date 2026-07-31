@@ -1,0 +1,20 @@
+set(KERNEL_DISPATCH_SOURCES
+  src/dispatch/kernel/adapter.cpp
+  src/dispatch/kernel/backend.cpp
+  src/dispatch/kernel/execute/bridge.cpp
+  src/dispatch/kernel/execute/inspect.cpp
+  src/dispatch/kernel/execute/plan.cpp
+  src/dispatch/kernel/execute/schedule.cpp
+  src/dispatch/kernel/serial/plan.cpp
+  src/dispatch/kernel/serial/stats.cpp
+  src/dispatch/kernel/telemetry/base/plan.cpp
+  src/dispatch/kernel/telemetry/failure.cpp
+  src/dispatch/kernel/telemetry/worker.cpp
+  src/dispatch/kernel/validation/backend.cpp
+  src/dispatch/kernel/validation/plan.cpp
+  src/dispatch/orchestrator/run.cpp
+)
+
+set(KERNEL_CORE_SOURCES
+  src/dispatch/orchestrator/failure.cpp
+)

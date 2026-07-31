@@ -1,0 +1,20 @@
+set(NODE_TEST_NET_LIFECYCLE_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/net/lifecycle.cpp
+  tests/contract/runtime/task/net/lifecycle/close.cpp
+  tests/contract/runtime/task/net/lifecycle/invalid.cpp
+  tests/contract/runtime/task/net/lifecycle/lease.cpp
+  tests/contract/runtime/task/net/lifecycle/local.cpp
+  tests/contract/runtime/task/net/lifecycle/owner.cpp
+  tests/contract/runtime/task/net/lifecycle/reuse.cpp
+  tests/contract/runtime/task/net/lifecycle/ticket.cpp
+)
+
+set(NODE_TEST_NET_LISTENER_LIFECYCLE_TEST_SOURCES
+  tests/contract/runtime/task/net/listener/lifecycle.cpp
+  tests/contract/runtime/task/net/listener/lifecycle/invalid.cpp
+  tests/contract/runtime/task/net/listener/lifecycle/local.cpp
+  tests/contract/runtime/task/net/listener/lifecycle/open.cpp
+  tests/contract/runtime/task/net/listener/lifecycle/shutdown.cpp
+  tests/contract/runtime/task/net/listener/lifecycle/stale.cpp
+)

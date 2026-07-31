@@ -1,0 +1,235 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 5 ]; then
+  echo "usage: tools/internal/package/candidate <root> <release-build> <version> <triplet> <artifact-identity>" >&2
+  exit 2
+fi
+
+canonical_path() {
+  kind=$1
+  label=$2
+  path=$3
+  case "$kind" in
+    directory) exists=-d ;;
+    file) exists=-f ;;
+    *)
+      echo "package candidate has an invalid path kind: $kind" >&2
+      return 1
+      ;;
+  esac
+  if ! test "$exists" "$path"; then
+    echo "package candidate $label is missing: $path" >&2
+    return 1
+  fi
+  if ! resolved=$(realpath "$path"); then
+    echo "package candidate cannot resolve $label: $path" >&2
+    return 1
+  fi
+  case "$resolved" in
+    /*) printf '%s\n' "$resolved" ;;
+    *)
+      echo "package candidate $label did not resolve absolutely: $path" >&2
+      return 1
+      ;;
+  esac
+}
+
+root=$(canonical_path directory "repository root" "$1")
+build=$(canonical_path directory "release build" "$2")
+version=$3
+triplet=$4
+artifact_identity=$(canonical_path file "artifact identity" "$5")
+
+platform_status=$(sh "$root/tools/internal/platform/status" "$root" "$triplet") || {
+  echo "package candidate platform authority is invalid: $triplet" >&2
+  exit 1
+}
+case "$platform_status" in
+  supported | validated) ;;
+  *)
+    echo "package candidate platform is not admitted: $triplet ($platform_status)" >&2
+    exit 1
+    ;;
+esac
+install="$build/runD-install"
+release_manifest="$build/.rund-source-manifest-after.tsv"
+release_identity="$release_manifest.identity.tsv"
+targets="$install/lib/cmake/runD/runDTargets.cmake"
+
+for atom in "$version" "$triplet"; do
+  if ! printf '%s\n' "$atom" | LC_ALL=C grep -Eq '^[A-Za-z0-9._+-]+$'; then
+    echo "package candidate identity is invalid: $atom" >&2
+    exit 1
+  fi
+done
+for required in \
+    "$install" \
+    "$release_manifest" "$release_manifest.sha256" \
+    "$release_identity" "$release_identity.sha256" \
+    "$artifact_identity" "$artifact_identity.sha256" \
+    "$targets"; do
+  if [ ! -e "$required" ]; then
+    echo "package candidate input is missing: $required" >&2
+    exit 1
+  fi
+done
+
+cmake \
+  -D "SOURCE_MANIFEST=$release_manifest" \
+  -D "SOURCE_IDENTITY=$release_identity" \
+  -D "SOURCE_OWNER=producer" \
+  -D "IDENTITY=$artifact_identity" \
+  -D "EXPECTED_SDK_VERSION=$version" \
+  -D "EXPECTED_TRIPLET=$triplet" \
+  -D "PUBLIC_TARGET=$targets" \
+  -D "IDENTITY_OWNER=producer" \
+  -P "$root/package/cmake/identity.cmake"
+
+artifact_name="rund-sdk-$version-$triplet"
+dist="$build/dist"
+artifact_dir="$dist/$artifact_name"
+archive="$dist/$artifact_name.tar.gz"
+checksum="$dist/$artifact_name.sha256"
+verifier="$dist/rund-verify"
+publish_root="$build/.artifact-publish"
+archive_temporary="$publish_root/$artifact_name.tar.gz"
+checksum_temporary="$publish_root/$artifact_name.sha256"
+verifier_temporary="$publish_root/rund-verify"
+extract_root="$build/artifact-extracted"
+consumer_root="$build/artifact-consumer"
+extracted_prefix="$extract_root/$artifact_name"
+artifact_manifest="$build/.rund-artifact-source-manifest-after.tsv"
+artifact_log="$build/.rund-artifact.tsv"
+artifact_log_temporary="$artifact_log.tmp.$$"
+
+complete=false
+publication_started=false
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  cmake -E remove_directory "$artifact_dir"
+  cmake -E remove_directory "$extract_root"
+  cmake -E remove_directory "$consumer_root"
+  cmake -E remove_directory "$publish_root"
+  if [ "$complete" != true ]; then
+    if [ "$publication_started" = true ]; then
+      cmake -E rm -f "$archive" "$checksum" "$verifier"
+    fi
+    cmake -E rm -f "$artifact_manifest" "$artifact_manifest.sha256" \
+      "$artifact_manifest.identity.tsv" \
+      "$artifact_manifest.identity.tsv.sha256" "$artifact_log" \
+      "$artifact_log_temporary"
+  fi
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+cmake -E remove_directory "$artifact_dir"
+cmake -E remove_directory "$extract_root"
+cmake -E remove_directory "$consumer_root"
+cmake -E remove_directory "$publish_root"
+cmake -E make_directory "$dist" "$publish_root"
+cmake -E copy "$root/tools/internal/package/verify" "$verifier_temporary"
+cmake -E copy_directory "$install" "$artifact_dir"
+provenance_dir="$artifact_dir/share/runD/release"
+cmake -E make_directory "$provenance_dir"
+cmake -E copy "$root/package/cmake/identity.cmake" \
+  "$provenance_dir/identity.cmake"
+cmake -E copy "$release_manifest" \
+  "$provenance_dir/source-manifest.tsv"
+cmake -E copy "$release_manifest.sha256" \
+  "$provenance_dir/source-manifest.tsv.sha256"
+cmake -E copy "$release_identity" \
+  "$provenance_dir/source-identity.tsv"
+cmake -E copy "$release_identity.sha256" \
+  "$provenance_dir/source-identity.tsv.sha256"
+cmake -E copy "$artifact_identity" \
+  "$provenance_dir/artifact-identity.tsv"
+cmake -E copy "$artifact_identity.sha256" \
+  "$provenance_dir/artifact-identity.tsv.sha256"
+
+(
+  cd "$dist"
+  cmake -E tar czf "$archive_temporary" "$artifact_name"
+)
+archive_sha256=$(cmake -E sha256sum "$archive_temporary" |
+  awk 'NR == 1 { print $1 }')
+if ! printf '%s\n' "$archive_sha256" |
+    LC_ALL=C grep -Eq '^[0-9a-f]{64}$'; then
+  echo "package candidate archive SHA-256 is unavailable" >&2
+  exit 1
+fi
+printf '%s  %s\n' "$archive_sha256" "$artifact_name.tar.gz" \
+  >"$checksum_temporary"
+cmake -E make_directory "$extract_root" "$consumer_root"
+sh "$verifier_temporary" "$archive_temporary" "$checksum_temporary" \
+  "$extract_root"
+if [ ! -d "$extracted_prefix" ]; then
+  echo "package candidate verifier did not install its versioned prefix" >&2
+  exit 1
+fi
+extracted_real=$(realpath "$extracted_prefix")
+consumer_real=$(realpath "$consumer_root")
+case "$consumer_real/" in "$extracted_real/"*)
+  echo "package candidate consumer is inside the extracted prefix" >&2
+  exit 1
+esac
+case "$extracted_real/" in "$consumer_real/"*)
+  echo "package candidate extracted prefix is inside the consumer" >&2
+  exit 1
+esac
+
+sh "$root/tools/internal/process/run" 1800 "extracted package consumer" \
+  cmake \
+    -D "ROOT=$root" \
+    -D "BUILD_DIR=$consumer_root" \
+    -D "PREFIX=$extracted_prefix" \
+    -D "EXPECTED_RELEASE_MANIFEST=$release_manifest" \
+    -D "EXPECTED_ARTIFACT_IDENTITY=$artifact_identity" \
+    -D "EXPECTED_SDK_VERSION=$version" \
+    -P "$root/package/cmake/consumer.cmake"
+
+sh "$root/tools/internal/source/verify" \
+  "$root" "$release_manifest" "$artifact_manifest"
+if ! cmp -s "$release_identity" "$artifact_manifest.identity.tsv"; then
+  echo "source identity changed after package candidate verification" >&2
+  exit 1
+fi
+
+source_manifest_sha256=$(sed -n '1p' "$release_manifest.sha256")
+source_identity_sha256=$(sed -n '1p' "$release_identity.sha256")
+artifact_identity_sha256=$(sed -n '1p' "$artifact_identity.sha256")
+verifier_sha256=$(cmake -E sha256sum "$verifier_temporary" |
+  awk 'NR == 1 { print $1 }')
+if ! printf '%s\n' "$verifier_sha256" |
+    LC_ALL=C grep -Eq '^[0-9a-f]{64}$'; then
+  echo "package candidate verifier SHA-256 is unavailable" >&2
+  exit 1
+fi
+{
+  printf 'artifact\t%s\n' "$(basename "$archive")"
+  printf 'artifact_identity_sha256\t%s\n' "$artifact_identity_sha256"
+  printf 'artifact_sha256\t%s\n' "$archive_sha256"
+  printf 'platform_triplet\t%s\n' "$triplet"
+  printf 'sdk_version\t%s\n' "$version"
+  printf 'source_identity_sha256\t%s\n' "$source_identity_sha256"
+  printf 'source_manifest_sha256\t%s\n' "$source_manifest_sha256"
+  printf 'verifier_sha256\t%s\n' "$verifier_sha256"
+} >"$artifact_log_temporary"
+LC_ALL=C sort -c "$artifact_log_temporary"
+mv -f "$artifact_log_temporary" "$artifact_log"
+
+publication_started=true
+mv -f "$archive_temporary" "$archive"
+mv -f "$checksum_temporary" "$checksum"
+mv -f "$verifier_temporary" "$verifier"
+
+complete=true
+printf 'package candidate archive: %s\n' "$archive"
+printf 'package candidate checksum: %s\n' "$checksum"
+printf 'package candidate verifier: %s\n' "$verifier"

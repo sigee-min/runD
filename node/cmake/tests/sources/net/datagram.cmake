@@ -1,0 +1,16 @@
+set(NODE_TEST_NET_DATAGRAM_TEST_SOURCES
+  tests/contract/runtime/task/net/datagram/fail.cpp
+  tests/contract/runtime/task/net/datagram/fail/blocking.cpp
+  tests/contract/runtime/task/net/datagram/fail/capacity.cpp
+  tests/contract/runtime/task/net/datagram/fail/preflight.cpp
+  tests/contract/runtime/task/net/datagram/fail/preflight/local.cpp
+  tests/contract/runtime/task/net/datagram/fail/preflight/null.cpp
+  tests/contract/runtime/task/net/datagram/fail/preflight/would/block.cpp
+  tests/contract/runtime/task/net/datagram/local/address.cpp
+  tests/contract/runtime/task/net/datagram/local/guard.cpp
+  tests/contract/runtime/task/net/datagram/local/pair.cpp
+  tests/contract/runtime/task/net/datagram/loopback.cpp
+  tests/contract/runtime/task/net/datagram/replay.cpp
+  tests/contract/runtime/task/net/datagram/zero.cpp
+  tests/contract/runtime/task/net/datagram.cpp
+)

@@ -1,0 +1,13 @@
+set(NODE_TEST_NET_STATS_TEST_SOURCES
+  tests/contract/runtime/task/net/stats.cpp
+  tests/contract/runtime/task/net/stats/cancel.cpp
+  tests/contract/runtime/task/net/stats/cancel/cancel.cpp
+  tests/contract/runtime/task/net/stats/cancel/close.cpp
+  tests/contract/runtime/task/net/stats/cancel/counters.cpp
+  tests/contract/runtime/task/net/stats/cancel/scenario.cpp
+  tests/contract/runtime/task/net/stats/local/address.cpp
+  tests/contract/runtime/task/net/stats/local/cleanup.cpp
+  tests/contract/runtime/task/net/stats/local/run.cpp
+  tests/contract/runtime/task/net/stats/local/socket.cpp
+  tests/contract/runtime/task/net/stats/nested.cpp
+)

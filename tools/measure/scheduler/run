@@ -1,0 +1,83 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Measure scheduler latency, scaling, and coroutine memory against Release." \
+    "usage: tools/measure/scheduler/run" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" measure/scheduler)
+
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$release"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$release" \
+    "$0" "$@"
+fi
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+sh "$root/tools/internal/measure/attempt" "$root" measure-scheduler start
+attempt_failed() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  [ "$code" -ne 0 ] || code=1
+  sh "$root/tools/internal/measure/attempt" \
+    "$root" measure-scheduler fail "$code" || :
+  exit "$code"
+}
+trap attempt_failed EXIT HUP INT TERM
+sh "$root/tools/internal/measure/prepare" "$root" "$build" \
+  "$root/tools/measure/scheduler"
+
+measure="$build/runD-scheduler-measure"
+run() {
+  name=$1
+  shift
+  sh "$root/tools/internal/process/run" 900 "$name" "$@"
+}
+
+measure_all() {
+  run scheduler.latency "$measure" latency
+  run scheduler.scale.1000 "$measure" scale 1000
+  run scheduler.scale.10000 "$measure" scale 10000
+  run scheduler.scale.100000 "$measure" scale 100000
+  run scheduler.scale.host.1000 "$measure" scale 1000 host
+  run scheduler.scale.host.10000 "$measure" scale 10000 host
+  run scheduler.scale.host.100000 "$measure" scale 100000 host
+  run scheduler.work.64.1 "$measure" scale 10000 1 64
+  run scheduler.work.64.host "$measure" scale 10000 host 64
+  run scheduler.work.512.1 "$measure" scale 10000 1 512
+  run scheduler.work.512.host "$measure" scale 10000 host 512
+  run scheduler.work.4096.1 "$measure" scale 10000 1 4096
+  run scheduler.work.4096.host "$measure" scale 10000 host 4096
+  run scheduler.memory.1000 "$measure" memory 1000
+  run scheduler.memory.10000 "$measure" memory 10000
+  run scheduler.memory.100000 "$measure" memory 100000
+  run scheduler.memory.host.100000 "$measure" memory 100000 host
+}
+
+log="$build/measure.log"
+if measure_all >"$log" 2>&1; then
+  status=passed
+else
+  code=$?
+  status=failed
+fi
+cat "$log"
+sh "$root/tools/internal/measure/finish" "$root" "$build" \
+  measure-scheduler "$status" "$log" measure.log "${code:-0}"
+sh "$root/tools/internal/measure/attempt" "$root" measure-scheduler complete
+trap - EXIT HUP INT TERM

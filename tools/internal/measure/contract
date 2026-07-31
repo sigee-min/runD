@@ -1,0 +1,1667 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/measure/contract <root> <work>" >&2
+  exit 2
+fi
+
+root=$1
+work=$2
+fixture="$work/root"
+rm -rf "$work"
+mkdir -p "$fixture/docs/reference/performance"
+
+route_metrics() {
+  perl - "$root" "$1" <<'PERL'
+use strict;
+use warnings;
+my ($root, $route) = @ARGV;
+require "$root/tools/internal/measure/schema.pm";
+print RundMeasureSchema::route($route)->{metrics};
+PERL
+}
+
+compute_metrics=$(route_metrics measure-compute)
+telemetry_metrics=$(route_metrics measure-telemetry)
+[ "$compute_metrics" -eq 145 ] || {
+  echo "Compute route cardinality changed: $compute_metrics" >&2
+  exit 1
+}
+darwin_rows=$(perl - "$root" <<'PERL'
+use strict;
+use warnings;
+my ($root) = @ARGV;
+require "$root/tools/internal/measure/schema.pm";
+print RundMeasureSchema::data_rows('Darwin');
+PERL
+)
+[ "$darwin_rows" -eq 325 ] || {
+  echo "Darwin baseline cardinality changed: $darwin_rows" >&2
+  exit 1
+}
+compute_fillers=$((compute_metrics - 10))
+
+system=$(uname -s)
+release=$(uname -r)
+machine=$(uname -m)
+workers=$(getconf _NPROCESSORS_ONLN)
+model=-
+cpu=-
+if [ "$system" = Darwin ]; then
+  model=$(sysctl -n hw.model)
+  cpu=$(sysctl -n machdep.cpu.brand_string)
+fi
+
+manifest_file="$work/source-manifest.tsv"
+printf '%s\n' 'fixture-source-manifest' >"$manifest_file"
+manifest_digest=$(cmake -E sha256sum "$manifest_file" | awk '{ print $1 }')
+
+flow="$work/flow.tsv"
+printf '%s\n' \
+  'metric	sample	unit	value' \
+  'alpha	median	ms	10.000' \
+  'beta	median	ms	10.000' \
+  'graph	1	us	9.000' \
+  'graph	2	us	11.000' \
+  'graph	median	us	10.000' \
+  'omega	median	us	10.000' >"$flow"
+
+compute_observation="$work/compute-observation.csv"
+printf '%s\n' \
+  'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
+  'resident_setup,cpu,ok,4,1,10.000,48,48,1,2' \
+  'inflight_columns,backend,status,k,count,samples,serial_median_us,concurrent_median_us,serial_jobs_per_s,concurrent_jobs_per_s,concurrent_items_per_s,speedup,command_capacity,command_inflight_peak,command_capacity_rejections,graph_hash,output_hash,hash_parity,warm_zero,command_submits,dispatches' \
+  'inflight,vulkan,ok,8,262144,7,10.000,5.000,800000.000,1600000.000,419430400000.000,2.000000,8,8,0,11,12,1,1,8,8' \
+  'batch_columns,backend,status,jobs,elements_per_job,samples,serial_first,batch_first,serial_wall_median_us,batch_wall_median_us,serial_submit_wait_us,batch_submit_wait_us,serial_kernel_us,batch_kernel_us,serial_host_residual_us,batch_host_residual_us,serial_jobs_per_s,batch_jobs_per_s,speedup,paired_speedup,serial_command_submits,batch_command_submits,job_command_submits,serial_dispatches,batch_dispatches,graph_hash,output_hash,hash_parity,warm_zero' \
+  'batch,metal,ok,64,64,8,4,4,10.000,5.000,8.000,3.000,2.000,2.000,2.000,2.000,6400000.000,12800000.000,2.000000,2.000000,64,1,0,64,64,11,12,1,1' \
+  'batch,vulkan,ok,64,64,8,4,4,12.000,6.000,9.000,4.000,3.000,2.000,3.000,2.000,5333333.333,10666666.667,2.000000,2.000000,64,1,0,64,64,11,12,1,1' \
+  'mixed_columns,backends,status,serial_median_us,mixed_median_us,serial_jobs_per_s,mixed_jobs_per_s,external_parks,external_wakes,cpu_graph_hash,cpu_output_hash,metal_graph_hash,metal_output_hash,vulkan_graph_hash,vulkan_output_hash,hash_parity,warm_pipeline_compiles,warm_buffer_allocations,warm_download_events,warm_uploaded_bytes,warm_zero' \
+  'mixed,cpu+metal+vulkan,ok,16.000,8.000,250000.000,500000.000,8,8,11,12,11,12,11,12,1,0,0,0,0,1' \
+  >"$compute_observation"
+index=1
+while [ "$index" -le "$compute_fillers" ]; do
+  printf 'cold,probe%03u,4,10.000\n' "$index" \
+    >>"$compute_observation"
+  index=$((index + 1))
+done
+
+scheduler_observation="$work/scheduler-observation.log"
+printf '%s\n' \
+  'spawn_complete ok=1 reason=ok ops=1 cold_ns_per_op=10 warm_median_ns_per_op=9' \
+  >"$scheduler_observation"
+index=1
+while [ "$index" -le 46 ]; do
+  printf 'task_scale task_scale_workers=1 ops=%u payload_ops=0 cold_ns_per_op=10 warm_median_ns_per_op=10\n' \
+    "$index" >>"$scheduler_observation"
+  index=$((index + 1))
+done
+
+graph_observation="$work/graph-observation.tsv"
+printf '%s\n' \
+  'async_same_key	32	us	10.000	cache_misses	1	waits	1	hits	30' \
+  'beta	1	us	10.000' \
+  'delta	1	us	10.000' \
+  'epsilon	1	us	10.000' \
+  'gamma	1	us	10.000' \
+  'latency	1	us	10.000' \
+  'omega	1	us	10.000' \
+  'theta	1	us	10.000' >"$graph_observation"
+
+semantic=$(awk -F '\t' -v OFS='\t' '
+  NR == 1 { print; next }
+  { print $1, $2, $3 }
+' "$flow" | perl -MDigest::SHA=sha256_hex -e \
+  'local $/; print sha256_hex(<STDIN>)')
+
+telemetry="$work/telemetry.tsv"
+telemetry_semantic="$work/telemetry-semantic.tsv"
+perl - "$telemetry" "$telemetry_semantic" "$manifest_digest" <<'PERL'
+use strict;
+use warnings;
+
+my ($log_path, $semantic_path, $manifest) = @ARGV;
+open my $log, '>', $log_path or die "cannot write $log_path: $!";
+open my $semantic, '>', $semantic_path
+    or die "cannot write $semantic_path: $!";
+my @columns = qw(
+    sample operation lifecycle pair level operation:order level:order
+    time:wall:ns time:cpu:ns memory:allocations
+    telemetry:detail:prepare:ns telemetry:detail:work:ns
+    telemetry:detail:finish:ns result:code result:input:hash
+    result:transcript:hash result:hash result:input:rows
+    result:observation:rows result:host:events result:trace:records
+    result:capture:records result:capture:hash storage:logical:bytes
+    storage:encoded:bytes storage:retained:bytes storage:copied:bytes
+    storage:cached:bytes storage:physical:bytes storage:allocated:bytes
+    storage:reserved:bytes storage:growths storage:chunks storage:segments
+    storage:cache:hits storage:cache:misses storage:cache:evictions
+    capture:retained:bytes capture:retained:records capture:evicted:records
+    capture:dropped:records public:input:rows public:input:bytes
+    public:produced:rows public:choices public:evidence:rows
+    public:evidence:bytes public:retained:bytes public:copied:bytes
+    public:physical:bytes public:allocated:bytes public:reserved:bytes
+    public:storage:growths public:result:hash event:source event:session
+    event:scope event:code event:mode event:plan event:input:rows
+    event:input:bytes event:produced:rows event:choices
+    event:evidence:rows event:evidence:bytes event:retained:bytes
+    event:copied:bytes event:physical:bytes event:allocated:bytes
+    event:reserved:bytes event:storage:growths event:result:hash);
+my @prefix = (
+  "telemetry\t1",
+  "identity\tmanifest\tsha256\t$manifest",
+  "identity\tartifact\tsha256\t" . ('b' x 64),
+  "config\tpairs\tcount\t12",
+  "config\twarmups\tcount\t2",
+  "config\toperations\tcount\t4",
+  "design\toperations\torder\twilliams",
+  "design\tlevels\torder\tpermutations",
+  "columns\t" . join("\t", @columns),
+);
+print {$log} "$_\n" for @prefix;
+print {$semantic} "$prefix[0]\n";
+print {$semantic} "$_\n" for @prefix[3 .. $#prefix];
+
+my @operations = qw(live record replay scenario);
+my @lifecycles = qw(cold warm);
+my @metrics = qw(wall cpu allocations copied prepare work finish);
+my %unit = (wall => 'ns', cpu => 'ns', allocations => 'count',
+            copied => 'bytes', prepare => 'ns', work => 'ns', finish => 'ns');
+my @level_orders = (
+  [qw(disabled basic detail)], [qw(disabled detail basic)],
+  [qw(basic detail disabled)], [qw(detail basic disabled)],
+  [qw(basic disabled detail)], [qw(detail disabled basic)],
+);
+my @operation_orders = (
+  [qw(live record scenario replay)],
+  [qw(record replay live scenario)],
+  [qw(replay scenario record live)],
+  [qw(scenario live replay record)],
+);
+my @operation_positions = qw(first second third last);
+my @level_positions = qw(first middle last);
+my %operation_id = (live => 1, record => 2, replay => 3, scenario => 4);
+my %lifecycle_id = (cold => 1, warm => 2);
+
+sub metric_value {
+  my ($operation, $pair, $level, $metric) = @_;
+  my $odd = $pair % 2 == 1;
+  return $level eq 'disabled' ? 90
+       : $level eq 'basic' ? ($odd ? 100 : 110)
+       : ($odd ? 110 : 100) if $metric eq 'wall';
+  return $level eq 'disabled' ? 75
+       : $level eq 'basic' ? ($odd ? 80 : 85)
+       : ($odd ? 85 : 80) if $metric eq 'cpu';
+  return $level eq 'disabled' ? 1
+       : $level eq 'basic' ? ($odd ? 2 : 3)
+       : ($odd ? 3 : 2) if $metric eq 'allocations';
+  return $operation eq 'live' ? 0 : 32 if $metric eq 'copied';
+  return $level eq 'detail' ? 3 : 0 if $metric eq 'prepare';
+  return $level eq 'detail' ? 4 : 0 if $metric eq 'work';
+  return $level eq 'detail' ? 2 : 0;
+}
+
+for my $lifecycle (@lifecycles) {
+  for my $pair (1 .. 12) {
+    my @pair_operations =
+        @{$operation_orders[($pair - 1) % @operation_orders]};
+    my @pair_levels = @{$level_orders[($pair - 1) % @level_orders]};
+    for my $operation_position (0 .. 3) {
+      my $operation = $pair_operations[$operation_position];
+      my $persisted = $operation ne 'live';
+      my $identity = 100 * $operation_id{$operation} +
+          10 * $lifecycle_id{$lifecycle} + $pair;
+      my $result = 3000 + $identity;
+      my $growths = $persisted && $lifecycle eq 'cold' ? 1 : 0;
+      for my $level_position (0 .. 2) {
+        my $level = $pair_levels[$level_position];
+        my $enabled = $level ne 'disabled';
+        my $produced = $operation eq 'live' || $operation eq 'record' ? 1 : 0;
+        my $choices = $operation eq 'scenario' ? 1 : 0;
+        my $evidence_rows = $operation eq 'live' ? 0 : 1;
+        my $evidence_bytes = $persisted ? 64 : 0;
+        my $retained = $persisted ? 64 : 0;
+        my $copied = $persisted ? 32 : 0;
+        my $physical = $persisted ? 64 : 0;
+        my $allocated = $persisted ? 4096 : 0;
+        my $reserved = $persisted ? 96 : 0;
+        my $plan = $operation eq 'live' ? 'none'
+                 : ($operation eq 'record' || $lifecycle eq 'cold')
+                     ? 'built' : 'reused';
+        my @row = (
+          'sample', $operation, $lifecycle, $pair, $level,
+          $operation_positions[$operation_position],
+          $level_positions[$level_position],
+          metric_value($operation, $pair, $level, 'wall'),
+          metric_value($operation, $pair, $level, 'cpu'),
+          metric_value($operation, $pair, $level, 'allocations'),
+          metric_value($operation, $pair, $level, 'prepare'),
+          metric_value($operation, $pair, $level, 'work'),
+          metric_value($operation, $pair, $level, 'finish'),
+          0, 1000 + $identity, 2000 + $identity, $result,
+          1, 0, 0, 0, 0, 0,
+          $persisted ? 32 : 0, $persisted ? 64 : 0,
+          $persisted ? 64 : 0, $persisted ? 32 : 0,
+          $persisted ? 4096 : 0, $physical, $allocated, $reserved, $growths,
+          $persisted ? 1 : 0, $persisted ? 1 : 0,
+          $persisted && $lifecycle eq 'warm' ? 1 : 0,
+          $persisted && $lifecycle eq 'cold' ? 1 : 0, 0,
+          0, 0, 0, 0,
+          1, 32, $produced, $choices, $evidence_rows, $evidence_bytes,
+          $retained, $copied, $physical, $allocated, $reserved, $growths,
+          $result,
+          $enabled ? 'replay' : 'none', $enabled ? 42 : 0,
+          $enabled ? $identity : 0, 0,
+          $enabled ? $operation : 'none', $enabled ? $plan : 'none',
+          $enabled ? 1 : 0, $enabled ? 32 : 0,
+          $enabled ? $produced : 0, $enabled ? $choices : 0,
+          $enabled ? $evidence_rows : 0, $enabled ? $evidence_bytes : 0,
+          $enabled ? $retained : 0, $enabled ? $copied : 0,
+          $enabled ? $physical : 0, $enabled ? $allocated : 0,
+          $enabled ? $reserved : 0, $enabled ? $growths : 0,
+          $enabled ? $result : 0,
+        );
+        @row == @columns or die "telemetry fixture sample width changed";
+        print {$log} join("\t", @row), "\n";
+        print {$semantic} join("\t", @row[0 .. 6], @row[13 .. $#row]), "\n";
+      }
+    }
+  }
+}
+
+for my $operation (@operations) {
+  for my $lifecycle (@lifecycles) {
+    for my $metric (@metrics) {
+      for my $pair (1 .. 12) {
+        my $basic = metric_value($operation, $pair, 'basic', $metric);
+        my $detail = metric_value($operation, $pair, 'detail', $metric);
+        my ($direction, $magnitude) = $detail > $basic
+            ? ('detail', $detail - $basic)
+            : $basic > $detail ? ('basic', $basic - $detail) : ('equal', 0);
+        my @row = ('delta', $operation, $lifecycle, $pair, $metric,
+                   $direction, $magnitude);
+        print {$log} join("\t", @row), "\n";
+        print {$semantic} join("\t", @row[0 .. 4]), "\n";
+
+        my $disabled = metric_value($operation, $pair, 'disabled', $metric);
+        my ($reference_direction, $reference_magnitude) = $basic > $disabled
+            ? ('basic', $basic - $disabled)
+            : $disabled > $basic
+                ? ('disabled', $disabled - $basic) : ('equal', 0);
+        my @reference = ('reference', $operation, $lifecycle, $pair, $metric,
+                         $reference_direction, $reference_magnitude);
+        print {$log} join("\t", @reference), "\n";
+        print {$semantic} join("\t", @reference[0 .. 4]), "\n";
+      }
+
+      my ($basic_median, $basic_p95) = $metric eq 'wall' ? ('105', '110')
+          : $metric eq 'cpu' ? ('82.5', '85')
+          : $metric eq 'allocations' ? ('2.5', '3')
+          : $metric eq 'copied'
+              ? (($operation eq 'live' ? 0 : 32),
+                 ($operation eq 'live' ? 0 : 32))
+          : (0, 0);
+      my $phase = $metric eq 'prepare' ? 3
+          : $metric eq 'work' ? 4 : $metric eq 'finish' ? 2 : 0;
+      my $disabled = $metric eq 'wall' ? 90
+          : $metric eq 'cpu' ? 75
+          : $metric eq 'allocations' ? 1
+          : $metric eq 'copied' && $operation ne 'live' ? 32 : 0;
+      my $detail_median = $phase || $basic_median;
+      my $detail_p95 = $phase || $basic_p95;
+      my $delta_median = $phase;
+      my $delta_p95 = $phase || ($metric eq 'wall' ? 10
+          : $metric eq 'cpu' ? 5
+          : $metric eq 'allocations' ? 1 : 0);
+      my ($reference_median, $reference_p95) =
+          $metric eq 'wall' ? (15, 20)
+        : $metric eq 'cpu' ? (7.5, 10)
+        : $metric eq 'allocations' ? (1.5, 2) : (0, 0);
+      my @rows = (
+        ['summary', $operation, $lifecycle, 'disabled', $metric, 'median',
+         $unit{$metric}, 'absolute', $disabled],
+        ['summary', $operation, $lifecycle, 'disabled', $metric, 'p95',
+         $unit{$metric}, 'absolute', $disabled],
+        ['summary', $operation, $lifecycle, 'basic', $metric, 'median',
+         $unit{$metric}, 'absolute', $basic_median],
+        ['summary', $operation, $lifecycle, 'basic', $metric, 'p95',
+         $unit{$metric}, 'absolute', $basic_p95],
+        ['summary', $operation, $lifecycle, 'detail', $metric, 'median',
+         $unit{$metric}, 'absolute', $detail_median],
+        ['summary', $operation, $lifecycle, 'detail', $metric, 'p95',
+         $unit{$metric}, 'absolute', $detail_p95],
+        ['summary', $operation, $lifecycle, 'delta', $metric, 'median',
+         $unit{$metric}, $delta_median == 0 ? 'equal' : 'detail',
+         $delta_median],
+        ['summary', $operation, $lifecycle, 'delta', $metric, 'p95',
+         $unit{$metric}, $delta_p95 == 0 ? 'equal' : 'detail', $delta_p95],
+        ['summary', $operation, $lifecycle, 'reference', $metric, 'median',
+         $unit{$metric}, $reference_median == 0 ? 'equal' : 'basic',
+         $reference_median],
+        ['summary', $operation, $lifecycle, 'reference', $metric, 'p95',
+         $unit{$metric}, $reference_p95 == 0 ? 'equal' : 'basic',
+         $reference_p95],
+      );
+      for my $row (@rows) {
+        print {$log} join("\t", @$row), "\n";
+        print {$semantic} join("\t", @$row[0 .. 6]), "\n";
+      }
+    }
+  }
+}
+close $log or die "cannot close $log_path: $!";
+close $semantic or die "cannot close $semantic_path: $!";
+PERL
+telemetry_digest=$(perl -MDigest::SHA=sha256_hex -e \
+  'local $/; print sha256_hex(<STDIN>)' <"$telemetry_semantic")
+
+calibration="$work/calibration"
+mkdir -p "$calibration"
+sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=9 warm_median_ns_per_op=8/' \
+  "$scheduler_observation" >"$calibration/scheduler1.log"
+sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=11 warm_median_ns_per_op=10/' \
+  "$scheduler_observation" >"$calibration/scheduler2.log"
+cp "$scheduler_observation" "$calibration/scheduler3.log"
+sed 's/,10.000,48,48,1,2$/,9.000,48,48,1,2/' \
+  "$compute_observation" >"$calibration/compute1.log"
+sed 's/,10.000,48,48,1,2$/,11.000,48,48,1,2/' \
+  "$compute_observation" >"$calibration/compute2.log"
+cp "$compute_observation" "$calibration/compute3.log"
+sed 's/graph	median	us	10.000/graph	median	us	9.000/' \
+  "$flow" >"$calibration/flow1.log"
+sed 's/graph	median	us	10.000/graph	median	us	11.000/' \
+  "$flow" >"$calibration/flow2.log"
+cp "$flow" "$calibration/flow3.log"
+sed 's/latency	1	us	10.000/latency	1	us	9.000/' \
+  "$graph_observation" >"$calibration/graph1.log"
+sed -e 's/latency	1	us	10.000/latency	1	us	11.000/' \
+    -e 's/waits	1	hits	30/waits	0	hits	31/' \
+  "$graph_observation" >"$calibration/graph2.log"
+cp "$graph_observation" "$calibration/graph3.log"
+telemetry_offset() {
+  offset=$1
+  output=$2
+  RUND_TELEMETRY_OFFSET=$offset perl -F'\t' -lane '
+    if ($F[0] eq "sample") {
+      $F[7] += $ENV{RUND_TELEMETRY_OFFSET};
+    } elsif ($F[0] eq "summary" && $F[4] eq "wall" &&
+             $F[3] =~ /^(?:disabled|basic|detail)$/) {
+      $F[8] += $ENV{RUND_TELEMETRY_OFFSET};
+    }
+    print join "\t", @F;
+  ' "$telemetry" >"$output"
+}
+telemetry_offset 2 "$calibration/telemetry1.log"
+telemetry_offset 1 "$calibration/telemetry2.log"
+cp "$telemetry" "$calibration/telemetry3.log"
+
+log_digest() {
+  cmake -E sha256sum "$1" | awk '{ print $1 }'
+}
+scheduler1=$(log_digest "$calibration/scheduler1.log")
+scheduler2=$(log_digest "$calibration/scheduler2.log")
+scheduler3=$(log_digest "$calibration/scheduler3.log")
+compute1=$(log_digest "$calibration/compute1.log")
+compute2=$(log_digest "$calibration/compute2.log")
+compute3=$(log_digest "$calibration/compute3.log")
+flow1=$(log_digest "$calibration/flow1.log")
+flow2=$(log_digest "$calibration/flow2.log")
+flow3=$(log_digest "$calibration/flow3.log")
+graph1=$(log_digest "$calibration/graph1.log")
+graph2=$(log_digest "$calibration/graph2.log")
+graph3=$(log_digest "$calibration/graph3.log")
+telemetry1=$(log_digest "$calibration/telemetry1.log")
+telemetry2=$(log_digest "$calibration/telemetry2.log")
+telemetry3=$(log_digest "$calibration/telemetry3.log")
+
+baseline="$fixture/docs/reference/performance/baseline.tsv"
+printf '%s\n' \
+  'profile	route	metric	policy	value	envelope	unit' \
+  "fixture	baseline	manifest	identity	$manifest_digest	-	sha256" \
+  "fixture	baseline	scheduler1	identity	$scheduler1	-	sha256" \
+  "fixture	baseline	scheduler2	identity	$scheduler2	-	sha256" \
+  "fixture	baseline	scheduler3	identity	$scheduler3	-	sha256" \
+  "fixture	baseline	compute1	identity	$compute1	-	sha256" \
+  "fixture	baseline	compute2	identity	$compute2	-	sha256" \
+  "fixture	baseline	compute3	identity	$compute3	-	sha256" \
+  "fixture	baseline	flow1	identity	$flow1	-	sha256" \
+  "fixture	baseline	flow2	identity	$flow2	-	sha256" \
+  "fixture	baseline	flow3	identity	$flow3	-	sha256" \
+  "fixture	baseline	graph1	identity	$graph1	-	sha256" \
+  "fixture	baseline	graph2	identity	$graph2	-	sha256" \
+  "fixture	baseline	graph3	identity	$graph3	-	sha256" \
+  "fixture	baseline	telemetry1	identity	$telemetry1	-	sha256" \
+  "fixture	baseline	telemetry2	identity	$telemetry2	-	sha256" \
+  "fixture	baseline	telemetry3	identity	$telemetry3	-	sha256" \
+  >"$baseline"
+printf 'fixture\tenvironment\tsystem\texact\t%s\t-\ttext\n' \
+  "$system" >>"$baseline"
+printf 'fixture\tenvironment\trelease\texact\t%s\t-\ttext\n' \
+  "$release" >>"$baseline"
+printf 'fixture\tenvironment\tmachine\texact\t%s\t-\ttext\n' \
+  "$machine" >>"$baseline"
+printf 'fixture\tenvironment\tworkers\texact\t%s\t-\tcount\n' \
+  "$workers" >>"$baseline"
+if [ "$system" = Darwin ]; then
+  printf 'fixture\tenvironment\tmodel\texact\t%s\t-\ttext\n' \
+    "$model" >>"$baseline"
+  printf 'fixture\tenvironment\tcpu\texact\t%s\t-\ttext\n' \
+    "$cpu" >>"$baseline"
+fi
+
+printf '%s\n' \
+  'fixture	measure-scheduler	semantic	exact	0000000000000000000000000000000000000000000000000000000000000000	-	sha256' \
+  'fixture	measure-scheduler	spawn_complete/cold_ns_per_op	upper	10	25	ns/op' \
+  'fixture	measure-scheduler	spawn_complete/warm_median_ns_per_op	upper	9	22.5	ns/op' \
+  >>"$baseline"
+index=1
+while [ "$index" -le 46 ]; do
+  printf 'fixture\tmeasure-scheduler\ttask_scale/workers=1/ops=%u/payload=0/cold_ns_per_op\tupper\t10\t25\tns/op\n' \
+    "$index" >>"$baseline"
+  printf 'fixture\tmeasure-scheduler\ttask_scale/workers=1/ops=%u/payload=0/warm_median_ns_per_op\tupper\t10\t25\tns/op\n' \
+    "$index" >>"$baseline"
+  index=$((index + 1))
+done
+
+printf '%s\n' \
+  'fixture	measure-compute	semantic	exact	0000000000000000000000000000000000000000000000000000000000000000	-	sha256' \
+  'fixture	measure-compute	batch/metal/jobs=64/elements=64/batch_wall_median_us	upper	5.000	12.5	us' \
+  'fixture	measure-compute	batch/metal/jobs=64/elements=64/serial_wall_median_us	upper	10.000	25	us' \
+  'fixture	measure-compute	batch/vulkan/jobs=64/elements=64/batch_wall_median_us	upper	6.000	15	us' \
+  'fixture	measure-compute	batch/vulkan/jobs=64/elements=64/serial_wall_median_us	upper	12.000	30	us' \
+  'fixture	measure-compute	mixed/cpu+metal+vulkan/mixed_median_us	upper	8.000	20	us' \
+  'fixture	measure-compute	mixed/cpu+metal+vulkan/serial_median_us	upper	16.000	40	us' \
+  'fixture	measure-compute	resident/cpu/4/median_us	upper	10.000	25	us' \
+  'fixture	measure-compute	inflight/vulkan/concurrent_median_us	upper	5.000	12.5	us' \
+  'fixture	measure-compute	inflight/vulkan/serial_median_us	upper	10.000	25	us' \
+  >>"$baseline"
+index=1
+while [ "$index" -le "$compute_fillers" ]; do
+  printf 'fixture\tmeasure-compute\tcold/probe%03u/4/median_us\tupper\t10.000\t25\tus\n' \
+    "$index" >>"$baseline"
+  index=$((index + 1))
+done
+
+printf '%s\n' \
+  "fixture	measure-flow	semantic	exact	$semantic	-	sha256" \
+  'fixture	measure-flow	alpha/median	upper	10.000	2.5	ms' \
+  'fixture	measure-flow	beta/median	upper	10.000	2.5	ms' \
+  'fixture	measure-flow	graph/median	upper	10.000	25	us' \
+  'fixture	measure-flow	omega/median	upper	10.000	25	us' \
+  'fixture	measure-graph-services	semantic	exact	0000000000000000000000000000000000000000000000000000000000000000	-	sha256' \
+  'fixture	measure-graph-services	async_same_key/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	beta/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	delta/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	epsilon/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	gamma/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	latency/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	omega/us	upper	10.000	25	us' \
+  'fixture	measure-graph-services	theta/us	upper	10.000	25	us' \
+  "fixture	measure-telemetry	semantic	exact	$telemetry_digest	-	sha256" \
+  >>"$baseline"
+for operation in live record replay scenario; do
+  for lifecycle in cold warm; do
+    for metric in wall cpu allocations; do
+      case "$metric" in
+        wall)
+          unit=ns
+          p95=10
+          if [ "$lifecycle" = cold ]; then
+            median_envelope=100000
+            p95_envelope=99990
+          else
+            median_envelope=5000
+            p95_envelope=4990
+          fi
+          ;;
+        cpu)
+          unit=ns
+          p95=5
+          if [ "$lifecycle" = cold ]; then
+            median_envelope=100000
+            p95_envelope=99995
+          else
+            median_envelope=5000
+            p95_envelope=4995
+          fi
+          ;;
+        allocations)
+          unit=count
+          p95=1
+          median_envelope=0
+          p95_envelope=0.1
+          ;;
+      esac
+      printf 'fixture\tmeasure-telemetry\t%s/%s/%s/median\tupper\t0\t%s\t%s\n' \
+        "$operation" "$lifecycle" "$metric" "$median_envelope" "$unit" \
+        >>"$baseline"
+      printf 'fixture\tmeasure-telemetry\t%s/%s/%s/p95\tupper\t%s\t%s\t%s\n' \
+        "$operation" "$lifecycle" "$metric" "$p95" "$p95_envelope" \
+        "$unit" >>"$baseline"
+    done
+  done
+done
+perl - "$root" "$baseline" <<'PERL' >"$work/baseline-ordered.tsv"
+use strict;
+use warnings;
+my ($root, $path) = @ARGV;
+require "$root/tools/internal/measure/schema.pm";
+open my $input, '<', $path or die "cannot read $path: $!";
+my $header = <$input> // die "missing baseline header";
+my @rows = <$input>;
+close $input or die "cannot close $path: $!";
+@rows = sort {
+  my @left = split /\t/, $a, -1;
+  my @right = split /\t/, $b, -1;
+  RundMeasureSchema::order_key(@left[0 .. 2]) cmp
+      RundMeasureSchema::order_key(@right[0 .. 2]);
+} @rows;
+print $header, @rows;
+PERL
+mv "$work/baseline-ordered.tsv" "$baseline"
+
+mkdir -p "$fixture/tools/internal/measure" \
+  "$fixture/tools/internal/state" "$work/finish"
+cp "$root/tools/internal/measure/compare" \
+  "$fixture/tools/internal/measure/compare"
+cp "$root/tools/internal/measure/schema.pm" \
+  "$fixture/tools/internal/measure/schema.pm"
+cp "$root/tools/internal/measure/context" \
+  "$fixture/tools/internal/measure/context"
+cp "$root/tools/internal/measure/project" \
+  "$fixture/tools/internal/measure/project"
+: >"$work/finish/runD-flow-measure"
+printf '%s\n' '#!/bin/sh' 'exit 0' \
+  >"$fixture/tools/internal/state/verify"
+printf '%s\n' \
+  'foreach(required IN ITEMS ROOT BUILD ROUTE STATUS LOG LOG_NAME' \
+  '                         WORKLOAD_STATUS WORKLOAD_EXIT PROOF_KIND' \
+  '                         PROOF_ROUTE PROOF_STATUS PROOF_PROFILE' \
+  '                         PROOF_METRICS PROOF PROOF_NAME SOURCE_MANIFEST' \
+  '                         PROFILE ARTIFACT)' \
+  '  if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")' \
+  '    message(FATAL_ERROR "finish omitted ${required}")' \
+  '  endif()' \
+  'endforeach()' \
+  'if(NOT ROUTE STREQUAL "measure-flow" OR' \
+  '   NOT LOG_NAME STREQUAL "samples.tsv" OR' \
+  '   NOT PROOF_KIND STREQUAL "performance" OR' \
+  '   NOT PROOF_ROUTE STREQUAL "measure-flow" OR' \
+  '   NOT PROOF_NAME STREQUAL "baseline.log" OR' \
+  '   PROOF STREQUAL LOG)' \
+  '  message(FATAL_ERROR "finish proof metadata changed")' \
+  'endif()' \
+  'if((WORKLOAD_STATUS STREQUAL "passed" AND' \
+  '    NOT WORKLOAD_EXIT STREQUAL "0") OR' \
+  '   (WORKLOAD_STATUS STREQUAL "failed" AND' \
+  '    (WORKLOAD_EXIT STREQUAL "0" OR' \
+  '     NOT PROOF_STATUS STREQUAL "failed")) OR' \
+  '   NOT WORKLOAD_STATUS MATCHES "^(passed|failed)$" OR' \
+  '   NOT WORKLOAD_EXIT MATCHES "^(0|[1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$")' \
+  '  message(FATAL_ERROR "finish workload metadata changed")' \
+  'endif()' \
+  'if(PROOF_STATUS STREQUAL "passed")' \
+  '  if(NOT STATUS STREQUAL "passed" OR' \
+  '     NOT PROOF_PROFILE STREQUAL "fixture" OR' \
+  '     NOT PROOF_METRICS STREQUAL "5" OR' \
+  '     NOT PROFILE STREQUAL "fixture" OR' \
+  '     NOT EXISTS "${ARTIFACT}")' \
+  '    message(FATAL_ERROR "finish passed proof metadata changed")' \
+  '  endif()' \
+  'elseif(PROOF_STATUS STREQUAL "failed")' \
+  '  if(NOT STATUS STREQUAL "failed" OR' \
+  '     NOT PROOF_PROFILE STREQUAL "-" OR' \
+  '     NOT PROOF_METRICS STREQUAL "0")' \
+  '    message(FATAL_ERROR "finish failed proof metadata changed")' \
+  '  endif()' \
+  'else()' \
+  '  message(FATAL_ERROR "finish proof status changed")' \
+  'endif()' \
+  'file(WRITE "${BUILD}/recorded"' \
+  '  "${STATUS}\t${WORKLOAD_STATUS}\t${WORKLOAD_EXIT}\t${PROOF_STATUS}\n")' \
+  >"$fixture/tools/internal/record.cmake"
+
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-flow "$flow" >"$work/pass.out"
+grep -q 'status=passed' "$work/pass.out"
+
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-flow "$flow" observe >"$work/observe.tsv"
+grep -q '^profile	fixture$' "$work/observe.tsv"
+grep -q '^metric\tvalue\tunit$' "$work/observe.tsv"
+grep -q "^semantic\t${semantic}\tsha256$" "$work/observe.tsv"
+grep -q '^graph/median\t10.000\tus$' "$work/observe.tsv"
+[ "$(wc -l <"$work/observe.tsv" | tr -d ' ')" -eq 7 ]
+
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-scheduler "$scheduler_observation" observe \
+  >"$work/scheduler-observe.tsv"
+grep -q '^profile	fixture$' "$work/scheduler-observe.tsv"
+grep -q '^spawn_complete/cold_ns_per_op	10	ns/op$' \
+  "$work/scheduler-observe.tsv"
+grep -q '^spawn_complete/warm_median_ns_per_op	9	ns/op$' \
+  "$work/scheduler-observe.tsv"
+
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-compute "$compute_observation" observe \
+  >"$work/compute-observe.tsv"
+[ "$(wc -l <"$work/compute-observe.tsv" | tr -d ' ')" \
+  -eq $((compute_metrics + 2)) ]
+grep -q '^profile	fixture$' "$work/compute-observe.tsv"
+grep -q '^resident/cpu/4/median_us	10.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^inflight/vulkan/serial_median_us	10.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^inflight/vulkan/concurrent_median_us	5.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^batch/metal/jobs=64/elements=64/serial_wall_median_us	10.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^batch/metal/jobs=64/elements=64/batch_wall_median_us	5.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^batch/vulkan/jobs=64/elements=64/serial_wall_median_us	12.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^batch/vulkan/jobs=64/elements=64/batch_wall_median_us	6.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^mixed/cpu+metal+vulkan/mixed_median_us	8.000	us$' \
+  "$work/compute-observe.tsv"
+
+sed 's/,800000[.]000,1600000[.]000,419430400000[.]000,2[.]000000,/,1.000,1.000,1.000,99.000000,/' \
+  "$compute_observation" >"$work/compute-derived.csv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-compute "$work/compute-derived.csv" observe \
+  >"$work/compute-derived.out"
+cmp "$work/compute-observe.tsv" "$work/compute-derived.out"
+
+sed 's/,8,8,0,11,12,1,1,8,8$/,8,5,0,11,12,1,1,8,8/' \
+  "$compute_observation" >"$work/compute-inflight-peak.csv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-compute "$work/compute-inflight-peak.csv" observe \
+  >"$work/compute-inflight-peak.out"
+cmp "$work/compute-observe.tsv" "$work/compute-inflight-peak.out"
+
+sed 's/,8[.]000,3[.]000,2[.]000,2[.]000,2[.]000,2[.]000,6400000[.]000,12800000[.]000,2[.]000000,2[.]000000,/,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,99.000000,77.000000,/' \
+  "$compute_observation" >"$work/compute-batch-diagnostic.csv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-compute "$work/compute-batch-diagnostic.csv" observe \
+  >"$work/compute-batch-diagnostic.out"
+cmp "$work/compute-observe.tsv" "$work/compute-batch-diagnostic.out"
+
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-graph-services "$graph_observation" observe \
+  >"$work/graph-observe.tsv"
+grep -q '^profile	fixture$' "$work/graph-observe.tsv"
+grep -q '^latency/us	10.000	us$' "$work/graph-observe.tsv"
+
+# A reuse can race with completion and therefore appear as either an in-flight
+# wait or a completed-cache hit. Only their exact sum is semantic.
+sed 's/waits	1	hits	30/waits	0	hits	31/' \
+  "$graph_observation" >"$work/graph-reuse-split.tsv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-graph-services "$work/graph-reuse-split.tsv" observe \
+  >"$work/graph-reuse-split.out"
+cmp "$work/graph-observe.tsv" "$work/graph-reuse-split.out"
+
+sed 's/waits	1	hits	30/waits	1	hits	31/' \
+  "$graph_observation" >"$work/graph-reuse-invalid.tsv"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-graph-services "$work/graph-reuse-invalid.tsv" \
+    observe >"$work/graph-reuse-invalid.out" \
+    2>"$work/graph-reuse-invalid.err"; then
+  echo "performance comparator accepted an invalid async reuse total" >&2
+  exit 1
+fi
+grep -q 'request accounting is incomplete' \
+  "$work/graph-reuse-invalid.err"
+
+sed 's/cache_misses	1/cache_misses	2/' \
+  "$graph_observation" >"$work/graph-reuse-misses.tsv"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-graph-services "$work/graph-reuse-misses.tsv" \
+    observe >"$work/graph-reuse-misses.out" \
+    2>"$work/graph-reuse-misses.err"; then
+  echo "performance comparator accepted two async cache misses" >&2
+  exit 1
+fi
+grep -q 'canonical integer counters' "$work/graph-reuse-misses.err"
+
+sed 's/waits	1/waits	1.0/' \
+  "$graph_observation" >"$work/graph-reuse-fraction.tsv"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-graph-services "$work/graph-reuse-fraction.tsv" \
+    observe >"$work/graph-reuse-fraction.out" \
+    2>"$work/graph-reuse-fraction.err"; then
+  echo "performance comparator accepted a noncanonical async counter" >&2
+  exit 1
+fi
+grep -q 'canonical integer counters' "$work/graph-reuse-fraction.err"
+
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-telemetry "$telemetry" >"$work/telemetry-pass.out"
+grep -q "measure-telemetry.*profile=fixture.*metrics=$telemetry_metrics.*status=passed" \
+  "$work/telemetry-pass.out"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-telemetry "$telemetry" observe \
+  >"$work/telemetry-observe.tsv"
+grep -q '^profile	fixture$' "$work/telemetry-observe.tsv"
+grep -q '^live/cold/wall/median	0	ns$' "$work/telemetry-observe.tsv"
+grep -q '^live/cold/allocations/p95	1	count$' \
+  "$work/telemetry-observe.tsv"
+
+# Absolute allocation counts are diagnostic performance observations, not an
+# exact semantic identity. Moving every level by the same allocation leaves
+# Detail-Basic overhead unchanged and must preserve admission.
+perl -F'\t' -lane '
+  if ($F[0] eq "sample") {
+    $F[9] += 1;
+  } elsif ($F[0] eq "summary" && $F[4] eq "allocations" &&
+           $F[3] =~ /^(?:disabled|basic|detail)$/) {
+    $F[8] += 1;
+  }
+  print join "\t", @F;
+' "$telemetry" >"$work/telemetry-allocation-shift.tsv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-telemetry "$work/telemetry-allocation-shift.tsv" \
+  >"$work/telemetry-allocation-shift.out"
+cmp "$work/telemetry-pass.out" "$work/telemetry-allocation-shift.out"
+
+# Detail-only allocation growth changes the paired overhead authority and is
+# still rejected by the allocation upper rule after semantic identity passes.
+perl -F'\t' -lane '
+  if ($F[0] eq "sample" && $F[4] eq "detail") {
+    $F[9] += 1;
+  } elsif ($F[0] eq "delta" && $F[4] eq "allocations") {
+    if ($F[3] % 2) {
+      @F[5, 6] = ("detail", 2);
+    } else {
+      @F[5, 6] = ("equal", 0);
+    }
+  } elsif ($F[0] eq "summary" && $F[4] eq "allocations") {
+    if ($F[3] eq "detail") {
+      $F[8] += 1;
+    } elsif ($F[3] eq "delta") {
+      $F[7] = "detail";
+      $F[8] += 1;
+    }
+  }
+  print join "\t", @F;
+' "$telemetry" >"$work/telemetry-allocation-regression.tsv"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-telemetry "$work/telemetry-allocation-regression.tsv" \
+    >"$work/telemetry-allocation-regression.out" \
+    2>"$work/telemetry-allocation-regression.err"; then
+  echo "performance comparator accepted telemetry allocation growth" >&2
+  exit 1
+fi
+grep -q 'allocations/median baseline=0.000000 observed=1.000000' \
+  "$work/telemetry-allocation-regression.err"
+
+scheduler_semantic=$(awk -F '\t' '$1 == "semantic" { print $2 }' \
+  "$work/scheduler-observe.tsv")
+compute_semantic=$(awk -F '\t' '$1 == "semantic" { print $2 }' \
+  "$work/compute-observe.tsv")
+graph_semantic=$(awk -F '\t' '$1 == "semantic" { print $2 }' \
+  "$work/graph-observe.tsv")
+awk -F '\t' -v OFS='\t' \
+  -v scheduler="$scheduler_semantic" \
+  -v compute="$compute_semantic" -v graph="$graph_semantic" '
+  $2 == "measure-scheduler" && $3 == "semantic" { $5 = scheduler }
+  $2 == "measure-compute" && $3 == "semantic" { $5 = compute }
+  $2 == "measure-graph-services" && $3 == "semantic" { $5 = graph }
+  { print }
+' "$baseline" >"$work/baseline-semantic.tsv"
+mv "$work/baseline-semantic.tsv" "$baseline"
+
+packet_identity="$work/packet-identity.tsv"
+printf '%s\n' \
+  "source_manifest_sha256	$manifest_digest" \
+  'revision	0000000000000000000000000000000000000000' \
+  'dirty	true' >"$packet_identity"
+packet_identity_digest=$(log_digest "$packet_identity")
+compiler_path=$(command -v perl)
+compiler_digest=$(log_digest "$compiler_path")
+
+retain_packet() {
+  route=$1
+  number=$2
+  log_name=$3
+  source_log=$4
+  packet="$fixture/.cache/evidence/$route/20260101T00000${number}Z"
+  mkdir -p "$packet"
+  cp "$source_log" "$packet/$log_name"
+  cp "$manifest_file" "$packet/source-manifest.tsv"
+  cp "$packet_identity" "$packet/source-identity.tsv"
+  printf 'baseline\t%s\tstatus=failed\n' "$route" \
+    >"$packet/baseline.log"
+  raw_digest=$(log_digest "$packet/$log_name")
+  proof_digest=$(log_digest "$packet/baseline.log")
+  case "$route" in
+    measure-scheduler)
+      artifact=runD-scheduler-measure
+      artifact_digest=$(printf '%064d' 0 | tr 0 a)
+      ;;
+    measure-compute)
+      artifact=runD-compute-measure
+      artifact_digest=$(printf '%064d' 0 | tr 0 c)
+      ;;
+    measure-flow)
+      artifact=runD-flow-measure
+      artifact_digest=$(printf '%064d' 0 | tr 0 d)
+      ;;
+    measure-graph-services)
+      artifact=runD-graph-services-measure
+      artifact_digest=$(printf '%064d' 0 | tr 0 e)
+      ;;
+    measure-telemetry)
+      artifact=runD-telemetry-measure
+      artifact_digest=$(printf '%064d' 0 | tr 0 b)
+      ;;
+    *) echo "unknown fixture route: $route" >&2; exit 1 ;;
+  esac
+  printf '%s\n' \
+    "route	$route" \
+    'status	failed' \
+    'revision	0000000000000000000000000000000000000000' \
+    'dirty	true' \
+    'generator	fixture' \
+    "compiler	$compiler_path" \
+    "compiler_sha256	$compiler_digest" \
+    "host	$(uname -a)" \
+    'profile	fixture' \
+    "artifact	$artifact" \
+    "artifact_sha256	$artifact_digest" \
+    'source_manifest_kind	verification_after' \
+    "source_manifest_sha256	$manifest_digest" \
+    "source_identity_sha256	$packet_identity_digest" \
+    'workload:status	passed' \
+    'workload:exit	0' \
+    'proof:kind	performance' \
+    "proof:route	$route" \
+    'proof:status	failed' \
+    'proof:profile	-' \
+    'proof:metrics	0' \
+    "proof:log	$log_name" \
+    "proof:log:sha256	$raw_digest" \
+    'proof:result	baseline.log' \
+    "proof:result:sha256	$proof_digest" \
+    >"$packet/run.tsv"
+  printf '%s\n' "$packet"
+}
+
+scheduler_packet1=$(retain_packet measure-scheduler 1 measure.log \
+  "$calibration/scheduler1.log")
+scheduler_packet2=$(retain_packet measure-scheduler 2 measure.log \
+  "$calibration/scheduler2.log")
+scheduler_packet3=$(retain_packet measure-scheduler 3 measure.log \
+  "$calibration/scheduler3.log")
+compute_packet1=$(retain_packet measure-compute 1 measure.log \
+  "$calibration/compute1.log")
+compute_packet2=$(retain_packet measure-compute 2 measure.log \
+  "$calibration/compute2.log")
+compute_packet3=$(retain_packet measure-compute 3 measure.log \
+  "$calibration/compute3.log")
+flow_packet1=$(retain_packet measure-flow 1 samples.tsv \
+  "$calibration/flow1.log")
+flow_packet2=$(retain_packet measure-flow 2 samples.tsv \
+  "$calibration/flow2.log")
+flow_packet3=$(retain_packet measure-flow 3 samples.tsv \
+  "$calibration/flow3.log")
+graph_packet1=$(retain_packet measure-graph-services 1 measure.tsv \
+  "$calibration/graph1.log")
+graph_packet2=$(retain_packet measure-graph-services 2 measure.tsv \
+  "$calibration/graph2.log")
+graph_packet3=$(retain_packet measure-graph-services 3 measure.tsv \
+  "$calibration/graph3.log")
+telemetry_packet1=$(retain_packet measure-telemetry 1 measure.log \
+  "$calibration/telemetry1.log")
+telemetry_packet2=$(retain_packet measure-telemetry 2 measure.log \
+  "$calibration/telemetry2.log")
+telemetry_packet3=$(retain_packet measure-telemetry 3 measure.log \
+  "$calibration/telemetry3.log")
+
+cut_profile() {
+  cut_profile_name=$1
+  perl "$root/tools/internal/measure/cut" "$fixture" "$cut_profile_name" \
+    "$scheduler_packet1" "$scheduler_packet2" "$scheduler_packet3" \
+    "$compute_packet1" "$compute_packet2" "$compute_packet3" \
+    "$flow_packet1" "$flow_packet2" "$flow_packet3" \
+    "$graph_packet1" "$graph_packet2" "$graph_packet3" \
+    "$telemetry_packet1" "$telemetry_packet2" "$telemetry_packet3"
+}
+cut_scheduler() {
+  cut_scheduler1=$1
+  cut_scheduler2=$2
+  cut_scheduler3=$3
+  perl "$root/tools/internal/measure/cut" "$fixture" fixture \
+    "$cut_scheduler1" "$cut_scheduler2" "$cut_scheduler3" \
+    "$compute_packet1" "$compute_packet2" "$compute_packet3" \
+    "$flow_packet1" "$flow_packet2" "$flow_packet3" \
+    "$graph_packet1" "$graph_packet2" "$graph_packet3" \
+    "$telemetry_packet1" "$telemetry_packet2" "$telemetry_packet3"
+}
+cut() {
+  cut_profile fixture
+}
+perl "$root/tools/internal/measure/project" "$fixture" fixture \
+  "$scheduler_packet1" "$scheduler_packet2" "$scheduler_packet3" \
+  "$compute_packet1" "$compute_packet2" "$compute_packet3" \
+  "$flow_packet1" "$flow_packet2" "$flow_packet3" \
+  "$graph_packet1" "$graph_packet2" "$graph_packet3" \
+  "$telemetry_packet1" "$telemetry_packet2" "$telemetry_packet3" \
+  >"$work/candidate.tsv"
+cmp "$baseline" "$work/candidate.tsv"
+expected_rows=$(perl - "$root" "$system" <<'PERL'
+use strict;
+use warnings;
+my ($root, $system) = @ARGV;
+require "$root/tools/internal/measure/schema.pm";
+print RundMeasureSchema::data_rows($system) + 1;
+PERL
+)
+[ "$(wc -l <"$work/candidate.tsv" | tr -d ' ')" -eq "$expected_rows" ]
+grep -q '^fixture	measure-compute	batch/metal/jobs=64/elements=64/batch_wall_median_us	upper	5.000	12.5	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-compute	batch/metal/jobs=64/elements=64/serial_wall_median_us	upper	10.000	25	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-compute	batch/vulkan/jobs=64/elements=64/batch_wall_median_us	upper	6.000	15	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-compute	batch/vulkan/jobs=64/elements=64/serial_wall_median_us	upper	12.000	30	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-compute	inflight/vulkan/concurrent_median_us	upper	5.000	12.5	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-compute	inflight/vulkan/serial_median_us	upper	10.000	25	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-compute	resident/cpu/4/median_us	upper	10.000	25	us$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-scheduler	spawn_complete/warm_median_ns_per_op	upper	9	22.5	ns/op$' \
+  "$work/candidate.tsv"
+cut >"$work/cut.out"
+grep -q '^baseline-cut	profile=fixture	manifest=.*	status=passed$' \
+  "$work/cut.out"
+[ "$(grep -c 'packets=3.*status=passed' "$work/cut.out")" -eq 5 ]
+
+skipped_packet2="$fixture/.cache/evidence/measure-scheduler/20260101T000004Z"
+skipped_packet3="$fixture/.cache/evidence/measure-scheduler/20260101T000005Z"
+cp -R "$scheduler_packet2" "$skipped_packet2"
+cp -R "$scheduler_packet3" "$skipped_packet3"
+if cut_scheduler "$scheduler_packet1" "$skipped_packet2" \
+    "$skipped_packet3" >"$work/cut-adjacent.out" \
+    2>"$work/cut-adjacent.err"; then
+  echo "baseline cut cherry-picked non-adjacent packets" >&2
+  exit 1
+fi
+grep -q 'measure-scheduler calibration packets are not adjacent' \
+  "$work/cut-adjacent.err"
+rm -rf "$skipped_packet2" "$skipped_packet3"
+
+cp "$scheduler_packet1/run.tsv" "$work/cut-workload.run.tsv"
+awk -F '\t' '$1 != "workload:status" { print }' \
+  "$work/cut-workload.run.tsv" >"$scheduler_packet1/run.tsv"
+if cut >"$work/cut-workload-missing.out" \
+    2>"$work/cut-workload-missing.err"; then
+  echo "baseline cut accepted a packet without workload status" >&2
+  exit 1
+fi
+grep -q 'field order or set changed' \
+  "$work/cut-workload-missing.err"
+cp "$work/cut-workload.run.tsv" "$scheduler_packet1/run.tsv"
+
+printf '%s\n' 'workload:status	passed' >>"$scheduler_packet1/run.tsv"
+if cut >"$work/cut-workload-duplicate.out" \
+    2>"$work/cut-workload-duplicate.err"; then
+  echo "baseline cut accepted duplicate workload status" >&2
+  exit 1
+fi
+grep -q 'duplicate field workload:status' \
+  "$work/cut-workload-duplicate.err"
+cp "$work/cut-workload.run.tsv" "$scheduler_packet1/run.tsv"
+
+awk -F '\t' -v OFS='\t' '
+  $1 == "workload:status" { $2 = "failed" }
+  { print }
+' "$work/cut-workload.run.tsv" >"$scheduler_packet1/run.tsv"
+if cut >"$work/cut-workload-failed.out" \
+    2>"$work/cut-workload-failed.err"; then
+  echo "baseline cut accepted a failed workload" >&2
+  exit 1
+fi
+grep -q 'calibration workload failed' "$work/cut-workload-failed.err"
+cp "$work/cut-workload.run.tsv" "$scheduler_packet1/run.tsv"
+
+awk -F '\t' -v OFS='\t' '
+  $1 == "workload:exit" { $2 = 9 }
+  { print }
+' "$work/cut-workload.run.tsv" >"$scheduler_packet1/run.tsv"
+if cut >"$work/cut-workload-exit.out" \
+    2>"$work/cut-workload-exit.err"; then
+  echo "baseline cut accepted a nonzero workload exit" >&2
+  exit 1
+fi
+grep -q 'calibration workload failed' \
+  "$work/cut-workload-exit.err"
+mv "$work/cut-workload.run.tsv" "$scheduler_packet1/run.tsv"
+
+if cut_profile foreign >"$work/cut-foreign.out" \
+    2>"$work/cut-foreign.err"; then
+  echo "baseline cut accepted a foreign selected profile" >&2
+  exit 1
+fi
+grep -q 'current host selected fixture, requested foreign' \
+  "$work/cut-foreign.err"
+
+cp "$scheduler_packet1/run.tsv" "$work/cut-host.run.tsv"
+awk -F '\t' -v OFS='\t' '
+  $1 == "host" { $2 = "foreign-host" }
+  { print }
+' "$work/cut-host.run.tsv" >"$scheduler_packet1/run.tsv"
+if cut >"$work/cut-host.out" 2>"$work/cut-host.err"; then
+  echo "baseline cut accepted a foreign packet host" >&2
+  exit 1
+fi
+grep -q 'packet host mismatch' "$work/cut-host.err"
+mv "$work/cut-host.run.tsv" "$scheduler_packet1/run.tsv"
+
+cp "$baseline" "$work/cut-baseline.tsv"
+awk -F '\t' -v OFS='\t' '
+  $1 == "fixture" && $2 == "baseline" && $3 == "scheduler1" {
+    $5 = sprintf("%064d", 0)
+  }
+  { print }
+' "$work/cut-baseline.tsv" >"$baseline"
+if cut >"$work/cut-identity.out" 2>"$work/cut-identity.err"; then
+  echo "baseline cut accepted an unbound raw-log SHA-256" >&2
+  exit 1
+fi
+grep -q 'checked-in baseline is not the exact canonical packet projection' \
+  "$work/cut-identity.err"
+mv "$work/cut-baseline.tsv" "$baseline"
+
+cp "$scheduler_packet1/baseline.log" "$work/cut-proof.log"
+printf '%s\n' tampered >>"$scheduler_packet1/baseline.log"
+if cut >"$work/cut-proof.out" 2>"$work/cut-proof.err"; then
+  echo "baseline cut accepted a tampered comparator proof" >&2
+  exit 1
+fi
+grep -q 'packet comparison proof mismatch' "$work/cut-proof.err"
+mv "$work/cut-proof.log" "$scheduler_packet1/baseline.log"
+
+cp "$scheduler_packet1/source-identity.tsv" "$work/cut-source-identity.tsv"
+printf '%s\n' tampered >>"$scheduler_packet1/source-identity.tsv"
+if cut >"$work/cut-source-identity.out" \
+    2>"$work/cut-source-identity.err"; then
+  echo "baseline cut accepted a tampered source identity" >&2
+  exit 1
+fi
+grep -q 'retained source identity mismatch' "$work/cut-source-identity.err"
+mv "$work/cut-source-identity.tsv" "$scheduler_packet1/source-identity.tsv"
+
+cp "$scheduler_packet2/run.tsv" "$work/cut-artifact.run.tsv"
+awk -F '\t' -v OFS='\t' '
+  $1 == "artifact_sha256" { $2 = sprintf("%064d", 0); gsub(/0/, "f", $2) }
+  { print }
+' "$work/cut-artifact.run.tsv" >"$scheduler_packet2/run.tsv"
+if cut >"$work/cut-artifact.out" 2>"$work/cut-artifact.err"; then
+  echo "baseline cut accepted different triplet artifacts" >&2
+  exit 1
+fi
+grep -q 'measure-scheduler calibration executable artifact differs' \
+  "$work/cut-artifact.err"
+cp "$work/cut-artifact.run.tsv" "$scheduler_packet2/run.tsv"
+
+awk -F '\t' -v OFS='\t' '
+  $1 == "compiler_sha256" { $2 = sprintf("%064d", 0) }
+  { print }
+' "$work/cut-artifact.run.tsv" >"$scheduler_packet2/run.tsv"
+if cut >"$work/cut-compiler.out" 2>"$work/cut-compiler.err"; then
+  echo "baseline cut accepted a tampered compiler identity" >&2
+  exit 1
+fi
+grep -q 'packet compiler artifact mismatch' "$work/cut-compiler.err"
+cp "$work/cut-artifact.run.tsv" "$scheduler_packet2/run.tsv"
+
+foreign_compiler=/bin/sh
+foreign_compiler_digest=$(log_digest "$foreign_compiler")
+awk -F '\t' -v OFS='\t' -v compiler="$foreign_compiler" \
+    -v digest="$foreign_compiler_digest" '
+  $1 == "compiler" { $2 = compiler }
+  $1 == "compiler_sha256" { $2 = digest }
+  { print }
+' "$work/cut-artifact.run.tsv" >"$scheduler_packet2/run.tsv"
+if cut >"$work/cut-toolchain.out" 2>"$work/cut-toolchain.err"; then
+  echo "baseline cut accepted different triplet toolchains" >&2
+  exit 1
+fi
+grep -q 'calibration source or toolchain identity differs' \
+  "$work/cut-toolchain.err"
+cp "$work/cut-artifact.run.tsv" "$scheduler_packet2/run.tsv"
+
+awk -F '\t' -v OFS='\t' '
+  $1 == "profile" { $2 = "foreign" }
+  { print }
+' "$work/cut-artifact.run.tsv" >"$scheduler_packet2/run.tsv"
+if cut >"$work/cut-profile.out" 2>"$work/cut-profile.err"; then
+  echo "baseline cut accepted a foreign packet profile" >&2
+  exit 1
+fi
+grep -q 'packet profile mismatch' "$work/cut-profile.err"
+cp "$work/cut-artifact.run.tsv" "$scheduler_packet2/run.tsv"
+
+cp "$scheduler_packet2/measure.log" "$work/cut-duplicate.log"
+cp "$scheduler_packet2/run.tsv" "$work/cut-duplicate.run.tsv"
+cp "$scheduler_packet1/measure.log" "$scheduler_packet2/measure.log"
+duplicate_digest=$(log_digest "$scheduler_packet2/measure.log")
+awk -F '\t' -v OFS='\t' -v digest="$duplicate_digest" '
+  $1 == "proof:log:sha256" { $2 = digest }
+  { print }
+' "$work/cut-duplicate.run.tsv" >"$scheduler_packet2/run.tsv"
+if cut >"$work/cut-duplicate.out" 2>"$work/cut-duplicate.err"; then
+  echo "baseline cut accepted duplicate raw logs" >&2
+  exit 1
+fi
+grep -q 'calibration raw-log identities are not globally unique' \
+  "$work/cut-duplicate.err"
+mv "$work/cut-duplicate.log" "$scheduler_packet2/measure.log"
+mv "$work/cut-duplicate.run.tsv" "$scheduler_packet2/run.tsv"
+
+cp "$telemetry" "$work/telemetry-run-identity.tsv"
+sed 's/identity\tartifact\tsha256\tb/identity\tartifact\tsha256\tc/' \
+  "$work/telemetry-run-identity.tsv" >"$work/telemetry-run-identity.next.tsv"
+mv "$work/telemetry-run-identity.next.tsv" \
+  "$work/telemetry-run-identity.tsv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-telemetry "$work/telemetry-run-identity.tsv" \
+  >"$work/telemetry-run-identity.out"
+cmp "$work/telemetry-pass.out" "$work/telemetry-run-identity.out"
+
+cp "$flow" "$work/finish/samples.tsv"
+sh "$root/tools/internal/measure/finish" \
+  "$fixture" "$work/finish" measure-flow passed \
+  "$work/finish/samples.tsv" samples.tsv 0 >"$work/finish.out"
+cmp "$work/pass.out" "$work/finish/baseline.log"
+grep -q '^passed	passed	0	passed$' "$work/finish/recorded"
+if grep -q '^baseline' "$work/finish/samples.tsv"; then
+  echo "measurement finish polluted the raw log" >&2
+  exit 1
+fi
+
+record_root="$work/record-root"
+record_build="$work/record-build"
+mkdir -p "$record_root/package/cmake" \
+  "$record_root/tools/internal/measure" \
+  "$record_root/tools/internal/source/manifest" "$record_build"
+cp "$root/package/cmake/identity.cmake" \
+  "$record_root/package/cmake/identity.cmake"
+cp "$root/tools/internal/measure/compiler" \
+  "$record_root/tools/internal/measure/compiler"
+cp "$root/tools/internal/source/manifest/adopt.cmake" \
+  "$record_root/tools/internal/source/manifest/adopt.cmake"
+cp "$manifest_file" "$record_build/source-manifest.tsv"
+record_manifest="$record_build/source-manifest.tsv"
+record_manifest_digest=$(log_digest "$record_manifest")
+printf '%s\n' "$record_manifest_digest" >"$record_manifest.sha256"
+printf '%s\n' \
+  "source_manifest_sha256	$record_manifest_digest" \
+  'revision	0000000000000000000000000000000000000000' \
+  'dirty	true' >"$record_manifest.identity.tsv"
+record_identity_digest=$(log_digest "$record_manifest.identity.tsv")
+printf '%s\n' "$record_identity_digest" \
+  >"$record_manifest.identity.tsv.sha256"
+record_artifact="$record_build/runD-flow-measure"
+cp "$compiler_path" "$record_artifact"
+record_compiler_link="$record_build/compiler"
+ln -s "$compiler_path" "$record_compiler_link"
+printf '%s\n' \
+  'CMAKE_GENERATOR:INTERNAL=Ninja' \
+  "CMAKE_CXX_COMPILER:FILEPATH=$record_compiler_link" \
+  >"$record_build/CMakeCache.txt"
+record_compiler=$(CXX=/does/not/exist perl \
+  "$root/tools/internal/measure/compiler" "$record_build")
+[ "$record_compiler" = "$record_compiler_link" ]
+cmake -D "ROOT=$record_root" -D "BUILD=$record_build" \
+  -D "ROUTE=measure-flow" -D "STATUS=passed" \
+  -D "LOG=$flow" -D "LOG_NAME=samples.tsv" \
+  -D "PROFILE=fixture" -D "ARTIFACT=$record_artifact" \
+  -D "WORKLOAD_STATUS=passed" -D "WORKLOAD_EXIT=0" \
+  -D "PROOF_KIND=performance" -D "PROOF_ROUTE=measure-flow" \
+  -D "PROOF_STATUS=passed" -D "PROOF_PROFILE=fixture" \
+  -D "PROOF_METRICS=5" -D "PROOF=$work/pass.out" \
+  -D "PROOF_NAME=baseline.log" -D "SOURCE_MANIFEST=$record_manifest" \
+  -P "$root/tools/internal/record.cmake" >"$work/record.out" 2>&1
+set -- "$record_root/.cache/evidence/measure-flow/"*
+[ "$#" -eq 1 ] && [ -d "$1" ]
+record_run="$1/run.tsv"
+recorded_status=$(awk -F '\t' '
+  $1 == "workload:status" && $2 == "passed" { n += 1 }
+  END { print n + 0 }
+' "$record_run")
+recorded_exit=$(awk -F '\t' '
+  $1 == "workload:exit" && $2 == "0" { n += 1 }
+  END { print n + 0 }
+' "$record_run")
+[ "$recorded_status" -eq 1 ]
+[ "$recorded_exit" -eq 1 ]
+grep -q '^profile	fixture$' "$record_run"
+grep -q '^artifact	runD-flow-measure$' "$record_run"
+grep -Eq '^artifact_sha256	[0-9a-f]{64}$' "$record_run"
+grep -Eq '^compiler_sha256	[0-9a-f]{64}$' "$record_run"
+
+if cmake -D "ROOT=$record_root" -D "BUILD=$record_build" \
+    -D "ROUTE=measure-missing" -D "STATUS=passed" \
+    -D "LOG=$flow" -D "LOG_NAME=samples.tsv" \
+    -D "PROFILE=fixture" -D "ARTIFACT=$record_artifact" \
+    -D "WORKLOAD_STATUS=passed" \
+    -D "PROOF_KIND=performance" -D "PROOF_ROUTE=measure-missing" \
+    -D "PROOF_STATUS=passed" -D "PROOF_PROFILE=fixture" \
+    -D "PROOF_METRICS=5" -D "PROOF=$work/pass.out" \
+    -D "PROOF_NAME=baseline.log" -D "SOURCE_MANIFEST=$record_manifest" \
+    -P "$root/tools/internal/record.cmake" \
+    >"$work/record-missing.out" 2>"$work/record-missing.err"; then
+  echo "verification record accepted missing workload exit" >&2
+  exit 1
+fi
+grep -q 'verification proof requires WORKLOAD_EXIT' \
+  "$work/record-missing.err"
+
+if cmake -D "ROOT=$record_root" -D "BUILD=$record_build" \
+    -D "ROUTE=measure-range" -D "STATUS=failed" \
+    -D "LOG=$flow" -D "LOG_NAME=samples.tsv" \
+    -D "PROFILE=fixture" -D "ARTIFACT=$record_artifact" \
+    -D "WORKLOAD_STATUS=failed" -D "WORKLOAD_EXIT=256" \
+    -D "PROOF_KIND=performance" -D "PROOF_ROUTE=measure-range" \
+    -D "PROOF_STATUS=failed" -D "PROOF_PROFILE=-" \
+    -D "PROOF_METRICS=0" -D "PROOF=$work/pass.out" \
+    -D "PROOF_NAME=baseline.log" -D "SOURCE_MANIFEST=$record_manifest" \
+    -P "$root/tools/internal/record.cmake" \
+    >"$work/record-range.out" 2>"$work/record-range.err"; then
+  echo "verification record accepted an out-of-range workload exit" >&2
+  exit 1
+fi
+grep -q 'invalid verification proof' "$work/record-range.err"
+
+sed 's/graph\/median	upper	10.000	25/graph\/median	upper	1.000	0.25/' \
+  "$baseline" >"$work/rejected.tsv"
+mv "$work/rejected.tsv" "$baseline"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-flow "$flow" >"$work/fail.out" 2>"$work/fail.err"; then
+  echo "performance comparator accepted a timing regression" >&2
+  exit 1
+fi
+grep -q 'baseline=1.000000 observed=10.000000 limit=1.250000 us' \
+  "$work/fail.err"
+
+mkdir -p "$work/finish-rejected"
+: >"$work/finish-rejected/runD-flow-measure"
+cp "$flow" "$work/finish-rejected/samples.tsv"
+if sh "$root/tools/internal/measure/finish" \
+    "$fixture" "$work/finish-rejected" measure-flow passed \
+    "$work/finish-rejected/samples.tsv" samples.tsv 0 \
+    >"$work/finish-rejected.out" 2>"$work/finish-rejected.err"; then
+  echo "measurement finish accepted a failed comparison" >&2
+  exit 1
+fi
+grep -q '^failed	passed	0	failed$' "$work/finish-rejected/recorded"
+
+mkdir -p "$work/finish-workload"
+: >"$work/finish-workload/runD-flow-measure"
+cp "$flow" "$work/finish-workload/samples.tsv"
+if sh "$root/tools/internal/measure/finish" \
+    "$fixture" "$work/finish-workload" measure-flow failed \
+    "$work/finish-workload/samples.tsv" samples.tsv 7 \
+    >"$work/finish-workload.out" 2>"$work/finish-workload.err"; then
+  echo "measurement finish accepted a failed workload" >&2
+  exit 1
+fi
+grep -q '^failed	failed	7	failed$' "$work/finish-workload/recorded"
+
+if sh "$root/tools/internal/measure/finish" \
+    "$fixture" "$work/finish-workload" measure-flow passed \
+    "$work/finish-workload/samples.tsv" samples.tsv 7 \
+    >"$work/finish-inconsistent.out" 2>"$work/finish-inconsistent.err"; then
+  echo "measurement finish accepted passed with nonzero exit" >&2
+  exit 1
+fi
+grep -q 'inconsistent workload result: status=passed exit=7' \
+  "$work/finish-inconsistent.err"
+
+if sh "$root/tools/internal/measure/finish" \
+    "$fixture" "$work/finish-workload" measure-flow failed \
+    "$work/finish-workload/samples.tsv" samples.tsv 0 \
+    >"$work/finish-zero.out" 2>"$work/finish-zero.err"; then
+  echo "measurement finish accepted failed with zero exit" >&2
+  exit 1
+fi
+grep -q 'inconsistent workload result: status=failed exit=0' \
+  "$work/finish-zero.err"
+
+for invalid_exit in 1x 01 256; do
+  if sh "$root/tools/internal/measure/finish" \
+      "$fixture" "$work/finish-workload" measure-flow failed \
+      "$work/finish-workload/samples.tsv" samples.tsv "$invalid_exit" \
+      >"$work/finish-invalid.out" 2>"$work/finish-invalid.err"; then
+    echo "measurement finish accepted invalid workload exit $invalid_exit" >&2
+    exit 1
+  fi
+  grep -q "invalid workload exit: $invalid_exit" \
+    "$work/finish-invalid.err"
+done
+
+sed 's/graph\/median	upper	1.000	0.25/graph\/median	upper	10.000	25/' \
+  "$baseline" >"$work/rejected.tsv"
+mv "$work/rejected.tsv" "$baseline"
+
+cp "$baseline" "$work/baseline.tsv"
+sed 's/graph\/median	upper	10.000	25/graph\/median	upper	1.000	0.25/' \
+  "$work/baseline.tsv" >"$baseline"
+printf '%s\n' \
+  'metric	sample	unit	value' \
+  'graph	1	us	1.000' \
+  'graph	2	us	1.000' \
+  'graph	median	us	1.25000000000000001' >"$work/precision.tsv"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-flow "$work/precision.tsv" \
+    >"$work/precision.out" 2>"$work/precision.err"; then
+  echo "performance comparator rounded a decimal regression into the limit" >&2
+  exit 1
+fi
+grep -q 'graph/median baseline=1.000000 observed=1.250000 limit=1.250000 us' \
+  "$work/precision.err"
+mv "$work/baseline.tsv" "$baseline"
+
+printf '%s\n' 'extra	median	us	1.000' >>"$flow"
+if perl "$root/tools/internal/measure/compare" \
+    "$fixture" measure-flow "$flow" >"$work/extra.out" 2>"$work/extra.err"; then
+  echo "performance comparator accepted an unbaselined metric" >&2
+  exit 1
+fi
+grep -q 'unbaselined metric extra/median=1.000' "$work/extra.err"
+grep -q 'semantic expected=' "$work/extra.err"
+
+reject() {
+  name=$1
+  route=$2
+  input=$3
+  expected=$4
+  if perl "$root/tools/internal/measure/compare" \
+      "$fixture" "$route" "$input" \
+      >"$work/$name.out" 2>"$work/$name.err"; then
+    echo "performance comparator accepted invalid $name input" >&2
+    exit 1
+  fi
+  grep -q "$expected" "$work/$name.err"
+}
+
+reject_baseline_unit() {
+  name=$1
+  route=$2
+  input=$3
+  metric=$4
+  observed=$5
+  cp "$baseline" "$work/$name-baseline.tsv"
+  awk -F '\t' -v OFS='\t' -v route="$route" -v metric="$metric" '
+    $1 == "fixture" && $2 == route && $3 == metric {
+      $7 = "bananas"; changed += 1
+    }
+    { print }
+    END { if (changed != 1) exit 1 }
+  ' "$work/$name-baseline.tsv" >"$baseline"
+  reject "$name" "$route" "$input" \
+    "$metric unit expected=bananas observed=$observed"
+  mv "$work/$name-baseline.tsv" "$baseline"
+}
+
+reject_baseline_unit scheduler-unit measure-scheduler \
+  "$scheduler_observation" spawn_complete/cold_ns_per_op ns/op
+reject_baseline_unit compute-unit measure-compute \
+  "$compute_observation" resident/cpu/4/median_us us
+reject_baseline_unit flow-unit measure-flow "$flow" graph/median us
+reject_baseline_unit graph-unit measure-graph-services \
+  "$graph_observation" latency/us us
+reject_baseline_unit telemetry-unit measure-telemetry "$telemetry" \
+  live/cold/wall/median ns
+
+printf '%s\n' \
+  'metric	sample	unit	value' \
+  'graph	1	us	-1.000' \
+  'graph	median	us	10.000' >"$work/negative.tsv"
+reject negative measure-flow "$work/negative.tsv" \
+  'is not a nonnegative finite decimal: -1.000'
+
+printf '%s\n' \
+  'metric	sample	unit	value' \
+  'graph	1	us	9.000' \
+  'graph	median	us	NaN' >"$work/nan.tsv"
+reject nan measure-flow "$work/nan.tsv" \
+  'is not a nonnegative finite decimal: NaN'
+
+printf '%s\n' \
+  'metric	sample	unit	value' \
+  'baseline	1	us	1.000' >"$work/marker.tsv"
+reject marker measure-flow "$work/marker.tsv" \
+  'injected baseline marker in Flow log'
+
+printf 'metric\tsample\tunit\tvalue\n\ngraph\tmedian\tus\t10.000\n' \
+  >"$work/blank.tsv"
+reject blank measure-flow "$work/blank.tsv" 'empty Flow row'
+
+printf '%s\n' \
+  'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
+  'resident_setup,cpu,ok,4,1,10.000,NaN,48,1,2' >"$work/compute.csv"
+reject compute-nan measure-compute "$work/compute.csv" \
+  'Compute resident_setup/transfer_bytes is not a nonnegative finite decimal: NaN'
+
+printf '%s\n' \
+  'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
+  'resident_setup,remote,ok,4,1,10.000,48,48,1,2' >"$work/compute-backend.csv"
+reject compute-backend measure-compute "$work/compute-backend.csv" \
+  'unsupported native Compute backend for resident_setup: remote'
+
+sed 's/inflight,vulkan,ok,8,/inflight,vulkan,ok,9,/' \
+  "$compute_observation" >"$work/compute-inflight-k.csv"
+reject compute-inflight-k measure-compute "$work/compute-inflight-k.csv" \
+  'semantic expected='
+
+sed 's/,8,8,0,11,12,1,1,8,8$/,8,0,0,11,12,1,1,8,8/' \
+  "$compute_observation" >"$work/compute-inflight-zero.csv"
+reject compute-inflight-zero measure-compute "$work/compute-inflight-zero.csv" \
+  'Compute inflight command peak is not a positive integer: 0'
+
+sed 's/,8,8,0,11,12,1,1,8,8$/,8,9,0,11,12,1,1,8,8/' \
+  "$compute_observation" >"$work/compute-inflight-over.csv"
+reject compute-inflight-over measure-compute "$work/compute-inflight-over.csv" \
+  'Compute inflight command peak exceeds capacity: peak=9 capacity=8'
+
+sed 's/,8,8,0,11,12,1,1,8,8$/,8,8,0,13,12,1,1,8,8/' \
+  "$compute_observation" >"$work/compute-inflight-hash.csv"
+reject compute-inflight-hash measure-compute \
+  "$work/compute-inflight-hash.csv" 'semantic expected='
+
+sed 's/,11,12,1,1,8,8$/,11,12,1,1,9,8/' \
+  "$compute_observation" >"$work/compute-inflight-counter.csv"
+reject compute-inflight-counter measure-compute \
+  "$work/compute-inflight-counter.csv" 'semantic expected='
+
+sed 's/,10[.]000,5[.]000,800000[.]000,/,10.000,500.000,800000.000,/' \
+  "$compute_observation" >"$work/compute-inflight-time.csv"
+reject compute-inflight-time measure-compute \
+  "$work/compute-inflight-time.csv" \
+  'inflight/vulkan/concurrent_median_us baseline=5.000000 observed=500.000000'
+
+sed 's/,command_submits,dispatches$/,dispatches,command_submits/' \
+  "$compute_observation" >"$work/compute-inflight-columns.csv"
+reject compute-inflight-columns measure-compute \
+  "$work/compute-inflight-columns.csv" 'Compute inflight columns changed'
+
+sed 's/batch,metal,ok,64,64,8,4,4,/batch,metal,ok,63,64,8,4,4,/' \
+  "$compute_observation" >"$work/compute-batch-jobs.csv"
+reject compute-batch-jobs measure-compute "$work/compute-batch-jobs.csv" \
+  'semantic expected='
+
+sed 's/batch,metal,ok,64,64,8,4,4,10[.]000,5[.]000,/batch,metal,ok,64,64,8,4,4,10.000,500.000,/' \
+  "$compute_observation" >"$work/compute-batch-time.csv"
+reject compute-batch-time measure-compute "$work/compute-batch-time.csv" \
+  'batch/metal/jobs=64/elements=64/batch_wall_median_us baseline=5.000000 observed=500.000000'
+
+sed 's/batch,metal,ok,/batch,cpu,ok,/' \
+  "$compute_observation" >"$work/compute-batch-backend.csv"
+reject compute-batch-backend measure-compute \
+  "$work/compute-batch-backend.csv" \
+  'unsupported Compute batch backend: cpu'
+
+sed 's/cpu+metal+vulkan/cpu+metal/' \
+  "$compute_observation" >"$work/compute-mixed-backends.csv"
+reject compute-mixed-backends measure-compute \
+  "$work/compute-mixed-backends.csv" \
+  'unsupported native Compute backend set for mixed: cpu+metal'
+
+sed \
+  -e '/^mixed_columns,/ s/,vulkan_graph_hash,vulkan_output_hash//' \
+  -e '/^mixed,/ s/,11,12,1,0,0,0,0,1$/,1,0,0,0,0,1/' \
+  "$compute_observation" >"$work/compute-mixed-columns.csv"
+reject compute-mixed-columns measure-compute \
+  "$work/compute-mixed-columns.csv" 'Compute mixed columns changed'
+
+sed '/^batch_columns,/ s/output_hash,hash_parity,warm_zero/output_hash,warm_zero,hash_parity/' \
+  "$compute_observation" >"$work/compute-batch-columns.csv"
+reject compute-batch-columns measure-compute \
+  "$work/compute-batch-columns.csv" 'Compute batch columns changed'
+
+printf '%s\n' \
+  'spawn_complete ok=1 reason=ok ops=1 cold_ns_per_op=999999 cold_ns_per_op=10 warm_median_ns_per_op=10' \
+  >"$work/scheduler.log"
+reject scheduler-duplicate measure-scheduler "$work/scheduler.log" \
+  'duplicate scheduler key cold_ns_per_op'
+
+printf '%s\n' \
+  'spawn_complete ok=1 reason=ok ops=1 cold_ns_per_op=10 warm_median_ns_per_op=10 rss_before=1' \
+  >"$work/scheduler-diagnostic.log"
+reject scheduler-diagnostic measure-scheduler \
+  "$work/scheduler-diagnostic.log" \
+  'scheduler memory diagnostic on spawn_complete: rss_before'
+
+printf '%s\n' 'speedup	1	ratio	inf' >"$work/graph.tsv"
+reject graph-inf measure-graph-services "$work/graph.tsv" \
+  'is not a nonnegative finite decimal: inf'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "record" && $F[2] eq "cold" && $F[3] == 1 && $F[4] eq "basic") { $F[48] = 33 } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-parity.tsv"
+reject telemetry-parity measure-telemetry "$work/telemetry-parity.tsv" \
+  'telemetry semantic parity failed: record/cold/1/public_copied'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "record" && $F[2] eq "cold" && $F[3] == 1) { $F[48] = 33 } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-formula.tsv"
+reject telemetry-formula measure-telemetry "$work/telemetry-formula.tsv" \
+  'telemetry public formula mismatch: record/cold/1/public_copied'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "replay" && $F[2] eq "cold" && $F[3] == 1 && $F[4] ne "disabled") { $F[62] = 1 } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-event.tsv"
+reject telemetry-event measure-telemetry "$work/telemetry-event.tsv" \
+  'telemetry Event formula mismatch: replay/cold/1/event_produced_rows'
+
+cp "$telemetry" "$work/telemetry-delta.tsv"
+perl -0pi -e \
+  's/delta\tlive\tcold\t1\twall\tdetail\t10/delta\tlive\tcold\t1\twall\tbasic\t10/' \
+  "$work/telemetry-delta.tsv"
+reject telemetry-delta measure-telemetry "$work/telemetry-delta.tsv" \
+  'telemetry delta mismatch: live/cold/1/wall'
+
+cp "$telemetry" "$work/telemetry-summary.tsv"
+perl -0pi -e \
+  's/summary\tlive\tcold\tdelta\twall\tp95\tns\tdetail\t10/summary\tlive\tcold\tdelta\twall\tp95\tns\tdetail\t9/' \
+  "$work/telemetry-summary.tsv"
+reject telemetry-summary measure-telemetry "$work/telemetry-summary.tsv" \
+  'telemetry summary mismatch: live/cold/delta/wall/p95'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "record" && $F[2] eq "cold" && $F[3] == 2 && $F[4] eq "detail") { $F[6] = "first" } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-order.tsv"
+reject telemetry-order measure-telemetry "$work/telemetry-order.tsv" \
+  'telemetry sample order mismatch: record/cold/2/detail'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "live" && $F[2] eq "cold" && $F[3] == 1 && $F[4] eq "disabled") { $F[54] = "replay" } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-disabled.tsv"
+reject telemetry-disabled measure-telemetry "$work/telemetry-disabled.tsv" \
+  'disabled telemetry callback was installed: live/cold/1'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "record" && $F[2] eq "cold" && $F[3] == 1 && $F[4] ne "disabled") { $F[59] = "reused" } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-plan.tsv"
+reject telemetry-plan measure-telemetry "$work/telemetry-plan.tsv" \
+  'telemetry plan mismatch: record/cold/1/basic'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "record" && $F[2] eq "warm" && $F[3] == 1) { $F[31] = 1; $F[52] = 1; $F[71] = $F[4] eq "disabled" ? 0 : 1 } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-growth.tsv"
+reject telemetry-growth measure-telemetry "$work/telemetry-growth.tsv" \
+  'warm telemetry storage grew: record/1'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "live" && $F[2] eq "cold" && $F[3] == 1 && $F[4] eq "basic") { $F[10] = 1 } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-phase.tsv"
+reject telemetry-phase measure-telemetry "$work/telemetry-phase.tsv" \
+  'non-Detail telemetry phase was measured: live/cold/1/basic'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "live" && $F[2] eq "cold" && $F[3] == 1 && $F[4] eq "disabled") { $F[7] = "18446744073709551616" } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-overflow.tsv"
+reject telemetry-overflow measure-telemetry "$work/telemetry-overflow.tsv" \
+  'telemetry live/cold/1/disabled time:wall:ns exceeds uint64'
+
+cp "$telemetry" "$work/telemetry-reference.tsv"
+perl -0pi -e \
+  's/reference\tlive\tcold\t1\twall\tbasic\t10/reference\tlive\tcold\t1\twall\tdisabled\t10/' \
+  "$work/telemetry-reference.tsv"
+reject telemetry-reference measure-telemetry "$work/telemetry-reference.tsv" \
+  'telemetry reference delta mismatch: live/cold/1/wall'
+
+cp "$telemetry" "$work/telemetry-identity.tsv"
+perl -0pi -e \
+  's/identity\tartifact\tsha256\tb/identity\tartifact\tsha256\tB/' \
+  "$work/telemetry-identity.tsv"
+reject telemetry-identity measure-telemetry "$work/telemetry-identity.tsv" \
+  'invalid telemetry artifact identity'
+
+cp "$baseline" "$work/baseline-order.tsv"
+awk -F '\t' -v OFS='\t' '
+  $2 == "environment" && $3 == "release" { held = $0; next }
+  $2 == "environment" && $3 == "machine" { print; print held; next }
+  { print }
+' "$work/baseline-order.tsv" >"$baseline"
+reject baseline-order measure-flow "$flow" \
+  'baseline rows are not in canonical order'
+mv "$work/baseline-order.tsv" "$baseline"
+
+cp "$baseline" "$work/baseline-workers.tsv"
+awk -F '\t' -v OFS='\t' '
+  $2 == "environment" && $3 == "workers" { $5 = 0 }
+  { print }
+' "$work/baseline-workers.tsv" >"$baseline"
+reject baseline-workers measure-flow "$flow" \
+  'invalid positive worker count for fixture'
+mv "$work/baseline-workers.tsv" "$baseline"
+
+cp "$baseline" "$work/baseline-text.tsv"
+awk -F '\t' -v OFS='\t' '
+  $2 == "environment" && $3 == "release" { $5 = "" }
+  { print }
+' "$work/baseline-text.tsv" >"$baseline"
+reject baseline-text measure-flow "$flow" \
+  'invalid environment rule fixture/release'
+mv "$work/baseline-text.tsv" "$baseline"
+
+cp "$baseline" "$work/baseline-cardinality.tsv"
+grep -v 'measure-flow	alpha/median' \
+  "$work/baseline-cardinality.tsv" >"$baseline"
+reject baseline-cardinality measure-flow "$flow" \
+  'invalid measure-flow metric cardinality'
+mv "$work/baseline-cardinality.tsv" "$baseline"
+
+cp "$baseline" "$work/baseline.tsv"
+grep -v '	baseline	graph2	' "$work/baseline.tsv" >"$baseline"
+reject missing-identity measure-flow "$flow" \
+  'profile fixture is missing baseline identity graph2'
+mv "$work/baseline.tsv" "$baseline"
+
+rm -rf "$work"

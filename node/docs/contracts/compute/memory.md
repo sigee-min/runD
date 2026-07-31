@@ -1,0 +1,949 @@
+# Compute Memory Ownership Contract
+
+Node owns the mapping from Compute object ownership to public `MemoryStats` and
+`MemorySnapshot`. Public category meaning and graph payload formulas live in
+[`docs/reference/compute.md`](../../../../docs/reference/compute.md); Kernel
+private executor and lowering-owner byte oracles live in
+[`kernel/docs/contracts/compute/handoff.md`](../../../../kernel/docs/contracts/compute/handoff.md).
+
+## Recipe value-route ownership
+
+Each reusable Flow recipe and each canonical Graph construction state owns one
+contiguous `ValueIdArena`. Map and Primitive steps retain only ordered
+`(offset, count)` ranges into that state owner; they do not retain per-step
+input and output vectors. The arena is the sole storage authority for those
+routes, and every liveness, canonical-order, description, compilation, and
+runtime-compaction consumer resolves a read-only span from it.
+
+A zero-input Map is canonical for index and constant construction, so range
+validity and range emptiness are distinct. `valid(range)` first proves
+`offset <= size` and `count <= size - offset`; a valid zero-count input range
+is then admitted for Map. Every Map output range and both Primitive ranges are
+nonempty. An invalid range cannot be reinterpreted as a valid zero-input Map.
+Route storage also rejects a span borrowed from the same arena, preventing a
+growth reallocation from invalidating its own source. Current construction
+paths pass stack, fixed-inline, or independent vector spans and never use an
+arena view as storage input.
+
+The arena has no fixed-capacity path or fallback. It owns a move-only
+`unique_ptr<uint32_t[]>`, size, and exact capacity rather than delegating the
+capacity law to a standard container. Let `V` be the number of stored value
+IDs and `C` the retained capacity. A growth allocates the greater of the
+required size and `C + ceil(C/2)`, subject to the effective limit
+`min(UINT32_MAX, SIZE_MAX / sizeof(uint32_t))`. After a nonempty store,
+retained capacity is less than `1.5V + 1` IDs. Successive capacities grow by at
+least `1.5`, so all prior-capacity copies total less than `3V + 2` IDs. At most
+one allocation precedes the ordered old-ID, input, and output copies;
+allocation failure leaves size unchanged, and the optional ranges are
+published only after all copies complete.
+
+Program graph schedule capacity is not expression capacity. One Program admits
+16,384 ordered graph nodes while each Map expression and emitted ComputeIR
+remains bounded at 1,024 nodes. Graph values are admitted against the derived
+1,048,640-resource envelope, but vectors and the value-ID arena retain only the
+authored amount. Fusion planning likewise allocates `O(N)` cold workspace for
+the actual graph and releases it before Program publication. Raising the
+Program envelope therefore does not create a maximum-size per-Program table,
+does not widen a shader IR, and adds no warm Job or Pipeline storage.
+
+On the allocation-counted contract workload of 1,024 routes with two inputs
+and one output each, the exact 1.5-growth sequence performs 18 arena
+allocations while checking all 3,072 IDs after repeated relocation. This is a
+recipe and Graph-construction allocation bound. The published CPU runtime graph
+has distinct Map and Primitive vectors whose lifetime extends through Program
+execution; those owners remain part of Program memory.
+
+## Expression lowering scratch ownership
+
+Multi-output Map lowering validates each distinct immutable expression state
+once. While emitting consecutive roots from the same state, it also retains one
+node-value vector and one byte-per-node visitation vector. A completed node is
+therefore emitted once for the whole same-state root group. Switching to a
+different state clears logical contents but retains scratch capacity; output
+order and state ownership remain unchanged.
+
+For roots with reachable node sets `R_1 ... R_m`, one same-state group performs
+`|union(R_i)|` DFS visits and emission attempts. Each canonical node lookup is
+performed once per group. BuildContext canonicalization remains the sole IR
+authority, so canonical bytes and operation hash are independent of how many
+roots reach the same node.
+Scratch retention is bounded by the largest referenced node ordinal and the
+public maximum of 16 outputs.
+
+`expression/state.hpp` is the sole owner of expression operand cardinality.
+`expr_arity(ExprOp)` maps every admitted operation to zero, one, two, or three
+SSA operands; an unknown encoded operation maps to `InvalidArity`. Liveness,
+projection, graph validation, and replay all consume that same mapping. They do
+not carry independent operation lists, so adding an operation cannot make one
+phase traverse a different dependency graph. The mapping is compiled once in
+`expression/arity.cpp`; support is derived from that same arity law and
+consumers retain only its declaration. No consumer carries a local per-node
+operation switch; traversal order, allocation, emitted IR, and the number of
+visited nodes remain fixed by the shared mapping.
+
+## Program host ownership
+
+Public `Device`, `Buffer<T>`, and `Program<Signature>` handles retain only their
+shared state owner. Backend selection, buffer count, and Program input/output
+extents live in that state; the handles do not mirror those values in
+per-wrapper fields. `backend()`, `size()`, `output_size()`, `capacity()`, and
+binding validation observe the same frozen owner used by execution.
+Constructing a Program handle is therefore `O(1)` in input/output arity after
+compilation instead of recopying the already materialized `I + O` shape values.
+All typed Program shapes inherit that observer behavior from one private
+handle owner. Moving transfers its sole shared-state handle; the source becomes
+invalid, `backend()` returns `ProgramInvalid`, and execution checks that state
+before shape matching instead of substituting CPU or a zero-sized Program.
+Input type and extent vectors are the only Program input-shape authority. They
+are nonempty and have equal cardinality when compilation publishes the Program;
+run, resident-Job creation, and Job write admission reject any violated
+invariant. There is no first-input scalar mirror or empty-vector fallback.
+
+`DeviceState` owns one immutable backend-operation pointer. CPU devices leave
+it null and execute the CPU Job branch. Native devices use the single Accel
+adapter for allocation, transfer, compile, run, resident Job, and staging
+memory observation. The memory API therefore does not contain a second native
+backend switch or call native symbols from the CPU archive. The state cost is
+one host pointer; dispatch happens once per public operation and never inside
+an element or tile loop.
+
+### Logical Buffer initialization
+
+A successful `Device::buffer<T>(count)` publishes a new logical Buffer whose
+entire `count * sizeof(T)` payload is all-byte zero on CPU, Metal, and Vulkan.
+The guarantee applies equally to fresh native allocation and to storage
+reacquired from a backend pool: old-owner bytes are cleared before the new
+owner is published. A failed clear publishes no Buffer. Pooling therefore
+reuses physical capacity without exposing a stale logical payload.
+
+Allocation carries one internal initialization intent. The public Buffer path
+uses `Zeroed`. A path that proves it overwrites every payload byte before any
+read uses `FullOverwrite`: `Device::upload`, complete resident input upload,
+private dense View staging, and complete-write graph memory chunks are such
+owners. These are cold ownership rules only; they are not a substitute for an
+execution reset when a Job or Pipeline reuses storage.
+
+The graph-memory planner fails closed unless the first access is a dense
+write with zero byte offset, exact logical byte size, exact element count and
+width, and stride equal to element width; a read in that same graph node is
+forbidden. Graph construction supplies exactly one execution-coverage proof
+for every node. A Domain write may claim its active prefix only when every
+consumer uses the same count or a descendant count and preserves any writer
+predicate. A general bounded, predicate, segmented-reduce, or scatter write
+cannot claim coverage merely because its declared access spans the capacity.
+
+Let `O_r` be the bytes of one authored output View or internal logical
+resource `r`, and let `W_r` be the bytes proved overwritten before their first
+read. If `W_r != O_r` and there is no proved Domain subset, the compiler
+records the first writer as `graph::Resource::reset_node`. The resource resets
+exactly `O_r` once immediately before that writer:
+
+```text
+for every byte b read in the invocation:
+  b in W        => the first writer defines b
+  b not in W    => the first-write reset defines b as all-byte zero
+```
+
+The reset frontier is part of the same closed lifetime `[first_r, last_r]`
+used by arena placement. Two internal reset resources may reuse an aligned
+range exactly when `last_a < first_b` or `last_b < first_a`; the later range is
+cleared after every earlier use and immediately before its own first writer.
+Any logical output read before that first writer, or read and partially written
+by the same first node, is rejected because no first-write reset can initialize
+that read without changing operation order.
+This changes neither operation order nor arithmetic. Each logical range retains
+one exact reset route even when ranges share an offset or physical arena
+Buffer. Physical-owner equality never deduplicates reset routes. Therefore, for
+reset set `R`,
+
+```text
+reset_bytes = sum(r in R, bytes(r))
+reset_count = |R|
+```
+
+Padding and unrelated arena intervals are not reset. A Pipeline recurrence
+invokes its body Program at every prepared occurrence, so each occurrence
+consumes the same Program-owned reset routes. An external partial-write output
+resets its complete authored View, including a strided View. Inputs, the
+current recurrence bank, and transactional published state are explicit carry
+authorities. A transactional pending bank requires a complete overwrite before
+publication.
+
+CPU, Metal, and Vulkan consume the canonical order `(reset_node, binding)`.
+Control suppression does not suppress initialization: CPU clears before it
+evaluates the node control, and native reset commands remain ahead of the
+controlled dispatch. A reset after prior commands has one prior-work-to-reset
+visibility edge and one reset-to-writer edge. A writer's ordinary hazard edge
+is not emitted a second time when those reset edges already cover it.
+
+`reset_node` and the matching last-use frontier remain original Program node
+ordinals. Compute lowering writes `BufferInit::Zero` only on that exact
+first-write binding. The marker participates in Kernel graph identity and is
+the sole accelerator reset intent; `AccelRun` has no reset coordinates or
+route list. Accelerator fusion retains a gap-free half-open source interval on
+every final execution step and applies the unique monotone projection
+
+```text
+project(i) = j  where step[j].begin <= i < step[j].end
+```
+
+before native scheduling and physical-lifetime validation. Thus fusion changes
+only the execution coordinate of a reset, never its authored ordering,
+identity, byte range, or arithmetic meaning. Token mint matches each surviving
+marked binding to its exact original node and seals its binding, projected
+first write, and projected alias last use. Alias last use is selected by the
+maximum original source ordinal, not an incidental final-binding traversal
+position. A marked internal intermediate removed by legal fusion has no
+physical range and produces no reset plan; every materialized marked binding
+must produce exactly one.
+
+For `S` final steps, `B` canonical graph binding occurrences, and `R`
+surviving reset routes, token mint spends `Theta(S + B)` once and retains
+`8 * S + 16 * R` logical bytes. Reset-free preparation is `Theta(1)` and
+allocates no reset storage. For `R` reset routes, binding projection is
+`Theta(R)`; the independent physical-overlap proof remains `O(R log R)`.
+No Job, Pipeline occurrence, or backend rebuilds the graph-to-step authority.
+
+Metal and Vulkan clear a public Buffer at its cold ownership transition.
+Those allocation writes do not increment upload or download counters. Program
+resets are separate execution work: `MemoryPlan::{reset_bytes,reset_count}`
+reports the canonical bytes and logical reset ranges, while
+`Stats::{reset_bytes,reset_commands}` reports work consumed by that invocation.
+Warm `Job::run`, Pipeline steps, and every recurrence occurrence follow the
+same exact-node frontier. There is no invocation-start mirror, cold-only path,
+or backend-specific fallback.
+Native View lowering builds one binding-ordinal index while it creates dense
+transfers. For `B` graph bindings and `V` lowered transfers, cold replacement
+resolution is therefore `O(B + V)` time and `O(B + V)` storage, rather than a
+linear search per binding. Compute lowering emits the reset marker while it
+already visits the canonical access, so it builds no value-to-Write table,
+accelerator reset vector, or per-Job route projection. Preparation resolves
+each token-owned target once and freezes one contiguous reset span on its
+native step. Warm encoding then visits exactly `S + R` entries, not `R * S`.
+
+`accel/kernel/reset` is the sole native reset value and arithmetic authority.
+`model.hpp` separates the raw byte `Spec` from the constructor-closed proved
+`Range` and owns the standard-layout 40-byte `Params` shared by Metal bytes and
+Vulkan push constants. `projection.hpp` owns the
+allocation-free unique dense-View replacement lookup, and compiled
+`proof.cpp` projects either the authored resident range or its dense
+replacement and validates it once during preparation. For target storage
+extent `S`, offset `o`, count `n`, stride `s`, and element width `w`, it first
+requires `n > 0`, `w in {4, 8}`, four-byte alignment, `s >= w`, and `o <= S`.
+It then proves the final exclusive byte without an overflowing product or sum:
+
+```text
+n - 1 <= (S - o - w) / s
+```
+
+The proof makes both `n*w` payload accounting and
+`o + (n-1)*s + w` address materialization safe. A backend supplies only its
+native address-width limit: Metal admits the proved 64-bit word extent, while
+Vulkan's strided shader admits its fixed u32 word extent. Dense Vulkan reset
+remains one `vkCmdFillBuffer`; strided Vulkan reset remains fixed 256-lane
+dispatch, and Metal remains exact `dispatchThreads` for both dense and strided
+ranges. Those execution forms are backend mechanics, not alternate value or
+validation policies. Prepared native reset records compose their handle or
+descriptor around the common proved `Range`; repeated encoding performs no range,
+overflow, alignment, replacement, allocation, or payload-copy work.
+
+The public `Run` receipt retains its private state in a 1,280-byte,
+`uint64_t`-aligned inline store. The source-private `RunState` is 1,072 bytes
+with 8-byte alignment, so the checked bound is `1,072 <= 1,280` with 208 bytes
+of reserve. `Result<Run>` is 1,288 bytes on the checked 64-bit ABI. The reserve is
+an explicit stack and ABI footprint tradeoff for isolating private layout
+growth; it is neither heap storage nor extra initialized/copied payload.
+Construction, copying, moving, and destruction are compiled owners; public
+headers never require the complete private state. A warm
+`Program::run(Buffer, Buffer)` therefore still performs zero SDK heap
+allocations, and copying or moving its receipt adds no owner allocation. The
+copied receipt retains independent mutable read telemetry over the same shared
+buffers. The compile-time size, alignment, and nothrow checks plus the
+allocation and telemetry-divergence oracles live in `compute.reuse`.
+
+### One-shot host result ownership
+
+A single-output `Program::run` or Flow `collect` allocates the final
+`vector<R>` first and downloads directly into its typed, `alignof(R)`-aligned
+storage. The erased execution boundary validates the Program output type,
+logical count, and exact byte width before execution, then uses the same typed
+read owner as resident execution. There is no intermediate byte-vector result
+and no reinterpretation copy. Integral and fixed 32-bit domains therefore use
+exactly four bytes per element; their 64-bit domains use exactly eight.
+
+Let `B = output_count * sizeof(R)`. The host result owns one payload allocation
+with peak live payload `B`. A nonempty one-shot CPU or accelerator read performs
+exactly `3B` of host payload traffic: result value initialization (`B` written),
+resident or staging source read (`B` read), and result write (`B` written).
+Every backend computes the canonical FNV-1a hash in that source-to-result copy
+loop, so it adds no destination reread. A caller-provided explicit read omits
+result initialization and therefore performs exactly `2B`. Empty-Program
+materialization writes the caller destination once and derives the all-zero
+payload hash as `offset * prime^B mod 2^64` by exponentiation by squaring,
+without rereading those zero bytes. Both routes retain one readback, transfer
+accounting, and an output hash over the final bytes. A zero-length result
+performs no download or transfer and records the canonical empty hash through
+that same read owner.
+
+Vulkan resident payload and workload-sized collective scratch are
+device-local. Host-visible coherent memory is restricted to explicit staging,
+small parameter blocks, and host-observed status words. On a discrete-memory
+adapter this prevents every shader pass from being bounded by the host-link
+memory tier; on unified memory it preserves the same placement contract without
+claiming a separate physical heap. Public transfer intervals retain arbitrary
+byte offsets through the canonical four-byte aligned staging range defined by
+the Accel runtime resource contract. Typed Compute transfers are naturally
+four- or eight-byte aligned and therefore pay no range expansion. Every Vulkan
+upload and download, including the general one-buffer surface, consumes the
+same increasing-order partition whose normalized staging slice is at most the
+frozen staging budget. A one-slice full upload submits without a host fence
+wait; the command slot retains staging and Vulkan target storage until
+completion, and same-queue ordering makes the following prepared run see the
+bytes. Larger transfers complete their bounded slices in order and cannot
+materialize a payload-sized staging allocation. A full command envelope
+applies bounded condition-variable backpressure rather than exposing transient
+queue pressure as a transfer error.
+
+Metal and Vulkan public resident handles, not their adapter registries, own
+native buffers. Vulkan separates the public adapter-owning handle from
+fence-retained native storage. Final storage release may enter one
+memory-class pool only when both its count and retained-byte caps admit it.
+The common cap is 32 buffers and `32 * staging_budget` bytes per pool; larger
+buffers are destroyed and deterministic oldest-first eviction makes room
+without allocation. Active plus pooled mapped staging is the physical
+`MemoryStats::staging.current` authority, so returning a staging lease does not
+hide retained native memory. Prepared-owner staging remains derived from active
+lease deltas and is not inflated by unrelated cold pool retention.
+
+The warm one-input CPU allocation oracle is exactly one `operator new` call:
+the typed result payload. The Program's serialized convenience Job, BufferState
+owners, internal buffers, prepared execution state, and route storage are
+retained from the first call. No warm execution allocation is hidden outside
+the oracle; CPU buffer payloads are already resident in that cached Job.
+
+Bounded and ordered multi-output terminals use the schema-aware Job reader, but
+their short-lived execution owner is read-only. Let `I`, `O`, and `A` be the
+physical byte sums of external inputs, distinct physical outputs, and planned
+internal arena chunks. `A` is not the sum of authored intermediates. The
+virtual arena is partitioned into raw U32 Buffer owners containing canonical
+typed subviews at checked byte offsets. One-shot construction owns exactly
+`I + O + A`; it neither
+allocates the resident pending-write input term `I` nor prepares a second
+backend binding set. A writable resident Job owns
+`2I + O + A`, and both input sets are prepared before publication.
+The `compute.reuse` contract measures the one-shot physical allocation delta from
+the Device meter, checks the pending-input row on the resident counterpart, and
+then writes and reruns that resident Job to prove the double-buffer law was not
+narrowed. Its four-element CPU physical oracles are exact: the Bounded filter
+retains 308 bytes during the call (52 external bytes plus one 256-byte-aligned
+internal arena) and the two-output record retains 48 bytes. The oracle derives
+this as external resource bytes plus `MemoryPlan::physical_bytes`; it never
+reconstructs placement from logical resource extents.
+Cold `operator new` call
+counts are intentionally not a contract: they include standard-library owner
+construction and would reject a valid allocation reduction or library change.
+The same exclusion applies to native accelerator command execution: a process-
+wide replacement `operator new` can observe driver-internal command encoding,
+whose count legitimately grows with dispatch and barrier count. Warm
+accelerator reuse is instead proven by product telemetry
+(`pipeline_compiles == 0`, `buffer_allocations == 0`, `uploaded_bytes == 0`,
+and `download_events == 0` before explicit readback) plus stable output and
+dispatch evidence. Comparing a multi-pass collective's process-wide call count
+to a one-dispatch Map is not a resource-lifetime invariant and is not a test
+authority.
+
+### Memory Plan
+
+`graph::Info::memory` is the immutable `MemoryPlan` evidence for this
+ownership and its exact first-write reset frontiers.
+The planner has two private responsibilities with one published result:
+`resource/memory.cpp` derives lifetimes, materialization classes, and reuse
+proofs; `resource/memory/arena.cpp` consumes that frozen model and owns the
+deterministic aligned placement algorithm. Neither side may reconstruct the
+other's policy, and backends consume only the resulting `MemoryPlan`.
+`logical_bytes` is the saturating sum of authored internal extents;
+`live_bytes` is the maximum closed-interval live sum; `physical_bytes` is `A`;
+`allocation_count` is the retained arena Buffer count; `reset_bytes` and
+`reset_count` are the exact logical Program reset ranges. Per-run `Stats` owns
+reset work for the observed execution.
+
+### Preflight
+
+The public resident-window and memory-admission contract is owned by
+[Compute Graph Services](../../../../docs/reference/compute/services.md#resident-windows).
+`windows<Max, Tile>` fixes both dimensions at compile time and the body Program
+expresses tile-local values through `resident<Max, Tile>`. Its ordinary
+`MemoryPlan` therefore describes the body graph exactly as authored; it has no
+budget, maximum, tile, occurrence, or backend-allocation fields.
+The large-window contract applies this proof to both 32-bit and 64-bit Fixed
+storage at `Max = 516096` and `Tile = 8192`: the large plan's transient bytes
+and allocation count equal the corresponding one-tile control, while its 63
+prepared occurrences increase reuse rather than workspace capacity.
+
+`PipelineBuilder::plan()` computes the private Pipeline allocation rows and
+publishes their `PipelinePlan` summary before creating Pipeline-owned payload
+Buffers. `prepare()` consumes that same frozen plan. `persistent_bytes` counts
+referenced caller Buffer storage. `state_bytes`, `transient_bytes`, and
+`prepared_bytes` form the exact Pipeline-owned planned payload,
+`peak_bytes = state_bytes + transient_bytes + prepared_bytes`, and
+`total_bytes = persistent_bytes + peak_bytes`. `prepared_bytes` is the sum of
+the typed dense View arena and primitive scratch arena referenced by prepared
+backend commands. View raw-word slots may serve sequential uses of different
+scalar types and retain the strongest natural scalar alignment among those
+uses. They are suballocated at the maximum of that alignment and the selected
+backend's storage-offset alignment, so both alignment holes and backing-owner
+count are known before allocation.
+
+The scratch planner consumes the admitted Kernel operation sequence and emits
+the exact temporary requests used by Scan, segmented Scan/Reduce, Sort,
+Compact, Partition, Reduce, and ScatterReduce. For storage-page size `P`,
+alignment `A`, and ordered request `r`, it places each operation's requests in
+the first page whose aligned end remains at most `P`; otherwise it appends one
+page. Operation boundaries reset placement because canonical dispatch barriers
+close the prior temporary lifetime. If the largest operation envelope uses `q`
+pages and, among operations with that page count, the maximum aligned terminal
+extent is `L`, the Program requires
+
+```text
+scratch(Program) = (q - 1) * P + L
+```
+
+Pipeline steps are serial, so the Pipeline arena repeats the same maximum
+envelope across Programs. Sequential operations, Programs, recurrence phases,
+and transactional alternates therefore share the same View and scratch owners.
+The best-fit pass retains one owner-usage vector across all steps and clears
+its logical contents between placements; step count does not create allocator
+traffic for that workspace.
+`pipeline/plan/space.hpp` is the sole word-limit and overflow-safe alignment
+authority shared by transient and View placement.
+For `L` logical chunk occurrences and `U_s` physical owners touched by step
+`s`, peak-envelope measurement visits `L + sum(U_s) <= 2L` entries. It reuses
+the placement workspace as the touched-owner list and never clears or sums all
+owners for every step.
+Prepared Jobs may only borrow their sealed offsets. A single request larger
+than `P` is rejected before allocation; no private backend allocation path
+remains for Pipeline scratch. CPU primitive temporary storage remains part of
+its existing Program workspace and reports zero Pipeline scratch pages.
+`publish_bytes` reports terminal copy traffic and is not retained storage.
+The largest and peak step/iteration/chunk coordinates identify Program
+workspace, while `view_bytes` and its step/iteration/binding coordinates
+identify the dominating View requirement. The same selected View reports
+`view_span_bytes`, `view_backing_bytes`, `view_offset_bytes`,
+`view_stride_bytes`, `view_element_bytes`, `view_count`, and
+`view_alignment`. Together with `DeviceInfo::storage_bytes` and
+`storage_alignment`, these fields make descriptor admission attributable
+without backend-private headers.
+
+`MemoryBudget{bytes}` compares the fixed `PipelinePlan::peak_bytes`.
+Failure returns `PipelineMemoryBudget` before Pipeline-owned state, workspace,
+View, or scratch Buffer materialization. Planned payload is not combined with
+backend allocation rounding, driver metadata, or transfer-pool high-water
+marks. `PipelinePlan::scratch_bytes` and `scratch_count` expose the logical
+scratch backing and page count. `Pipeline::memory_snapshot()` enumerates the
+shared owners once and labels scratch separately in both Resident and Device
+categories; Device bytes are the actual physical allocation and may exceed the
+logical plan through backend allocation granularity. Native allocation failure
+retains its owning typed reason.
+Budget cannot change `Max`, `Tile`, occurrence count, Program shape, chunk
+placement, or backend. CPU, Metal, and Vulkan consume the same canonical graph
+and Pipeline ownership law; the selected backend contributes only the dense
+View requirements its binding ABI needs.
+
+All fixed `K = ceil(Max / Tile)` execution entries reuse the body Program, one
+Program workspace, and one primitive scratch arena. Placement changes only
+physical addresses. Operation order, reduction tree, numeric policy, overflow
+fold, barrier frontier, and publication order remain unchanged, so
+suballocation cannot change result bits. A warm Pipeline run changes only
+resident control values; it performs no payload allocation, plan mutation, or
+placement search.
+
+The planner admits a nonzero arena range only after a dense `Full` write or a
+proved `Domain` write. Domain coverage uses canonical count identity and
+`Resource::parent` lineage, not a mirrored capacity number. If the reader count
+is the writer count or its descendant, the read prefix is a mathematical subset
+of the written prefix. Writer predicates must also match. Unproved partial
+lifetimes carry their first writer in `reset_node` and enter the same aligned
+lifetime arena. Every logical reset range resets exactly once at that writer
+even when disjoint lifetimes share an offset or Buffer.
+
+For reusable ranges, canonical 256-byte-aligned best-fit releases storage only
+when `last_use < next.first_use`. This placement is the sole reusable-storage
+authority. The planner compares the ordinary
+packed arena with its same-node destructive Map placement and keeps the smaller
+arena extent; a tie prefers the proved destructive alias.
+The destructive proof requires one eligible dense full-write output and at
+least one arena-backed, same-shape source whose final read is that node. The
+Map must be pointwise, so each candidate read uses the same logical ordinal as
+the output write. When multiple sources qualify, the smallest canonical
+resource ID wins; `Resource::source` records that candidate. An
+indexed Map evaluates `output[i] = f(source[index[i]])`. Unless identity
+indexing is separately proved, a write by lane `j` can precede another lane's
+read of `source[j]`. Therefore a Map containing `ReadAt` is non-destructive.
+Its storage may still use the ordinary arena once the strict closed-lifetime
+condition `last_use < next.first_use` holds.
+Address-ordered and aligned-fit ordered trees coalesce and select free ranges
+in `O(log R)` per resource. Together with the CSR use index, planning is
+`O(R + A + R log R)` time and `O(R + A)` memory instead of rescanning or
+resorting all free ranges for every placement.
+The CSR count array becomes its fill cursor after prefix offsets are sealed;
+there is no second `R * sizeof(size_t)` cursor owner. One `Live{start, stop}`
+array owns the node sweep, and arena membership is derived from the validated
+internal visibility and nonempty lifetime rather than stored as another bit
+set. Arena packing performs one stable ordinary/large partition in an
+`R`-entry ID array, preserving canonical ID order within each class. The
+published candidate `Layout` directly owns final owner IDs and owner-local
+offsets; virtual placement offsets are localized in place and are not copied
+into a parallel result. Active heaps reserve the admitted class cardinality,
+and ordinary chunk measurement sizes owner and extent storage from the proved
+virtual upper bound before its single sweep.
+Accelerator binding admission proves the resulting two-dimensional
+memory-by-lifetime layout with an exact sweep: physical intervals are visited
+in address order, expired intervals leave a min-end heap, and a compressed
+step tree rejects any closed-lifetime intersection. This is `O(R log R)` time
+and `O(R)` cold memory, replacing the quadratic pairwise reset scan without
+weakening overlap rejection. External reset ranges remain non-aliasable.
+Ordinary virtual placement is cut at
+`min(1 GiB, backend storage limit)` boundaries. No ordinary range crosses a
+chunk, so a backend with a multi-gigabyte single-Buffer limit cannot turn an
+entire large Program arena into one driver residency object. A logical range
+larger than that ordinary chunk but no larger than the backend storage limit
+receives an offset-zero owner and cannot share it with an overlapping
+lifetime. Expired large owners are reselected by deterministic best fit over
+`(capacity, owner ID)`, so nonoverlapping assignments contribute their maximum
+size rather than their sum. A proved pointwise destructive transition extends
+the same large owner instead of allocating another one.
+The release/selection pass is `O(L log L)` for `L` large ranges. The selected
+chunk IDs, large-owner IDs, and local offsets are fingerprinted and consumed by
+CPU, Metal, and Vulkan. Used owner extents, not virtual boundary gaps, form
+`physical_bytes`; retained ordinary chunks and dedicated large owners form
+`allocation_count`. Placement depends only on the canonical resource order,
+closed lifetimes, destructive proof, fixed chunk ceiling, and frozen storage
+limit. It does not inspect active work, timing, cache state, or runtime memory
+pressure and therefore is not a workload-size strategy.
+Pipeline consumes these owners directly. Its one cross-step placement pass may
+reuse an owner or pack ordinary chunks within the same ceiling, but it never
+post-coalesces the result into a backend-limit-sized Buffer.
+The local contract proves the scale boundary without allocating the scale
+payload: one synthetic step declares eight simultaneously live maximum
+ordinary owners and must retain exactly eight offset-zero owners. Separate
+small CPU, Metal, and Vulkan executions prove that the same planner coordinates
+are consumed correctly. This decomposes placement scale from execution
+semantics; it does not introduce a reduced execution graph or runtime mode.
+Ordinary and destructive placement preserve the same materialized values,
+dispatches, memory traffic, and arithmetic. The implemented cost is therefore
+the exact lexicographic pair `(physical_bytes, allocation_count)`, with a tie
+preferring the proved destructive transition. The planner does not label arena
+packing as fusion, streaming, or rematerialization.
+Every reuse frontier becomes an explicit graph barrier. CPU, Metal, and Vulkan
+consume the same raw owner and byte offsets, while typed routes retain element
+width and Fixed policy. Storage identity never becomes a scalar operand or
+reduction-order input.
+
+An internal lifetime's first-use node must contain a dense write and no read of
+that value; a same-node read/write birth is rejected because the graph defines
+no intra-node access order. Resource uses are indexed once in contiguous CSR
+form, so liveness and Domain checks are `O(R + A)` instead of rescanning every
+node for every resource. Plan evidence does not replace live `MemoryStats`, and
+no allocation or graph reconstruction occurs on warm runs.
+
+Logical output order and physical output ownership are separate. Repeating one
+value, or returning an identity map beside its source, records another logical
+projection to the same physical output. It does not create a map node, output
+buffer, dispatch, or payload copy. An external input still materializes once at
+the output boundary because input and output storage roles are distinct; any
+repeated logical fields then alias that one materialized output. With at most
+16 outputs, projection construction is bounded compile-time work and adds zero
+warm execution traffic. `compute/program/output.hpp` owns the one bounded
+logical-count and logical-to-physical index rule consumed by introspection,
+convenience execution, Job reads, and Pipeline planning; those paths do not
+repeat or reinterpret the alias vector.
+
+The convenience cache contains at most one ordinary read-only Job and is
+serialized by one Program-owned gate. Host-input execution updates its existing
+input buffers in place and allocates only the returned typed vector. Caller-
+Buffer execution reuses the cached Job when all buffer identities match and
+performs zero warm SDK heap allocations. Switching between host and Buffer
+forms, or changing Buffer identities, replaces that one Job. The cached Job's
+back-reference is lifetime-borrowed from its enclosing Program, so ownership is
+acyclic; a returned `Run` receipt receives its own strong Program owner before
+crossing the public boundary. Explicit resident Jobs remain the concurrency
+surface and never lock the convenience cache. The `compute.reuse` contract
+executes two distinct host inputs through one Program while a third thread
+observes its memory, proving that the serialized convenience surface cannot
+cross-contaminate inputs or race its cached owner. It also proves both sides of
+the lifetime boundary: destroying a host-run Program releases the borrowed
+cache, while a Buffer-backed `Run` remains readable after its public Program
+handle is destroyed.
+
+Caller-Buffer convenience execution keeps one dynamic ownership authority.
+The structural binding pass checks shape, type, alias, and Device identity;
+the immediately following Device claim acquisition performs the poison and
+busy checks atomically, so validation does not take one poison lock per
+binding. A cache miss constructs the Job from that already validated binding
+set without repeating the same scan. Terminal write generation or failure
+poison and release are then published in one claim-vector pass under one
+Device-gate acquisition, with publication ordered before writer release.
+
+`Program::memory()` walks each retained owner once. `ProgramState` owns its
+top-level vector allocations, including one canonical U32 chunk-rank
+permutation, and nested `graph::Info` capacities. A CPU Program then owns one
+`CpuGraphProgram`, one uniquely owned `CpuRuntimeGraph`, every live `CpuProgram`
+and `CpuCollective`, and their Kernel/CPU-SIMD private allocations.
+Each `CpuProgram` owns its `ComputeMap` descriptor, compact `PreparedRun`, tile
+executor handle, and scalar tile/scratch configuration. Compilation publishes a
+dedicated `CpuRuntimeGraph`: its values are `(type, count)` pairs and its ordered
+steps are Map, Scan, or Primitive alternatives. A Map step owns input/output
+value-ID routes. A Primitive step owns its routes, selected output, operation
+kind, and one validated active Kernel plan. Planning happens once during
+compilation; execution consumes the published plan. The reusable Flow
+construction graph remains caller-owned and reusable.
+
+`Job::memory_snapshot()` also measures each Buffer owner once. The same walk
+adds the per-buffer snapshot rows and saturating resident/physical/reuse totals;
+the completed totals then publish the snapshot summary. With `B` active,
+pending-input, internal, and output Buffer owners, buffer observation is
+`Theta(B)` and exactly `B` `measure_buffer` calls, rather than one summary walk
+followed by a second row-emission walk. Entry order, truncation accounting, and
+the summary remain unchanged when the caller supplies fewer row slots.
+
+One Job-local CPU step state is shared by blocking and submitted execution. It
+holds the canonical step index, active pass, collective context, statistics,
+and the Scan-pass dispatch count carried across completion; it does not retain a second route table,
+binding vector, or result buffer. Blocking and submitted transports invoke the
+same route/bind/finish owner, so this state adds no warm allocation or payload
+copy. The carried Scan dispatch count is one inline saturating-counter input used
+to preserve exact zero-work and multi-pass statistics across the asynchronous
+completion boundary.
+
+`compute/cpu/view.cpp` is the sole runtime CPU Buffer-View footprint
+authority. It projects an owner and authored element View once into a validated
+first-byte pointer plus byte base, effective byte stride, logical payload
+bytes, count, and element width. Map retains its expected count and scalar
+width policy; collective and reference-primitive callers additionally require
+a dense footprint; reset and Pipeline publication accept the validated
+strided footprint. Bounded control reads additionally require the canonical
+graph value to be `U32` or `U64` and its width to match the View; raw arena
+storage type is not a second value-type authority. Each caller maps rejection
+to its existing public Reason, and no caller retains another footprint state.
+
+For storage size `S`, element offset `o`, count `n`, element stride `s`, and
+width `w`, admission requires `w > 0`, `s > 0`, and `o*w` to fit. A zero-count
+View admits a base no greater than `S` and touches no pointer. For `n > 0`, the
+single owner proves
+
+```text
+((o + (n - 1)*s)*w + w) <= S
+```
+
+without evaluating an overflowing sum or product. After `b = o*w` and
+`r = S - b`, it rejects unless `w <= r` and evaluates the equivalent predicate
+
+```text
+n - 1 <= ((r - w) / w) / s
+```
+
+All divisors are positive. Integer-floor associativity makes this equivalent
+to `(n - 1)*s*w <= r - w`, while the division form cannot overflow. The same
+proof makes `n*w` and the effective byte stride safe to materialize. Counts
+zero and one canonicalize the irrelevant byte stride to `w`.
+
+Strided reset and Pipeline copy loops consume that proof once, then advance
+the validated pointers. They retain one unavoidable payload pass and perform
+no per-element overflow or bounds validation. The projection is allocation
+free, owns no payload, performs no virtual dispatch, and is not retained by a
+Job or Pipeline.
+
+Private `compute/size.hpp` is the single exact host-width addition and
+multiplication law used to derive byte counts, offsets, and bounded cardinality
+products. It operates on `size_t`, publishes an output only after the complete
+operation succeeds, and never saturates or wraps. Callers retain their existing
+typed failure and precedence; the helper owns only representability. Exact U64
+graph and arena arithmetic instead consumes `kernel/core/checked.hpp`, while
+telemetry totals consume the saturating counter law. Those three semantics are
+not interchangeable. The CPU View contract exercises `{0, 1, SIZE_MAX}`,
+multi-factor products, and unchanged output after failure before its exhaustive
+footprint oracle.
+
+Let `R` be the exact logical retained extent of that runtime owner:
+
+```text
+R = sizeof(CpuRuntimeGraph)
+  + V(values) + V(steps)
+  + sum_map(V(inputs) + V(outputs))
+  + sum_primitive(V(inputs))
+```
+
+The active plan is inline in each Primitive alternative and is therefore
+already counted by `V(steps)`. Scan has no nested allocation. The unique owner
+adds no shared-reference control block or atomic reference-count traffic.
+
+CPU collective scratch is kind-specific. For prepared tile capacity `T` and
+`W = sizeof(CpuCollectiveWide) = 16`, Scan retains `2*T*W` Tile bytes in its
+tile-total and prefix arrays, while Reduce retains only `T*W` bytes in its
+tile-total array. Reduce never allocates, resizes, or observes a prefix array.
+Bounded execution may shrink the live element counts of the arrays but cannot
+exceed their prepared capacities; the memory snapshot therefore continues to
+report the exact retained capacity. Removing the unused Reduce prefix owner
+saves `16*T` bytes, one allocation, and `T` value-initialization stores per
+Job without changing tile or merge order.
+
+### Exact CPU Map retained formula
+
+Let `V(x) = capacity(x) * sizeof(x::value_type)` for a vector. These are logical
+retained element extents: allocator size classes, padding, and bookkeeping are
+excluded. All products and sums saturate at `uint64_t` maximum. For one live
+compact CPU Map,
+with prepared instruction vector `I`, fixed-format vector `F`, and tile-executor
+oracle `E`, the exact contribution is:
+
+```text
+Host(Map) = sizeof(CpuProgram)
+          + V(I)
+          + V(F)
+          + E.state_bytes
+          + E.async_context_bytes
+
+Tile(Map) = E.workspace_bytes
+          + E.failure_slot_bytes
+          + E.worker_tile_bytes
+```
+
+`ComputeMap`, the dispatch function pointers, `PreparedRun` scalar counts and
+flags, `scratch_words`, `workers`, and `tile_size` are inline in
+`sizeof(CpuProgram)`. `V(I) + V(F)` is the complete dynamic `PreparedRun`
+extent. No binding-count-dependent vector is hidden below that owner: read and
+write counts are scalars, while each instruction carries its resolved binding
+slot or immediate. Graph identity and tile count are read from their canonical
+graph and plan owners.
+
+### Exact CPU worker-scratch formula
+
+Let `N = I.size()`, `M = N + 1`, `L` be the selected SIMD lane count, and
+`A = sizeof(std::max_align_t)`. Before allocation, the compact runner requests:
+
+```text
+Scratch_raw = M * sizeof(uint8_t)
+            + M * sizeof(ValueVec)
+            + M * L * sizeof(WideScalar)
+            + alignof(ValueVec)
+            + alignof(WideScalar)
+            + alignof(uint8_t)
+
+Scratch_words = ceil(Scratch_raw / A)
+Scratch_requested_per_worker = Scratch_words * A
+```
+
+Worker SIMD scratch uses an aligned overwrite buffer whose capacity equals the
+requested word count, so telemetry reports exactly
+`workers * Scratch_requested_per_worker`. Preparation does not value-initialize
+those bytes: every admitted SIMD instruction invalidates its destination and
+writes it before any dependent read. Instruction-plan
+construction is one `O(N)` Program-preparation operation. A physical tile
+executes that prepared schedule, while each run performs an
+`O(binding_count)` fixed-view binding update. These are structural bounds, not
+a measured wall-clock claim.
+
+### Exact CPU primitive scratch ownership
+
+`CpuGraphRun::scratch` remains empty when every runtime step needs no primitive
+temporary storage, so an all-no-scratch graph performs no scratch-index heap
+allocation. Such steps use the run's inline `monostate`. Once any step needs
+scratch, one compact variant vector is indexed by runtime step;
+`V(scratch)` then counts every inline variant and its unique-pointer slot
+exactly once. A no-scratch step still contributes no additional owner or Tile
+bytes. An active alternative owns exactly one typed heap object. The object's
+`sizeof` is Host ownership, while each non-empty dynamic buffer below is Tile
+scratch ownership. Inactive primitive and numeric mode descriptors are not
+embedded in that object.
+
+Let `O_T(n) = n*sizeof(T)` denote an overwrite buffer whose capacity is exactly
+`n`, and let `V_T(n)` denote a conventional vector's actual retained capacity.
+Let `r` and `c` be matrix rows and columns, `h` be RHS columns, and
+`v = min(r, c)` for thin SVD vectors. The frozen primitive/mode mapping is:
+
+| Primitive/mode | Typed owner | Dynamic Tile vectors | Prepare allocations |
+| --- | --- | --- | ---: |
+| segmented scan/reduce, compact, gather, histogram, partition, reduce, stencil, matrix | none | `0` | 0 |
+| transform | lane-width twiddle | `O_Lane(plan.twiddle_count * 2)` = `plan.workspace_bytes` | 2 |
+| sort/argsort U32 | U32 sort | `O_U32(count) + O_U32(count)` | 3 |
+| sort/argsort U64 | U64 sort | `O_U64(count) + O_U32(count)` | 3 |
+| scatter | scatter | `V_U32(plan.scratch_slots) + V_U32(plan.scratch_slots)` | 3 |
+| factor LU or Cholesky | none | `0` | 0 |
+| factor QR | lane-width QR | `O_Lane(r*c) + O_Lane(c*c) + O_Lane(r)` | 4 |
+| solve from LU or Cholesky factor | none | `0` | 0 |
+| solve from QR factor | lane-width QR-factor | `O_Lane(r*h)` | 2 |
+| solve matrix with LU | lane-width matrix-LU | `O_Lane(factor_count) + O_U32(aux_count)` | 3 |
+| solve matrix with Cholesky | lane-width matrix-Cholesky | `O_Lane(factor_count)` | 2 |
+| solve matrix with QR | lane-width matrix-QR | `O_Lane(r*h) + 2*O_Lane(r*r) + O_Lane(r)` | 5 |
+| spectrum Eigen | lane-width Eigen | `2*O_Lane(r*r) + O_Lane(r)` | 4 |
+| spectrum SVD, values only | lane-width SVD-values | `2*O_Lane(c*c) + O_Lane(c) + O_U64(c)` | 5 |
+| spectrum SVD with thin vectors | lane-width SVD-vectors | `2*O_Lane(c*c) + O_Lane(c) + O_Lane(r*v) + O_U64(c)` | 6 |
+| spectrum SVD with full vectors | lane-width SVD-vectors | `2*O_Lane(c*c) + O_Lane(c) + O_Lane(r*r) + O_U64(c)` | 6 |
+
+Every `O_T` owner is admitted only where overwrite-before-read is structural.
+Twiddle generation writes both halves; radix pass zero writes every active
+temporary key/value slot; Factor writes each consumed factor, pivot, Q, R-upper,
+and projection lane; Solve writes each consumed factor and Y lane; Jacobi writes
+its matrix, vector, and value lanes; SVD writes every consumed order and U lane.
+A numeric failure may leave a suffix indeterminate, but that suffix is not read
+because the failing batch skips its consumer. Scratch capacity tails are never
+part of the active count. `CpuOverwriteBuffer<T>` still starts the lifetime of
+each trivial `T`, preserves `alignof(T)`, owns exactly one allocation, and
+reports its exact element capacity.
+
+The allocation column is an exact prepare-boundary oracle: one allocation for
+the typed owner plus one for every non-empty dynamic buffer. It is not a general
+allocator-size claim. Preparation validates the frozen plan before allocating;
+execution only retrieves the matching variant. Thus a lane, key width, factor
+mode, solve input mode, or spectrum vector mode mismatch fails instead of
+silently selecting a second scratch authority. Observation visits the active
+alternative without allocation, counts the owner object once, and counts every
+buffer capacity once. `PlanScatter` is the sole owner of scatter hash-table
+capacity: `scratch_slots` is the least power of two at least `2*element_count`.
+Preparation sizes both vectors from that frozen field and execution consumes
+the prepared capacity; neither boundary recomputes a second capacity law.
+Transform preparation likewise consumes the frozen `TransformPlan` once,
+generates the canonical cosine/sine halves into one lane-width overwrite buffer,
+and reports exactly `plan.workspace_bytes` as Tile ownership. Warm transform
+execution only borrows that table; it allocates nothing and never regenerates
+coefficients per run.
+Factor QR, solve-from-factor, matrix-input QR, and spectrum workspaces are
+reused serially for each batch, so their scratch extent is independent of
+`batch_count`. Matrix-input QR consumes its internal row-major Q/R workspaces
+directly and retains no generated `Q|R` payload. Matrix-input LU and Cholesky
+still retain the generated factors for every batch; their `factor_count`, and
+LU `aux_count`, include `batch_count` and are consumed directly from the frozen
+`SolvePlan`.
+
+An accelerator Program owns one `AccelProgram` and one immutable kernel token.
+Every execution Job owns a distinct fixed-view binding allocation sized from
+the Program's frozen graph-binding count. A convenience Job is nested once in
+Program memory; resident Jobs report their storage in Job scope. Preparation
+fills Job-local storage and writable resident Jobs retain two active/pending
+prepared owners. No resident prepare, synchronous run, or asynchronous submit
+locks the Program convenience gate. Because the public kernel owner is opaque,
+Node authenticates it through a private `shared_ptr` control-block capability
+and measures the complete typed token tree once at compilation. Capability
+lookup is `O(1)` through the source-only deleter type and stored kernel id; it
+uses no process-global token table, mutex, weak entry, or owner-order scan. The
+frozen result includes one final execution-step allocation and its nested
+artifact, metadata, and overflow-binding allocations. A fused token's retained
+owner is the final execution tree plus an inline precomputed
+original-dispatch-count scalar. Observation reads that cached result and does
+not repeat capability lookup or token traversal.
+
+Accel graph compilation and retained execution use one inline active-operation
+variant per node. Inactive primitive descriptor/plan pairs consume zero node
+storage, and finalization moves the active pair into the immutable execution
+step. Run planning does not copy that pair: its common `ComputePlan` carries the
+already admitted dispatch count while CPU, Metal, and Vulkan borrow the same
+retained operation. For `N` nodes and primitive payload widths `W_i`, inline
+primitive ownership is therefore `O(N * max_i W_i)`, not
+`O(N * sum_i W_i)`. The variant is allocation-free and backend-neutral.
+
+Shared Device/context pointees, the separate context and resident-registry
+owners, allocator bookkeeping, and physical internal-buffer payload are
+different owners and are excluded from Host/Metadata. The kernel token has no
+registry entry to exclude. Internal payload is reported exactly once as Host
+physical storage for CPU or Device physical storage for an accelerator.
+
+## Counter arithmetic
+
+Every cumulative Compute and accelerator telemetry value consumes the sole
+[Counter Arithmetic](../counter.md) owner directly. Compute retains no local
+accumulate, release, remaining-value, delta, or capacity-product formula.
+Relaxed-atomic gauges apply the same common value law inside their
+compare-exchange loop; the successful exchange is the linearization point.
+The common absorbing-maximum rule prevents a saturated Metal, Vulkan,
+CPU-buffer, or coordinator-frame gauge from reappearing as an apparently exact
+smaller value after release or snapshot subtraction.
+
+The law covers public execution statistics, resident-write statistics,
+Program-cache event statistics, CPU dispatch/tile/SIMD aggregation, Job
+transfer/frame/run accounting, backend runtime counters, and all memory
+composition. `WriteStats` contains only produced facts (`copies`, `uploads`,
+and `bytes`). SDK allocation growth is proved by the dedicated allocation
+oracles and represented by `Stats::buffer_allocations` and `MemoryStats`; no
+always-zero host-allocation coordinate is published.
+
+## Observation invariants
+
+- Every capacity product, ownership sum, cumulative counter, gauge release,
+  and snapshot delta follows [Counter Arithmetic](../counter.md).
+- Inline-string capacity is part of the enclosing object's `sizeof`, so it is
+  never counted again. A zero-capacity string counts zero even on a standard
+  library that points empty strings at shared static storage outside the object.
+  Other externally owned string storage counts capacity plus one terminator
+  slot; allocator rounding and bookkeeping remain outside the logical oracle.
+- `memory()` and `memory_snapshot()` allocate nothing, perform no backend work,
+  and hold only the existing owner-lifetime mutex required by that surface.
+- Every public Job result schema retains exactly one shared `JobState` owner.
+  That cold construction also allocates exactly one out-of-line
+  `JobTerminalState` for the optional `RunState` receipt and failed statistics;
+  `Job::memory()` counts it once. Pipeline's private prepared step Job has no
+  public receipt, leaves that owner absent, and therefore pays neither its
+  bytes nor an allocation. The schema changes read shape, not resident
+  execution, typed writes, statistics, or memory observation ownership. A
+  multi-output read resolves
+  output `i` at the compile-time prefix sum
+  `sum(j = 0..i - 1, schema_leaf_count[j])`; it does not rescan schema widths
+  at runtime.
+- A Node-hosted Job records its coordinator-frame budget from the scheduler's
+  immutable configured coroutine-frame limit. Admission reads that one scalar
+  in `O(1)` without flushing scheduler batches, scanning resource registries,
+  materializing a scheduler statistics snapshot, or projecting a resource
+  sub-snapshot. `MemoryCounter::budget` is therefore the configured per-frame
+  admission maximum; it is not current or resident frame usage.
+- CPU compiled plans and every Job runner are distinct owners and are each
+  counted once. A cached convenience Job is nested in Program scope; an
+  explicit resident Job is counted only in Job scope.
+- Accelerator binding arrays and standalone prepared resources are Job-owned.
+  The one cached convenience Job is included by Program observation, while two
+  public resident Jobs share the immutable kernel token but no mutable binding
+  or intermediate-buffer owner. Pipeline is the deliberate serial-sharing
+  boundary: recurrence routes share one `JobWorkspace`, and distinct steps map
+  nonzero Program arenas through one deterministic aligned owner placement.
+  The Pipeline execution gate and fixed cross-step/cross-occurrence visibility
+  frontiers prevent concurrent or stale use. Shared Buffer payload is measured
+  once in Pipeline `shared_memory`; reset and full-write chunks share the same
+  planned owners and remain excluded from their Job rows.
+- A complete Program or Job snapshot sums back to every summary category
+  exactly. Host/Metadata and physical Internal rows never overlap.
+- Changing only a diagnostic Map label has zero compiled retained-memory delta.
+  Deeper IR increases the compact instruction/format owner. An additional
+  binding changes the compact descriptor and scalar read count while its
+  Program route/`graph::Info` owners produce the retained delta. An additional
+  graph step changes topology and tile ownership.
+
+The executable authorities are `compute.memory` and `compute.graph-services`.
+They verify compact graph ownership, active-prefix lineage, deterministic arena
+offsets, destructive alias admission, CPU/Metal/Vulkan subview parity,
+exact runtime-graph and compact-plan capacity bytes, owner deltas, exact
+category sums, allocation-free observation, convenience and Job warm
+stability, explicit-window Pipeline plan identity, `peak_bytes` budget
+rejection before Pipeline allocation, and a
+representative authenticated accelerator token. `compute.pipeline` owns
+cross-Program maximum-envelope sharing, visibility, output parity, and memory
+reconciliation. `compute.flow` owns exact cold/warm CPU, Metal, and Vulkan
+output for two partial `u64` scatter resets whose original frontier coordinates
+cross fused Map regions. `accel.kernel-core` independently enumerates all 769
+gap-free fusion partitions and reset-source positions for one through seven
+original steps and checks the sealed projection against the interval model.
+That semantic split follows the product ownership boundary; duplicating the
+same oracle in a broader suite is not evidence. The Debug-only line-table
+policy that bounds this template-heavy owner's symbol volume is owned by
+[`build/graph.md`](../build/graph.md); it does not remove a memory row or change
+Release code generation.
+
+The registered `tests/contract/compute/memory.cpp` source is the ordered case
+runner. Counter observation, Program ownership, primitive scratch, value-route
+arena, CPU graph storage, and accelerator ownership live in one-word
+translation units below `tests/contract/compute/memory/`. `local.hpp` and
+`model.hpp` are the sole shared counter, snapshot, and accounting fixture.
+Each semantic leaf has its own rebuild closure. Memory rows, allocation
+oracles, backend order, failure codes, and case identity are invariant.
+The focused `accel.kernel-core` reset leaf independently proves 32- and 64-bit
+dense and strided projection, the 40-byte parameter layout, exact window
+counts, unique replacement selection, offset/stride/end overflow rejection,
+Vulkan word-address admission, and the common
+`accel_kernel_reset_invalid` reason.

@@ -1,0 +1,135 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  echo "usage: tools/internal/state/lock [--state] [--path|--held] <root> <build> [command ...]" >&2
+}
+
+mode=run
+scope=route
+while :; do
+  case "${1:-}" in
+    --state)
+      scope=state
+      shift
+      ;;
+    --path|--held)
+      if [ "$mode" != run ]; then
+        usage
+        exit 2
+      fi
+      mode=${1#--}
+      shift
+      ;;
+    *) break ;;
+  esac
+done
+if [ "$#" -lt 2 ]; then
+  usage
+  exit 2
+fi
+
+root=$1
+build=$2
+shift 2
+if [ ! -d "$root" ]; then
+  echo "build lock root is unavailable: $root" >&2
+  exit 2
+fi
+root=$(CDPATH= cd -- "$root" && pwd -P)
+
+if [ -d "$build" ]; then
+  build=$(CDPATH= cd -- "$build" && pwd -P)
+else
+  case "$build" in
+    /*) ;;
+    *)
+      echo "build lock requires an absolute build path: $build" >&2
+      exit 2
+      ;;
+  esac
+  case "$build" in
+    *//*|*/./*|*/../*|*/.|*/..)
+      echo "build lock path is not canonical: $build" >&2
+      exit 2
+      ;;
+  esac
+  build=${build%/}
+fi
+
+identity=
+lock=
+case "$build" in
+  "$root/.cache/focus/"*)
+    suffix=${build#"$root/.cache/focus/"}
+    profile=${suffix%%/*}
+    case "$profile" in
+      ''|*[!a-z0-9.-]*|[!a-z]*|*..*|*.)
+        echo "invalid focused build identity: $build" >&2
+        exit 2
+        ;;
+    esac
+    identity="focus/$profile"
+    lock="$root/.cache/locks/focus/$profile"
+    ;;
+  *)
+    if row=$(sh "$root/tools/internal/state/root" --identify \
+        "$root" "$build"); then
+      tab=$(printf '\t')
+      identity=${row%%"$tab"*}
+      remainder=${row#*"$tab"}
+      static_root=${remainder%%"$tab"*}
+      lock_name=${remainder#*"$tab"}
+      if [ -z "$identity" ] || [ "$remainder" = "$row" ] ||
+         [ "$lock_name" = "$remainder" ] || [ -z "$lock_name" ] ||
+         [ -z "$static_root" ]; then
+        exit 2
+      fi
+      lock="$root/.cache/locks/$lock_name"
+    else
+      code=$?
+      exit "$code"
+    fi
+    ;;
+esac
+
+if [ "$scope" = state ]; then
+  lock="$root/.cache/locks/build/$identity"
+fi
+
+case "$mode" in
+  path)
+    if [ "$#" -ne 0 ]; then
+      usage
+      exit 2
+    fi
+    printf '%s\n' "$lock"
+    ;;
+  held)
+    if [ "$#" -ne 0 ]; then
+      usage
+      exit 2
+    fi
+    if [ "$scope" = state ]; then
+      exec sh "$root/tools/internal/lock/run" --held-flat "$lock"
+    fi
+    exec sh "$root/tools/internal/lock/run" --held "$lock"
+    ;;
+  run)
+    if [ "$#" -eq 0 ]; then
+      usage
+      exit 2
+    fi
+    if [ "$scope" = state ]; then
+      owner="runD $identity build state"
+      exec sh "$root/tools/internal/lock/run" --flat --wait \
+        "$lock" "$owner" "$@"
+    else
+      owner="runD $identity verification"
+    fi
+    exec sh "$root/tools/internal/lock/run" --wait "$lock" "$owner" "$@"
+    ;;
+  *)
+    exit 2
+    ;;
+esac

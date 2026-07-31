@@ -1,0 +1,2 @@
+RUND_NODE_TEST_CASE("evidence.numeric", RunEvidenceNumericContract, "tests/contract/evidence/numeric.cpp", numeric)
+RUND_NODE_TEST_CASE("counter.saturation", RunCounterContract, "tests/contract/counter.cpp", header)

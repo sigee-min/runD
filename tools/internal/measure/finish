@@ -1,0 +1,119 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 7 ]; then
+  echo "usage: tools/internal/measure/finish <root> <build> <route> <status> <log> <log-name> <exit-code>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+route=$3
+status=$4
+log=$5
+log_name=$6
+code=$7
+
+case "$code" in
+  0|[1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ;;
+  *)
+    echo "invalid workload exit: $code" >&2
+    exit 2
+    ;;
+esac
+case "$status" in
+  passed) [ "$code" = 0 ] || result_mismatch=1 ;;
+  failed) [ "$code" != 0 ] || result_mismatch=1 ;;
+  *) result_mismatch=1 ;;
+esac
+if [ "${result_mismatch:-0}" -ne 0 ]; then
+  echo "inconsistent workload result: status=$status exit=$code" >&2
+  exit 2
+fi
+workload_status=$status
+workload_exit=$code
+
+context=$(perl "$root/tools/internal/measure/context" "$root" "$route" "$build")
+context_lines=$(printf '%s\n' "$context" | wc -l | tr -d ' ')
+[ "$context_lines" -eq 2 ] || {
+  echo "invalid measurement context" >&2
+  exit 2
+}
+profile=$(printf '%s\n' "$context" | sed -n '1p')
+artifact=$(printf '%s\n' "$context" | sed -n '2p')
+[ -n "$profile" ] && [ -n "$artifact" ] || {
+  echo "empty measurement context" >&2
+  exit 2
+}
+
+baseline_log="$build/baseline.log"
+proof_status=failed
+proof_profile=-
+proof_metrics=0
+if [ "$status" = passed ]; then
+  if perl "$root/tools/internal/measure/compare" "$root" "$route" "$log" \
+      >"$baseline_log" 2>&1; then
+    tab=$(printf '\t')
+    proof_kind=
+    proof_route=
+    profile_field=
+    metrics_field=
+    proof_result=
+    IFS=$tab read -r proof_kind proof_route profile_field metrics_field \
+      proof_result <"$baseline_log" || :
+    lines=$(wc -l <"$baseline_log" | tr -d ' ')
+    proof_profile=${profile_field#profile=}
+    proof_metrics=${metrics_field#metrics=}
+    if [ "$lines" -eq 1 ] && [ "$proof_kind" = baseline ] &&
+       [ "$proof_route" = "$route" ] &&
+       [ "$profile_field" = "profile=$proof_profile" ] &&
+       [ "$metrics_field" = "metrics=$proof_metrics" ] &&
+       [ "$proof_result" = status=passed ]; then
+      case "$proof_profile" in
+        ''|*[!a-z0-9]*) status=failed ;;
+      esac
+      case "$proof_metrics" in
+        ''|0|*[!0-9]*) status=failed ;;
+      esac
+    else
+      status=failed
+    fi
+    if [ "$status" = passed ]; then
+      proof_status=passed
+      cat "$baseline_log"
+    else
+      code=1
+      proof_profile=-
+      proof_metrics=0
+      echo "invalid performance comparison proof" >&2
+      cat "$baseline_log" >&2
+    fi
+  else
+    code=$?
+    status=failed
+    cat "$baseline_log" >&2
+  fi
+else
+  printf 'baseline\t%s\tstatus=failed\n' "$route" >"$baseline_log"
+fi
+
+if sh "$root/tools/internal/state/verify" "$root" "$build"; then
+  :
+else
+  code=$?
+  status=failed
+fi
+cmake -D "ROOT=$root" -D "BUILD=$build" -D "ROUTE=$route" \
+  -D "STATUS=$status" -D "LOG=$log" -D "LOG_NAME=$log_name" \
+  -D "PROFILE=$profile" -D "ARTIFACT=$artifact" \
+  -D "WORKLOAD_STATUS=$workload_status" -D "WORKLOAD_EXIT=$workload_exit" \
+  -D "PROOF_KIND=performance" -D "PROOF_ROUTE=$route" \
+  -D "PROOF_STATUS=$proof_status" -D "PROOF_PROFILE=$proof_profile" \
+  -D "PROOF_METRICS=$proof_metrics" -D "PROOF=$baseline_log" \
+  -D "PROOF_NAME=baseline.log" \
+  -D "SOURCE_MANIFEST=$build/.rund-source-manifest-after.tsv" \
+  -P "$root/tools/internal/record.cmake"
+
+if [ "$status" = failed ]; then
+  exit "$code"
+fi

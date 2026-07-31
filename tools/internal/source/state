@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  echo "usage: tools/internal/source/state <root>" >&2
+  exit 2
+fi
+
+root=$1
+if [ ! -d "$root/node/src" ] ||
+   [ ! -d "$root/node/tests/contract" ]; then
+  echo "source state root has no Node source boundary: $root" >&2
+  exit 1
+fi
+
+# Configuration depends on the live source topology T, not repository history
+# or source bytes:
+#
+#   T = {(relative path, filesystem kind) | suffix is .cpp or .mm}
+#
+# Addition, deletion, rename, and kind replacement change T. A content-only
+# edit leaves T fixed and remains the ordinary compiler/depfile authority of
+# Ninja. Batched find actions retain all live files, symlinks, and exceptional
+# filesystem kinds without walking Git's unrelated index and worktree state.
+(
+  cd "$root"
+  find node/src node/tests/contract \
+    \( -name '*.cpp' -o -name '*.mm' \) \
+    \( \
+      \( -type f -exec printf 'entry\tfile\t%s\n' {} + \) -o \
+      \( -type l -exec printf 'entry\tlink\t%s\n' {} + \) -o \
+      \( -exec printf 'entry\tother\t%s\n' {} + \) \
+    \)
+) | LC_ALL=C sort -u | awk -F '\t' '
+  NF != 3 || $1 != "entry" || $2 !~ /^(file|link|other)$/ ||
+      $3 !~ "^[-A-Za-z0-9_./]+$" {
+    print "source state has an unsupported path: " $0 > "/dev/stderr"
+    exit 1
+  }
+  { print }
+'

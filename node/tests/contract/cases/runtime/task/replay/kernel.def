@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.replay-kernel", RunRuntimeTaskReplayKernelContract, "tests/contract/runtime/task/replay/kernel.cpp", runtime)

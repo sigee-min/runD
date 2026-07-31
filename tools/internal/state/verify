@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: tools/internal/state/verify <root> <build>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+before="$build/.rund-source-manifest-before.tsv"
+after="$build/.rund-source-manifest-after.tsv"
+
+stable=true
+if sh "$root/tools/internal/source/verify" \
+    "$root" "$before" "$after"; then
+  :
+else
+  stable=false
+fi
+
+if [ -f "$build/build.ninja" ]; then
+  make_program=$(sed -n \
+    's/^CMAKE_MAKE_PROGRAM:FILEPATH=//p' "$build/CMakeCache.txt" | head -n 1)
+  if sh "$root/tools/internal/state/deps" "$build" "$make_program"; then
+    :
+  else
+    stable=false
+  fi
+fi
+
+if [ "$stable" != true ]; then
+  exit 1
+fi

@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("compute.expressions", RunComputeExpressionsContract, "tests/contract/compute/expression/contract.cpp", compute)

@@ -1,0 +1,12 @@
+set(NODE_TEST_NET_CANCELLATION_TEST_SOURCES
+  tests/contract/runtime/task/net/cancellation.cpp
+  tests/contract/runtime/task/net/cancellation/cleanup.cpp
+  tests/contract/runtime/task/net/cancellation/local.cpp
+  tests/contract/runtime/task/net/cancellation/many.cpp
+  tests/contract/runtime/task/net/cancellation/many/cancel.cpp
+  tests/contract/runtime/task/net/cancellation/many/cleanup.cpp
+  tests/contract/runtime/task/net/cancellation/many/counters.cpp
+  tests/contract/runtime/task/net/cancellation/many/scenario.cpp
+  tests/contract/runtime/task/net/cancellation/read.cpp
+  tests/contract/runtime/task/net/cancellation/write.cpp
+)

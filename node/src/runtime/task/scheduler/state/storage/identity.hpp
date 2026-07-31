@@ -1,0 +1,27 @@
+struct SchedulerIdentityState {
+  std::uint64_t next_task_id = 1u;
+  std::uint64_t scheduler_id = 0u;
+  std::uint64_t next_scope_id = 2u;
+  std::uint64_t active_scope_id = 1u;
+  std::uint64_t active_task_id = 0u;
+  std::uint64_t next_spawn_index = 1u;
+  std::uint64_t next_wait_id = 1u;
+  std::uint64_t next_reactor_many_group_id = 1u;
+  std::uint64_t next_reactor_ready_set_id = 1u;
+  std::uint64_t next_stop_source_id = 1u;
+  std::uint64_t stop_source_epoch = 1u;
+  std::uint64_t next_timer_sequence = 1u;
+  std::uint64_t next_observation_sequence = 1u;
+  std::uint64_t next_host_event_sequence = 1u;
+  ::rund::host::random::RunSeed random_seed{};
+  std::size_t next_expected_host_event = 0u;
+  std::size_t next_expected_host_payload = 0u;
+  std::size_t next_expected_replay_input = 0u;
+  bool host_replay_failed = false;
+  const char *host_replay_reason = "ok";
+  bool host_replay_payload_failed = false;
+  const char *host_replay_payload_reason = "ok";
+  std::atomic<std::int64_t> logical_time_ns{0};
+  std::uint64_t next_channel_id = 1u;
+  std::uint64_t next_trace_epoch_id = 1u;
+};

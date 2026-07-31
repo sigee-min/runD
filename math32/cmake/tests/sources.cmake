@@ -1,0 +1,15 @@
+set(RUND_MATH32_CONTRACT_TEST_SOURCES
+  tests/contract/main.cpp
+  tests/contract/public.cpp
+  tests/contract/simd.cpp
+  tests/contract/fixed.cpp
+  tests/contract/nonlinear.cpp
+  tests/contract/turn.cpp
+  tests/contract/stat.cpp
+  tests/contract/geometry/vector.cpp
+  tests/contract/soa.cpp
+  tests/contract/quant.cpp
+  tests/contract/nn.cpp
+  tests/contract/prob.cpp
+  tests/contract/rl.cpp
+)

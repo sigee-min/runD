@@ -1,0 +1,14 @@
+set(NODE_TEST_NET_BASIC_TEST_SOURCES
+  tests/contract/runtime/task/net/basic/closed/peer.cpp
+  tests/contract/runtime/task/net/basic/event.cpp
+  tests/contract/runtime/task/net/basic/event/payload.cpp
+  tests/contract/runtime/task/net/basic/event/scenario.cpp
+  tests/contract/runtime/task/net/basic/event/zero.cpp
+  tests/contract/runtime/task/net/basic/guard.cpp
+  tests/contract/runtime/task/net/basic/local.cpp
+  tests/contract/runtime/task/net/basic/sync.cpp
+  tests/contract/runtime/task/net/basic/sync/invalid.cpp
+  tests/contract/runtime/task/net/basic/sync/local.cpp
+  tests/contract/runtime/task/net/basic/sync/transfer.cpp
+  tests/contract/runtime/task/net/basic/sync/zero.cpp
+)

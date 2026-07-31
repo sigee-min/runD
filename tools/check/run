@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Run the complete local Debug contract matrix." \
+    "usage: tools/check/run" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" dev)
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+sh "$root/tools/internal/contract/verify" \
+  "$root" "$build" local Debug check '.*'

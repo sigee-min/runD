@@ -1,0 +1,719 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 2 ]; then
+  echo "usage: tools/internal/lock/contract <root> <work> [fixture ...]" >&2
+  exit 2
+fi
+
+root=$1
+work=$2
+case "$work" in
+  /*) ;;
+  *) work="$PWD/$work" ;;
+esac
+helper="$root/tools/internal/lock/run"
+contract="$root/tools/internal/lock/contract"
+mode=${3:-main}
+
+case "$mode" in
+  hold)
+    if [ "$#" -ne 8 ]; then
+      exit 2
+    fi
+    lock=$4
+    ready=$5
+    release=$6
+    token=$7
+    marker=$8
+    proof_fd=
+    for candidate_fd in 9 8 7 6 5 4; do
+      eval 'proof_path=${RUND_LOCK_SLOT_'"$candidate_fd"'_PATH-}'
+      eval 'proof_inode=${RUND_LOCK_SLOT_'"$candidate_fd"'_INODE-}'
+      if [ "$proof_path" = "$lock" ]; then
+        proof_fd=$candidate_fd
+        break
+      fi
+    done
+    [ -n "$proof_fd" ] || exit 1
+    printf '%s\t%s\t%s\n' "$proof_path" "$proof_fd" \
+      "$proof_inode" >"$token"
+    : >"$ready"
+    count=0
+    while [ ! -f "$release" ]; do
+      count=$((count + 1))
+      if [ "$count" -ge 500 ]; then
+        echo "lock holder timed out" >&2
+        exit 1
+      fi
+      sleep 0.01
+    done
+    : >"$marker"
+    exit 0
+    ;;
+  reenter)
+    if [ "$#" -ne 5 ]; then
+      exit 2
+    fi
+    lock=$4
+    marker=$5
+    if ! sh "$helper" --held "$lock"; then
+      exec sh "$helper" "$lock" "nested lock contract" \
+        sh "$contract" "$root" "$work" reenter "$lock" "$marker"
+    fi
+    : >"$marker"
+    exit 0
+    ;;
+  held-mark)
+    if [ "$#" -ne 6 ]; then
+      exit 2
+    fi
+    outer_lock=$4
+    inner_lock=$5
+    marker=$6
+    sh "$helper" "$inner_lock" "nested different lock contract" \
+      sh -c 'sh "$1" --held "$2" && : >"$3"' \
+      nested-held "$helper" "$outer_lock" "$marker"
+    exit 0
+    ;;
+  mark)
+    if [ "$#" -ne 4 ]; then
+      exit 2
+    fi
+    : >"$4"
+    exit 0
+    ;;
+  build)
+    if [ "$#" -ne 7 ]; then
+      exit 2
+    fi
+    state=$4
+    output=$5
+    input=$6
+    ready=$7
+    if ! mkdir "$state" 2>/dev/null; then
+      echo "concurrent Ninja command entered one build tree" >&2
+      exit 1
+    fi
+    cleanup_build() {
+      status=$?
+      trap - 0 HUP INT TERM
+      rmdir "$state"
+      exit "$status"
+    }
+    trap cleanup_build 0 HUP INT TERM
+    : >"$ready"
+    sleep 0.3
+    : >"$output"
+    printf '%s: %s\n' "$output" "$input" >"$output.d"
+    exit 0
+    ;;
+  exit-75)
+    exit 75
+    ;;
+  main) ;;
+  *) exit 2 ;;
+esac
+
+rm -rf "$work"
+mkdir -p "$work"
+
+tab=$(printf '\t')
+while IFS="$tab" read -r identity relative lock_name; do
+  expected_build="$root/$relative"
+  actual_build=$(sh "$root/tools/internal/state/root" "$root" "$identity")
+  if [ "$actual_build" != "$expected_build" ]; then
+    echo "static build-root lookup changed: $identity" >&2
+    exit 1
+  fi
+  route_lock=$(sh "$root/tools/internal/state/lock" --path \
+    "$root" "$actual_build")
+  state_lock=$(sh "$root/tools/internal/state/lock" --state --path \
+    "$root" "$actual_build")
+  if [ "$route_lock" != "$root/.cache/locks/$lock_name" ] ||
+     [ "$state_lock" != "$root/.cache/locks/build/$identity" ]; then
+    echo "static build-root lock mapping changed: $identity" >&2
+    exit 1
+  fi
+done <"$root/tools/internal/state/roots.tsv"
+
+lock_a="$work/a.lock"
+lock_b="$work/b.lock"
+ready="$work/holder.ready"
+release="$work/holder.release"
+token="$work/holder.token"
+holder_done="$work/holder.done"
+holder=
+waiter=
+build_owner=
+build_waiter=
+state_holder=
+restat_waiter=
+recompact_waiter=
+state_release="$work/state-tools.release"
+
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  : >"$release"
+  : >"$state_release"
+  if [ -n "$holder" ]; then
+    wait "$holder" >/dev/null 2>&1
+  fi
+  if [ -n "$waiter" ]; then
+    wait "$waiter" >/dev/null 2>&1
+  fi
+  if [ -n "$build_owner" ]; then
+    wait "$build_owner" >/dev/null 2>&1
+  fi
+  if [ -n "$build_waiter" ]; then
+    wait "$build_waiter" >/dev/null 2>&1
+  fi
+  if [ -n "$state_holder" ]; then
+    wait "$state_holder" >/dev/null 2>&1
+  fi
+  if [ -n "$restat_waiter" ]; then
+    wait "$restat_waiter" >/dev/null 2>&1
+  fi
+  if [ -n "$recompact_waiter" ]; then
+    wait "$recompact_waiter" >/dev/null 2>&1
+  fi
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+sh "$helper" "$lock_a" "held lock contract" \
+  sh "$contract" "$root" "$work" hold "$lock_a" "$ready" "$release" \
+  "$token" "$holder_done" &
+holder=$!
+
+count=0
+while [ ! -f "$ready" ]; do
+  count=$((count + 1))
+  if [ "$count" -ge 500 ]; then
+    echo "lock contract did not reach the held state" >&2
+    exit 1
+  fi
+  sleep 0.01
+done
+
+same_error="$work/same.error"
+set +e
+sh "$helper" "$lock_a" "held lock contract" sh -c ':' \
+  2>"$same_error"
+same_code=$?
+set -e
+if [ "$same_code" -ne 75 ] ||
+   [ "$(cat "$same_error")" != "held lock contract is already running" ]; then
+  echo "same-lock contention contract failed: exit=$same_code" >&2
+  exit 1
+fi
+
+wait_started="$work/wait.started"
+wait_marker="$work/wait.marker"
+sh -c '
+  : >"$1"
+  exec sh "$2" --wait "$3" "waiting lock contract" \
+    sh "$4" "$5" "$6" mark "$7"
+' waiting-lock "$wait_started" "$helper" "$lock_a" "$contract" \
+  "$root" "$work" "$wait_marker" &
+waiter=$!
+count=0
+while [ ! -f "$wait_started" ]; do
+  count=$((count + 1))
+  if [ "$count" -ge 500 ]; then
+    echo "waiting lock contract did not start" >&2
+    exit 1
+  fi
+  sleep 0.01
+done
+sleep 0.05
+if [ -f "$wait_marker" ] || ! kill -0 "$waiter" 2>/dev/null; then
+  echo "waiting lock command did not remain blocked" >&2
+  exit 1
+fi
+
+different_marker="$work/different.marker"
+sh "$helper" "$lock_b" "different lock contract" \
+  sh "$contract" "$root" "$work" mark "$different_marker"
+[ -f "$different_marker" ] || {
+  echo "different locks did not coexist" >&2
+  exit 1
+}
+
+tab=$(printf '\t')
+IFS="$tab" read -r stale_path stale_fd stale_inode <"$token"
+stale_marker="$work/stale.marker"
+stale_error="$work/stale.error"
+set +e
+env "RUND_LOCK_SLOT_${stale_fd}_PATH=$stale_path" \
+    "RUND_LOCK_SLOT_${stale_fd}_INODE=$stale_inode" \
+  sh -c '
+    fd=$1
+    shift
+    case "$fd" in
+      9 | 8 | 7 | 6 | 5 | 4) eval "exec $fd<&-" ;;
+      *) exit 2 ;;
+    esac
+    exec "$@"
+  ' stale-proof "$stale_fd" sh "$contract" "$root" "$work" reenter \
+    "$lock_a" "$stale_marker" 2>"$stale_error"
+stale_code=$?
+set -e
+if [ "$stale_code" -ne 75 ] || [ -f "$stale_marker" ] ||
+   [ "$(cat "$stale_error")" != "nested lock contract is already running" ]; then
+  echo "forged or stale re-entry proof bypassed the held lock" >&2
+  exit 1
+fi
+
+: >"$release"
+wait "$holder"
+holder=
+[ -f "$holder_done" ] || {
+  echo "held lock did not complete" >&2
+  exit 1
+}
+wait "$waiter"
+waiter=
+[ -f "$wait_marker" ] || {
+  echo "waiting lock command did not run after release" >&2
+  exit 1
+}
+
+nested_lock="$work/nested.lock"
+nested_marker="$work/nested.marker"
+sh "$helper" "$nested_lock" "nested lock contract" \
+  sh "$contract" "$root" "$work" reenter "$nested_lock" "$nested_marker"
+[ -f "$nested_marker" ] || {
+  echo "nested same-lock command did not inherit the proof" >&2
+  exit 1
+}
+
+wait_nested_lock="$work/wait-nested.lock"
+wait_nested_marker="$work/wait-nested.marker"
+sh "$helper" "$wait_nested_lock" "wait nested outer contract" \
+  sh "$root/tools/internal/process/run" 2 "wait nested lock contract" \
+  sh "$helper" --wait "$wait_nested_lock" "wait nested inner contract" \
+  sh "$contract" "$root" "$work" mark "$wait_nested_marker"
+[ -f "$wait_nested_marker" ] || {
+  echo "waiting same-lock command did not inherit the proof" >&2
+  exit 1
+}
+
+nested_outer_lock="$work/nested-outer.lock"
+nested_inner_lock="$work/nested-inner.lock"
+nested_two_marker="$work/nested-two.marker"
+if ! sh "$helper" "$nested_outer_lock" "nested outer lock contract" \
+    sh "$contract" "$root" "$work" held-mark \
+    "$nested_outer_lock" "$nested_inner_lock" "$nested_two_marker"; then
+  echo "different nested lock replaced the outer proof" >&2
+  exit 1
+fi
+[ -f "$nested_two_marker" ] || {
+  echo "different nested lock replaced the outer proof" >&2
+  exit 1
+}
+
+route_root="$work/measure-route-root"
+mkdir -p "$route_root/tools/measure/scheduler" \
+  "$route_root/tools/internal/measure"
+ln -s "$root/tools/measure/scheduler/run" \
+  "$route_root/tools/measure/scheduler/run"
+mkdir -p "$route_root/tools/internal/state" \
+  "$route_root/tools/internal/lock" \
+  "$route_root/tools/internal/process"
+ln -s "$root/tools/internal/state/lock" \
+  "$route_root/tools/internal/state/lock"
+ln -s "$root/tools/internal/state/root" \
+  "$route_root/tools/internal/state/root"
+ln -s "$root/tools/internal/state/roots.tsv" \
+  "$route_root/tools/internal/state/roots.tsv"
+ln -s "$helper" "$route_root/tools/internal/lock/run"
+ln -s "$root/tools/internal/measure/attempt" \
+  "$route_root/tools/internal/measure/attempt"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'set -eu' \
+  'build=$2' \
+  'mkdir -p "$build"' \
+  "printf '%s\\n' '#!/bin/sh' 'exit 0' >\"\$build/runD-scheduler-measure\"" \
+  'chmod 700 "$build/runD-scheduler-measure"' \
+  >"$route_root/tools/internal/measure/prepare"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'shift 2' \
+  'exec "$@"' \
+  >"$route_root/tools/internal/process/run"
+printf '%s\n' \
+  '#!/bin/sh' \
+  '[ "$4" = passed ]' \
+  '[ "$7" = 0 ]' \
+  >"$route_root/tools/internal/measure/finish"
+chmod 700 "$route_root/tools/internal/measure/prepare" \
+  "$route_root/tools/internal/process/run" \
+  "$route_root/tools/internal/measure/finish"
+if ! sh "$route_root/tools/measure/scheduler/run"; then
+  echo "official release to scheduler-measure lock route did not complete" >&2
+  exit 1
+fi
+
+child_error="$work/child-75.error"
+set +e
+sh "$helper" "$work/child-75.lock" "outer status contract" \
+  sh "$contract" "$root" "$work" exit-75 2>"$child_error"
+child_code=$?
+set -e
+if [ "$child_code" -ne 75 ] || [ -s "$child_error" ]; then
+  echo "child status 75 was mislabeled as outer contention" >&2
+  exit 1
+fi
+
+descendant_lock="$work/descendant.lock"
+descendant_result="$work/descendant.result"
+descendant_ready="$work/descendant.ready"
+descendant_reenter_result="$work/descendant-reenter.result"
+descendant_reenter_marker="$work/descendant-reenter.marker"
+sh "$helper" "$descendant_lock" "descendant token contract" sh -c '
+  helper=$1
+  lock=$2
+  result=$3
+  ready=$4
+  contract=$5
+  root=$6
+  work=$7
+  reenter_result=$8
+  reenter_marker=$9
+  (
+    sleep 0.2
+    if sh "$helper" --held "$lock"; then
+      printf 0
+    else
+      printf "%s" "$?"
+    fi >"$result"
+    if sh "$helper" "$lock" "stale descendant reacquire contract" \
+        sh "$contract" "$root" "$work" reenter "$lock" \
+        "$reenter_marker"; then
+      printf 0
+    else
+      printf "%s" "$?"
+    fi >"$reenter_result"
+    : >"$ready"
+  ) &
+  exit 0
+' rund-lock-child "$helper" "$descendant_lock" "$descendant_result" \
+  "$descendant_ready" "$contract" "$root" "$work" \
+  "$descendant_reenter_result" "$descendant_reenter_marker"
+count=0
+while [ ! -f "$descendant_ready" ]; do
+  count=$((count + 1))
+  if [ "$count" -ge 500 ]; then
+    echo "inherited descendant token probe timed out" >&2
+    exit 1
+  fi
+  sleep 0.01
+done
+if [ "$(cat "$descendant_result")" != 1 ]; then
+  echo "inherited descriptor remained valid after lock release" >&2
+  exit 1
+fi
+if [ "$(cat "$descendant_reenter_result")" != 0 ] ||
+   [ ! -f "$descendant_reenter_marker" ]; then
+  echo "stale same-path slot shadowed a later valid reacquisition" >&2
+  exit 1
+fi
+
+build_root="$work/build-root"
+build="$build_root/.cache/dev"
+build_source="$build_root/source"
+build_ready="$work/build.ready"
+mkdir -p "$build" "$build_source" "$build_root/tools/internal/state" \
+  "$build_root/tools/internal/lock"
+ln -s "$root/tools/internal/state/lock" \
+  "$build_root/tools/internal/state/lock"
+ln -s "$root/tools/internal/state/root" \
+  "$build_root/tools/internal/state/root"
+ln -s "$root/tools/internal/state/roots.tsv" \
+  "$build_root/tools/internal/state/roots.tsv"
+ln -s "$root/tools/internal/state/ninja" \
+  "$build_root/tools/internal/state/ninja"
+ln -s "$helper" "$build_root/tools/internal/lock/run"
+: >"$build_source/input.hpp"
+printf '%s\n' \
+  'cmake_minimum_required(VERSION 3.20)' \
+  'project(build_lock_contract CXX)' \
+  'add_custom_command(' \
+  '  OUTPUT "${CMAKE_BINARY_DIR}/output.o"' \
+  "  COMMAND sh \"$build_root/tools/internal/lock/contract\" \"$build_root\" \"$work\" build \"\${CMAKE_BINARY_DIR}/output.o.active\" \"\${CMAKE_BINARY_DIR}/output.o\" \"\${CMAKE_SOURCE_DIR}/input.hpp\" \"$build_ready\"" \
+  '  DEPENDS "${CMAKE_SOURCE_DIR}/input.hpp"' \
+  '  DEPFILE "${CMAKE_BINARY_DIR}/output.o.d"' \
+  '  VERBATIM)' \
+  'add_custom_target(build_lock_contract ALL' \
+  '  DEPENDS "${CMAKE_BINARY_DIR}/output.o")' \
+  >"$build_source/CMakeLists.txt"
+ln -s "$contract" "$build_root/tools/internal/lock/contract"
+set +e
+sh "$build_root/tools/internal/state/lock" --state "$build_root" "$build" \
+  sh "$build_root/tools/internal/state/lock" --state \
+  "$build_root" "$build" sh -c ':' \
+  2>"$work/build-nested.error"
+build_nested_code=$?
+set -e
+if [ "$build_nested_code" -ne 1 ] ||
+   [ "$(cat "$work/build-nested.error")" != \
+     "flat lock nesting is forbidden: $build_root/.cache/locks/build/dev" ]; then
+  echo "nested build-state lock did not reject immediately" >&2
+  exit 1
+fi
+sh "$build_root/tools/internal/state/lock" "$build_root" "$build" \
+  sh "$build_root/tools/internal/state/lock" --state \
+  "$build_root" "$build" cmake -S "$build_source" -B "$build" -G Ninja \
+  -D CMAKE_MAKE_PROGRAM:FILEPATH="$build_root/tools/internal/state/ninja" \
+  >/dev/null
+
+same_state_output="$work/build-same-state.out"
+if ! sh "$build_root/tools/internal/state/lock" --state \
+    "$build_root" "$build" \
+    sh "$build_root/tools/internal/state/ninja" -C "$build" -t targets \
+    >"$same_state_output" 2>"$work/build-same-state.error" ||
+   [ -s "$work/build-same-state.error" ] ||
+   [ ! -s "$same_state_output" ]; then
+  echo "same-identity nested Ninja did not reuse the held state scope" >&2
+  exit 1
+fi
+
+different_build="$build_root/.cache/focus/different"
+mkdir -p "$different_build"
+different_state_error="$work/build-different-state.error"
+set +e
+sh "$build_root/tools/internal/state/lock" --state "$build_root" "$build" \
+  sh "$build_root/tools/internal/state/ninja" -C "$different_build" \
+  -t targets 2>"$different_state_error"
+different_state_code=$?
+set -e
+if [ "$different_state_code" -ne 1 ] ||
+   [ "$(cat "$different_state_error")" != \
+     "flat lock nesting is forbidden: $build_root/.cache/locks/build/focus/different" ]; then
+  echo "different-identity nested Ninja bypassed the held state scope" >&2
+  exit 1
+fi
+
+unowned_build="$build_root/.cache/unowned"
+mkdir -p "$unowned_build"
+unowned_state_error="$work/build-unowned-state.error"
+set +e
+sh "$build_root/tools/internal/state/ninja" -C "$unowned_build" \
+  -t targets 2>"$unowned_state_error"
+unowned_state_code=$?
+set -e
+if [ "$unowned_state_code" -ne 2 ] ||
+   [ "$(cat "$unowned_state_error")" != \
+     "unowned mutable build tree: $unowned_build" ]; then
+  echo "unowned Ninja build identity did not fail closed" >&2
+  exit 1
+fi
+
+state_lock=$(sh "$build_root/tools/internal/state/lock" --state --path \
+  "$build_root" "$build")
+printf '%s\n' "$$" >"$state_lock.owner"
+chmod 600 "$state_lock.owner"
+forged_state_error="$work/build-forged-state.error"
+set +e
+RUND_FLAT_LOCK_ACTIVE=$state_lock \
+RUND_FLAT_LOCK_OWNER_PID=$$ \
+RUND_FLAT_LOCK_OWNER_FILE="$state_lock.owner" \
+  sh "$build_root/tools/internal/state/ninja" -C "$build" \
+  -t targets 2>"$forged_state_error"
+forged_state_code=$?
+set -e
+rm -f "$state_lock.owner"
+if [ "$forged_state_code" -ne 1 ] ||
+   [ "$(cat "$forged_state_error")" != \
+     "flat lock nesting is forbidden: $state_lock" ]; then
+  echo "forged state owner record bypassed the advisory lock proof" >&2
+  exit 1
+fi
+
+state_ready="$work/state-tools.ready"
+state_done="$work/state-tools.done"
+sh "$build_root/tools/internal/state/lock" --state "$build_root" "$build" \
+  sh -c '
+    : >"$1"
+    count=0
+    while [ ! -f "$2" ]; do
+      count=$((count + 1))
+      [ "$count" -lt 500 ] || exit 1
+      sleep 0.01
+    done
+    : >"$3"
+  ' state-tool-holder "$state_ready" "$state_release" "$state_done" &
+state_holder=$!
+count=0
+while [ ! -f "$state_ready" ]; do
+  count=$((count + 1))
+  if [ "$count" -ge 500 ]; then
+    echo "state tool lock holder did not start" >&2
+    exit 1
+  fi
+  sleep 0.01
+done
+sh "$build_root/tools/internal/state/ninja" -C "$build" -t restat \
+  >"$work/build-restat.out" 2>"$work/build-restat.error" &
+restat_waiter=$!
+sh "$build_root/tools/internal/state/ninja" -C "$build" -t recompact \
+  >"$work/build-recompact.out" 2>"$work/build-recompact.error" &
+recompact_waiter=$!
+count=0
+while ! grep -qx 'lock.wait: runD dev build state' \
+          "$work/build-restat.error" 2>/dev/null ||
+      ! grep -qx 'lock.wait: runD dev build state' \
+          "$work/build-recompact.error" 2>/dev/null; do
+  count=$((count + 1))
+  if [ "$count" -ge 500 ]; then
+    echo "Ninja state tools did not reach the held state lock" >&2
+    exit 1
+  fi
+  if ! kill -0 "$restat_waiter" 2>/dev/null ||
+     ! kill -0 "$recompact_waiter" 2>/dev/null || [ -f "$state_done" ]; then
+    echo "direct Ninja state tool bypassed the held state lock" >&2
+    exit 1
+  fi
+  sleep 0.01
+done
+: >"$state_release"
+if ! wait "$state_holder"; then
+  echo "state tool lock holder failed" >&2
+  exit 1
+fi
+state_holder=
+if ! wait "$restat_waiter"; then
+  echo "serialized Ninja restat failed" >&2
+  exit 1
+fi
+restat_waiter=
+if ! wait "$recompact_waiter"; then
+  echo "serialized Ninja recompact failed" >&2
+  exit 1
+fi
+recompact_waiter=
+if [ ! -f "$state_done" ]; then
+  echo "state tool lock holder did not complete" >&2
+  exit 1
+fi
+for state_error in "$work/build-restat.error" \
+                   "$work/build-recompact.error"; do
+  if ! grep -qx 'lock.wait: runD dev build state' "$state_error" ||
+     ! grep -Eq '^lock[.]acquired: runD dev build state wait_s=[0-9]+$' \
+       "$state_error"; then
+    echo "Ninja state tool did not expose serialized wait telemetry" >&2
+    exit 1
+  fi
+done
+
+cmake --build "$build" \
+  >"$work/build-owner.out" 2>"$work/build-owner.error" &
+build_owner=$!
+count=0
+while [ ! -f "$build_ready" ]; do
+  count=$((count + 1))
+  if [ "$count" -ge 500 ]; then
+    echo "Ninja build owner did not enter its command" >&2
+    exit 1
+  fi
+  sleep 0.01
+done
+cmake --build "$build" \
+  >"$work/build-waiter.out" 2>"$work/build-waiter.error" &
+build_waiter=$!
+if ! wait "$build_owner"; then
+  echo "first locked Ninja build failed" >&2
+  exit 1
+fi
+build_owner=
+if ! wait "$build_waiter"; then
+  echo "queued Ninja build failed" >&2
+  exit 1
+fi
+build_waiter=
+if [ ! -f "$build/output.o" ] ||
+   ! grep -qx 'lock.wait: runD dev build state' \
+     "$work/build-waiter.error" ||
+   ! grep -Eq '^lock[.]acquired: runD dev build state wait_s=[0-9]+$' \
+     "$work/build-waiter.error"; then
+  echo "Ninja build queue did not expose bounded wait telemetry" >&2
+  exit 1
+fi
+if ! (CDPATH= cd -- "$build" &&
+      sh "$build_root/tools/internal/state/ninja" -t deps) \
+      >"$work/build-deps.out" 2>"$work/build-deps.error" ||
+   [ -s "$work/build-deps.error" ]; then
+  echo "serialized Ninja dependency state is unreadable" >&2
+  exit 1
+fi
+
+no_lock_bin="$work/no-lock-backend-bin"
+mkdir -p "$no_lock_bin"
+for command_name in sh chmod dirname mkdir mktemp rm stat; do
+  command_path=$(command -v "$command_name")
+  ln -s "$command_path" "$no_lock_bin/$command_name"
+done
+no_lock_marker="$work/no-lock-backend.marker"
+no_lock_error="$work/no-lock-backend.error"
+set +e
+PATH=$no_lock_bin sh "$helper" "$work/no-lock-backend.lock" \
+  "no lock backend contract" sh "$contract" "$root" "$work" mark \
+  "$no_lock_marker" 2>"$no_lock_error"
+no_lock_code=$?
+set -e
+if [ "$no_lock_code" -ne 1 ] || [ -f "$no_lock_marker" ] ||
+   [ "$(cat "$no_lock_error")" != "lock requires lockf or flock" ]; then
+  echo "missing lock backend did not fail closed: exit=$no_lock_code" >&2
+  exit 1
+fi
+
+capacity_marker="$work/capacity.marker"
+capacity_error="$work/capacity.error"
+set +e
+sh -c '
+  exec 4</dev/null 5</dev/null 6</dev/null
+  exec 7</dev/null 8</dev/null 9</dev/null
+  exec sh "$1" "$2" "descriptor capacity contract" \
+    sh "$3" "$4" "$5" mark "$6"
+' capacity "$helper" "$work/capacity.lock" "$contract" "$root" "$work" \
+  "$capacity_marker" 2>"$capacity_error"
+capacity_code=$?
+set -e
+if [ "$capacity_code" -ne 1 ] || [ -f "$capacity_marker" ] ||
+   [ "$(cat "$capacity_error")" != \
+     "lock nesting exceeds the six-slot descriptor capacity" ]; then
+  echo "descriptor-slot exhaustion did not fail closed" >&2
+  exit 1
+fi
+
+broken_bin="$work/broken-bin"
+mkdir -p "$broken_bin"
+for command_name in sh dirname mkdir mktemp rm; do
+  command_path=$(command -v "$command_name")
+  ln -s "$command_path" "$broken_bin/$command_name"
+done
+set +e
+PATH=$broken_bin sh "$helper" "$work/broken.lock" \
+  "broken token contract" sh -c ':' >/dev/null 2>&1
+broken_code=$?
+set -e
+if [ "$broken_code" -eq 0 ]; then
+  echo "missing token identity support did not fail closed" >&2
+  exit 1
+fi
+set -- "$work/broken.lock.reentry."*
+if [ "$#" -ne 1 ] || [ "$1" != "$work/broken.lock.reentry.*" ]; then
+  echo "failed token setup left a named re-entry file" >&2
+  exit 1
+fi
+
+trap - 0 HUP INT TERM
+printf '%s\n' \
+  "lock contract: same=75 wait=pass different=pass stale=75 same-nested=pass wait-nested=pass different-nested=pass release-measure=pass child75=75 descendant=invalid stale-reacquire=pass build=serialized state-ninja=same restat=serialized recompact=serialized different=closed unowned=closed forged=closed deps=valid backend-required=closed capacity=closed setup-failure=clean"

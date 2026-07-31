@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.join-all", RunRuntimeTaskJoinAllContract, "tests/contract/runtime/task/join/all.cpp", runtime)

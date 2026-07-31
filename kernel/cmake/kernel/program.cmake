@@ -1,0 +1,47 @@
+set(KERNEL_PROGRAM_SOURCES
+  src/program/compile/capacity.cpp
+  src/program/compile/fold.cpp
+  src/program/compile/placement.cpp
+  src/program/compile/request.cpp
+  src/program/compile/result.cpp
+  src/program/compile/schedule.cpp
+  src/program/dispatch.cpp
+  src/program/executor/provider.cpp
+  src/program/failure/initial.cpp
+  src/program/failure/store.cpp
+  src/program/failure/success.cpp
+  src/program/compute/tile/async.cpp
+  src/program/compute/tile/backend.cpp
+  src/program/compute/tile/model.cpp
+  src/program/compute/tile/prepare.cpp
+  src/program/compute/tile/result.cpp
+  src/program/compute/tile/run.cpp
+  src/program/compute/tile/work.cpp
+  src/program/model.cpp
+  src/program/model/tile.cpp
+  src/program/program.cpp
+  src/program/strict.cpp
+  src/program/timing.cpp
+  src/program/view.cpp
+)
+
+set(KERNEL_COMPUTE_SOURCES
+  src/program/compute/binding/validation.cpp
+  src/program/compute/dsl/build.cpp
+  src/program/compute/dsl/context/format.cpp
+  src/program/compute/dsl/context/model.cpp
+  src/program/compute/dsl/context/node.cpp
+  src/program/compute/dsl/context/write.cpp
+  src/program/compute/dsl/expression.cpp
+  src/program/compute/dsl/operation.cpp
+  src/program/compute/fusion.cpp
+  src/program/compute/graph/signature.cpp
+  src/program/compute/ir.cpp
+  src/program/compute/lowering.cpp
+  src/program/compute/lowering/validate/domain.cpp
+  src/program/compute/lowering/validate/entry.cpp
+  src/program/compute/lowering/validate/format.cpp
+  src/program/compute/lowering/artifact/admission.cpp
+  src/program/compute/lowering/fusion/build.cpp
+  src/program/compute/metadata.cpp
+)

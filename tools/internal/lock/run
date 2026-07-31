@@ -1,0 +1,434 @@
+#!/bin/sh
+set -eu
+
+stat_style=
+select_stat() {
+  [ -z "$stat_style" ] || return 0
+  if stat -f '%i %l %z %Lp' /dev/null >/dev/null 2>&1; then
+    stat_style=bsd
+  elif stat -L -c '%i %h %s %a' /dev/null >/dev/null 2>&1; then
+    stat_style=gnu
+  else
+    return 1
+  fi
+}
+
+read_token() {
+  read_token_path=$1
+  select_stat || return 1
+  case "$stat_style" in
+    bsd)
+      token_fields=$(stat -f '%i %l %z %Lp' "$read_token_path" \
+        2>/dev/null) || return 1
+      ;;
+    gnu)
+      token_fields=$(stat -L -c '%i %h %s %a' "$read_token_path" \
+        2>/dev/null) || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  set -- $token_fields
+  [ "$#" -eq 4 ] || return 1
+  case "$1:$2:$3:$4" in
+    *[!0-9:]*) return 1 ;;
+  esac
+  observed_inode=$1
+  observed_links=$2
+  observed_size=$3
+  observed_mode=$4
+}
+
+read_slot() {
+  read_slot_fd=$1
+  case "$read_slot_fd" in
+    9 | 8 | 7 | 6 | 5 | 4) ;;
+    *) return 1 ;;
+  esac
+
+  # The evaluated names contain only the fixed descriptor digit above. Values
+  # are expanded by the assignment itself and are never reparsed as shell.
+  eval 'slot_path=${RUND_LOCK_SLOT_'"$read_slot_fd"'_PATH-}'
+  eval 'slot_inode=${RUND_LOCK_SLOT_'"$read_slot_fd"'_INODE-}'
+}
+
+valid_slot() {
+  valid_slot_fd=$1
+  valid_slot_lock=$2
+  read_slot "$valid_slot_fd"
+  [ "$slot_path" = "$valid_slot_lock" ] || return 1
+  case "$slot_inode" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+
+  valid_slot_path=/dev/fd/$valid_slot_fd
+  [ -f "$valid_slot_path" ] || return 1
+  read_token "$valid_slot_path" || return 1
+  [ "$observed_mode" = 600 ] || return 1
+  [ "$observed_links" = 0 ] || return 1
+  [ "$observed_size" = 0 ] || return 1
+  [ "$observed_inode" = "$slot_inode" ] || return 1
+}
+
+invalidate_slot() {
+  invalidate_slot_fd=$1
+  case "$invalidate_slot_fd" in
+    9 | 8 | 7 | 6 | 5 | 4)
+      eval 'printf x >&'"$invalidate_slot_fd"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "${1:-}" = "--held" ]; then
+  if [ "$#" -ne 2 ]; then
+    exit 1
+  fi
+  for held_fd in 9 8 7 6 5 4; do
+    read_slot "$held_fd"
+    if [ "$slot_path" = "$2" ] && valid_slot "$held_fd" "$2"; then
+      exit 0
+    fi
+  done
+  exit 1
+fi
+
+if [ "${1:-}" = "--held-flat" ]; then
+  if [ "$#" -ne 2 ]; then
+    exit 1
+  fi
+  held_lock=$2
+  held_owner_file="$held_lock.owner"
+  held_owner=${RUND_FLAT_LOCK_OWNER_PID:-}
+  if [ "${RUND_FLAT_LOCK_ACTIVE:-}" != "$held_lock" ] ||
+     [ "${RUND_FLAT_LOCK_OWNER_FILE:-}" != "$held_owner_file" ]; then
+    exit 1
+  fi
+  case "$held_owner" in
+    '' | *[!0-9]*) exit 1 ;;
+  esac
+  read_token "$held_owner_file" || exit 1
+  if [ ! -f "$held_owner_file" ] ||
+     [ "$observed_mode" != 600 ] ||
+     [ "$observed_links" != 1 ] ||
+     [ "$(cat "$held_owner_file" 2>/dev/null || true)" != "$held_owner" ]; then
+    exit 1
+  fi
+
+  held_ancestor=$PPID
+  held_found=false
+  held_depth=0
+  while [ "$held_ancestor" -gt 1 ] && [ "$held_depth" -lt 128 ]; do
+    if [ "$held_ancestor" = "$held_owner" ]; then
+      held_found=true
+      break
+    fi
+    held_parent=$(ps -o ppid= -p "$held_ancestor" 2>/dev/null || true)
+    set -- $held_parent
+    if [ "$#" -ne 1 ]; then
+      exit 1
+    fi
+    case "$1" in
+      '' | *[!0-9]*) exit 1 ;;
+    esac
+    held_ancestor=$1
+    held_depth=$((held_depth + 1))
+  done
+  if [ "$held_found" != true ]; then
+    exit 1
+  fi
+
+  if command -v lockf >/dev/null 2>&1; then
+    if lockf -k -t 0 "$held_lock" sh -c ':' 2>/dev/null; then
+      exit 1
+    else
+      held_code=$?
+    fi
+  elif command -v flock >/dev/null 2>&1; then
+    if flock -x -E 75 -n "$held_lock" sh -c ':' 2>/dev/null; then
+      exit 1
+    else
+      held_code=$?
+    fi
+  else
+    exit 1
+  fi
+  [ "$held_code" -eq 75 ]
+  exit
+fi
+
+wait_for_lock=0
+flat_scope=0
+while :; do
+  case "${1:-}" in
+    --wait)
+      wait_for_lock=1
+      shift
+      ;;
+    --flat)
+      flat_scope=1
+      shift
+      ;;
+    *) break ;;
+  esac
+done
+
+if [ "$#" -lt 3 ]; then
+  echo "usage: tools/internal/lock/run [--wait] [--flat] <path> <owner> <command> [args...]" >&2
+  exit 2
+fi
+
+lock=$1
+owner=$2
+shift 2
+
+lock_tool=
+if command -v lockf >/dev/null 2>&1; then
+  lock_tool=lockf
+elif command -v flock >/dev/null 2>&1; then
+  lock_tool=flock
+else
+  echo "lock requires lockf or flock" >&2
+  exit 1
+fi
+
+slot_fd=
+token=
+open_slot() {
+  for candidate_fd in 9 8 7 6 5 4; do
+    read_slot "$candidate_fd"
+    if [ -n "$slot_path" ] || [ -n "$slot_inode" ] ||
+       [ -e "/dev/fd/$candidate_fd" ]; then
+      continue
+    fi
+    slot_fd=$candidate_fd
+    break
+  done
+  if [ -z "$slot_fd" ]; then
+    echo "lock nesting exceeds the six-slot descriptor capacity" >&2
+    return 1
+  fi
+
+  lock_parent=${lock%/*}
+  if [ "$lock_parent" = "$lock" ]; then
+    lock_parent=.
+  elif [ -z "$lock_parent" ]; then
+    lock_parent=/
+  fi
+  [ -d "$lock_parent" ] || mkdir -p "$lock_parent"
+  umask 077
+  token=$(mktemp "$lock.reentry.XXXXXX")
+  cleanup_token() {
+    status=$?
+    trap - 0 HUP INT TERM
+    rm -f "$token"
+    exit "$status"
+  }
+  trap cleanup_token 0
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  eval 'exec '"$slot_fd"'<> "$token"'
+  read_token "$token"
+  slot_inode=$observed_inode
+  rm -f "$token"
+  trap - 0 HUP INT TERM
+  export "RUND_LOCK_SLOT_${slot_fd}_PATH=$lock"
+  export "RUND_LOCK_SLOT_${slot_fd}_INODE=$slot_inode"
+  if ! valid_slot "$slot_fd" "$lock"; then
+    invalidate_slot "$slot_fd"
+    return 1
+  fi
+}
+
+if [ "$flat_scope" -eq 1 ]; then
+  if [ -n "${RUND_FLAT_LOCK_ACTIVE:-}" ]; then
+    echo "flat lock nesting is forbidden: $lock" >&2
+    exit 1
+  fi
+  lock_parent=${lock%/*}
+  if [ "$lock_parent" = "$lock" ]; then
+    lock_parent=.
+  elif [ -z "$lock_parent" ]; then
+    lock_parent=/
+  fi
+  [ -d "$lock_parent" ] || mkdir -p "$lock_parent"
+  flat_command='
+    owner=$1
+    wait_started=$2
+    active=$3
+    owner_file=$4
+    shift 4
+    case "$owner_file" in
+      "$active.owner") ;;
+      *) exit 1 ;;
+    esac
+    exec 2>&3
+    if [ -n "$wait_started" ]; then
+      wait_finished=$(date +%s)
+      echo "lock.acquired: $owner wait_s=$((wait_finished - wait_started))" >&2
+    fi
+    RUND_FLAT_LOCK_ACTIVE=$active
+    RUND_FLAT_LOCK_OWNER_PID=$$
+    RUND_FLAT_LOCK_OWNER_FILE=$owner_file
+    export RUND_FLAT_LOCK_ACTIVE RUND_FLAT_LOCK_OWNER_PID \
+      RUND_FLAT_LOCK_OWNER_FILE
+    umask 077
+    rm -f "$owner_file"
+    if ! printf "%s\n" "$RUND_FLAT_LOCK_OWNER_PID" >"$owner_file"; then
+      rm -f "$owner_file"
+      exit 1
+    fi
+    cleanup_flat_owner() {
+      cleanup_code=$?
+      trap - 0 HUP INT TERM
+      rm -f "$owner_file"
+      exit "$cleanup_code"
+    }
+    trap cleanup_flat_owner 0 HUP INT TERM
+    "$@"
+    code=$?
+    rm -f "$owner_file"
+    trap - 0 HUP INT TERM
+    if [ "$code" -eq 75 ]; then
+      exit 125
+    fi
+    exit "$code"
+  '
+  invoke_flat() {
+    invoke_wait=$1
+    invoke_started=$2
+    shift 2
+    case "$lock_tool:$invoke_wait" in
+      lockf:1)
+        set -- -k "$lock" sh -c "$flat_command" rund-lock \
+          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+        ;;
+      lockf:0)
+        set -- -k -t 0 "$lock" sh -c "$flat_command" rund-lock \
+          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+        ;;
+      flock:1)
+        set -- -x -E 75 "$lock" sh -c "$flat_command" rund-lock \
+          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+        ;;
+      flock:0)
+        set -- -x -E 75 -n "$lock" sh -c "$flat_command" rund-lock \
+          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+        ;;
+      *) return 1 ;;
+    esac
+    "$lock_tool" "$@" 3>&2 2>/dev/null
+  }
+
+  if invoke_flat 0 "" "$@"; then
+    flat_code=0
+  else
+    flat_code=$?
+    if [ "$flat_code" -eq 75 ] && [ "$wait_for_lock" -eq 1 ]; then
+      flat_started=$(date +%s)
+      echo "lock.wait: $owner" >&2
+      if invoke_flat 1 "$flat_started" "$@"; then
+        flat_code=0
+      else
+        flat_code=$?
+      fi
+    elif [ "$flat_code" -eq 75 ]; then
+      echo "$owner is already running" >&2
+    fi
+  fi
+  if [ "$flat_code" -eq 125 ]; then
+    exit 75
+  fi
+  exit "$flat_code"
+fi
+
+if [ "$wait_for_lock" -eq 1 ]; then
+  for held_fd in 9 8 7 6 5 4; do
+    read_slot "$held_fd"
+    if [ "$slot_path" = "$lock" ] && valid_slot "$held_fd" "$lock"; then
+      exec "$@"
+    fi
+  done
+fi
+
+open_slot
+
+# lockf uses 75 for contention and also forwards the child status. Reserve 125
+# inside the lock so a nested lock conflict is not mislabeled as this lock.
+lock_command='
+  slot_fd=$1
+  owner=$2
+  wait_started=$3
+  shift 3
+  case "$slot_fd" in
+    9 | 8 | 7 | 6 | 5 | 4) ;;
+    *) exit 1 ;;
+  esac
+  exec 2>&3
+  if [ -n "$wait_started" ]; then
+    wait_finished=$(date +%s)
+    echo "lock.acquired: $owner wait_s=$((wait_finished - wait_started))" >&2
+  fi
+  "$@"
+  code=$?
+  # Invalidate inherited proofs before this wrapper returns and lockf releases
+  # the advisory lock.
+  eval "printf x >&$slot_fd"
+  if [ "$code" -eq 75 ]; then
+    exit 125
+  fi
+  exit "$code"
+'
+invoke_lock() {
+  invoke_wait=$1
+  invoke_started=$2
+  shift 2
+  case "$lock_tool:$invoke_wait" in
+    lockf:1)
+      set -- -k "$lock" sh -c "$lock_command" rund-lock \
+        "$slot_fd" "$owner" "$invoke_started" "$@"
+      ;;
+    lockf:0)
+      set -- -k -t 0 "$lock" sh -c "$lock_command" rund-lock \
+        "$slot_fd" "$owner" "$invoke_started" "$@"
+      ;;
+    flock:1)
+      set -- -x -E 75 "$lock" sh -c "$lock_command" rund-lock \
+        "$slot_fd" "$owner" "$invoke_started" "$@"
+      ;;
+    flock:0)
+      set -- -x -E 75 -n "$lock" sh -c "$lock_command" rund-lock \
+        "$slot_fd" "$owner" "$invoke_started" "$@"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  "$lock_tool" "$@" 3>&2 2>/dev/null
+}
+
+if invoke_lock 0 "" "$@"; then
+  code=0
+else
+  code=$?
+  if [ "$code" -eq 75 ] && [ "$wait_for_lock" -eq 1 ]; then
+    wait_started=$(date +%s)
+    echo "lock.wait: $owner" >&2
+    if invoke_lock 1 "$wait_started" "$@"; then
+      code=0
+    else
+      code=$?
+    fi
+  elif [ "$code" -eq 75 ]; then
+    echo "$owner is already running" >&2
+  fi
+fi
+
+# The locked wrapper already invalidated successful-command descendants before
+# lock release. This also invalidates the unused token on contention, where the
+# wrapper did not run.
+invalidate_slot "$slot_fd"
+if [ "$code" -eq 125 ]; then
+  exit 75
+fi
+exit "$code"

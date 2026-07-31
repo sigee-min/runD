@@ -1,0 +1,46 @@
+set(task_sources)
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task.def
+  ${NODE_TEST_TASK_BASIC_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/hash.def
+  ${NODE_TEST_TASK_HASH_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/group.def
+  ${NODE_TEST_TASK_GROUP_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/join/all.def
+  ${NODE_TEST_TASK_JOIN_ALL_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/cancel.def
+  ${NODE_TEST_TASK_CANCEL_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/parallel/leaf.def
+  ${NODE_TEST_TASK_LEAF_PARALLEL_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/coroutine.def
+  ${NODE_TEST_TASK_COROUTINE_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/coroutine/frame.def
+  ${NODE_TEST_TASK_COROUTINE_FRAME_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/result.def
+  ${NODE_TEST_TASK_RESULT_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/env.def
+  ${NODE_TEST_TASK_ENV_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/random.def
+  ${NODE_TEST_TASK_RANDOM_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/ready/queue.def
+  ${NODE_TEST_TASK_READY_QUEUE_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/resource/default.def
+  ${NODE_TEST_TASK_DEFAULT_RESOURCE_BUDGET_TEST_SOURCES})
+rund_node_select_suite_sources(task_sources
+  cases/runtime/task/resource/stats.def
+  ${NODE_TEST_TASK_RESOURCE_STATS_TEST_SOURCES})
+rund_node_require_suite_partitions(runtime.task)
+rund_node_require_group_link_profiles(runtime.task RUNTIME_BASE runtime)
+list(REMOVE_DUPLICATES task_sources)

@@ -1,0 +1,26 @@
+# Exact repository-root membership. Keep one tab between kind and name.
+admitted-file	.gitignore
+admitted-file	AGENTS.md
+admitted-file	CMakeLists.txt
+admitted-file	CONTRIBUTING.md
+admitted-file	LICENSE
+admitted-file	README.md
+admitted-file	SECURITY.md
+admitted-dir	.github
+admitted-dir	accel
+admitted-dir	cluster
+admitted-dir	cmake
+admitted-dir	docs
+admitted-dir	kernel
+admitted-dir	math32
+admitted-dir	math64
+admitted-dir	node
+admitted-dir	package
+admitted-dir	tools
+admitted-dir	wiki
+local-dir	.cache
+local-dir	.git
+local-dir	.private
+local-dir	Testing
+debris	.DS_Store
+debris	Thumbs.db

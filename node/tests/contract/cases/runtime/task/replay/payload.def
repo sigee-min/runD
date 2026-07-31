@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.replay-payload", RunRuntimeTaskReplayPayloadContract, "tests/contract/runtime/task/replay/payload.cpp", runtime)

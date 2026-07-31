@@ -1,0 +1,35 @@
+set(replay_sources)
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/accel.def
+  ${NODE_TEST_REPLAY_ACCEL_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/host.def
+  ${NODE_TEST_REPLAY_HOST_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay.def
+  ${NODE_TEST_REPLAY_RECORD_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/kernel.def
+  ${NODE_TEST_REPLAY_KERNEL_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/telemetry.def
+  ${NODE_TEST_REPLAY_TELEMETRY_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/payload.def
+  ${NODE_TEST_REPLAY_PAYLOAD_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/payload/codec.def
+  ${NODE_TEST_REPLAY_PAYLOAD_CODEC_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/storage/config.def
+  ${NODE_TEST_REPLAY_STORAGE_CONFIG_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/payload/store.def
+  ${NODE_TEST_REPLAY_PAYLOAD_STORE_TEST_SOURCES})
+rund_node_select_suite_sources(replay_sources
+  cases/runtime/task/replay/spill/storage.def
+  ${NODE_TEST_REPLAY_SPILL_STORAGE_TEST_SOURCES})
+rund_node_require_suite_partitions(runtime.task.replay)
+rund_node_require_group_link_profiles(
+  runtime.task.replay RUNTIME_BASE runtime)
+list(REMOVE_DUPLICATES replay_sources)

@@ -1,0 +1,10 @@
+dev	.cache/dev	dev
+release	.cache/release	release
+platform-unavailable	.cache/platform-unavailable	platform-unavailable
+sanitize/address	.cache/sanitize/address	sanitize-address
+sanitize/thread	.cache/sanitize/thread	sanitize-thread
+measure/compute	.cache/measure/compute	measure-compute
+measure/flow	.cache/measure/flow	measure-flow
+measure/graph/services	.cache/measure/graph/services	measure-graph-services
+measure/scheduler	.cache/measure/scheduler	measure-scheduler
+measure/telemetry	.cache/measure/telemetry	measure-telemetry

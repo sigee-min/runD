@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.kernel-numeric", RunAccelKernelNumericContract, "tests/contract/accel/kernel/numeric.cpp", accel)

@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 3 ]; then
+  echo "usage: tools/internal/measure/prepare <root> <build> <source>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+source=$3
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+prefix="$release/runD-install"
+
+if [ ! -f "$prefix/lib/cmake/runD/runDConfig.cmake" ]; then
+  echo "installed Release package missing; run tools/release/run first" >&2
+  exit 1
+fi
+if ! "$root/tools/internal/state/ninja" --version >/dev/null 2>&1; then
+  echo "installed-package measurement requires Ninja" >&2
+  exit 1
+fi
+
+sh "$root/tools/internal/verification/prepare" "$root" "$build"
+sh "$root/tools/internal/release/provenance" "$root" \
+  "$build/.rund-source-manifest-before.tsv"
+
+sh "$root/tools/internal/state/lock" --state "$root" "$build" \
+  cmake -S "$source" -B "$build" -G Ninja \
+  -DCMAKE_MAKE_PROGRAM:FILEPATH="$root/tools/internal/state/ninja" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$prefix" \
+  -DrunD_DIR:PATH="$prefix/lib/cmake/runD" \
+  -DRUND_EXPECTED_PACKAGE_DIR:PATH="$prefix/lib/cmake/runD"
+exec "$root/tools/internal/state/ninja" -C "$build"

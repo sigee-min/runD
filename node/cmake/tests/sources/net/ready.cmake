@@ -1,0 +1,44 @@
+set(NODE_TEST_NET_READY_MANY_TEST_SOURCES
+  tests/contract/runtime/task/net/ready/many.cpp
+  tests/contract/runtime/task/net/ready/many/local.cpp
+  tests/contract/runtime/task/net/ready/many/accept.cpp
+  tests/contract/runtime/task/net/ready/many/accept/blocking.cpp
+  tests/contract/runtime/task/net/ready/many/accept/boundary.cpp
+  tests/contract/runtime/task/net/ready/many/accept/boundary/budget.cpp
+  tests/contract/runtime/task/net/ready/many/accept/boundary/empty.cpp
+  tests/contract/runtime/task/net/ready/many/accept/boundary/reject.cpp
+  tests/contract/runtime/task/net/ready/many/accept/boundary/scenario.cpp
+  tests/contract/runtime/task/net/ready/many/accept/boundary/timeout.cpp
+  tests/contract/runtime/task/net/ready/many/accept/close.cpp
+  tests/contract/runtime/task/net/ready/many/connect.cpp
+  tests/contract/runtime/task/net/ready/many/connect/generation.cpp
+  tests/contract/runtime/task/net/ready/many/connect/multi.cpp
+  tests/contract/runtime/task/net/ready/many/read.cpp
+  tests/contract/runtime/task/net/ready/many/read/batch.cpp
+  tests/contract/runtime/task/net/ready/many/read/immediate.cpp
+  tests/contract/runtime/task/net/ready/many/read/missing.cpp
+  tests/contract/runtime/task/net/ready/many/write.cpp
+  tests/contract/runtime/task/net/ready/many/write/immediate.cpp
+  tests/contract/runtime/task/net/ready/many/write/both.cpp
+)
+
+set(NODE_TEST_NET_READY_SET_TEST_SOURCES
+  tests/contract/runtime/task/net/ready/set.cpp
+  tests/contract/runtime/task/net/ready/sets/local/cleanup.cpp
+  tests/contract/runtime/task/net/ready/sets/local/prepare.cpp
+  tests/contract/runtime/task/net/ready/sets/local/ready.cpp
+  tests/contract/runtime/task/net/ready/sets/local/runtime.cpp
+  tests/contract/runtime/task/net/ready/sets/local/socket.cpp
+  tests/contract/runtime/task/net/ready/sets/basic.cpp
+  tests/contract/runtime/task/net/ready/sets/stale.cpp
+  tests/contract/runtime/task/net/ready/sets/stale/duplicate.cpp
+  tests/contract/runtime/task/net/ready/sets/stale/remove.cpp
+  tests/contract/runtime/task/net/ready/sets/stale/wait.cpp
+  tests/contract/runtime/task/net/ready/sets/stale/wait/closed.cpp
+  tests/contract/runtime/task/net/ready/sets/cancel.cpp
+  tests/contract/runtime/task/net/ready/sets/capacity.cpp
+  tests/contract/runtime/task/net/ready/sets/capacity/member.cpp
+  tests/contract/runtime/task/net/ready/sets/capacity/set.cpp
+  tests/contract/runtime/task/net/ready/sets/capacity/zero.cpp
+  tests/contract/runtime/task/net/ready/sets/index.cpp
+)

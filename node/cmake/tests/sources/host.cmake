@@ -1,0 +1,12 @@
+set(NODE_TEST_HOST_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/host.cpp
+  tests/contract/runtime/task/host/timer.cpp
+  tests/contract/runtime/task/host/io/admission.cpp
+  tests/contract/runtime/task/host/io/fixture.cpp
+  tests/contract/runtime/task/host/io/order.cpp
+  tests/contract/runtime/task/host/io/replay.cpp
+  tests/contract/runtime/task/host/io/run.cpp
+  tests/contract/runtime/task/host/io/signal.cpp
+  tests/contract/runtime/task/host/io/surface.cpp
+)

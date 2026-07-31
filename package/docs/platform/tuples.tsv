@@ -1,0 +1,4 @@
+triplet	status	producer	runner	compiler	artifact
+darwin-arm64	supported	tools/release/darwin	native-darwin-arm64	AppleClang	release
+linux-x64	validated	.github/workflows/release.yml	ubuntu-24.04	gcc-13+g++-13+llvm-18	candidate
+windows-x64	not-supported	none	none	none	none

@@ -1,0 +1,178 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 4 ]; then
+  echo "usage: tools/internal/artifact/linux <release-build> <observation> <version> <triplet>" >&2
+  exit 2
+fi
+
+build=$1
+observation=$2
+version=$3
+triplet=$4
+cache="$build/CMakeCache.txt"
+targets="$build/runD-install/lib/cmake/runD/runDTargets.cmake"
+
+if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ] ||
+   [ "$triplet" != linux-x64 ]; then
+  echo "Linux artifact identity requires a native linux-x64 producer" >&2
+  exit 1
+fi
+if [ ! -f "$cache" ] || [ ! -f "$targets" ]; then
+  echo "Linux artifact identity requires the completed Release install" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$version" | awk '
+    /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ { valid = 1 }
+    END { exit !valid }
+  '; then
+  echo "artifact SDK version is invalid: $version" >&2
+  exit 1
+fi
+
+cache_value() {
+  key=$1
+  awk -v key="$key" '
+    index($0, key ":") == 1 {
+      sub(/^[^=]*=/, "")
+      print
+      found += 1
+    }
+    END { if (found != 1) exit 1 }
+  ' "$cache"
+}
+
+cmake_set_value() {
+  key=$1
+  file=$2
+  sed -n "s/^set(${key} \"\([^\"]*\)\")$/\1/p" "$file" |
+    awk 'NF { value = $0; count += 1 } END {
+      if (count != 1) exit 1
+      print value
+    }'
+}
+
+set -- "$build"/CMakeFiles/*/CMakeCXXCompiler.cmake
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+  echo "Release compiler identity is not unique" >&2
+  exit 1
+fi
+compiler_file=$1
+compiler=$(cache_value CMAKE_CXX_COMPILER)
+compiler_id=$(cmake_set_value CMAKE_CXX_COMPILER_ID "$compiler_file")
+compiler_version=$(cmake_set_value CMAKE_CXX_COMPILER_VERSION "$compiler_file")
+compiler_target=$("$compiler" -dumpmachine)
+build_type=$(cache_value CMAKE_BUILD_TYPE)
+if [ "$compiler_id" != GNU ]; then
+  echo "Linux artifact compiler is not GNU: $compiler_id" >&2
+  exit 1
+fi
+case "$compiler_version" in
+  13.*) ;;
+  *)
+    echo "Linux artifact compiler is not GCC 13: $compiler_version" >&2
+    exit 1
+    ;;
+esac
+if [ "$build_type" != Release ]; then
+  echo "Linux artifact was not produced by a Release build: $build_type" >&2
+  exit 1
+fi
+if [ ! -x "$compiler" ]; then
+  echo "Release C++ compiler is unavailable: $compiler" >&2
+  exit 1
+fi
+case "$compiler_target" in
+  x86_64-linux-gnu*|x86_64-*-linux-gnu*) ;;
+  *)
+    echo "Linux artifact compiler target is not x86_64: $compiler_target" >&2
+    exit 1
+    ;;
+esac
+target_architecture=$(uname -m)
+if [ "$target_architecture" != x86_64 ]; then
+  echo "Linux artifact host architecture is not x86_64" >&2
+  exit 1
+fi
+if ! grep -Fq 'INTERFACE_COMPILE_FEATURES cxx_std_20' "$targets"; then
+  echo "installed runD::sdk does not own the canonical C++20 feature" >&2
+  exit 1
+fi
+if grep -Fq 'INTERFACE_COMPILE_DEFINITIONS' "$targets"; then
+  echo "artifact identity owner must be updated for public compile definitions" >&2
+  exit 1
+fi
+
+if [ -n "${LLVM_CONFIG:-}" ]; then
+  llvm_config=$LLVM_CONFIG
+elif [ -x /usr/lib/llvm-18/bin/llvm-config ]; then
+  llvm_config=/usr/lib/llvm-18/bin/llvm-config
+elif llvm_config=$(command -v llvm-config-18); then
+  :
+else
+  echo "LLVM 18 identity tool is unavailable" >&2
+  exit 1
+fi
+if [ ! -x "$llvm_config" ]; then
+  echo "LLVM identity tool is not executable: $llvm_config" >&2
+  exit 1
+fi
+llvm_version=$("$llvm_config" --version)
+case "$llvm_version" in
+  18.*) ;;
+  *)
+    echo "Linux artifact LLVM identity is not 18.x: $llvm_version" >&2
+    exit 1
+    ;;
+esac
+
+stdlib_macros=$(printf '#include <version>\n' |
+  "$compiler" -std=c++20 -dM -E -x c++ -)
+cxx_standard_library_version=$(printf '%s\n' "$stdlib_macros" |
+  awk '$2 == "__GLIBCXX__" { print $3; found += 1 }
+       END { if (found != 1) exit 1 }')
+glibc_version=$(getconf GNU_LIBC_VERSION |
+  awk '$1 == "glibc" && NF == 2 { print $2; found += 1 }
+       END { if (found != 1) exit 1 }')
+public_target_sha256=$(cmake -E sha256sum "$targets" |
+  awk 'NR == 1 { print $1 }')
+cxx_standard=20
+cxx_standard_library=libstdc++
+public_compile_definitions=none
+
+observation_dir=$(dirname -- "$observation")
+mkdir -p "$observation_dir"
+temporary="$observation.tmp.$$"
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  rm -f "$temporary"
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+{
+  for pair in \
+    "build_type=$build_type" \
+    "compiler_id=$compiler_id" \
+    "compiler_target=$compiler_target" \
+    "compiler_version=$compiler_version" \
+    "cxx_standard=$cxx_standard" \
+    "cxx_standard_library=$cxx_standard_library" \
+    "cxx_standard_library_version=$cxx_standard_library_version" \
+    "glibc_version=$glibc_version" \
+    "llvm_version=$llvm_version" \
+    "platform_triplet=$triplet" \
+    "public_compile_definitions=$public_compile_definitions" \
+    "public_target_sha256=$public_target_sha256" \
+    "sdk_version=$version" \
+    "target_architecture=$target_architecture"; do
+    label=${pair%%=*}
+    value=${pair#*=}
+    printf '%s\t%s\n' "$label" "$value"
+  done
+} >"$temporary"
+mv -f "$temporary" "$observation"

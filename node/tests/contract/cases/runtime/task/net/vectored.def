@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-vectored", RunRuntimeTaskNetVectoredContract, "tests/contract/runtime/task/net/vectored.cpp", runtime)

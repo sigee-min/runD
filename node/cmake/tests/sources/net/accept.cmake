@@ -1,0 +1,33 @@
+set(NODE_TEST_NET_ACCEPT_CONNECT_TEST_SOURCES
+  tests/contract/runtime/task/net/accept/connect.cpp
+  tests/contract/runtime/task/net/accept/connect/basic.cpp
+  tests/contract/runtime/task/net/accept/connect/event.cpp
+  tests/contract/runtime/task/net/accept/connect/event/accept.cpp
+  tests/contract/runtime/task/net/accept/connect/event/connect.cpp
+  tests/contract/runtime/task/net/accept/connect/event/scenario.cpp
+  tests/contract/runtime/task/net/accept/connect/local.cpp
+  tests/contract/runtime/task/net/accept/connect/refused.cpp
+)
+
+set(NODE_TEST_NET_ACCEPT_DRAIN_TEST_SOURCES
+  ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
+  tests/contract/runtime/task/net/accept/drain.cpp
+  tests/contract/runtime/task/net/accept/drain/budget.cpp
+  tests/contract/runtime/task/net/accept/drain/fail.cpp
+  tests/contract/runtime/task/net/accept/drain/local/cleanup.cpp
+  tests/contract/runtime/task/net/accept/drain/local/client.cpp
+  tests/contract/runtime/task/net/accept/drain/local/listener.cpp
+  tests/contract/runtime/task/net/accept/drain/local/run.cpp
+  tests/contract/runtime/task/net/accept/drain/stop.cpp
+  tests/contract/runtime/task/net/accept/drain/would/block.cpp
+)
+
+set(NODE_TEST_NET_ACCEPT_HANDOFF_TEST_SOURCES
+  tests/contract/runtime/task/net/accept/handoff.cpp
+  tests/contract/runtime/task/net/accept/handoff/local/address.cpp
+  tests/contract/runtime/task/net/accept/handoff/local/cleanup.cpp
+  tests/contract/runtime/task/net/accept/handoff/local/client.cpp
+  tests/contract/runtime/task/net/accept/handoff/local/listener.cpp
+  tests/contract/runtime/task/net/accept/handoff/local/run.cpp
+  tests/contract/runtime/task/net/accept/handoff/prepared.cpp
+)

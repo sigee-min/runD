@@ -1,0 +1,55 @@
+set(NODE_TEST_RUNTIME_CORE_SOURCES
+  tests/contract/runtime/task/coroutine/allocation.cpp
+  tests/contract/runtime/memory.cpp
+  tests/contract/runtime/platform/adapter.cpp
+  tests/contract/runtime/product/kernel.cpp
+  tests/contract/runtime/product/lifecycle.cpp
+  tests/contract/runtime/product/support.cpp
+  tests/contract/runtime/reentry.cpp
+  tests/contract/runtime/storage.cpp
+  tests/contract/runtime/stress.cpp
+  tests/contract/runtime/stress/lifecycle.cpp
+  tests/contract/runtime/topology.cpp
+)
+
+set(NODE_TEST_RUNTIME_COMPUTE_SOURCES
+  tests/contract/compute/allocation.cpp
+  tests/contract/runtime/product/compute/host.cpp
+  tests/contract/runtime/product/compute/scope.cpp
+  tests/contract/runtime/product/compute/terminal.cpp
+  tests/contract/runtime/product/compute/capacity.cpp
+  tests/contract/runtime/product/compute/cancel.cpp
+  tests/contract/runtime/product/compute/cancel/epoch.cpp
+  tests/contract/runtime/product/compute/concurrency.cpp
+  tests/contract/runtime/product/compute/collective.cpp
+  tests/contract/runtime/product/compute/await.cpp
+  tests/contract/runtime/product/compute/lifecycle.cpp
+  tests/contract/runtime/product/compute/pipeline/cancel.cpp
+  tests/contract/runtime/product/compute/pipeline/claim.cpp
+  tests/contract/runtime/product/compute/pipeline/lifecycle.cpp
+  tests/contract/runtime/product/compute/pipeline/local/model.cpp
+  tests/contract/runtime/product/compute/pipeline/state.cpp
+  tests/contract/runtime/product/compute/pipeline/status.cpp
+  tests/contract/runtime/product/compute/pipeline/view.cpp
+  tests/contract/runtime/product/compute/pipeline.cpp
+  tests/contract/runtime/product/compute/gate.cpp
+  tests/contract/runtime/product/support.cpp
+  tests/contract/runtime/stress/compute.cpp
+)
+
+set(NODE_TEST_RUNTIME_TELEMETRY_SOURCES
+  tests/contract/compute/allocation.cpp
+  tests/contract/runtime/product/compute/telemetry.cpp
+  tests/contract/runtime/product/support.cpp
+)
+
+set(NODE_TEST_RUNTIME_ACCEL_SOURCES
+  tests/contract/runtime/product/compute/accel.cpp
+  tests/contract/runtime/product/compute/accel/backend.cpp
+  tests/contract/runtime/product/compute/accel/concurrency.cpp
+  tests/contract/runtime/product/compute/accel/scan.cpp
+  tests/contract/runtime/product/compute/accel/lifetime.cpp
+  tests/contract/runtime/product/compute/accel/pipeline.cpp
+  tests/contract/runtime/product/support.cpp
+  tests/contract/runtime/stress/mixed.cpp
+)

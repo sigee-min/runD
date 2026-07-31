@@ -1,0 +1,453 @@
+#include <rund/compute.hpp>
+#include <rund/compute/pipeline.hpp>
+#include <rund/compute/session.hpp>
+#include <rund/session.hpp>
+
+#include <array>
+#include <concepts>
+#include <cstdint>
+#include <span>
+#include <type_traits>
+#include <utility>
+
+namespace {
+
+struct Value final {};
+struct Doubled final {};
+
+using rund::compute::Buffer;
+using rund::compute::Pipeline;
+using rund::compute::PipelineBuilder;
+using rund::compute::StateSnapshot;
+
+static_assert(!std::copy_constructible<Pipeline>);
+static_assert(std::is_nothrow_move_constructible_v<Pipeline>);
+static_assert(!std::copy_constructible<PipelineBuilder>);
+static_assert(std::is_nothrow_move_constructible_v<PipelineBuilder>);
+static_assert(std::copy_constructible<StateSnapshot>);
+static_assert(std::same_as<
+              decltype(std::declval<rund::Session &>().compute(
+                  std::declval<Pipeline &>())),
+              rund::compute::Request>);
+
+template <class T>
+concept ReadsTemporary = requires(T value) {
+  rund::compute::read(std::move(value));
+};
+
+template <class T>
+concept WritesConst = requires(const T value) {
+  rund::compute::write(value);
+};
+
+template <class T>
+concept ViewsTemporary = requires(T value) { std::move(value).view(); };
+
+template <class T>
+concept WritesConstView = requires(const T &value) {
+  rund::compute::write(value.view());
+};
+
+template <class T>
+concept WritesMutableView = requires(T &value) {
+  rund::compute::write(value.view());
+};
+
+static_assert(!ReadsTemporary<Buffer<std::int32_t>>);
+static_assert(!WritesConst<Buffer<std::int32_t>>);
+static_assert(!ViewsTemporary<Buffer<std::int32_t>>);
+static_assert(!WritesConstView<Buffer<std::int32_t>>);
+static_assert(WritesMutableView<Buffer<std::int32_t>>);
+
+[[nodiscard]] int DependentWide(rund::compute::Device &device) {
+  using Real = rund::compute::Fixed<20, 44>;
+  constexpr std::array<Real, 4u> position{
+      Real::from_raw(3), Real::from_raw(6), Real::from_raw(9),
+      Real::from_raw(12)};
+  constexpr std::array<Real, 4u> velocity{
+      Real::from_raw(2), Real::from_raw(4), Real::from_raw(6),
+      Real::from_raw(8)};
+  constexpr std::array<Real, 4u> force{
+      Real::from_raw(1), Real::from_raw(3), Real::from_raw(5),
+      Real::from_raw(7)};
+
+  auto integrate =
+      rund::compute::on(device)
+          .input<Real>(position.size())
+          .zip_input<Real>(velocity.size())
+          .zip_input<Real>(force.size())
+          .map("pipeline-installed-integrate", [](auto p, auto v, auto f) {
+            return rund::compute::quantize<Real>(p + v + f);
+          })
+          .compile();
+  auto advance =
+      rund::compute::on(device)
+          .map<Real>("pipeline-installed-advance", position.size(),
+                     [](auto value) {
+                       return rund::compute::quantize<Real>(value + value);
+                     })
+          .compile();
+  auto p = device.upload<Real>(position);
+  auto v = device.upload<Real>(velocity);
+  auto f = device.upload<Real>(force);
+  auto middle = device.buffer<Real>(position.size());
+  auto output = device.buffer<Real>(position.size());
+  if (!integrate || !advance || !p || !v || !f || !middle || !output) {
+    return 1;
+  }
+
+  auto prepared =
+      rund::compute::pipeline(device)
+          .profile(rund::compute::PipelineProfile::Steps)
+          .then(*integrate, rund::compute::read(*p, *v, *f),
+                rund::compute::write(*middle))
+          .then(*advance, rund::compute::read(*middle),
+                rund::compute::write(*output))
+          .prepare();
+  if (!prepared) {
+    return prepared.exit_code();
+  }
+  Pipeline pipeline = std::move(prepared).value();
+  const auto ran = pipeline.run();
+  if (!ran) {
+    return ran.exit_code();
+  }
+  std::array<rund::compute::PipelineStepProfile, 2u> steps{};
+  const auto profile = pipeline.profile(steps);
+  if (!profile) {
+    return profile.exit_code();
+  }
+  std::array<Real, position.size()> observed{};
+  const auto read = pipeline.read(*output, observed);
+  if (!read) {
+    return read.exit_code();
+  }
+  return observed == std::array<Real, 4u>{
+                         Real::from_raw(12), Real::from_raw(26),
+                         Real::from_raw(40), Real::from_raw(54)} &&
+                 pipeline.stats().pipeline.step_count == 2u &&
+                 pipeline.stats().pipeline.resource_count == 5u &&
+                 pipeline.stats().pipeline.barrier_count == 1u &&
+                 pipeline.stats().command_submits == 0u &&
+                 profile->written == steps.size() &&
+                 profile->total == steps.size() && !profile->truncated() &&
+                 steps[0].index == 0u && steps[1].index == 1u &&
+                 steps[0].program == integrate->fingerprint() &&
+                 steps[1].program == advance->fingerprint() &&
+                 steps[0].execution.available() &&
+                 steps[1].execution.available() &&
+                 steps[0].timing.available() &&
+                 steps[1].timing.available() &&
+                 steps[0].timing.clock ==
+                     rund::compute::StepClock::HostSteady &&
+                 steps[1].timing.clock ==
+                     rund::compute::StepClock::HostSteady &&
+                 profile->memory.available() &&
+                 profile->shared_memory.available() &&
+                 profile->referenced_resource_bytes ==
+                     sizeof(Real) * position.size() * 5u &&
+                 profile->instrumentation_command_count == 0u &&
+                 profile->instrumentation_byte_count == 0u &&
+                 profile->observation.available()
+             ? 0
+             : 2;
+}
+
+[[nodiscard]] int MultiInput(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 4u> first{1, 2, 3, 4};
+  constexpr std::array<std::int32_t, 4u> second{10, 20, 30, 40};
+  constexpr std::array<std::int32_t, 4u> third{100, 200, 300, 400};
+
+  auto program =
+      rund::compute::on(device)
+          .input<std::int32_t>(first.size())
+          .zip_input<std::int32_t>(second.size())
+          .zip_input<std::int32_t>(third.size())
+          .map("pipeline-multi-input-sum", [](auto a, auto b, auto c) {
+            return a + b + c;
+          })
+          .compile();
+  auto a = device.upload<std::int32_t>(first);
+  auto b = device.upload<std::int32_t>(second);
+  auto c = device.upload<std::int32_t>(third);
+  auto sum = device.buffer<std::int32_t>(first.size());
+  if (!program) {
+    return program.exit_code();
+  }
+  if (!a) {
+    return a.exit_code();
+  }
+  if (!b) {
+    return b.exit_code();
+  }
+  if (!c) {
+    return c.exit_code();
+  }
+  if (!sum) {
+    return sum.exit_code();
+  }
+
+  auto prepared =
+      rund::compute::pipeline(device)
+          .then(*program, rund::compute::read(*a, *b, *c),
+                rund::compute::write(*sum))
+          .prepare();
+  if (!prepared) {
+    return prepared.exit_code();
+  }
+  Pipeline pipeline = std::move(prepared).value();
+  const auto ran = pipeline.run();
+  if (!ran) {
+    return ran.exit_code();
+  }
+  std::array<std::int32_t, first.size()> result{};
+  const auto read = pipeline.read(*sum, result);
+  if (!read) {
+    return read.exit_code();
+  }
+  return result == std::array<std::int32_t, 4u>{111, 222, 333, 444} ? 0 : 2;
+}
+
+[[nodiscard]] int Bounded(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 5u> input{5, 1, 4, 2, 3};
+  auto program = rund::compute::on(device)
+                     .map<std::int32_t>("pipeline-bounded", input.size(),
+                                        [](auto value) { return value; })
+                     .filter([](auto value) { return value > 2; })
+                     .compile();
+  auto source = device.upload<std::int32_t>(input);
+  auto values = device.buffer<std::int32_t>(input.size());
+  auto count = device.buffer<std::uint32_t>(1u);
+  if (!program) {
+    return program.exit_code();
+  }
+  if (!source) {
+    return source.exit_code();
+  }
+  if (!values) {
+    return values.exit_code();
+  }
+  if (!count) {
+    return count.exit_code();
+  }
+
+  auto prepared = rund::compute::pipeline(device)
+                      .then(*program, rund::compute::read(*source),
+                            rund::compute::write(*values, *count))
+                      .prepare();
+  if (!prepared) {
+    return prepared.exit_code();
+  }
+  Pipeline pipeline = std::move(prepared).value();
+  const auto ran = pipeline.run();
+  if (!ran) {
+    return ran.exit_code();
+  }
+  std::array<std::int32_t, input.size()> filtered{};
+  std::array<std::uint32_t, 1u> logical{};
+  const auto values_read = pipeline.read(*values, filtered);
+  const auto count_read = pipeline.read(*count, logical);
+  if (!values_read) {
+    return values_read.exit_code();
+  }
+  if (!count_read) {
+    return count_read.exit_code();
+  }
+  return logical[0] == 3u && filtered[0] == 5 && filtered[1] == 4 &&
+                 filtered[2] == 3
+             ? 0
+             : 2;
+}
+
+[[nodiscard]] int RecordInSession(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 4u> input{2, 4, 6, 8};
+  auto program =
+      rund::compute::on(device)
+          .map<std::int32_t>("pipeline-record", input.size(), [](auto value) {
+            return rund::compute::record(
+                rund::compute::field<Value>(value),
+                rund::compute::field<Doubled>(value * 2));
+          })
+          .compile();
+  auto source = device.upload<std::int32_t>(input);
+  auto values = device.buffer<std::int32_t>(input.size());
+  auto doubled = device.buffer<std::int32_t>(input.size());
+  if (!program) {
+    return program.exit_code();
+  }
+  if (!source) {
+    return source.exit_code();
+  }
+  if (!values) {
+    return values.exit_code();
+  }
+  if (!doubled) {
+    return doubled.exit_code();
+  }
+
+  auto prepared = rund::compute::pipeline(device)
+                      .then(*program, rund::compute::read(*source),
+                            rund::compute::write(*values, *doubled))
+                      .prepare();
+  if (!prepared) {
+    return prepared.exit_code();
+  }
+  Pipeline pipeline = std::move(prepared).value();
+
+  rund::Session session{};
+  const auto opened = session.open(rund::SessionConfig{.workers = 2u});
+  if (!opened) {
+    return opened.exit_code();
+  }
+  auto submission = session.compute(pipeline).submit();
+  const auto admitted = submission.poll();
+  const auto completed = submission.wait();
+  if (!admitted.submitted || admitted.reason() != rund::compute::Reason::Ok ||
+      !completed) {
+    (void)session.close();
+    return !completed ? completed.exit_code() : 2;
+  }
+  const auto closed = session.close();
+  if (!closed) {
+    return closed.exit_code();
+  }
+
+  std::array<std::int32_t, input.size()> value_result{};
+  std::array<std::int32_t, input.size()> doubled_result{};
+  const auto value_read = pipeline.read(*values, value_result);
+  const auto doubled_read = pipeline.read(*doubled, doubled_result);
+  if (!value_read) {
+    return value_read.exit_code();
+  }
+  if (!doubled_read) {
+    return doubled_read.exit_code();
+  }
+  return value_result == input &&
+                 doubled_result == std::array<std::int32_t, 4u>{4, 8, 12, 16}
+             ? 0
+             : 2;
+}
+
+[[nodiscard]] int MultiOutputAlias(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 4u> input{3, 6, 9, 12};
+  auto program =
+      rund::compute::on(device)
+          .map<std::int32_t>("pipeline-alias", input.size(),
+                             [](auto value) { return value; })
+          .branch([](auto values) {
+            const auto doubled = values.map(
+                "pipeline-alias-double", [](auto value) { return value * 2; });
+            return rund::compute::outputs(values, doubled, values);
+          })
+          .compile();
+  auto source = device.upload<std::int32_t>(input);
+  auto values = device.buffer<std::int32_t>(input.size());
+  auto doubled = device.buffer<std::int32_t>(input.size());
+  if (!program) {
+    return program.exit_code();
+  }
+  if (!source) {
+    return source.exit_code();
+  }
+  if (!values) {
+    return values.exit_code();
+  }
+  if (!doubled) {
+    return doubled.exit_code();
+  }
+
+  auto prepared =
+      rund::compute::pipeline(device)
+          .then(*program, rund::compute::read(*source),
+                rund::compute::write(*values, *doubled, *values))
+          .prepare();
+  if (!prepared) {
+    return prepared.exit_code();
+  }
+  Pipeline pipeline = std::move(prepared).value();
+  const auto ran = pipeline.run();
+  if (!ran) {
+    return ran.exit_code();
+  }
+  std::array<std::int32_t, input.size()> value_result{};
+  std::array<std::int32_t, input.size()> doubled_result{};
+  const auto value_read = pipeline.read(*values, value_result);
+  const auto doubled_read = pipeline.read(*doubled, doubled_result);
+  if (!value_read) {
+    return value_read.exit_code();
+  }
+  if (!doubled_read) {
+    return doubled_read.exit_code();
+  }
+  return value_result == input &&
+                 doubled_result == std::array<std::int32_t, 4u>{6, 12, 18, 24}
+             ? 0
+             : 2;
+}
+
+[[nodiscard]] int Recurrence(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 4u> seed{1, 2, 3, 4};
+  auto body = rund::compute::on(device)
+                  .map<std::int32_t>("pipeline-repeat", seed.size(),
+                                     [](auto value) { return value + 3; })
+                  .compile();
+  auto input = device.upload<std::int32_t>(seed);
+  auto output = device.buffer<std::int32_t>(seed.size());
+  if (!body || !input || !output) {
+    return 1;
+  }
+  auto prepared =
+      rund::compute::pipeline(device)
+          .profile(rund::compute::PipelineProfile::Steps)
+          .repeat<8u>(*body, rund::compute::read(*input),
+                      rund::compute::write(*output))
+          .prepare();
+  if (!prepared || !prepared->run()) {
+    return 2;
+  }
+  std::array<std::int32_t, seed.size()> actual{};
+  std::array<rund::compute::PipelineStepProfile, 8u> rows{};
+  const auto read = prepared->read(*output, actual);
+  const auto profile = prepared->profile(rows);
+  if (!read || !profile ||
+      actual != std::array<std::int32_t, 4u>{25, 26, 27, 28} ||
+      prepared->stats().pipeline.step_count != 1u ||
+      profile->written != rows.size() || profile->total != rows.size()) {
+    return 3;
+  }
+  for (std::size_t index = 0u; index < rows.size(); ++index) {
+    if (rows[index].index != 0u || rows[index].iteration != index ||
+        rows[index].iteration_bound != rows.size()) {
+      return 4;
+    }
+  }
+  return 0;
+}
+
+} // namespace
+
+int main() {
+  auto opened = rund::compute::open(rund::compute::Target::cpu(2u));
+  if (!opened) {
+    return opened.exit_code();
+  }
+  if (const int result = DependentWide(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = MultiInput(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = Bounded(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = RecordInSession(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = MultiOutputAlias(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = Recurrence(*opened); result != 0) {
+    return result;
+  }
+  return 0;
+}

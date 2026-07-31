@@ -1,0 +1,72 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+  echo "usage: tools/internal/measure/attempt <root> <route> <start|fail|complete> [exit-code]" >&2
+  exit 2
+fi
+
+root=$1
+route=$2
+action=$3
+code=${4:-}
+
+case "$route" in
+  measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry) ;;
+  *)
+    echo "invalid measurement route: $route" >&2
+    exit 2
+    ;;
+esac
+
+directory="$root/.cache/evidence/$route"
+marker="$directory/.attempt.tsv"
+
+case "$action" in
+  start)
+    [ "$#" -eq 3 ] || {
+      echo "measurement start does not accept an exit code" >&2
+      exit 2
+    }
+    state=running
+    ;;
+  fail)
+    case "$code" in
+      ''|*[!0-9]*)
+        echo "invalid measurement exit code: $code" >&2
+        exit 2
+        ;;
+    esac
+    [ "$code" -ne 0 ] || {
+      echo "failed measurement requires a nonzero exit code" >&2
+      exit 2
+    }
+    state=failed
+    ;;
+  complete)
+    [ "$#" -eq 3 ] || {
+      echo "measurement completion does not accept an exit code" >&2
+      exit 2
+    }
+    rm -f "$marker"
+    exit 0
+    ;;
+  *)
+    echo "invalid measurement attempt action: $action" >&2
+    exit 2
+    ;;
+esac
+
+mkdir -p "$directory"
+temporary="$directory/.attempt.$$"
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+{
+  printf 'state\t%s\n' "$state"
+  printf 'host\t%s\n' "$(uname -a)"
+  printf 'time\t%s\n' "$(date -u '+%Y%m%dT%H%M%SZ')"
+  if [ "$state" = failed ]; then
+    printf 'exit\t%s\n' "$code"
+  fi
+} >"$temporary"
+mv "$temporary" "$marker"
+trap - EXIT HUP INT TERM

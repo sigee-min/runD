@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.cpu-simd.dsl-geometry", RunAccelCpuSimdDslGeometryContract, "tests/contract/accel/cpu/dsl/geometry.cpp", cpu-simd)

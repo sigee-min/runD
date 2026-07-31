@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.cpu-kernel", RunAccelCpuContextKernelContract, "tests/contract/accel/kernel/cpu.cpp", cpu-accel)

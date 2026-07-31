@@ -1,0 +1,19 @@
+set(NODE_TEST_NET_FRAME_TEST_SOURCES
+  tests/contract/runtime/task/net/frame/length.cpp
+  tests/contract/runtime/task/net/frame/length/basic.cpp
+  tests/contract/runtime/task/net/frame/length/compile.cpp
+  tests/contract/runtime/task/net/frame/length/default.cpp
+  tests/contract/runtime/task/net/frame/length/reject.cpp
+)
+
+set(NODE_TEST_NET_FRAME_IO_TEST_SOURCES
+  tests/contract/runtime/task/net/frame/io.cpp
+  tests/contract/runtime/task/net/frame/io/budget.cpp
+  tests/contract/runtime/task/net/frame/io/budget/read/header.cpp
+  tests/contract/runtime/task/net/frame/io/budget/read/zero.cpp
+  tests/contract/runtime/task/net/frame/io/budget/write/zero.cpp
+  tests/contract/runtime/task/net/frame/io/local.cpp
+  tests/contract/runtime/task/net/frame/io/reject.cpp
+  tests/contract/runtime/task/net/frame/io/success.cpp
+  tests/contract/runtime/task/net/frame/io/zero.cpp
+)

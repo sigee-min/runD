@@ -1,0 +1,92 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Build and verify the Darwin arm64 SDK archive after Release." \
+    "usage: tools/release/darwin" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" release)
+triplet=darwin-arm64
+
+if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
+  echo "tools/release/darwin requires a native Darwin arm64 host" >&2
+  exit 1
+fi
+
+platform_status=$(sh "$root/tools/internal/platform/status" "$root" "$triplet") || {
+  echo "Darwin SDK platform authority is invalid" >&2
+  exit 1
+}
+case "$platform_status" in
+  supported | validated) ;;
+  *)
+    echo "Darwin SDK platform is not admitted: $platform_status" >&2
+    exit 1
+    ;;
+esac
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+version=$(sh "$root/tools/internal/package/version" "$root")
+artifact_name="rund-sdk-$version-$triplet"
+archive="$build/dist/$artifact_name.tar.gz"
+checksum="$build/dist/$artifact_name.sha256"
+verifier="$build/dist/rund-verify"
+artifact_identity="$build/.rund-artifact-identity.tsv"
+artifact_manifest="$build/.rund-artifact-source-manifest-after.tsv"
+artifact_log="$build/.rund-artifact.tsv"
+
+complete=false
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  if [ "$complete" != true ]; then
+    cmake -E rm -f "$archive" "$checksum" "$verifier" "$artifact_identity" \
+      "$artifact_identity.sha256" "$artifact_manifest" \
+      "$artifact_manifest.sha256" "$artifact_manifest.identity.tsv" \
+      "$artifact_manifest.identity.tsv.sha256" "$artifact_log"
+  fi
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+sh "$root/tools/release/run"
+sh "$root/tools/internal/artifact/identity" \
+  "$build" "$artifact_identity" "$version" "$triplet"
+sh "$root/tools/internal/package/candidate" \
+  "$root" "$build" "$version" "$triplet" "$artifact_identity"
+
+cmake \
+  -D "ROOT=$root" \
+  -D "BUILD=$build" \
+  -D "ROUTE=release-darwin" \
+  -D "STATUS=passed" \
+  -D "SOURCE_MANIFEST=$artifact_manifest" \
+  -D "LOG=$artifact_log" \
+  -D "LOG_NAME=artifact.tsv" \
+  -P "$root/tools/internal/record.cmake"
+
+complete=true
+printf 'Darwin SDK archive: %s\n' "$archive"
+printf 'Darwin SDK checksum: %s\n' "$checksum"
+printf 'Darwin SDK verifier: %s\n' "$verifier"

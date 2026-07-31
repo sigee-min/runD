@@ -1,0 +1,3 @@
+RUND_NODE_TEST_CASE("runtime.task.host", RunRuntimeTaskHostContract, "tests/contract/runtime/task/host.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.task.host-timer", RunRuntimeTaskHostTimerContract, "tests/contract/runtime/task/host/timer.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.task.host-io", RunRuntimeTaskHostIoContract, "tests/contract/runtime/task/host/io/run.cpp", runtime)

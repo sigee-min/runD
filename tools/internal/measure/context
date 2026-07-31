@@ -1,0 +1,15 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+@ARGV == 3
+    or die "usage: tools/internal/measure/context <root> <route> <build>\n";
+my ($root, $route, $build) = @ARGV;
+require "$root/tools/internal/measure/schema.pm";
+my $schema = RundMeasureSchema::load($root, 0);
+my $profile = RundMeasureSchema::select_profile($schema);
+my $spec = RundMeasureSchema::route($route);
+my $artifact = "$build/$spec->{artifact}";
+-f $artifact && !-l $artifact
+    or die "measurement artifact is unavailable: $artifact\n";
+print "$profile\n$artifact\n";

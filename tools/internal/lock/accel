@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+wait_for_lock=0
+if [ "${1:-}" = "--wait" ]; then
+  wait_for_lock=1
+  shift
+fi
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: tools/internal/lock/accel [--wait] <command> [args...]" >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+if [ "$wait_for_lock" -eq 1 ]; then
+  exec sh "$root/tools/internal/lock/run" --wait "$root/.cache/locks/accel" \
+    "runD accelerator work" "$@"
+fi
+exec sh "$root/tools/internal/lock/run" "$root/.cache/locks/accel" \
+  "runD accelerator work" "$@"

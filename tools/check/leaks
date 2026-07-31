@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Run Apple leaks over the Release lifetime contracts." \
+    "usage: tools/check/leaks" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+build="$release/node"
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+if [ ! -x /usr/bin/leaks ]; then
+  echo "Apple leaks is unavailable on this host" >&2
+  exit 1
+fi
+if [ ! -x "$build/node-runtime" ]; then
+  echo "Release contracts missing; run tools/release/run first" >&2
+  exit 1
+fi
+
+source_before="$release/.rund-leaks-source-before.tsv"
+source_after="$release/.rund-leaks-source-after.tsv"
+"$root/tools/source/manifest" "$source_before"
+sh "$root/tools/internal/release/provenance" \
+  "$root" "$source_before"
+
+check() {
+  case_name=$1
+  route=$(cmake -D "ROOT=$root" -D "NAME=$case_name" \
+    -P "$root/tools/internal/case/query.cmake") || return $?
+  old_ifs=$IFS
+  IFS=$(printf '\t')
+  set -- $route
+  IFS=$old_ifs
+  if [ "$#" -ne 4 ] || [ "$1" != "$case_name" ]; then
+    return 2
+  fi
+  target=$2
+  resource=$3
+  set -- sh "$root/tools/internal/leaks/run" \
+    "$root" "$build" /usr/bin/leaks "$target" "$case_name"
+  case "$resource" in
+    -) "$@" ;;
+    rund_accel) sh "$root/tools/internal/lock/accel" "$@" ;;
+    *) return 2 ;;
+  esac
+}
+
+check_all() {
+  check runtime.task.coroutine-frame || return $?
+  check runtime.compute-resident-stress || return $?
+  check runtime.compute-accel || return $?
+  check runtime.task.reactor-cleanup-invariants || return $?
+}
+
+log="$release/leaks.log"
+if check_all >"$log" 2>&1; then
+  status=passed
+else
+  code=$?
+  status=failed
+fi
+cat "$log"
+if sh "$root/tools/internal/source/verify" \
+    "$root" "$source_before" "$source_after"; then
+  :
+else
+  code=$?
+  status=failed
+fi
+cmake -D "ROOT=$root" -D "BUILD=$release" -D "ROUTE=leaks" \
+  -D "STATUS=$status" -D "LOG=$log" -D "LOG_NAME=leaks.log" \
+  -D "SOURCE_MANIFEST=$source_after" \
+  -P "$root/tools/internal/record.cmake"
+if [ "$status" = failed ]; then
+  exit "$code"
+fi

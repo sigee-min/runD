@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 6 ]; then
+  echo "usage: tools/internal/contract/verify <root> <build> <local|sanitize|release> <Debug|Release> <route> <pattern> [cmake-argument ...]" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+profile=$3
+build_type=$4
+route=$5
+pattern=$6
+shift 6
+
+case "$route" in
+  *[!A-Za-z0-9-]*|'')
+    echo "invalid contract verification route: $route" >&2
+    exit 2
+    ;;
+esac
+
+sh "$root/tools/internal/verification/prepare" "$root" "$build"
+sh "$root/tools/internal/configure/contracts" \
+  "$root" "$build" "$profile" "$build_type" - "$@"
+
+selection="$build/.rund-$route-selection.tsv"
+sh "$root/tools/internal/ctest/selection/build" \
+  "$root" "$build" "$pattern" "$selection"
+cmake -E rm -f "$build/Testing/Temporary/LastTest.log"
+
+code=0
+if RUND_VERIFIED_SOURCE_MANIFEST="$build/.rund-source-manifest-before.tsv" \
+   sh "$root/tools/internal/ctest/selection/run" \
+    "$build" "$selection"; then
+  status=passed
+else
+  code=$?
+  status=failed
+fi
+if sh "$root/tools/internal/state/verify" "$root" "$build"; then
+  :
+else
+  code=$?
+  status=failed
+fi
+cmake -D "ROOT=$root" -D "BUILD=$build" -D "ROUTE=$route" \
+  -D "STATUS=$status" \
+  -D "SOURCE_MANIFEST=$build/.rund-source-manifest-after.tsv" \
+  -P "$root/tools/internal/record.cmake"
+if [ "$status" = failed ]; then
+  exit "$code"
+fi

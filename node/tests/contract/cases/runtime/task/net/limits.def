@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-limits", RunRuntimeTaskNetLimitsContract, "tests/contract/runtime/task/net/limits.cpp", runtime, thread)

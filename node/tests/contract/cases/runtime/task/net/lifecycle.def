@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-lifecycle", RunRuntimeTaskNetLifecycleContract, "tests/contract/runtime/task/net/lifecycle.cpp", runtime)

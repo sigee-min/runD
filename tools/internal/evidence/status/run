@@ -1,0 +1,220 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 2 ]; then
+  echo "usage: tools/internal/evidence/status/run <root> <source-manifest-sha256> [route ...]" >&2
+  exit 2
+fi
+
+root=$1
+current_manifest=$2
+shift 2
+
+case "$current_manifest" in
+  *[!0-9a-f]*|'')
+    echo "invalid source manifest SHA-256: $current_manifest" >&2
+    exit 2
+    ;;
+esac
+if [ "${#current_manifest}" -ne 64 ]; then
+  echo "invalid source manifest SHA-256: $current_manifest" >&2
+  exit 2
+fi
+
+if [ "$#" -eq 0 ]; then
+  case "$(uname -s)" in
+    Darwin)
+      set -- check sanitize-address sanitize-thread platform-unavailable \
+        release release-darwin leaks measure-scheduler measure-compute \
+        measure-flow measure-graph-services measure-telemetry
+      ;;
+    Linux)
+      set -- check sanitize-address sanitize-thread platform-unavailable \
+        release measure-scheduler measure-compute measure-flow \
+        measure-graph-services measure-telemetry
+      ;;
+    *)
+      echo "no local launch-closure matrix for this host" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+field() {
+  key=$1
+  file=$2
+  awk -F '\t' -v key="$key" '
+    $1 == key { value = $2; count += 1 }
+    END {
+      if (count != 1) exit 1
+      print value
+    }
+  ' "$file"
+}
+
+file_sha256() {
+  cmake -E sha256sum "$1" | awk 'NR == 1 { print $1 }'
+}
+
+valid_sha256() {
+  value=$1
+  case "$value" in
+    *[!0-9a-f]*|'') return 1 ;;
+  esac
+  [ "${#value}" -eq 64 ]
+}
+
+proof_valid() {
+  packet_host=$(field host "$run") || return 1
+  proof_kind=$(field proof:kind "$run") || return 1
+  proof_route=$(field proof:route "$run") || return 1
+  proof_status=$(field proof:status "$run") || return 1
+  proof_profile=$(field proof:profile "$run") || return 1
+  proof_metrics=$(field proof:metrics "$run") || return 1
+  proof_log_name=$(field proof:log "$run") || return 1
+  proof_log_sha256=$(field proof:log:sha256 "$run") || return 1
+  proof_result_name=$(field proof:result "$run") || return 1
+  proof_result_sha256=$(field proof:result:sha256 "$run") || return 1
+
+  case "$route" in
+    measure-compute|measure-scheduler|measure-telemetry) expected_log=measure.log ;;
+    measure-flow) expected_log=samples.tsv ;;
+    measure-graph-services) expected_log=measure.tsv ;;
+    *) return 1 ;;
+  esac
+  [ "$packet_host" = "$current_host" ] || return 1
+  [ "$proof_kind" = performance ] || return 1
+  [ "$proof_route" = "$route" ] || return 1
+  [ "$proof_status" = passed ] || return 1
+  printf '%s\n' "$proof_profile" | grep -Eq '^[a-z0-9]+$' || return 1
+  printf '%s\n' "$proof_metrics" | grep -Eq '^[1-9][0-9]*$' || return 1
+  [ "$proof_log_name" = "$expected_log" ] || return 1
+  [ "$proof_result_name" = baseline.log ] || return 1
+  valid_sha256 "$proof_log_sha256" || return 1
+  valid_sha256 "$proof_result_sha256" || return 1
+
+  proof_log="$latest/$proof_log_name"
+  proof_result="$latest/$proof_result_name"
+  [ -f "$proof_log" ] && [ -f "$proof_result" ] || return 1
+  [ "$(file_sha256 "$proof_log")" = "$proof_log_sha256" ] || return 1
+  [ "$(file_sha256 "$proof_result")" = "$proof_result_sha256" ] || return 1
+
+  proof_line=$(printf 'baseline\t%s\tprofile=%s\tmetrics=%s\tstatus=passed' \
+    "$route" "$proof_profile" "$proof_metrics")
+  printf '%s\n' "$proof_line" | cmp -s - "$proof_result" || return 1
+  proof_replay=$(perl "$root/tools/internal/measure/compare" \
+    "$root" "$route" "$proof_log" 2>/dev/null) || return 1
+  [ "$proof_replay" = "$proof_line" ]
+}
+
+LC_ALL=C
+export LC_ALL
+evidence="$root/.cache/evidence"
+current_host=$(uname -a)
+overall=passed
+
+printf 'manifest\t%s\n' "$current_manifest"
+printf 'route\tstate\tpacket_manifest\tpacket\n'
+
+for route do
+  case "$route" in
+    *[!A-Za-z0-9-]*|'')
+      echo "invalid evidence route: $route" >&2
+      exit 2
+      ;;
+  esac
+
+  attempt="$evidence/$route/.attempt.tsv"
+  if [ -e "$attempt" ]; then
+    state=invalid
+    if [ -f "$attempt" ] &&
+       attempt_state=$(field state "$attempt") &&
+       attempt_host=$(field host "$attempt") &&
+       attempt_time=$(field time "$attempt") &&
+       [ "$attempt_host" = "$current_host" ] &&
+       printf '%s\n' "$attempt_time" |
+         grep -Eq '^[0-9]{8}T[0-9]{6}Z$'; then
+      attempt_lines=$(wc -l <"$attempt" | tr -d ' ')
+      case "$attempt_state" in
+        running)
+          [ "$attempt_lines" -eq 3 ] && state=in-progress
+          ;;
+        failed)
+          if [ "$attempt_lines" -eq 4 ] &&
+             attempt_exit=$(field exit "$attempt") &&
+             printf '%s\n' "$attempt_exit" |
+               grep -Eq '^[1-9][0-9]*$'; then
+            state=failed
+          fi
+          ;;
+      esac
+    fi
+    overall=open
+    printf '%s\t%s\t-\t%s\n' \
+      "$route" "$state" "${attempt#"$root/"}"
+    continue
+  fi
+
+  latest=
+  for candidate in "$evidence/$route"/*; do
+    if [ -d "$candidate" ]; then
+      latest=$candidate
+    fi
+  done
+  if [ -z "$latest" ]; then
+    printf '%s\tmissing\t-\t-\n' "$route"
+    overall=open
+    continue
+  fi
+
+  run="$latest/run.tsv"
+  packet=${latest#"$root/"}
+  packet_manifest=-
+  state=invalid
+  if [ -f "$run" ] &&
+     packet_route=$(field route "$run") &&
+     packet_status=$(field status "$run") &&
+     packet_manifest=$(field source_manifest_sha256 "$run") &&
+     packet_identity=$(field source_identity_sha256 "$run") &&
+     [ "$packet_route" = "$route" ] &&
+     [ -f "$latest/source-manifest.tsv" ] &&
+     [ -f "$latest/source-identity.tsv" ]; then
+    observed_manifest=$(file_sha256 "$latest/source-manifest.tsv")
+    observed_identity=$(file_sha256 "$latest/source-identity.tsv")
+    if [ "$observed_manifest" = "$packet_manifest" ] &&
+       [ "$observed_identity" = "$packet_identity" ]; then
+      case "$packet_status" in
+        passed)
+          case "$route" in
+            measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry)
+              if proof_valid; then
+                if [ "$packet_manifest" = "$current_manifest" ]; then
+                  state=passed
+                else
+                  state=stale
+                fi
+              fi
+              ;;
+            *)
+              if [ "$packet_manifest" = "$current_manifest" ]; then
+                state=passed
+              else
+                state=stale
+              fi
+              ;;
+          esac
+          ;;
+        failed) state=failed ;;
+      esac
+    fi
+  fi
+
+  if [ "$state" != passed ]; then
+    overall=open
+  fi
+  printf '%s\t%s\t%s\t%s\n' \
+    "$route" "$state" "$packet_manifest" "$packet"
+done
+
+printf 'overall\t%s\n' "$overall"
+[ "$overall" = passed ]

@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.backend-pick", RunAccelBackendPickContract, "tests/contract/accel/backend/pick.cpp", accel)

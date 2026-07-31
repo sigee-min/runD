@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("accel.kernel-fusion", RunAccelKernelFusionContract, "tests/contract/accel/kernel/fusion.cpp", accel)

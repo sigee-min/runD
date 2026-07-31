@@ -1,0 +1,51 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 5 ]; then
+  echo "usage: tools/internal/leaks/run <root> <build> <leaks> <target> <case>" >&2
+  exit 2
+fi
+
+root=$1
+build=$2
+leaks=$3
+target=$4
+case_name=$5
+executable="$build/$target"
+
+case "$target" in
+  '' | *[!A-Za-z0-9_.+-]* | [!A-Za-z0-9]*) exit 2 ;;
+esac
+case "$case_name" in
+  '' | *[!A-Za-z0-9_.-]* | [!A-Za-z0-9]*) exit 2 ;;
+esac
+if [ ! -x "$leaks" ] || [ ! -x "$executable" ]; then
+  exit 2
+fi
+
+runner="$root/tools/internal/process/run"
+if sh "$runner" 900 "leaks:contract:$case_name" \
+    "$executable" --case "$case_name"; then
+  :
+else
+  code=$?
+  exit "$code"
+fi
+
+if sh "$runner" 900 "leaks:$case_name" \
+    cmake -E env MallocStackLogging=1 "$leaks" --atExit -- \
+      "$executable" --case "$case_name"; then
+  code=0
+else
+  code=$?
+fi
+
+if [ "$leaks" = /usr/bin/leaks ]; then
+  for pid in $(pgrep -f -x "$executable --case $case_name" || true); do
+    state=$(ps -o state= -p "$pid" | tr -d ' ')
+    case "$state" in
+      T*) kill -CONT "$pid" 2>/dev/null || true ;;
+    esac
+  done
+fi
+exit "$code"

@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Validate local evidence, source identity, and measurement proof." \
+    "usage: tools/evidence/status [route ...]" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+for argument do
+  case "$argument" in
+    -*)
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+manifest="$root/.cache/.evidence-status-manifest.$$"
+trap 'rm -f "$manifest"' EXIT HUP INT TERM
+"$root/tools/source/manifest" "$manifest"
+manifest_sha256=$(cmake -E sha256sum "$manifest" | awk 'NR == 1 { print $1 }')
+rm -f "$manifest"
+trap - EXIT HUP INT TERM
+
+exec sh "$root/tools/internal/evidence/status/run" \
+  "$root" "$manifest_sha256" "$@"

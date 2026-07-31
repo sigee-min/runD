@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Measure cold and warm public-header frontend cost, reverse fan-out, and no-op dirtiness." \
+    "usage: tools/measure/build/run [build [target]]" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = -h ] || [ "$1" = --help ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -gt 2 ]; then
+  usage >&2
+  exit 2
+fi
+case "${1:-}" in
+  -*) usage >&2; exit 2 ;;
+esac
+case "${2:-}" in
+  -*) usage >&2; exit 2 ;;
+esac
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd -P)
+build=${1:-"$root/.cache/dev"}
+target=${2:-rund-contract-graph}
+case "$build" in
+  /*) ;;
+  *) build="$root/$build" ;;
+esac
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "build measurement requires python3" >&2
+  exit 1
+fi
+
+export PYTHONDONTWRITEBYTECODE=1
+exec python3 "$root/tools/measure/build/scan.py" \
+  "$root" "$build" "$target" 5

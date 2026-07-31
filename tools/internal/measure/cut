@@ -1,0 +1,55 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+
+sub fail {
+  print STDERR "performance baseline cut: $_[0]\n";
+  exit 1;
+}
+
+@ARGV == 17
+    or die "usage: tools/internal/measure/cut <root> <profile> " .
+           "<scheduler1> <scheduler2> <scheduler3> " .
+           "<compute1> <compute2> <compute3> " .
+           "<flow1> <flow2> <flow3> <graph1> <graph2> <graph3> " .
+           "<telemetry1> <telemetry2> <telemetry3>\n";
+my ($root_argument, $profile, @packets) = @ARGV;
+$profile =~ /\A[a-z0-9]+\z/ or fail('invalid requested profile');
+my $root = abs_path($root_argument) // fail("missing root $root_argument");
+my $baseline = "$root/docs/reference/performance/baseline.tsv";
+-f $baseline or fail("missing $baseline");
+
+open my $project, '-|', 'perl', "$root/tools/internal/measure/project",
+    $root, $profile, @packets
+    or fail('cannot start canonical baseline projection');
+my $candidate;
+{
+  local $/;
+  $candidate = <$project> // '';
+}
+close $project or fail('canonical baseline projection failed');
+
+open my $table, '<', $baseline or fail("cannot read $baseline: $!");
+my $checked;
+{
+  local $/;
+  $checked = <$table> // '';
+}
+close $table or fail("cannot close $baseline: $!");
+$candidate eq $checked
+    or fail('checked-in baseline is not the exact canonical packet projection');
+
+require "$root/tools/internal/measure/schema.pm";
+my $schema;
+eval { $schema = RundMeasureSchema::load($root, 1); 1 }
+    or fail($@ =~ s/\n\z//r);
+RundMeasureSchema::select_profile($schema) eq $profile
+    or fail("canonical baseline selected a foreign profile: $profile");
+for my $route (RundMeasureSchema::routes()) {
+  my $count = RundMeasureSchema::route($route)->{metrics};
+  print "baseline-cut\t$route\tpackets=3\tmetrics=$count\tstatus=passed\n";
+}
+my $manifest = $schema->{profiles}{$profile}{baseline}{manifest}{value};
+print "baseline-cut\tprofile=$profile\tmanifest=$manifest\tstatus=passed\n";

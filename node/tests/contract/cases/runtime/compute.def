@@ -1,0 +1,6 @@
+RUND_NODE_TEST_CASE("runtime.compute-host", RunRuntimeComputeHostContract, "tests/contract/runtime/product/compute/host.cpp", cpu-product)
+RUND_NODE_TEST_CASE("runtime.compute-scope", RunRuntimeComputeScopeContract, "tests/contract/runtime/product/compute/scope.cpp", cpu-product)
+RUND_NODE_TEST_CASE("runtime.compute-terminal", RunRuntimeComputeTerminalContract, "tests/contract/runtime/product/compute/terminal.cpp", cpu-product)
+RUND_NODE_TEST_CASE("runtime.compute-resident-stress", RunRuntimeComputeResidentStressContract, "tests/contract/runtime/stress/compute.cpp", cpu-product)
+RUND_NODE_TEST_CASE("runtime.compute-lifecycle", RunRuntimeComputeLifecycleContract, "tests/contract/runtime/product/compute/lifecycle.cpp", cpu-product)
+RUND_NODE_TEST_CASE("runtime.compute-pipeline", RunRuntimeComputePipelineContract, "tests/contract/runtime/product/compute/pipeline.cpp", cpu-product)

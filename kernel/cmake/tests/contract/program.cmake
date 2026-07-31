@@ -1,0 +1,26 @@
+set(KERNEL_PROGRAM_TEST_SOURCES
+  tests/contract/run/program.cpp
+  tests/contract/program/allocation/none/run.cpp
+  tests/contract/program/allocation/none/backend.cpp
+  tests/contract/program/allocation/none/compile.cpp
+  tests/contract/program/allocation/none/compile/failure.cpp
+  tests/contract/program/allocation/none/compile/policy.cpp
+  tests/contract/program/allocation/none/planning.cpp
+  tests/contract/program/skeleton.cpp
+  tests/contract/program/skeleton/capacity.cpp
+  tests/contract/program/skeleton/capacity/invalid.cpp
+  tests/contract/program/skeleton/capacity/runtime.cpp
+  tests/contract/program/skeleton/capacity/scheduled.cpp
+  tests/contract/program/skeleton/capacity/tile.cpp
+  tests/contract/program/skeleton/reason.cpp
+  tests/contract/program/skeleton/shape.cpp
+  tests/contract/program/skeleton/shape/callback.cpp
+  tests/contract/program/skeleton/shape/element.cpp
+  tests/contract/program/skeleton/shape/fold.cpp
+  tests/contract/program/skeleton/shape/static.cpp
+  tests/contract/program/skeleton/shape/view.cpp
+  tests/contract/program/skeleton/validation.cpp
+  tests/contract/program/skeleton/validation/partition.cpp
+  tests/contract/program/skeleton/validation/view.cpp
+  tests/contract/program/strict.cpp
+)

@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.default-resource-budget", RunRuntimeTaskDefaultResourceBudgetContract, "tests/contract/runtime/task/resource/default.cpp", runtime)

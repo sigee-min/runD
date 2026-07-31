@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-frame", RunRuntimeTaskNetFrameContract, "tests/contract/runtime/task/net/frame/length.cpp", runtime)

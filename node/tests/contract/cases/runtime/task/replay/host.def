@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.host-replay", RunRuntimeTaskHostReplayContract, "tests/contract/runtime/task/replay/host.cpp", runtime)

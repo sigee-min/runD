@@ -1,0 +1,211 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: generate <repository-root> <output-directory>" >&2
+  exit 64
+fi
+
+root=$(CDPATH= cd -- "$1" && pwd)
+output=$2
+case "$output" in
+  /*) ;;
+  *)
+    echo "docs snippet output must be absolute: $output" >&2
+    exit 64
+    ;;
+esac
+output_name=${output##*/}
+output_parent_input=${output%/*}
+if [ -z "$output_name" ] || [ "$output_name" = "." ] ||
+   [ "$output_name" = ".." ]; then
+  echo "docs snippet output must name a child directory: $output" >&2
+  exit 64
+fi
+if [ -z "$output_parent_input" ]; then
+  output_parent_input=/
+fi
+if [ ! -d "$output_parent_input" ]; then
+  echo "docs snippet output parent is unavailable: $output_parent_input" >&2
+  exit 64
+fi
+output_parent=$(CDPATH= cd -- "$output_parent_input" && pwd)
+output="$output_parent/$output_name"
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+parser="$script_dir/parse.awk"
+links="$script_dir/links.awk"
+candidate="$output.next"
+documents="$candidate/documents.list"
+paths="$candidate/paths.list"
+manifest="$candidate/snippets.tsv"
+targets="$candidate/targets.cmake"
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  if ! cmake -E remove_directory "$candidate"; then
+    if [ "$status" -eq 0 ]; then
+      status=1
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup 0 HUP INT TERM
+
+if [ -L "$output" ] || { [ -e "$output" ] && [ ! -d "$output" ]; }; then
+  echo "docs snippet output must be a physical directory: $output" >&2
+  exit 1
+fi
+
+cmake -E remove_directory "$candidate"
+cmake -E make_directory "$candidate"
+{
+  if [ -f "$root/README.md" ]; then
+    printf '%s\n' "$root/README.md"
+  fi
+  for directory in "$root/docs" "$root/wiki" "$root"/*/docs; do
+    if [ -d "$directory" ]; then
+      find "$directory" -type f -name '*.md' -print
+    fi
+  done
+  for readme in "$root"/*/README.md; do
+    if [ -f "$readme" ]; then
+      printf '%s\n' "$readme"
+    fi
+  done
+} | LC_ALL=C sort -u > "$documents"
+
+if [ ! -s "$documents" ]; then
+  echo "docs snippet checker found no documentation" >&2
+  exit 1
+fi
+
+(CDPATH= cd -- "$root" &&
+  find . \( -path './.git' -o -path './.cache' \) -prune -o \
+    -type f -print) |
+  sed 's|^\./||' | LC_ALL=C sort -u > "$paths"
+
+link_summary=$(tr '\n' '\0' < "$documents" |
+  LC_ALL=C xargs -0 awk -v "root=$root/" -v "registry=$paths" -f "$links")
+cmake -E remove "$paths"
+
+: > "$manifest"
+summary=$(tr '\n' '\0' < "$documents" |
+  xargs -0 awk -v "root=$root/" -v "write_output=$candidate" \
+    -v "source_output=$output" \
+    -v "manifest=$manifest" -f "$parser")
+
+tab=$(printf '\t')
+while IFS="$tab" read -r target mode document line generated canonical; do
+  if [ "$canonical" = "-" ]; then
+    continue
+  fi
+  case "$generated" in
+    "$output"/*)
+      generated_relative=${generated#"$output/"}
+      candidate_generated="$candidate/$generated_relative"
+      ;;
+    *)
+      echo "$document:$line: generated snippet escaped stable output: $generated" >&2
+      exit 1
+      ;;
+  esac
+  source="$root/$canonical"
+  if [ ! -f "$source" ] || [ -L "$source" ]; then
+    echo "$document:$line: canonical snippet source is unavailable: $canonical" >&2
+    exit 1
+  fi
+  if ! cmp -s "$candidate_generated" "$source"; then
+    echo "$document:$line: C++ fence differs from canonical source: $canonical" >&2
+    exit 1
+  fi
+done < "$manifest"
+
+if ! awk -F '\t' -v "root=$root" '
+  {
+    source = $6 == "-" ? $5 : root "/" $6
+    if (source in seen) {
+      if (seen[source] != $2) {
+        print $3 ":" $4 ": canonical source has conflicting execution metadata" > "/dev/stderr"
+        failed = 1
+      }
+      next
+    }
+    seen[source] = $2
+    print "rund_add_doc_snippet(" $1 " [==[" source "]==] " $2 ")"
+  }
+  END { if (failed) exit 1 }
+' "$manifest" > "$targets"; then
+  exit 1
+fi
+
+candidate_special=$(find "$candidate" ! -type d ! -type f -print |
+  LC_ALL=C sort | sed -n '1p')
+if [ -n "$candidate_special" ]; then
+  echo "docs snippet candidate contains a non-regular path: $candidate_special" >&2
+  exit 1
+fi
+
+if [ -d "$output" ]; then
+  output_special=$(find "$output" ! -type d ! -type f -print |
+    LC_ALL=C sort | sed -n '1p')
+  if [ -n "$output_special" ]; then
+    echo "docs snippet output contains a non-regular path: $output_special" >&2
+    exit 1
+  fi
+else
+  cmake -E make_directory "$output"
+fi
+
+# The candidate is complete and validated before this point. Promote each file
+# by content so an unchanged documentation TU keeps its dependency timestamp.
+find "$candidate" -type f -print | LC_ALL=C sort |
+while IFS= read -r candidate_file; do
+  relative=${candidate_file#"$candidate/"}
+  output_file="$output/$relative"
+  if [ -d "$output_file" ]; then
+    echo "docs snippet output path conflicts with candidate file: $relative" >&2
+    exit 1
+  fi
+  output_parent=${output_file%/*}
+  cmake -E make_directory "$output_parent"
+  cmake -E copy_if_different "$candidate_file" "$output_file"
+done
+
+# Remove files and directories that are absent from the complete candidate.
+find "$output" -type f -print | LC_ALL=C sort |
+while IFS= read -r output_file; do
+  relative=${output_file#"$output/"}
+  if [ ! -f "$candidate/$relative" ]; then
+    cmake -E remove "$output_file"
+  fi
+done
+find "$output" -depth -type d -print | LC_ALL=C sort -r |
+while IFS= read -r output_directory; do
+  if [ "$output_directory" = "$output" ]; then
+    continue
+  fi
+  relative=${output_directory#"$output/"}
+  if [ ! -d "$candidate/$relative" ]; then
+    rmdir "$output_directory"
+  fi
+done
+
+candidate_paths=$(CDPATH= cd -- "$candidate" &&
+  find . -type f -print | LC_ALL=C sort)
+output_paths=$(CDPATH= cd -- "$output" &&
+  find . -type f -print | LC_ALL=C sort)
+if [ "$candidate_paths" != "$output_paths" ]; then
+  echo "docs snippet promoted output differs from complete candidate" >&2
+  exit 1
+fi
+find "$candidate" -type f -print | LC_ALL=C sort |
+while IFS= read -r candidate_file; do
+  relative=${candidate_file#"$candidate/"}
+  if ! cmp -s "$candidate_file" "$output/$relative"; then
+    echo "docs snippet promotion changed file content: $relative" >&2
+    exit 1
+  fi
+done
+
+printf '%s\n%s\n' "$summary" "$link_summary"

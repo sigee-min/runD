@@ -1,0 +1,3 @@
+RUND_NODE_TEST_CASE("runtime.compute-accel", RunRuntimeComputeAccelContract, "tests/contract/runtime/product/compute/accel.cpp")
+RUND_NODE_TEST_CASE("runtime.compute-pipeline-accel", RunRuntimeComputePipelineAccelContract, "tests/contract/runtime/product/compute/accel/pipeline.cpp", pipeline-product)
+RUND_NODE_TEST_CASE("runtime.mixed-stress", RunRuntimeMixedStressContract, "tests/contract/runtime/stress/mixed.cpp")

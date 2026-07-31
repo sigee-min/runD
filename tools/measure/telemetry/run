@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Measure cold and warm Live, Record, Replay, and Scenario telemetry cost against Release." \
+    "usage: tools/measure/telemetry/run" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" measure/telemetry)
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$release"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$release" \
+    "$0" "$@"
+fi
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+sh "$root/tools/internal/measure/attempt" "$root" measure-telemetry start
+attempt_failed() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  [ "$code" -ne 0 ] || code=1
+  sh "$root/tools/internal/measure/attempt" \
+    "$root" measure-telemetry fail "$code" || :
+  exit "$code"
+}
+trap attempt_failed EXIT HUP INT TERM
+
+sh "$root/tools/internal/measure/prepare" "$root" "$build" \
+  "$root/tools/measure/telemetry"
+
+measure="$build/runD-telemetry-measure"
+manifest=$(cmake -E sha256sum \
+  "$build/.rund-source-manifest-before.tsv" | awk '{print $1}')
+artifact=$(cmake -E sha256sum "$measure" | awk '{print $1}')
+log="$build/measure.log"
+if sh "$root/tools/internal/process/run" 900 telemetry.overhead \
+    "$measure" "$manifest" "$artifact" >"$log" 2>&1; then
+  status=passed
+else
+  code=$?
+  status=failed
+fi
+cat "$log"
+sh "$root/tools/internal/measure/finish" "$root" "$build" \
+  measure-telemetry "$status" "$log" measure.log "${code:-0}"
+sh "$root/tools/internal/measure/attempt" "$root" measure-telemetry complete
+trap - EXIT HUP INT TERM

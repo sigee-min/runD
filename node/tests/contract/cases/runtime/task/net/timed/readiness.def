@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.net-timed-readiness", RunRuntimeTaskNetTimedReadinessContract, "tests/contract/runtime/task/net/timed/readiness.cpp", runtime)

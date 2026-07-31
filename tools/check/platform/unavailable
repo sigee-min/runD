@@ -1,0 +1,131 @@
+#!/bin/sh
+set -u
+
+usage() {
+  printf '%s\n' \
+    "Verify the unavailable-platform owner and Vulkan toggle closure." \
+    "usage: tools/check/platform/unavailable" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=$(sh "$root/tools/internal/state/root" "$root" platform-unavailable)
+report="$build/platform-unavailable.tsv"
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" \
+    "$0" "$@"
+fi
+
+status=passed
+code=0
+
+fail_step() {
+  failed_code=$1
+  failed_step=$2
+  if [ "$status" = passed ]; then
+    status=failed
+    code=$failed_code
+  fi
+  printf 'failed_step\t%s\n' "$failed_step" >>"$report"
+}
+
+run_step() {
+  seconds=$1
+  name=$2
+  shift 2
+  if [ "$status" != passed ]; then
+    return
+  fi
+  if sh "$root/tools/internal/process/run" "$seconds" "$name" "$@"; then
+    printf 'completed_step\t%s\n' "$name" >>"$report"
+  else
+    fail_step "$?" "$name"
+  fi
+}
+
+configure() {
+  vulkan=$1
+  run_step 180 "platform-unavailable-configure-$vulkan" \
+    sh "$root/tools/internal/configure/contracts" \
+      "$root" "$build" platform Debug runtime.platform-adapter "$vulkan"
+}
+
+audit() {
+  phase=$1
+  vulkan=$2
+  objects=$3
+  run_step 60 "platform-unavailable-audit-$phase" \
+    cmake -D "ROOT=$root" -D "BUILD=$build" \
+      -D "PHASE=$phase" -D "VULKAN_ENABLED=$vulkan" \
+      -D "OBJECTS_REQUIRED=$objects" -D "REPORT=$report" \
+      -P "$root/tools/internal/platform/unavailable/verify.cmake"
+}
+
+if sh "$root/tools/internal/process/run" 180 platform-unavailable-prepare \
+    sh "$root/tools/internal/verification/prepare" "$root" "$build"; then
+  :
+else
+  exit $?
+fi
+cmake -E rm -f "$report"
+printf 'route\tplatform-unavailable\n' >"$report"
+
+# Start in the dependency-free state and execute the real unavailable owner.
+configure OFF
+audit off-fresh OFF OFF
+run_step 900 platform-unavailable-build-runtime \
+  cmake --build "$build" --target node-runtime
+run_step 900 platform-unavailable-run-runtime \
+  "$build/node/node-runtime" --case runtime.platform-adapter
+
+# Turn Vulkan discovery on, but compile only source/object owners. No device is
+# opened and no accelerator workload is submitted by this route.
+configure ON
+run_step 900 platform-unavailable-build-vulkan-owners \
+  cmake --build "$build" --target \
+    node-object-accel-vulkan node-object-platform
+audit on-built ON ON
+
+# Turn discovery off in the same cache and rebuild both owners. Ninja's command
+# identity makes retained SDK/tool definitions rebuild inputs rather than a
+# stale success. The final exact run consumes that OFF graph.
+configure OFF
+run_step 900 platform-unavailable-rebuild-off-owners \
+  cmake --build "$build" --target \
+    node-object-accel-vulkan node-object-platform node-runtime
+audit off-after-on OFF ON
+run_step 900 platform-unavailable-rerun-runtime \
+  "$build/node/node-runtime" --case runtime.platform-adapter
+
+if sh "$root/tools/internal/process/run" 300 platform-unavailable-freshness \
+    sh "$root/tools/internal/state/verify" "$root" "$build"; then
+  :
+else
+  fail_step "$?" platform-unavailable-freshness
+fi
+
+if sh "$root/tools/internal/process/run" 60 platform-unavailable-record \
+    cmake -D "ROOT=$root" -D "BUILD=$build" \
+      -D ROUTE=platform-unavailable -D "STATUS=$status" \
+      -D "SOURCE_MANIFEST=$build/.rund-source-manifest-after.tsv" \
+      -D "LOG=$report" -D LOG_NAME=platform-unavailable.tsv \
+      -P "$root/tools/internal/record.cmake"; then
+  :
+else
+  record_code=$?
+  if [ "$status" = passed ]; then
+    exit "$record_code"
+  fi
+fi
+
+exit "$code"

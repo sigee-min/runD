@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.task.replay-storage-config", RunRuntimeTaskReplayStorageConfigContract, "tests/contract/runtime/task/replay/storage/config.cpp", runtime)

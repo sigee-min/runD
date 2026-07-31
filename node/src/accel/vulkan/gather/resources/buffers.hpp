@@ -1,0 +1,31 @@
+#pragma once
+
+#include "../local.hpp"
+
+namespace rund::node::accel::detail {
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+namespace {
+
+[[nodiscard]] bool
+CreateVulkanGatherBuffers(VulkanAdapter &adapter,
+                          VulkanGatherEncodeResources &resources,
+                          const GatherParams &params_value) {
+  return CreateVulkanBuffer(adapter, sizeof(params_value),
+                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                            resources.params) &&
+         UploadVulkanBuffer(resources.params, &params_value,
+                            sizeof(params_value)) &&
+         CreateVulkanBuffer(adapter, 4u * sizeof(std::uint32_t),
+                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+                            resources.indirect, nullptr,
+                            VulkanMemoryUse::Device) &&
+         CreateVulkanStatus(adapter, resources.plan.status_bytes,
+                            resources.status);
+}
+
+} // namespace
+#endif
+
+} // namespace rund::node::accel::detail

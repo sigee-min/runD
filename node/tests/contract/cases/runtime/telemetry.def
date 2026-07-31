@@ -1,0 +1,1 @@
+RUND_NODE_TEST_CASE("runtime.telemetry.detail", RunTelemetryDetailContract, "tests/contract/runtime/product/compute/telemetry.cpp", cpu-product, telemetry:detail)

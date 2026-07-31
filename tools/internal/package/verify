@@ -1,0 +1,372 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Verify and install one runD SDK archive." \
+    "usage: rund-verify <archive> <checksum> [destination]" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  usage >&2
+  exit 2
+fi
+
+canonical_file() {
+  label=$1
+  path=$2
+  if [ ! -f "$path" ]; then
+    echo "runD SDK $label is missing: $path" >&2
+    return 1
+  fi
+  directory=$(CDPATH= cd -- "$(dirname -- "$path")" && pwd -P)
+  printf '%s/%s\n' "$directory" "$(basename -- "$path")"
+}
+
+identity_value() {
+  key=$1
+  file=$2
+  awk -F '\t' -v key="$key" '
+    $1 == key && NF == 2 { value = $2; count += 1 }
+    END {
+      if (count != 1 || value == "") exit 1
+      print value
+    }
+  ' "$file"
+}
+
+require_equal() {
+  label=$1
+  expected=$2
+  observed=$3
+  if [ "$observed" != "$expected" ]; then
+    echo "runD SDK $label mismatch: expected $expected, observed $observed" >&2
+    exit 1
+  fi
+}
+
+verify_seal() {
+  payload=$1
+  label=$2
+  seal="$payload.sha256"
+  if [ ! -f "$payload" ] || [ ! -f "$seal" ]; then
+    echo "runD SDK $label or its seal is missing" >&2
+    exit 1
+  fi
+  seal_size=$(wc -c < "$seal" | tr -d '[:space:]')
+  expected=$(sed -n '1p' "$seal")
+  if [ "$seal_size" != 65 ] ||
+     ! printf '%s\n' "$expected" | LC_ALL=C grep -Eq '^[0-9a-f]{64}$'; then
+    echo "runD SDK $label seal is not canonical" >&2
+    exit 1
+  fi
+  observed=$(cmake -E sha256sum "$payload" | awk 'NR == 1 { print $1 }')
+  require_equal "$label SHA-256" "$expected" "$observed"
+}
+
+compiler_probe() {
+  compiler=$1
+  expected_id=$2
+  expected_version=$3
+  probe_source="$stage/compiler"
+  probe_build="$stage/compiler-build"
+  cmake -E make_directory "$probe_source"
+  printf '%s\n' \
+    'cmake_minimum_required(VERSION 3.20)' \
+    'project(rund_verify LANGUAGES CXX)' \
+    'file(WRITE "${CMAKE_BINARY_DIR}/identity.tsv"' \
+    '  "compiler_id\t${CMAKE_CXX_COMPILER_ID}\n"' \
+    '  "compiler_version\t${CMAKE_CXX_COMPILER_VERSION}\n")' \
+    > "$probe_source/CMakeLists.txt"
+  cmake -S "$probe_source" -B "$probe_build" \
+    -D "CMAKE_CXX_COMPILER=$compiler" >/dev/null
+  observed_id=$(identity_value compiler_id "$probe_build/identity.tsv")
+  observed_version=$(identity_value compiler_version \
+    "$probe_build/identity.tsv")
+  require_equal "compiler family" "$expected_id" "$observed_id"
+  require_equal "compiler version" "$expected_version" "$observed_version"
+}
+
+formula_version() {
+  formula=$1
+  line=$($brew list --versions "$formula")
+  set -- $line
+  if [ "$#" -ne 2 ] || [ "$1" != "$formula" ]; then
+    echo "runD SDK requires one installed $formula version" >&2
+    exit 1
+  fi
+  printf '%s\n' "$2"
+}
+
+archive=$(canonical_file archive "$1")
+checksum=$(canonical_file checksum "$2")
+destination=${3:-.}
+if [ ! -d "$destination" ]; then
+  echo "runD SDK destination is missing: $destination" >&2
+  exit 1
+fi
+destination=$(CDPATH= cd -- "$destination" && pwd -P)
+
+archive_name=$(basename -- "$archive")
+checksum_name=$(basename -- "$checksum")
+case "$archive_name" in
+  rund-sdk-*-*.tar.gz) ;;
+  *)
+    echo "runD SDK archive name is invalid: $archive_name" >&2
+    exit 1
+    ;;
+esac
+artifact_name=${archive_name%.tar.gz}
+require_equal "checksum filename" "$artifact_name.sha256" "$checksum_name"
+if ! printf '%s\n' "$artifact_name" |
+    LC_ALL=C grep -Eq '^rund-sdk-(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)-[a-z0-9]+-[a-z0-9]+$'; then
+  echo "runD SDK artifact name is not canonical: $artifact_name" >&2
+  exit 1
+fi
+if [ -e "$destination/$artifact_name" ]; then
+  echo "runD SDK destination already exists: $destination/$artifact_name" >&2
+  exit 1
+fi
+
+expected_archive_sha256=$(awk -v name="$archive_name" '
+  NR == 1 && length($0) == 66 + length(name) &&
+      substr($0, 65, 2) == "  " && substr($0, 67) == name {
+    value = substr($0, 1, 64)
+    if (value !~ /^[0-9a-f]{64}$/) exit 1
+    valid = 1
+  }
+  END {
+    if (NR != 1 || !valid) exit 1
+    print value
+  }
+' "$checksum") || {
+  echo "runD SDK checksum is not one canonical archive row" >&2
+  exit 1
+}
+checksum_bytes=$(wc -c < "$checksum" | tr -d '[:space:]')
+expected_checksum_bytes=$((67 + ${#archive_name}))
+if [ "$checksum_bytes" != "$expected_checksum_bytes" ]; then
+  echo "runD SDK checksum is not one canonical archive row" >&2
+  exit 1
+fi
+
+stage=$(mktemp -d "$destination/.rund-verify.XXXXXX")
+complete=false
+cleanup() {
+  status=$?
+  trap - 0 HUP INT TERM
+  set +e
+  cmake -E remove_directory "$stage"
+  exit "$status"
+}
+trap cleanup 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+snapshot="$stage/$archive_name"
+entries="$stage/entries.tsv"
+verbose="$stage/entries.verbose"
+extract="$stage/extract"
+cmake -E copy "$archive" "$snapshot"
+observed_archive_sha256=$(cmake -E sha256sum "$snapshot" |
+  awk 'NR == 1 { print $1 }')
+require_equal "archive SHA-256" "$expected_archive_sha256" \
+  "$observed_archive_sha256"
+
+cmake -E tar tzf "$snapshot" > "$entries"
+if ! awk -v root="$artifact_name" '
+  index($0, "\r") || index($0, "\\") || $0 ~ /^\// ||
+      index($0, "//") || $0 !~ /^[A-Za-z0-9._+\/-]+$/ { exit 1 }
+  {
+    path = $0
+    sub(/\/$/, "", path)
+    count = split(path, part, "/")
+    if (count < 1 || part[1] != root || seen[path]++) exit 1
+    for (field = 1; field <= count; ++field) {
+      if (part[field] == "" || part[field] == "." || part[field] == "..") {
+        exit 1
+      }
+    }
+    rows += 1
+  }
+  END { if (rows == 0) exit 1 }
+' "$entries"; then
+  echo "runD SDK archive paths are unsafe or non-canonical" >&2
+  exit 1
+fi
+cmake -E tar tvzf "$snapshot" > "$verbose"
+if ! awk '
+  substr($1, 1, 1) != "d" && substr($1, 1, 1) != "-" { exit 1 }
+  { rows += 1 }
+  END { if (rows == 0) exit 1 }
+' "$verbose"; then
+  echo "runD SDK archive contains a link or unsupported entry type" >&2
+  exit 1
+fi
+
+cmake -E make_directory "$extract"
+(
+  cd "$extract"
+  cmake -E tar xzf "$snapshot"
+)
+prefix="$extract/$artifact_name"
+release="$prefix/share/runD/release"
+identity="$release/artifact-identity.tsv"
+source_manifest="$release/source-manifest.tsv"
+source_identity="$release/source-identity.tsv"
+validator="$release/identity.cmake"
+targets="$prefix/lib/cmake/runD/runDTargets.cmake"
+for required in "$identity" "$source_manifest" "$source_identity" \
+    "$validator" "$targets"; do
+  if [ ! -f "$required" ]; then
+    echo "runD SDK archive is missing: $required" >&2
+    exit 1
+  fi
+done
+verify_seal "$identity" "artifact identity"
+verify_seal "$source_manifest" "source manifest"
+verify_seal "$source_identity" "source identity"
+
+sdk_version=$(identity_value sdk_version "$identity")
+triplet=$(identity_value platform_triplet "$identity")
+require_equal "archive identity" "rund-sdk-$sdk_version-$triplet" \
+  "$artifact_name"
+cmake \
+  -D "SOURCE_MANIFEST=$source_manifest" \
+  -D "SOURCE_IDENTITY=$source_identity" \
+  -D "SOURCE_OWNER=consumer" \
+  -D "IDENTITY=$identity" \
+  -D "EXPECTED_SDK_VERSION=$sdk_version" \
+  -D "EXPECTED_TRIPLET=$triplet" \
+  -D "PUBLIC_TARGET=$targets" \
+  -D "IDENTITY_OWNER=consumer" \
+  -P "$validator"
+
+expected_compiler_id=$(identity_value compiler_id "$identity")
+expected_compiler_version=$(identity_value compiler_version "$identity")
+expected_compiler_target=$(identity_value compiler_target "$identity")
+expected_stdlib=$(identity_value cxx_standard_library "$identity")
+expected_stdlib_version=$(identity_value cxx_standard_library_version \
+  "$identity")
+
+case "$triplet" in
+  darwin-arm64)
+    require_equal "host system" Darwin "$(uname -s)"
+    require_equal "host architecture" arm64 "$(uname -m)"
+    if ! command -v xcrun >/dev/null 2>&1; then
+      echo "runD SDK verification requires xcrun" >&2
+      exit 1
+    fi
+    requested_compiler=${CXX:-/usr/bin/c++}
+    if ! compiler=$(command -v "$requested_compiler") ||
+       [ -z "$compiler" ] || [ ! -x "$compiler" ]; then
+      echo "runD SDK C++ compiler is unavailable: $requested_compiler" >&2
+      exit 1
+    fi
+    compiler_probe "$compiler" "$expected_compiler_id" \
+      "$expected_compiler_version"
+    require_equal "compiler target" "$expected_compiler_target" \
+      "$($compiler -dumpmachine)"
+    sdk_name=$(identity_value apple_sdk_name "$identity")
+    require_equal "Apple SDK version" \
+      "$(identity_value apple_sdk_version "$identity")" \
+      "$(xcrun --sdk "$sdk_name" --show-sdk-version)"
+    require_equal "Apple SDK build" \
+      "$(identity_value apple_sdk_build "$identity")" \
+      "$(xcrun --sdk "$sdk_name" --show-sdk-build-version)"
+    sdk_path=$(xcrun --sdk "$sdk_name" --show-sdk-path)
+    expected_deployment=$(identity_value macos_deployment_target_macro \
+      "$identity")
+    deployment_major=$((expected_deployment / 10000))
+    deployment_minor=$(((expected_deployment / 100) % 100))
+    deployment_patch=$((expected_deployment % 100))
+    deployment_version="$deployment_major.$deployment_minor"
+    if [ "$deployment_patch" -ne 0 ]; then
+      deployment_version="$deployment_version.$deployment_patch"
+    fi
+    macros=$(printf '#include <version>\n' |
+      "$compiler" -std=c++20 -arch arm64 -isysroot "$sdk_path" \
+        "-mmacosx-version-min=$deployment_version" \
+        -dM -E -x c++ -)
+    observed_stdlib_version=$(printf '%s\n' "$macros" |
+      awk '$2 == "_LIBCPP_VERSION" { print $3; count += 1 }
+           END { if (count != 1) exit 1 }')
+    observed_deployment=$(printf '%s\n' "$macros" |
+      awk '$2 == "__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__" {
+             print $3; count += 1
+           } END { if (count != 1) exit 1 }')
+    require_equal "C++ standard library" libc++ "$expected_stdlib"
+    require_equal "C++ standard library version" "$expected_stdlib_version" \
+      "$observed_stdlib_version"
+    require_equal "deployment target" \
+      "$expected_deployment" "$observed_deployment"
+    if ! brew=$(command -v brew) || [ -z "$brew" ]; then
+      echo "runD SDK verification requires Homebrew backend metadata" >&2
+      exit 1
+    fi
+    for dependency in molten_vk vulkan_headers vulkan_loader; do
+      formula=$(identity_value "${dependency}_formula" "$identity")
+      expected=$(identity_value "${dependency}_version" "$identity")
+      require_equal "$formula version" "$expected" \
+        "$(formula_version "$formula")"
+    done
+    ;;
+  linux-x64)
+    require_equal "host system" Linux "$(uname -s)"
+    require_equal "host architecture" x86_64 "$(uname -m)"
+    compiler=${CXX:-g++-13}
+    if ! compiler_path=$(command -v "$compiler") || [ -z "$compiler_path" ]; then
+      echo "runD SDK C++ compiler is unavailable: $compiler" >&2
+      exit 1
+    fi
+    compiler_probe "$compiler_path" "$expected_compiler_id" \
+      "$expected_compiler_version"
+    require_equal "compiler target" "$expected_compiler_target" \
+      "$($compiler_path -dumpmachine)"
+    macros=$(printf '#include <version>\n' |
+      "$compiler_path" -std=c++20 -dM -E -x c++ -)
+    observed_stdlib_version=$(printf '%s\n' "$macros" |
+      awk '$2 == "__GLIBCXX__" { print $3; count += 1 }
+           END { if (count != 1) exit 1 }')
+    require_equal "C++ standard library" libstdc++ "$expected_stdlib"
+    require_equal "C++ standard library version" "$expected_stdlib_version" \
+      "$observed_stdlib_version"
+    observed_glibc=$(getconf GNU_LIBC_VERSION |
+      awk '$1 == "glibc" && NF == 2 { print $2; count += 1 }
+           END { if (count != 1) exit 1 }')
+    require_equal "glibc version" \
+      "$(identity_value glibc_version "$identity")" "$observed_glibc"
+    if [ -n "${LLVM_CONFIG:-}" ]; then
+      llvm_config=$LLVM_CONFIG
+    elif [ -x /usr/lib/llvm-18/bin/llvm-config ]; then
+      llvm_config=/usr/lib/llvm-18/bin/llvm-config
+    elif llvm_config=$(command -v llvm-config-18); then
+      :
+    else
+      echo "runD SDK verification requires LLVM 18 metadata" >&2
+      exit 1
+    fi
+    require_equal "LLVM version" \
+      "$(identity_value llvm_version "$identity")" \
+      "$($llvm_config --version)"
+    ;;
+  *)
+    echo "runD SDK platform is unsupported: $triplet" >&2
+    exit 1
+    ;;
+esac
+
+if [ -e "$destination/$artifact_name" ]; then
+  echo "runD SDK destination appeared during verification" >&2
+  exit 1
+fi
+mv "$prefix" "$destination/$artifact_name"
+complete=true
+printf 'verified runD SDK: %s\n' "$destination/$artifact_name"
+cat "$destination/$artifact_name/share/runD/release/artifact-identity.tsv"
