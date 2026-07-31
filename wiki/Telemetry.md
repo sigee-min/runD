@@ -4,7 +4,7 @@ Entry header: `<rund/session.hpp>`
 
 Namespace: `rund::telemetry`
 
-[Back to API Reference](./API.md)
+[Back to API Reference](https://github.com/sigee-min/runD/wiki/API)
 
 ## When To Use
 

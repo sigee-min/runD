@@ -1,4 +1,4 @@
-[One Flow · CPU, Metal, Vulkan · Same Bits](./Home.md) ·
+[One Flow · CPU, Metal, Vulkan · Same Bits](https://github.com/sigee-min/runD/wiki/Home) ·
 [Repository](https://github.com/sigee-min/runD) ·
 [Documentation source](https://github.com/sigee-min/runD/blob/main/docs/README.md) ·
 [Issues](https://github.com/sigee-min/runD/issues) ·

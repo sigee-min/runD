@@ -4,7 +4,7 @@ Entry header: `<rund/task.hpp>`
 
 Namespace: `rund::task` (`rund::ReasonCode` is product-wide)
 
-[Back to API Reference](./API.md) | [Run](./Run.md)
+[Back to API Reference](https://github.com/sigee-min/runD/wiki/API) | [Run](https://github.com/sigee-min/runD/wiki/Run)
 
 ## When To Use
 

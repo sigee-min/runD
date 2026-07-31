@@ -25,9 +25,9 @@ cmake -S . -B build \
   -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.0-darwin-arm64"
 ```
 
-Choose that directory only after checking [Platform Support](./Platforms.md)
+Choose that directory only after checking [Platform Support](https://github.com/sigee-min/runD/wiki/Platforms)
 and completing the one-command verifier in
-[Release Artifacts](./Artifacts.md). The verifier admits only the exact
+[Release Artifacts](https://github.com/sigee-min/runD/wiki/Artifacts). The verifier admits only the exact
 compiler, standard library, platform SDK, and declared backend-dependency tuple.
 Package discovery also fails when a declared backend dependency is absent; it
 does not disable the backend.
@@ -41,7 +41,7 @@ the same exact SDK contract. Both paths use the single `runD::sdk` target; the
 normative examples and installed proofs are in
 [SDK Consumption](https://github.com/sigee-min/runD/blob/main/package/docs/consumption.md).
 
-Use [Public API Surface](./Surface.md) as the direct-include reference.
+Use [Public API Surface](https://github.com/sigee-min/runD/wiki/Surface) as the direct-include reference.
 Support-only headers may be present to close those entries, but neither
 `PRIVATE` nor `PUBLIC` promotes them to application include points.
 
@@ -119,5 +119,5 @@ The caller owns that directory's lifecycle. During replay, runD resolves
 recorded payload bytes from the archive and segment files; it does not read the
 native worker again if storage is missing or corrupt.
 
-For the current public boundary, see [API Stability](./Stability.md). For
-artifact verification, see [Release Checklist](./Checklist.md).
+For the current public boundary, see [API Stability](https://github.com/sigee-min/runD/wiki/Stability). For
+artifact verification, see [Release Checklist](https://github.com/sigee-min/runD/wiki/Checklist).

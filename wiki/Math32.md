@@ -4,7 +4,7 @@ Entry header: `<math32/math32.hpp>`
 
 Namespace: `rund::math32`
 
-[Back to API Reference](./API.md)
+[Back to API Reference](https://github.com/sigee-min/runD/wiki/API)
 
 ## When To Use
 
@@ -15,7 +15,7 @@ public fixed value type. Public stored fixed values use
 geometry, prepared SoA ranges, quantized rows, probabilities, neural-network
 primitives, and reinforcement-learning recurrences.
 
-For 64-bit high-precision math, see [Math64](./Math64.md).
+For 64-bit high-precision math, see [Math64](https://github.com/sigee-min/runD/wiki/Math64).
 
 ## Major Types
 

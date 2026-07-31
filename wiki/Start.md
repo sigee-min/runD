@@ -94,10 +94,10 @@ rund::compute::Target::vulkan()
 ```
 
 Pass the chosen target to the same `rund::compute::on(target, input)` chain.
-The full [three-backend parity example](../README.md#see-it) compares the
+The full [three-backend parity example](https://github.com/sigee-min/runD#see-it) compares the
 returned bytes directly. If a selected backend is unavailable, runD returns a
 typed `Unsupported` or `Unavailable` result instead of falling back to CPU.
 
-Continue with [Compute](./Compute.md) for graph composition and resident
-execution, [GPU Performance](./Performance.md) for choosing an execution
-shape, or [SDK Consumption](./SDK.md) for the complete package boundary.
+Continue with [Compute](https://github.com/sigee-min/runD/wiki/Compute) for graph composition and resident
+execution, [GPU Performance](https://github.com/sigee-min/runD/wiki/Performance) for choosing an execution
+shape, or [SDK Consumption](https://github.com/sigee-min/runD/wiki/SDK) for the complete package boundary.

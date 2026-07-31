@@ -4,7 +4,7 @@ Entry header: `<cluster/cluster.hpp>`
 
 Namespace: `rund::cluster`
 
-[Back to API Reference](./API.md)
+[Back to API Reference](https://github.com/sigee-min/runD/wiki/API)
 
 ## When To Use
 

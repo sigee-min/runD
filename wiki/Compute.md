@@ -53,7 +53,7 @@ Compute scalar domain is `int32_t`, `uint32_t`, `int64_t`, `uint64_t`, and
 floating-point callbacks are not part of the Compute language. The installed
 consumer contracts compare backend outputs and execution evidence exactly.
 
-See the complete [three-backend example](../README.md#see-it), then use the
+See the complete [three-backend example](https://github.com/sigee-min/runD#see-it), then use the
 short CPU first success below to verify package integration.
 
 ## First Success
@@ -95,7 +95,7 @@ accelerator is unavailable.
 Element count alone does not determine whether an accelerator wins. Submission,
 synchronization, transfer, arithmetic intensity, and device-memory traffic all
 participate in the boundary. Use
-[GPU Performance](./Performance.md) to choose
+[GPU Performance](https://github.com/sigee-min/runD/wiki/Performance) to choose
 between `collect()`, reusable Program execution, resident Job, Pipeline, and
 Batch without changing the canonical graph.
 

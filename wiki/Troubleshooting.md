@@ -171,6 +171,6 @@ definitions, and external backend dependency versions must all match the
 producing tuple. Use the embedded sealed artifact identity as that tuple's
 binary identity authority.
 
-See [Platform Support](./Platforms.md), [Release Artifacts](./Artifacts.md),
-and [Release Checklist](./Checklist.md) before retrying with a different
+See [Platform Support](https://github.com/sigee-min/runD/wiki/Platforms), [Release Artifacts](https://github.com/sigee-min/runD/wiki/Artifacts),
+and [Release Checklist](https://github.com/sigee-min/runD/wiki/Checklist) before retrying with a different
 archive.

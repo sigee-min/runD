@@ -38,7 +38,7 @@ either executes that graph or returns a typed failure; it never silently
 changes the algorithm or falls back to CPU.
 
 See the complete, verified three-backend example in the
-[repository README](../README.md#see-it).
+[repository README](https://github.com/sigee-min/runD#see-it).
 
 ## Why It Is Different
 
@@ -57,19 +57,19 @@ systems, reproducible Compute pipelines, and other authoritative workloads.
 
 | Goal | Page |
 | --- | --- |
-| Install the `1.0.0` Alpha and run the first Flow | [Quick Start](./Start.md) |
-| Understand bit-identical CPU/GPU execution | [Compute](./Compute.md) |
-| Choose `collect`, Program, resident Job, Pipeline, or Batch | [GPU Performance](./Performance.md) |
-| Record, replay, and resume canonical input | [Replay](./Replay.md) |
-| Integrate the installed CMake package | [SDK Consumption](./SDK.md) |
-| Browse every public entry header | [API Reference](./API.md) |
-| Diagnose an installation or runtime failure | [Troubleshooting](./Troubleshooting.md) |
+| Install the `1.0.0` Alpha and run the first Flow | [Quick Start](https://github.com/sigee-min/runD/wiki/Start) |
+| Understand bit-identical CPU/GPU execution | [Compute](https://github.com/sigee-min/runD/wiki/Compute) |
+| Choose `collect`, Program, resident Job, Pipeline, or Batch | [GPU Performance](https://github.com/sigee-min/runD/wiki/Performance) |
+| Record, replay, and resume canonical input | [Replay](https://github.com/sigee-min/runD/wiki/Replay) |
+| Integrate the installed CMake package | [SDK Consumption](https://github.com/sigee-min/runD/wiki/SDK) |
+| Browse every public entry header | [API Reference](https://github.com/sigee-min/runD/wiki/API) |
+| Diagnose an installation or runtime failure | [Troubleshooting](https://github.com/sigee-min/runD/wiki/Troubleshooting) |
 
 ## Published Alpha
 
 The public `1.0.0` Alpha ships a verified Darwin ARM64 SDK with CPU, native
 Metal, and Vulkan through MoltenVK. Linux x64 is a validated source candidate,
-not a supported binary release. See [Platform Support](./Platforms.md) for the
+not a supported binary release. See [Platform Support](https://github.com/sigee-min/runD/wiki/Platforms) for the
 exact artifact boundary.
 
 Applications link one CMake target, `runD::sdk`, and include focused
@@ -84,10 +84,10 @@ Arbitrary host callbacks, unconstrained floating point, wall-clock timing, and
 native network arrival order do not become deterministic automatically.
 
 Host observations become deterministic after admission into the canonical
-input stream. Read [Numeric Policy](../docs/architecture/numeric.md),
-[Compute](./Compute.md), and [Evidence](./Evidence.md) before making an
+input stream. Read [Numeric Policy](https://github.com/sigee-min/runD/blob/main/docs/architecture/numeric.md),
+[Compute](https://github.com/sigee-min/runD/wiki/Compute), and [Evidence](https://github.com/sigee-min/runD/wiki/Evidence) before making an
 authoritative-state claim.
 
 This Wiki is the readable integration surface. Versioned architecture,
 behavior, support, and acceptance authority remains under
-[repository documentation](../docs/README.md).
+[repository documentation](https://github.com/sigee-min/runD/blob/main/docs/README.md).

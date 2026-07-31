@@ -4,7 +4,7 @@ Entry header: `<math64/math64.hpp>`
 
 Namespace: `rund::math64`
 
-[Back to API Reference](./API.md)
+[Back to API Reference](https://github.com/sigee-min/runD/wiki/API)
 
 ## When To Use
 
@@ -16,7 +16,7 @@ approximations, statistics, geometry, prepared SoA ranges, quantization,
 neural-row, probability, and reinforcement-learning primitives.
 
 For the corresponding 32-bit real-time and quantized row families, see
-[Math32](./Math32.md).
+[Math32](https://github.com/sigee-min/runD/wiki/Math32).
 
 ## Major Types
 
