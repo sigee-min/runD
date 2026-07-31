@@ -90,10 +90,9 @@ namespace rund_node_graph_services {
   using rund::compute::detail::resource_detail::Inplace;
   using rund::compute::detail::resource_detail::MemoryNode;
   using rund::compute::detail::resource_detail::Write;
-  constexpr std::uint64_t Page = 1ull << 30u;
   constexpr std::uint64_t WidePage = 4ull << 30u;
   const auto plan = [](Info &info, const std::span<const MemoryNode> nodes,
-                       const std::uint64_t page = Page) {
+                       const std::uint64_t page = 1ull << 30u) {
     return rund::compute::detail::resource_detail::plan_memory(info, nodes,
                                                                page);
   };
