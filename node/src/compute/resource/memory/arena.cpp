@@ -280,19 +280,18 @@ private:
                                const std::span<const Lifetime> lifetimes,
                                const std::span<const std::uint32_t> ids,
                                const bool destructive, Layout &result) {
-  std::vector<LargeActive> queue;
-  queue.reserve(ids.size());
-  std::priority_queue<LargeActive, std::vector<LargeActive>, std::greater<>>
-      active{std::greater<>{}, std::move(queue)};
+  std::vector<LargeActive> active;
+  active.reserve(ids.size());
   std::set<std::pair<std::uint64_t, std::uint32_t>> free;
   std::vector<bool> consumed(resources.size());
   std::vector<std::uint64_t> capacities(resources.size());
   for (const std::uint32_t id : ids) {
     const graph::Resource &value = resources[id - 1u];
     const Lifetime lifetime = lifetimes[id - 1u];
-    while (!active.empty() && active.top().last < lifetime.first) {
-      const LargeActive expired = active.top();
-      active.pop();
+    while (!active.empty() && active.front().last < lifetime.first) {
+      std::pop_heap(active.begin(), active.end(), std::greater<>{});
+      const LargeActive expired = active.back();
+      active.pop_back();
       if (consumed[expired.id - 1u]) {
         continue;
       }
@@ -348,8 +347,9 @@ private:
     }
     result.owners[id - 1u] = owner;
     result.offsets[id - 1u] = 0u;
-    active.push(LargeActive{
+    active.push_back(LargeActive{
         .last = lifetime.last, .id = id, .owner = owner, .capacity = capacity});
+    std::push_heap(active.begin(), active.end(), std::greater<>{});
   }
   return true;
 }

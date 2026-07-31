@@ -596,9 +596,11 @@ set. Arena packing performs one stable ordinary/large partition in an
 `R`-entry ID array, preserving canonical ID order within each class. The
 published candidate `Layout` directly owns final owner IDs and owner-local
 offsets; virtual placement offsets are localized in place and are not copied
-into a parallel result. Active heaps reserve the admitted class cardinality,
-and ordinary chunk measurement sizes owner and extent storage from the proved
-virtual upper bound before its single sweep.
+into a parallel result. Active heaps reserve the admitted class cardinality.
+The large-class min-end heap is formed incrementally in that reserved vector
+with `push_heap` and `pop_heap`; it never bulk-heapifies an empty reserved
+range. Ordinary chunk measurement sizes owner and extent storage from the
+proved virtual upper bound before its single sweep.
 Accelerator binding admission proves the resulting two-dimensional
 memory-by-lifetime layout with an exact sweep: physical intervals are visited
 in address order, expired intervals leave a min-end heap, and a compressed
