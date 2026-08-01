@@ -93,9 +93,14 @@ an internal invariant violation rather than another queue result. The bounded
 ratchet yields one root-submitted coroutine 32 times with `R=1,T=2` and proves
 exactly 32 yields, 33 resumes, one live ready entry at high water, rejection of
 a second spawn, and 33 global pushes/pops: one for initial root admission plus
-32 for the wakes. Queue telemetry exposes total physical traffic as
-`global_ready_queue_pushes/pops` and separates its two admission causes as
-`ready_spawn_pushes` and `ready_progress_pushes`.
+32 for the wakes. Queue telemetry exposes physical selection traffic as
+`global_ready_queue_pushes/pops` and separates the two admission causes as
+`ready_spawn_pushes` and `ready_progress_pushes`. Pushes count successful
+spawn/progress admissions. Pops count valid physical selections, including a
+selection later restored at the front after a lane-availability race; that
+restore is not a new admission and therefore is not another push. The counters
+need not be equal under physical backpressure even though logical ready order
+and committed effects remain deterministic.
 
 The task-id index uses fixed-capacity open addressing with explicit empty,
 occupied, and deleted slot states. Retirement marks one slot deleted in O(1)

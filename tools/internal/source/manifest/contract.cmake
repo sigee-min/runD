@@ -490,9 +490,14 @@ set(measure_fixture_root "${measure_fixture}/root")
 set(measure_fixture_build "${measure_fixture}/build")
 set(measure_fixture_release "${measure_fixture}/release")
 file(MAKE_DIRECTORY
+  "${measure_fixture_root}/tools/internal/package"
   "${measure_fixture_root}/tools/internal/state"
   "${measure_fixture_release}/runD-install/lib/cmake/runD"
   "${measure_fixture_build}")
+file(WRITE "${measure_fixture_root}/tools/internal/package/version"
+  "#!/bin/sh\n"
+  "[ \"$1\" = \"${measure_fixture_root}\" ] || exit 2\n"
+  "printf '%s\\n' '0.0.0'\n")
 file(WRITE "${measure_fixture_root}/tools/internal/state/root"
   "#!/bin/sh\n"
   "[ \"$2\" = release ] || exit 2\n"
@@ -500,6 +505,7 @@ file(WRITE "${measure_fixture_root}/tools/internal/state/root"
 file(WRITE "${measure_fixture_root}/tools/internal/state/ninja"
   "#!/bin/sh\nexit 19\n")
 file(CHMOD
+  "${measure_fixture_root}/tools/internal/package/version"
   "${measure_fixture_root}/tools/internal/state/root"
   "${measure_fixture_root}/tools/internal/state/ninja"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
