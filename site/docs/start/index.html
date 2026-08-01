@@ -176,32 +176,36 @@ cmake --build build
             <h2>5. Verify the same bytes on every target</h2>
             <p>
               Replace <code>main.cpp</code> with this complete checked program and rebuild. The Flow is
-              declared once; only the explicit target changes. Each result must succeed before the
-              program compares its output bytes.
+              declared once; only the explicit target changes. Device opening is the capability
+              boundary; every backend that opens must execute and match the CPU bytes.
             </p>
             <div class="doc-code">
               <div class="code-toolbar"><span class="code-file">parity.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#parity-flow" aria-live="polite">Copy</button></div>
               <pre class="code" id="parity-flow"><code data-source="package/tests/consumer/example/parity.cpp">#include &lt;rund/compute.hpp&gt;
 
 #include &lt;array&gt;
+#include &lt;cstddef&gt;
 #include &lt;cstdint&gt;
 #include &lt;cstdio&gt;
 #include &lt;cstring&gt;
+#include &lt;span&gt;
 #include &lt;string_view&gt;
+#include &lt;utility&gt;
 #include &lt;vector&gt;
 
 int main() {
   const std::array&lt;std::int32_t, 4&gt; input{1, 2, 3, 4};
 
-  const auto execute = [&amp;input](const rund::compute::Target target) {
-    return rund::compute::on(target, input)
-        .map("step", [](auto value) { return value * 2 + 1; })
-        .collect();
+  const auto execute = [&amp;input](const rund::compute::Device &amp;device) {
+    auto flow = rund::compute::on(device).map&lt;std::int32_t&gt;(
+        "step", input.size(), [](auto value) { return value * 2 + 1; });
+    auto program = std::move(flow).compile();
+    if (!program) {
+      return rund::compute::Result&lt;std::vector&lt;std::int32_t&gt;&gt;::fail(
+          program.reason());
+    }
+    return program-&gt;run(std::span&lt;const std::int32_t&gt;{input});
   };
-
-  const auto cpu = execute(rund::compute::Target::cpu());
-  const auto metal = execute(rund::compute::Target::metal());
-  const auto vulkan = execute(rund::compute::Target::vulkan());
 
   const auto report = [](const std::string_view target, const auto &amp;result) {
     const std::string_view message = result.error();
@@ -211,14 +215,13 @@ int main() {
                  static_cast&lt;int&gt;(message.size()), message.data());
     return result.exit_code();
   };
+  auto cpu_device = rund::compute::open(rund::compute::Target::cpu());
+  if (!cpu_device) {
+    return report("cpu", cpu_device);
+  }
+  const auto cpu = execute(*cpu_device);
   if (!cpu) {
     return report("cpu", cpu);
-  }
-  if (!metal) {
-    return report("metal", metal);
-  }
-  if (!vulkan) {
-    return report("vulkan", vulkan);
   }
 
   const auto same_bits = [](const auto &amp;left, const auto &amp;right) {
@@ -227,22 +230,71 @@ int main() {
                        left.size() * sizeof(std::int32_t)) == 0;
   };
   const std::vector&lt;std::int32_t&gt; expected{3, 5, 7, 9};
-  if (*cpu != expected || !same_bits(*cpu, *metal) ||
-      !same_bits(*metal, *vulkan)) {
-    std::fputs("backend output mismatch\n", stderr);
+  if (*cpu != expected) {
+    std::fputs("cpu output mismatch\n", stderr);
     return 2;
   }
 
-  std::printf("same bytes: cpu = metal = vulkan [%d, %d, %d, %d]\n", (*cpu)[0],
-              (*cpu)[1], (*cpu)[2], (*cpu)[3]);
+  std::size_t available_backend_count = 1u;
+#if defined(__APPLE__) &amp;&amp; (defined(__arm64__) || defined(__aarch64__))
+  constexpr bool require_accelerators = true;
+#else
+  constexpr bool require_accelerators = false;
+#endif
+  const auto compare = [&amp;](const std::string_view name,
+                           const rund::compute::Target target) {
+    auto device = rund::compute::open(target);
+    if (!device) {
+      if (!require_accelerators &amp;&amp;
+          device.reason() == rund::compute::Reason::AdapterUnavailable) {
+        const std::string_view message = device.error();
+        std::fprintf(stderr, "%.*s unavailable (code=%u): %.*s\n",
+                     static_cast&lt;int&gt;(name.size()), name.data(),
+                     static_cast&lt;unsigned&gt;(device.code()),
+                     static_cast&lt;int&gt;(message.size()), message.data());
+        return 0;
+      }
+      return report(name, device);
+    }
+    const auto result = execute(*device);
+    if (!result) {
+      return report(name, result);
+    }
+    if (!same_bits(*cpu, *result)) {
+      std::fprintf(stderr, "%.*s output mismatch\n",
+                   static_cast&lt;int&gt;(name.size()), name.data());
+      return 2;
+    }
+    ++available_backend_count;
+    return 0;
+  };
+  if (const int metal = compare("metal", rund::compute::Target::metal());
+      metal != 0) {
+    return metal;
+  }
+  if (const int vulkan = compare("vulkan", rund::compute::Target::vulkan());
+      vulkan != 0) {
+    return vulkan;
+  }
+
+  if (available_backend_count == 3u) {
+    std::printf("same bytes: cpu = metal = vulkan [%d, %d, %d, %d]\n",
+                (*cpu)[0], (*cpu)[1], (*cpu)[2], (*cpu)[3]);
+  } else {
+    std::printf("verified [%d, %d, %d, %d] on %zu native backend(s)\n",
+                (*cpu)[0], (*cpu)[1], (*cpu)[2], (*cpu)[3],
+                available_backend_count);
+  }
   return 0;
 }</code></pre>
             </div>
             <p>
               Expected output is
               <code>same bytes: cpu = metal = vulkan [3, 5, 7, 9]</code>.
-              An unavailable accelerator prints its typed failure and exits; it never reruns the Flow
-              on CPU. This checked source is the complete public parity example for the release.
+              Darwin ARM64 requires all three backends. A non-Apple candidate may report the exact
+              <code>AdapterUnavailable</code> result while opening a device; it never reruns that Flow
+              on CPU. Any failure after a device opens remains fatal. This checked source is the
+              complete public parity example for the release.
             </p>
           </section>
 
