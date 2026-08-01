@@ -26,7 +26,7 @@ Below them, task cards route by intent:
 - Choose an admitted numeric law.
 - Inspect performance, platforms, APIs, and errors.
 
-A visible `1.0.2 Alpha` version badge and Darwin ARM64 support note stay beside
+A visible `1.0.3 Alpha` version badge and Darwin ARM64 support note stay beside
 the first-run action.
 
 ## Navigation

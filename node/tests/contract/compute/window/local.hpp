@@ -231,6 +231,13 @@ struct WindowOutputIdentity final {
   Fingerprint scatter_fold{};
   Fingerprint scatter_pipeline{};
   std::uint64_t scatter_output{};
+  Fingerprint downstream_program{};
+  Fingerprint downstream_pipeline{};
+  std::uint64_t downstream_output{};
+  Fingerprint zero_seed{};
+  Fingerprint zero_fold{};
+  Fingerprint zero_pipeline{};
+  std::uint64_t zero_output{};
 };
 
 struct Identity final {

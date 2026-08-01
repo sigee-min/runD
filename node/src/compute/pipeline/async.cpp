@@ -27,6 +27,7 @@ pipeline_window(PipelineState &state, const PipelineStep &step) noexcept {
 [[nodiscard]] bool valid_nested_window(const PipelineState &state,
                                        const PipelineWindow &window) noexcept {
   return window.nested && window.seed_count != 0u &&
+         window.recurrent_output_count != 0u &&
          window.begin == window.seed_first &&
          window.action_first == window.seed_first + window.seed_count &&
          window.fold_first == window.action_first + window.action_count &&

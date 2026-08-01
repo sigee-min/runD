@@ -18,7 +18,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header"><div class="container header-inner">
-      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.2 Alpha</span></a>
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.3 Alpha</span></a>
       <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
       <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
     </div></header>
@@ -284,7 +284,10 @@ if (auto read = pipeline.read(*output, observed); !read) {
             values. Bind the first group with <code>write_final(...)</code> and the second with
             <code>write_window(...)</code>. runD keeps only a private tile bank and publishes the exact
             active slice after that Fold succeeds; a partial tail never exposes padding or turns the
-            appended values into next-window state.
+            appended values into next-window state. A later step in the same Pipeline can read that
+            target directly after the nested group is sealed. The planner inserts the exact device
+            write-to-read boundary without a host round trip, second Pipeline, or full-size shadow copy;
+            later writes to the owned target remain rejected.
           </p>
           <div class="doc-code">
             <div class="code-toolbar"><span class="code-file">action-free tile output · contextual fragment</span></div>
@@ -296,6 +299,9 @@ auto prepared =
             rund::compute::read(*outer_state, *source, *lanes),
             rund::compute::write_final(*final_state),
             rund::compute::write_window(*per_item_output))
+        .then(*consume,
+              rund::compute::read(*per_item_output),
+              rund::compute::write(*consumed_output))
         .prepare();</code></pre>
           </div>
           <h3 id="checkpoint-choice">Choose a checkpoint at the ownership boundary</h3>

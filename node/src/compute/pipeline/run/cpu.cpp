@@ -103,10 +103,13 @@ namespace {
   const std::shared_ptr<JobState> &job =
       state.transactional && state.attempt_parity != 0u ? first.alternate_job
                                                         : first.job;
-  if (job == nullptr) {
+  if (job == nullptr || window.recurrent_output_count == 0u ||
+      window.recurrent_output_count > job->inputs.size() ||
+      window.recurrent_output_count > job->outputs.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  for (std::uint32_t output = 0u; output < job->outputs.size(); ++output) {
+  for (std::uint32_t output = 0u; output < window.recurrent_output_count;
+       ++output) {
     CpuView source{};
     CpuView target{};
     const Status source_ready =

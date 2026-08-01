@@ -542,10 +542,12 @@ Native command capacity is checked separately against the selected backend's
 published limit.
 
 The zero-count plan owns the same cold capacities but executes no Seed,
-Action, or Fold. A tail window changes only live count, not any retained
-capacity. Count overflow fails before payload writes, so it cannot make a
-speculative tile owner live or publish an outer bank. A Seed, Action, or Fold
-failure is folded into the fixed control owner before the corresponding
+Action, or Fold. Only the explicit recurrent `O` output prefix participates in
+the zero-count bank seal; append-only `W` outputs are neither matched to Fold
+inputs nor copied or published. A tail window changes only live count, not any
+retained capacity. Count overflow fails before payload writes, so it cannot
+make a speculative tile owner live or publish an outer bank. A Seed, Action,
+or Fold failure is folded into the fixed control owner before the corresponding
 mutable route is reused. Warm CPU, Metal, and Vulkan execution may change
 control contents and counters, but it cannot allocate, resize, rebind, or
 re-place any owner.

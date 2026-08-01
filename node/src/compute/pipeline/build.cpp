@@ -113,11 +113,15 @@ bind(const std::uint32_t owner, const PipelineInternal &resource,
       continue;
     }
     if (publication.kind == PipelinePublishKind::Window) {
-      // A private Tile bank is not a full-capacity replacement owner. Reads
-      // overlapping an append-only target therefore cannot be redirected as
-      // terminal recurrent state, and writes would introduce another owner
-      // for the same public bytes.
-      return Status::fail(Reason::BindingAliasUnsupported);
+      if (view.access != ResourceAccess::Read) {
+        // The append-only target has one writer for the complete Pipeline.
+        return Status::fail(Reason::BindingAliasUnsupported);
+      }
+      // Declaration order has already sealed the complete nested window.
+      // Unlike terminal recurrence, the O(Tile) private source cannot stand
+      // in for the O(Max) result. Keep the caller target as the read binding;
+      // resource analysis then owns the exact publication-to-read barrier.
+      return Status::success();
     }
     const PipelineBinding &source = publication.source;
     if (target.type != view.type || target.format != view.format ||
@@ -981,6 +985,7 @@ void append_pipeline_window_repeat(
         .action_first = action_first,
         .action_count = inner,
         .fold_first = fold_first,
+        .recurrent_output_count = recurrent_count,
         .maximum = maximum,
         .tile = tile,
         .terminal = terminal,

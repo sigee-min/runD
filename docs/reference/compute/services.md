@@ -369,22 +369,27 @@ auto prepared =
             body,
             rund::compute::window(count),
             rund::compute::read(outer_seed, seed_external),
-            rund::compute::write_final(outer_result))
+            rund::compute::write_final(outer_result),
+            rund::compute::write_window(tile_results))
+        .then(consumer,
+              rund::compute::read(tile_results),
+              rund::compute::write(consumed_results))
         .prepare();
 ```
 
 The declaration is not independently executable or preparable; the enclosing
 Pipeline retains the three compiled Programs once. With flattened tuples
 `S` for Seed-external input, `T` for complete tile state, `P` for inner carry,
-and `O` for outer state, admission requires:
+`O` for outer state, and `W` for append-only tile output, admission requires:
 
 ```text
 Seed  : (S..., U32 count, U32 ordinal) -> (T...)
 Action: (T...)                         -> (P...), P is a prefix of T
-Fold  : (O..., T...)                   -> (O...)
+Fold  : (O..., T...)                   -> (O..., W...)
 
-windows reads  (O..., S...)
-windows writes (O...)
+windows reads         (O..., S...)
+windows final writes  (O...)
+windows window writes (W...)
 ```
 
 Writing `T = P || Q`, one active window seeds `T`, evaluates Action exactly
@@ -393,6 +398,15 @@ folds the final `T` into `O`. The complete Fold precedes the next Seed.
 Only Seed receives the canonical total runtime count and outer ordinal; it
 derives the tile-local tail count with `resident<Max, Tile>`. Any Action
 invariant derived from either coordinate is explicit in `Q`.
+
+Each `W` leaf has `Tile` elements and its `write_window` target has `Max`.
+After every successful Fold, runD publishes only the active dense slice into
+that caller-owned target. The nested declaration has exclusive write ownership
+until it is sealed; a later `.then(... read(tile_results) ...)` in the same
+Pipeline then reads the complete target naturally. The planner inserts the
+exact device write-to-read boundary and keeps the target as the binding—there
+is no host round trip, second Pipeline, or `O(Max)` intermediate copy. Later
+writes to that owned Buffer remain rejected.
 
 The prepared schedule is hierarchical. It retains `O(K + N)` route templates
 and fixed control, not a flattened `K * N` collection of Program graphs, Jobs,
@@ -407,7 +421,9 @@ Action, and Fold while logical inner work remains `K_active * N`. An indexed,
 controlled, telemetry-bearing, collective, aliased, or otherwise unproved
 Action keeps all `N` physical invocations and its exact failure coordinates.
 
-`C = 0` performs only resident preflight and publishes the initial `O`.
+`C = 0` performs only resident preflight, seals the explicit recurrent `O`
+prefix, and publishes the initial `O`; `W` is neither paired with a Fold input
+nor copied.
 A partial last window receives its exact active count. Seed must retain that
 count in invariant `Q` whenever Action or Fold needs bounded tail access; the
 Pipeline preserves it but does not infer a new count lineage across compiled

@@ -18,7 +18,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header"><div class="container header-inner">
-      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.2 Alpha</span></a>
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.3 Alpha</span></a>
       <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
       <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
     </div></header>
@@ -84,9 +84,9 @@
               <thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">Fix</th></tr></thead>
               <tbody>
                 <tr><td>Checksum or seal mismatch</td><td>Files came from different releases or one download changed.</td><td>Delete all three files and download the archive, checksum, and verifier from the same release.</td></tr>
-                <tr><td>Destination or prefix exists</td><td>The verifier will not overwrite a versioned prefix.</td><td>Use an existing parent directory whose <code>rund-sdk-1.0.2-darwin-arm64</code> child does not exist.</td></tr>
-                <tr><td>Host tuple mismatch</td><td>Architecture, compiler, standard library, Apple SDK, or deployment target differs.</td><td>Run the copyable probe in the <a href="/runD/docs/platforms/#darwin-1-0-2-host-tuple">exact Darwin 1.0.2 tuple</a>. There is no supported bypass; use a matching host/toolchain or a newer rebuilt SDK.</td></tr>
-                <tr><td>Backend dependency mismatch</td><td>One or more sealed MoltenVK/Vulkan formula versions or resolved library identities differ.</td><td>Compare against the same <a href="/runD/docs/platforms/#darwin-1-0-2-host-tuple">tuple authority</a>. 1.0.2 has no supported fresh binary route when it differs.</td></tr>
+                <tr><td>Destination or prefix exists</td><td>The verifier will not overwrite a versioned prefix.</td><td>Use an existing parent directory whose <code>rund-sdk-1.0.3-darwin-arm64</code> child does not exist.</td></tr>
+                <tr><td>Host tuple mismatch</td><td>Architecture, compiler, standard library, Apple SDK, or deployment target differs.</td><td>Run the copyable probe in the <a href="/runD/docs/platforms/#darwin-1-0-2-host-tuple">exact Darwin 1.0.3 tuple</a>. There is no supported bypass; use a matching host/toolchain or a newer rebuilt SDK.</td></tr>
+                <tr><td>Backend dependency mismatch</td><td>One or more sealed MoltenVK/Vulkan formula versions or resolved library identities differ.</td><td>Compare against the same <a href="/runD/docs/platforms/#darwin-1-0-2-host-tuple">tuple authority</a>. 1.0.3 has no supported fresh binary route when it differs.</td></tr>
               </tbody>
             </table>
           </div>
@@ -100,7 +100,7 @@
           <h2>CMake and linking</h2>
           <h3><code>find_package(runD)</code> cannot find the SDK</h3>
           <div class="doc-code"><pre class="code"><code>cmake -S . -B build \
-  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.2-darwin-arm64"</code></pre></div>
+  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.3-darwin-arm64"</code></pre></div>
           <p>
             Point at the verified prefix, not the archive, a source checkout, an application build
             directory, or a copied <code>include/</code> folder. The prefix must contain
@@ -109,7 +109,7 @@
 
           <h3>Header or symbol errors</h3>
           <ul>
-            <li>Use <code>find_package(runD 1.0.2 EXACT CONFIG REQUIRED)</code>.</li>
+            <li>Use <code>find_package(runD 1.0.3 EXACT CONFIG REQUIRED)</code>.</li>
             <li>Link the application or implementation-only library <code>PRIVATE runD::sdk</code>.</li>
             <li>Use <code>PUBLIC runD::sdk</code> only when a public header exposes runD types or templates.</li>
             <li>Delete the application build directory after switching SDK artifacts.</li>

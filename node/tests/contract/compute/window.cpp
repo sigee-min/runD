@@ -106,7 +106,14 @@ int RunComputeWindowContract() {
                  identity.window_output.scatter_seed &&
                  identity.window_output.scatter_fold &&
                  identity.window_output.scatter_pipeline &&
-                 identity.window_output.scatter_output != 0u
+                 identity.window_output.scatter_output != 0u &&
+                 identity.window_output.downstream_program &&
+                 identity.window_output.downstream_pipeline &&
+                 identity.window_output.downstream_output != 0u &&
+                 identity.window_output.zero_seed &&
+                 identity.window_output.zero_fold &&
+                 identity.window_output.zero_pipeline &&
+                 identity.window_output.zero_output != 0u
              ? 0
              : 1;
 }

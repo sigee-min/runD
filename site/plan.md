@@ -77,7 +77,7 @@ and limitations.
 
 | Route | Page purpose | Primary next action |
 | --- | --- | --- |
-| `/runD/` | Landing: problem, fit, verified route, scoped measurements, and 1.0.2 support boundary. | Run the checked example or reject the fit. |
+| `/runD/` | Landing: problem, fit, verified route, scoped measurements, and 1.0.3 support boundary. | Run the checked example or reject the fit. |
 | `/runD/docs/` | Documentation home and task-first learning paths. | Choose Start, Guides, or Reference. |
 | `/runD/docs/start/` | Verify, install, link, and run the first Flow. | Compare available targets. |
 | `/runD/docs/troubleshooting/` | Diagnose release, verifier, package, dependency, and backend failures. | Recover or report exact evidence. |

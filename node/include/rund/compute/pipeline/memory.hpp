@@ -30,8 +30,8 @@ struct PipelinePlan final {
   // its retained payload and scratch_count is its physical page count.
   std::uint64_t scratch_bytes{};
   std::uint64_t scratch_count{};
-  // Bytes copied by terminal publication. This is traffic, not retained
-  // storage, and therefore does not participate in peak_bytes.
+  // Bytes copied by final and append-only window publication. This is traffic,
+  // not retained storage, and therefore does not participate in peak_bytes.
   std::uint64_t publish_bytes{};
   // Exact planned retained payload. total_bytes is exactly referenced caller
   // payload plus this Pipeline-owned payload.

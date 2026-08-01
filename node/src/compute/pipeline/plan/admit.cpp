@@ -200,6 +200,8 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
           nested.fold_first != nested.action_first + nested.action_count ||
           nested.end != nested.fold_first + 3u || nested.maximum == 0u ||
           nested.tile == 0u || nested.tile > nested.maximum ||
+          nested.recurrent_output_count == 0u ||
+          nested.recurrent_output_count > PipelineLeafCapacity ||
           nested.count.buffer == nullptr || nested.count.type != Type::U32 ||
           nested.count.count != 1u ||
           nested.count.element_bytes != sizeof(std::uint32_t)) {
@@ -212,16 +214,25 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         }
         auto fold_projection = project_outputs(build->steps[nested.fold_first]);
         if (!fold_projection ||
+            nested.recurrent_output_count > fold_projection->physical_count ||
             (nested.terminal != NoWindowTerminal &&
              nested.terminal >=
                  build->steps[nested.fold_first].outputs.size())) {
           return Status::fail(fold_projection ? Reason::PipelineInvalid
                                               : fold_projection.reason());
         }
+        for (std::size_t output = 0u; output < nested.recurrent_output_count;
+             ++output) {
+          if (fold_projection->logical_to_physical[output] != output) {
+            return Status::fail(Reason::PipelineInvalid);
+          }
+        }
         state->windows.push_back(PipelineWindow{
             .count = nested.count.buffer,
             .count_offset = nested.count.offset,
             .first_step = nested.fold_first,
+            .recurrent_output_count =
+                static_cast<std::uint32_t>(nested.recurrent_output_count),
             .maximum = static_cast<std::uint32_t>(nested.maximum),
             .tile = static_cast<std::uint32_t>(nested.tile),
             .terminal = nested.terminal == NoWindowTerminal
@@ -279,6 +290,8 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
             .count = count.buffer,
             .count_offset = count.offset,
             .first_step = step_index,
+            .recurrent_output_count =
+                static_cast<std::uint32_t>(projection->physical_count),
             .maximum = static_cast<std::uint32_t>(declared.window_max),
             .tile = static_cast<std::uint32_t>(declared.window_tile),
             .terminal =
@@ -300,6 +313,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         const PipelineWindow &window = state->windows[step.window - 1u];
         if (window.maximum != declared.window_max ||
             window.tile != declared.window_tile ||
+            window.recurrent_output_count != projection->physical_count ||
             window.terminal != (declared.window_terminal == NoWindowTerminal
                                     ? std::numeric_limits<std::uint32_t>::max()
                                     : declared.window_terminal) ||
@@ -355,6 +369,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         hash.number(nested.tile);
         hash.number(nested.seed_count);
         hash.number(nested.action_count);
+        hash.number(nested.recurrent_output_count);
         hash.number(nested.terminal);
         hash.number(nested.expected);
       }

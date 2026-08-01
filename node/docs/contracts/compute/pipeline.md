@@ -712,6 +712,18 @@ disjoint by construction; duplicate destination Buffer leaves or overlapping
 `write_final`/`write_window` ownership are rejected rather than given
 schedule-dependent last-writer semantics.
 
+The `write_window` target has one temporal ownership transition inside the
+same Pipeline. The nested group owns exclusive append writes until its final
+Fold route is sealed; a later declaration-order step may then name that exact
+target Buffer through an ordinary `read(...)` View. The target remains the
+binding, so the planner derives the exact window-publication
+write-to-read dependency and barrier without allocating an `O(Max)` shadow or
+copying through an intermediate owner. A later write to any Buffer already
+owned by `write_window` remains `compute_binding_alias_unsupported`. If the
+nested group fails, the consumer is skipped; if a later consumer fails, the
+already written non-rollback target is poisoned with the failed Pipeline
+generation just like any other public output.
+
 Targets used inside Fold to construct a `W_k` tile remain ordinary Program
 semantics, not a second publication scheduler. Sparse or duplicate placement
 uses an explicit operation such as `scatter_reduce`; its selected reducer owns
@@ -774,8 +786,11 @@ and status priority. No cross-Program fusion, reassociation, or approximate
 termination is implied.
 
 A count of zero executes no Seed, Action, Fold, or window publication,
-publishes the initial `O` through the ordinary final route, and leaves every
-`W` destination byte-identical. A partial final window receives its
+bank-seals only the explicit leading recurrent `O` output prefix, publishes
+the initial `O` through the ordinary final route, and leaves every `W`
+destination byte-identical. `W` is never positionally paired with a Fold input
+while sealing, so its position and tile shape cannot affect zero-count
+validity. A partial final window receives its
 exact `c_k` and ordinal. Seed must place that count in `Q` whenever Action or
 Fold needs bounded tail access; the Pipeline preserves the value exactly but
 does not infer a new count lineage across the three already compiled Program
@@ -3112,7 +3127,13 @@ can claim the Pipeline contract:
     final `O`/window bytes,
     deterministic warm reruns, one accelerator submission, no warm allocation,
     rebinding, upload, or readback, exact publication traffic, and frozen
-    template/command counts. Late Seed and Action failures after the first
+    template/command counts. A declaration-order consumer reads the sealed
+    `write_window` target in the same Pipeline with one exact write-to-read
+    boundary, unchanged publication traffic and private state, and no
+    `O(Max)` shadow; a later write remains rejected. A zero-count Fold whose
+    append-only `W` position has a different shape from the corresponding
+    Fold input proves that only the explicit recurrent `O` prefix is bank
+    sealed. Late Seed and Action failures after the first
     window, plus a mixed Scatter priority failure in a later Fold, prove
     canonical higher-priority reason selection, unchanged gated final output,
     zero generation, poisoned `W` and Pipeline, and exact outer/phase/inner

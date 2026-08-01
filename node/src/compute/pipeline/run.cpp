@@ -76,6 +76,7 @@ namespace {
       PipelineWindow &nested = state.windows[step.window - 1u];
       if (!nested.nested || index != nested.begin ||
           nested.seed_first != nested.begin || nested.seed_count == 0u ||
+          nested.recurrent_output_count == 0u ||
           nested.action_first != nested.seed_first + nested.seed_count ||
           nested.fold_first != nested.action_first + nested.action_count ||
           nested.end != nested.fold_first + 3u ||

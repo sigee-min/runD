@@ -142,6 +142,9 @@ struct PipelineBuildNestedWindow final {
   std::size_t action_first{};
   std::size_t action_count{};
   std::size_t fold_first{};
+  // Exact leading Fold-output prefix that is also outer recurrent state.
+  // Append-only window outputs follow this prefix and never enter a bank seal.
+  std::size_t recurrent_output_count{};
   std::size_t maximum{};
   std::size_t tile{};
   std::size_t terminal{NoWindowTerminal};
@@ -259,6 +262,8 @@ struct PipelineWindow final {
   std::shared_ptr<BufferState> count;
   std::size_t count_offset{};
   std::size_t first_step{};
+  // Leading output/input bank prefix sealed when no resident work executes.
+  std::uint32_t recurrent_output_count{};
   std::uint32_t maximum{};
   std::uint32_t tile{};
   std::uint32_t terminal{std::numeric_limits<std::uint32_t>::max()};

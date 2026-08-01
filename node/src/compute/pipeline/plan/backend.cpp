@@ -174,6 +174,20 @@ Status prepare_backend(PipelineState &value) noexcept {
                 Reason::PipelineInvalid);
           }
           const PipelineWindow &declared = state->windows[step.window - 1u];
+          if (declared.first_step >= state->steps.size()) {
+            return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                Reason::PipelineInvalid);
+          }
+          const PipelineStep &resident = state->steps[declared.first_step];
+          const std::shared_ptr<JobState> &resident_job =
+              alternate ? resident.alternate_job : resident.job;
+          if (resident_job == nullptr ||
+              declared.recurrent_output_count == 0u ||
+              declared.recurrent_output_count > resident_job->inputs.size() ||
+              declared.recurrent_output_count > resident_job->outputs.size()) {
+            return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                Reason::PipelineInvalid);
+          }
           node::accel::detail::BackendRead count;
           if (!resolve_view(*state, declared.count, declared.count_offset, 1u,
                             1u, sizeof(std::uint32_t),
