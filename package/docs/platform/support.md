@@ -75,8 +75,8 @@ embeds sealed source and Linux artifact identities, verifies the archive and
 checksum with the adjacent verifier, and reruns the same external installed
 consumer from a disjoint verified prefix before retaining the three-file
 candidate as a workflow artifact. The
-workflow reads the `linux-x64` row from this page; no wiki or release guide
-owns a second platform matrix. That validated candidate is not a supported
+workflow reads the `linux-x64` row from this page; no public site or release
+guide owns a second platform matrix. That validated candidate is not a supported
 release artifact and does not promote `linux-x64` by itself.
 The workflow installs `util-linux` and records `flock --version`; release and
 accelerator critical sections fail closed if neither Linux `flock` nor

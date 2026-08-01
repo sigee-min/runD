@@ -4,11 +4,12 @@
 
 namespace rund_node_test_pipeline {
 
-[[nodiscard]] int CheckBackend(const Backend backend,
-                               rund::compute::graph::Fingerprint &fingerprint,
-                               std::uint64_t &output_hash,
-                               std::uint64_t &state_hash,
-                               std::uint64_t &mixed_hash) {
+[[nodiscard]] int
+CheckBackend(const Backend backend,
+             rund::compute::graph::Fingerprint &fingerprint,
+             rund::compute::graph::Fingerprint &sealed_repetition_fingerprint,
+             std::uint64_t &output_hash, std::uint64_t &state_hash,
+             std::uint64_t &mixed_hash) {
 #if defined(RUND_NODE_TEST_BACKEND_CPU)
   rund::node::test_contract::require_selected_backend(backend);
   auto device = rund::compute::open(rund::compute::Target::cpu(2u));
@@ -19,8 +20,21 @@ namespace rund_node_test_pipeline {
   if (!device) {
     return 1;
   }
+  if (const int repetitions = CheckSealedRepetitions(
+          *device, backend, sealed_repetition_fingerprint);
+      repetitions != 0) {
+    return 25 + repetitions;
+  }
   if (const int repeat = CheckRepeat(*device, backend); repeat != 0) {
     return 50 + repeat;
+  }
+  if (const int history = CheckIterationHistory(*device, backend);
+      history != 0) {
+    return 75 + history;
+  }
+  if (const int feedback = CheckHostFeedback(*device, backend);
+      feedback != 0) {
+    return 90 + feedback;
   }
   if (const int fixed =
           CheckWideFixed(*device, backend, fingerprint, output_hash);

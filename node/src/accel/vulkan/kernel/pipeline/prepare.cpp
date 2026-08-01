@@ -27,6 +27,7 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
                       const std::span<const BackendBatchEntry> entries,
                       const std::span<const std::uint8_t> barriers,
                       const std::span<const TileTransducer> transducers,
+                      const std::span<const NestedAggregate>,
                       const std::span<const BackendPublish> publications,
                       PreparedPipelineStatusLayout &status,
                       const bool profile_steps, std::shared_ptr<void> &prepared,
@@ -301,9 +302,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
     const TileTransducer *const transducer =
-        entry.transducer == NoTileTransducer
-            ? nullptr
-            : &transducers[entry.transducer];
+        entry.transducer == NoTileTransducer ? nullptr
+                                             : &transducers[entry.transducer];
     const BackendWindow *const window = entry.recurrence.window;
     if (transducer != nullptr &&
         (!transducer->recurrence.ready() || window == nullptr ||
@@ -316,8 +316,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     const std::uint64_t physical_dispatches =
         transducer == nullptr ? resources->dispatch_count
                               : transducer->recurrence.window_count;
-    if (physical_dispatches > std::numeric_limits<std::uint64_t>::max() -
-                                  pipeline->dispatch_count) {
+    if (physical_dispatches >
+        std::numeric_limits<std::uint64_t>::max() - pipeline->dispatch_count) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     pipeline->dispatch_count += physical_dispatches;
@@ -342,14 +342,14 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
       row.original_dispatch_count = ::rund::detail::counter::SaturatingAdd(
           row.original_dispatch_count, entry.run->original_dispatch_count);
       row.final_dispatch_count = ::rund::detail::counter::SaturatingAdd(
-          row.final_dispatch_count,
-          transducer == nullptr ? entry.run->final_dispatch_count
-                                : physical_dispatches);
+          row.final_dispatch_count, transducer == nullptr
+                                        ? entry.run->final_dispatch_count
+                                        : physical_dispatches);
       row.physical_dispatch_count = ::rund::detail::counter::SaturatingAdd(
           row.physical_dispatch_count, physical_dispatches);
-      const VulkanPipelineWork &work =
-          transducer == nullptr ? template_work[entry.template_index]
-                                : transducer_work[entry.transducer];
+      const VulkanPipelineWork &work = transducer == nullptr
+                                           ? template_work[entry.template_index]
+                                           : transducer_work[entry.transducer];
       if (work.exact && work.dispatch_count == physical_dispatches) {
         row.workgroup_count = ::rund::detail::counter::SaturatingAdd(
             row.workgroup_count, work.workgroup_count);
@@ -485,9 +485,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     const auto phase = static_cast<BackendWindowPhase>(window.params.phase);
     window_transition_count = ::rund::detail::counter::SaturatingAdd(
         window_transition_count,
-        static_cast<std::uint64_t>(
-            phase != BackendWindowPhase::NestedAction ||
-            window.params.inner_advance != 0u));
+        static_cast<std::uint64_t>(phase != BackendWindowPhase::NestedAction ||
+                                   window.params.inner_advance != 0u));
     seed_preflight_count = ::rund::detail::counter::SaturatingAdd(
         seed_preflight_count,
         static_cast<std::uint64_t>(phase == BackendWindowPhase::NestedSeed));
@@ -501,9 +500,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     for (const VulkanPipelinePublishRoute &publication :
          pipeline->publish.routes) {
       canonicalize_count = ::rund::detail::counter::SaturatingAdd(
-          canonicalize_count,
-          static_cast<std::uint64_t>(publication.params.state ==
-                                     window->state));
+          canonicalize_count, static_cast<std::uint64_t>(
+                                  publication.params.state == window->state));
     }
   }
   const std::uint64_t control_dispatches =
@@ -643,9 +641,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     auto *const resources =
         static_cast<VulkanKernelResources *>(entry.prepared->get());
     const TileTransducer *const transducer =
-        entry.transducer == NoTileTransducer
-            ? nullptr
-            : &transducers[entry.transducer];
+        entry.transducer == NoTileTransducer ? nullptr
+                                             : &transducers[entry.transducer];
     const std::shared_ptr<void> *const transducer_resource =
         transducer == nullptr ? nullptr
                               : &pipeline->transducers[entry.transducer];
@@ -703,9 +700,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     if (transducer != nullptr) {
       const PreparedProgramStatusSlice program_status =
           status.slices[template_index];
-      const bool status_empty =
-          status_range.count == 1u &&
-          status_steps[status_range.first].count == 0u;
+      const bool status_empty = status_range.count == 1u &&
+                                status_steps[status_range.first].count == 0u;
       const bool telemetry_empty =
           telemetry_range.count == 1u &&
           telemetry_steps[telemetry_range.first].count == 0u;
@@ -823,14 +819,11 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
                             static_cast<std::uint32_t>(index))) {
       return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
     }
-    if (resident_window != nullptr &&
-        resident_window->advances_outer_state() &&
-        resident_window->outer_iteration + 1u ==
-            resident_window->outer_bound &&
+    if (resident_window != nullptr && resident_window->advances_outer_state() &&
+        resident_window->outer_iteration + 1u == resident_window->outer_bound &&
         !EncodeVulkanPipelineCanonicalize(recording, pipeline->publish,
                                           resident_window->state)) {
-      return FailVulkanPipeline(pipeline,
-                                "accel_vulkan_command_unavailable");
+      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
     }
     if (pipeline->profile != nullptr &&
         pipeline->profile->timestamps != VK_NULL_HANDLE) {

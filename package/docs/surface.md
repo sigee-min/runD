@@ -75,8 +75,9 @@ authority, even when the artifact stages a transitive header needed by a
 direct entry. They are not consumer entry points. Selected runtime, storage,
 host, replay, and evidence names plus the `rund::task` task surface and
 `rund::net` network surface reached through their focused entries or
-`<rund/rund.hpp>` are public and documented in the wiki; this does not
-promote their owning `node/...` support-header paths. The Kernel Compute
+`<rund/rund.hpp>` are public and taught through the
+[site documentation](../../site/docs/api/index.html); this does not promote
+their owning `node/...` support-header paths. The Kernel Compute
 umbrella, DSL, graph schema and graph construction tree, Accel graph
 construction, and direct Node execution headers remain source-tree authorities
 and are not separate installed consumer languages. The package exports no

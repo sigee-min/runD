@@ -9,6 +9,8 @@
 namespace rund::node::accel::detail::prepared {
 
 void Accumulate(EvidenceCounts &counts, const RunState &state) noexcept;
+void Accumulate(EvidenceCounts &counts, const RunState &state,
+                std::uint64_t occurrences) noexcept;
 
 [[nodiscard]] rund::AccelEvidence
 BatchEvidence(const rund::AccelContext &context, rund::RuntimeStats stats,

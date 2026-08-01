@@ -1,5 +1,6 @@
 #pragma once
 
+#include "aggregate/model.hpp"
 #include "state.hpp"
 #include "status.hpp"
 
@@ -20,6 +21,7 @@ struct MetalPipelineBuild final {
   std::span<const BackendBatchEntry> entries;
   std::span<const std::uint8_t> barriers;
   std::span<const TileTransducer> transducers;
+  std::span<const NestedAggregate> aggregates;
   std::span<const BackendPublish> publications;
   PreparedPipelineStatusLayout &status;
   bool profile_steps{};
@@ -29,6 +31,9 @@ struct MetalPipelineBuild final {
   std::vector<MetalPublish> native_publications;
   std::vector<MetalWindow> native_windows;
   std::shared_ptr<MetalSequence> pipeline;
+  MetalNestedAggregate native_aggregate{};
+  bool aggregate_selected{};
+  std::uint32_t aggregate_profile_owner{PreparedPipelineNoStep};
 
   std::vector<MetalPipelineStatusBindingRecord> status_bindings;
   std::vector<MetalPipelineStatusSourceMeta> status_sources;

@@ -25,8 +25,8 @@ struct U32At<Index, TypeList<Head, Tail...>>
     : U32At<Index - 1u, TypeList<Tail...>> {};
 
 template <class Prefix, class List> struct StartsWith;
-template <class... T> struct StartsWith<TypeList<>, TypeList<T...>>
-    : std::true_type {};
+template <class... T>
+struct StartsWith<TypeList<>, TypeList<T...>> : std::true_type {};
 template <class H, class... P, class... T>
 struct StartsWith<TypeList<H, P...>, TypeList<H, T...>>
     : StartsWith<TypeList<P...>, TypeList<T...>> {};
@@ -34,7 +34,9 @@ template <class... P, class... T>
 struct StartsWith<TypeList<P...>, TypeList<T...>> final : std::false_type {};
 
 template <class... Lists> struct Join;
-template <> struct Join<> final { using type = TypeList<>; };
+template <> struct Join<> final {
+  using type = TypeList<>;
+};
 template <class... T> struct Join<TypeList<T...>> final {
   using type = TypeList<T...>;
 };
@@ -63,7 +65,9 @@ public:
   static constexpr bool valid = Rest::valid;
 };
 
-template <class T> struct SchemaTypes final { using type = TypeList<T>; };
+template <class T> struct SchemaTypes final {
+  using type = TypeList<T>;
+};
 template <class T> struct SchemaTypes<Scalar<T>> final {
   using type = TypeList<T>;
 };
@@ -86,7 +90,9 @@ template <class R, class... A> struct SignatureTypes<R(A...)> final {
   using Outputs = typename SchemaTypes<R>::type;
 };
 
-template <class T> struct BufferElement;
+template <class T> struct BufferElement final {
+  static constexpr bool writable = false;
+};
 template <class T> struct BufferElement<View<T>> final {
   using type = std::remove_const_t<T>;
   static constexpr bool writable = !std::is_const_v<T>;
@@ -125,8 +131,8 @@ struct BufferAccess final {
     return view.state_;
   }
   template <class T>
-  [[nodiscard]] static ResourceView
-  view(const Buffer<T> &buffer, const ResourceAccess access) noexcept {
+  [[nodiscard]] static ResourceView view(const Buffer<T> &buffer,
+                                         const ResourceAccess access) noexcept {
     return ResourceView{.buffer = buffer.state_,
                         .type = type<T>(),
                         .format = storage_format<T>(),
@@ -136,8 +142,8 @@ struct BufferAccess final {
                         .access = access};
   }
   template <class T>
-  [[nodiscard]] static ResourceView
-  view(const View<T> &view, const ResourceAccess access) noexcept {
+  [[nodiscard]] static ResourceView view(const View<T> &view,
+                                         const ResourceAccess access) noexcept {
     using Value = std::remove_const_t<T>;
     return ResourceView{.buffer = view.state_,
                         .type = type<Value>(),
@@ -151,14 +157,17 @@ struct BufferAccess final {
   }
 };
 
-template <bool Write, class... T> class BindingPack final {
+enum class BindingRole { Read, StepWrite, FinalWrite, EachWrite };
+
+template <BindingRole Role, class... T> class BindingPack final {
 public:
   static constexpr std::size_t size = sizeof...(T);
 
   template <class... B>
   explicit BindingPack(B &&...buffers) noexcept
-      : views_{BufferAccess::view(
-            buffers, Write ? ResourceAccess::Write : ResourceAccess::Read)...} {}
+      : views_{BufferAccess::view(buffers, Role == BindingRole::Read
+                                               ? ResourceAccess::Read
+                                               : ResourceAccess::Write)...} {}
 
   BindingPack(const BindingPack &) = delete;
   BindingPack &operator=(const BindingPack &) = delete;
@@ -171,8 +180,13 @@ private:
   std::array<ResourceView, size> views_{};
 };
 
-template <class... T> using ReadPack = BindingPack<false, T...>;
-template <class... T> using WritePack = BindingPack<true, T...>;
+template <class... T> using ReadPack = BindingPack<BindingRole::Read, T...>;
+template <class... T>
+using WritePack = BindingPack<BindingRole::StepWrite, T...>;
+template <class... T>
+using WriteFinalPack = BindingPack<BindingRole::FinalWrite, T...>;
+template <class... T>
+using WriteEachPack = BindingPack<BindingRole::EachWrite, T...>;
 
 } // namespace rund::compute::detail
 
@@ -190,6 +204,22 @@ template <class... B>
   requires(sizeof...(B) != 0u && (detail::IsWritableBuffer<B> && ...))
 [[nodiscard]] auto write(B &&...buffers) noexcept {
   return detail::WritePack<
+      typename detail::BufferElement<std::remove_cvref_t<B>>::type...>{
+      buffers...};
+}
+
+template <class... B>
+  requires(sizeof...(B) != 0u && (detail::IsWritableBuffer<B> && ...))
+[[nodiscard]] auto write_final(B &&...buffers) noexcept {
+  return detail::WriteFinalPack<
+      typename detail::BufferElement<std::remove_cvref_t<B>>::type...>{
+      buffers...};
+}
+
+template <class... B>
+  requires(sizeof...(B) != 0u && (detail::IsWritableBuffer<B> && ...))
+[[nodiscard]] auto write_each(B &&...buffers) noexcept {
+  return detail::WriteEachPack<
       typename detail::BufferElement<std::remove_cvref_t<B>>::type...>{
       buffers...};
 }

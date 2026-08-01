@@ -347,7 +347,7 @@ telemetry projection by constant reference. The completion owner writes the
 durable `TaskState` result once; there is no intermediate by-value callback
 adapter or second statistics snapshot. The callback cannot retain either
 reference beyond the call. On the checked arm64/libc++ ABI,
-`compute::PipelineStats` is 168 bytes, `compute::Stats` is 616 bytes, and
+`compute::PipelineStats` is 184 bytes, `compute::Stats` is 632 bytes, and
 `compute::Status` is 24 bytes. The reference boundary carries
 two addresses and performs zero logical `Stats` or `Status` payload copies per
 completion. Event shape, callback ordering, and Basic/Detail selection are

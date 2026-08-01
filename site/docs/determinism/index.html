@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Understand runD graph identity, numeric law, execution order, explicit target failure, and exact evidence.">
+    <title>Determinism — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/determinism/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Determinism — runD Docs">
+    <meta property="og:description" content="Understand graph identity, numeric law, execution order, explicit target failure, and exact evidence.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/determinism/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Determinism</span></p>
+        <h1>What exactly stays the same.</h1>
+        <p class="doc-intro">
+          A backend can change only after graph, numbers, order, bounds, and failure behavior are already
+          explicit. The result is exact authoritative identity—not numerical proximity.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">Graph identity</span><span class="meta-chip">Integer + Fixed</span><span class="meta-chip">Exact bytes</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#graph">Graph</a>
+          <a href="#numbers">Numbers</a>
+          <a href="#order">Order</a>
+          <a href="#failure">Failure</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#boundary">Boundary</a>
+        </nav>
+
+        <section id="graph">
+          <h2>One canonical graph</h2>
+          <p>
+            A typed Flow lowers to one canonical Kernel graph and Program. Backend selection is a physical
+            execution choice below that identity; it does not produce a second algorithm or graph authority.
+          </p>
+          <div class="formula">typed Flow → canonical graph + fingerprint → selected backend lowering</div>
+        </section>
+
+        <section id="numbers">
+          <h2>Numbers are part of admission</h2>
+          <p>
+            Public Compute scalar values are signed and unsigned 32- and 64-bit integers plus admitted
+            32- and 64-bit Fixed values. Width, rounding, overflow, and quantization are explicit.
+          </p>
+          <p>
+            The broader evidence model can describe strict floating-point policy, but the current public
+            Compute language does not admit floating-point inputs. Diagnostic and presentation floating
+            point cannot feed authoritative state.
+          </p>
+          <div class="callout callout-warning">
+            <strong>Not arbitrary C++</strong>
+            The Flow lambda constructs canonical expression nodes. It is not an arbitrary host callback
+            transported to a GPU. Floating-point Compute input is not admitted by the current public language.
+          </div>
+        </section>
+
+        <section id="order">
+          <h2>Order is observable state</h2>
+          <p>
+            Scheduler-visible work, reductions, conflicting writes, publication, and replay observation are
+            assigned deterministic identity and order. A physical optimization may change placement or
+            submission shape, but not canonical ordering or output.
+          </p>
+          <ul>
+            <li>Batching does not reorder jobs.</li>
+            <li>Fusion does not reassociate a reduction.</li>
+            <li>Resident execution does not retain hidden result state.</li>
+            <li>Logical bounds and capacities fail instead of silently clamping.</li>
+          </ul>
+        </section>
+
+        <section id="failure">
+          <h2>An explicit backend or a typed failure</h2>
+          <p>
+            If the selected target is unsupported or unavailable, execution reports a typed failure. It
+            does not retry on CPU, select another device, or reinterpret the Flow under a weaker contract.
+          </p>
+          <div class="doc-code"><pre class="code"><code>requested backend
+  ├─ admitted + available → execute canonical graph
+  └─ unavailable          → typed Unsupported / Unavailable
+                              (no silent fallback)</code></pre></div>
+        </section>
+
+        <section id="evidence">
+          <h2>Proof surfaces, not a universal proof claim</h2>
+          <p>
+            Installed contracts compare graph fingerprint and exact raw output across available backends.
+            A checked 32/64-bit Fixed witness exercises 1,536 nodes across the current CPU, Metal, and
+            Vulkan paths. This is strong executable evidence, not a formal proof of every possible workload.
+          </p>
+          <p>
+            State hashes, replay checkpoints, telemetry, and release provenance extend that evidence to
+            application and artifact boundaries.
+          </p>
+        </section>
+
+        <section id="boundary">
+          <h2>Where the guarantee begins</h2>
+          <p>
+            Host observations become deterministic after admission into the canonical input stream. runD
+            does not make wall-clock timing, native ready-list arrival order, arbitrary host code, or
+            unconstrained floating point deterministic.
+          </p>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Inside the guarantee</th><th scope="col">Outside until admitted</th></tr></thead>
+              <tbody>
+                <tr><td>Canonical Flow graph and fingerprint</td><td>Arbitrary runtime C++ callbacks</td></tr>
+                <tr><td>Admitted integer/Fixed operations and policy</td><td>Unconstrained floating point</td></tr>
+                <tr><td>Defined reduction, conflict, publication, and replay order</td><td>Wall-clock timing and native ready-list arrival</td></tr>
+                <tr><td>Exact output bytes and typed failure</td><td>Application inputs that were never canonically admitted</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Continue to <a href="/runD/docs/numerics/">Numerics</a> to choose a value surface, or inspect
+            the optional engineering
+            <a href="https://github.com/sigee-min/runD/blob/main/docs/architecture/numeric.md">numeric policy source ↗</a>.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/compute/"><span><small>Next guide</small><strong>Express the bounded computation</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Meaning before machinery</span><span><a href="https://github.com/sigee-min/runD/blob/main/docs/reference/compute.md">Compute authority ↗</a></span></div></footer>
+  </body>
+</html>

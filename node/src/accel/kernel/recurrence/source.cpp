@@ -47,20 +47,28 @@ struct SourceBinding final {
   return out;
 }
 
-[[nodiscard]] ArtifactKey RecurrenceKey(ArtifactKey source) noexcept {
+[[nodiscard]] ArtifactKey RecurrenceKey(ArtifactKey source,
+                                        const bool history) noexcept {
   ArtifactKey key = source;
   // Variant is an orthogonal executable-identity dimension. Canonical graph
   // and operation hashes remain the sole semantic graph identity.
-  key.variant = rund::kernel::LoweringArtifactVariant::Recurrence;
+  key.variant = history
+                    ? rund::kernel::LoweringArtifactVariant::HistoryRecurrence
+                    : rund::kernel::LoweringArtifactVariant::Recurrence;
   return key;
 }
 
 [[nodiscard]] bool RewriteKey(std::string &source, const ArtifactKey &before,
                               const ArtifactKey &after) {
+  const bool final =
+      after.variant == rund::kernel::LoweringArtifactVariant::Recurrence;
+  const bool history = after.variant ==
+                       rund::kernel::LoweringArtifactVariant::HistoryRecurrence;
   if (before.variant != rund::kernel::LoweringArtifactVariant::Canonical ||
-      after.variant != rund::kernel::LoweringArtifactVariant::Recurrence ||
+      (!final && !history) ||
       !ReplaceOne(source, "// artifact_variant=canonical",
-                  "// artifact_variant=recurrence")) {
+                  history ? "// artifact_variant=history_recurrence"
+                          : "// artifact_variant=recurrence")) {
     return false;
   }
   if (before.api != ComputeApi::Metal) {
@@ -71,7 +79,9 @@ struct SourceBinding final {
                                HexDigits(before.op_hash_lo);
   const std::string new_name = "rund_compute_map_" +
                                HexDigits(after.op_hash_hi) + "_" +
-                               HexDigits(after.op_hash_lo) + "_recurrence";
+                               HexDigits(after.op_hash_lo) +
+                               (history ? "_history_recurrence"
+                                        : "_recurrence");
   return ReplaceOne(source, old_name, new_name);
 }
 
@@ -156,7 +166,9 @@ struct SourceBinding final {
                                  const ComputeScalar scalar,
                                  const SourceBinding &binding,
                                  const std::size_t ordinal,
-                                 std::string &final_store) {
+                                 const std::uint64_t history_pitch_bytes,
+                                 std::string &final_store,
+                                 std::string &history_store) {
   const char *const store =
       api == ComputeApi::Metal
           ? rund::kernel::compute_lowering_detail::MetalStoreFunction(scalar)
@@ -192,6 +204,19 @@ struct SourceBinding final {
                 ", rund_carry_" + std::to_string(ordinal) + ");\n"
           : "  " + std::string{store} + "_" + binding.symbol + "(" + address +
                 ", rund_carry_" + std::to_string(ordinal) + ");\n";
+  if (history_pitch_bytes != 0u) {
+    const std::string history_address =
+        base + " + rund_iteration * " +
+        std::to_string(history_pitch_bytes) + "u + gid * " + stride;
+    history_store =
+        api == ComputeApi::Metal
+            ? "    " + std::string{store} + "(" + binding.symbol + ", " +
+                  history_address + ", rund_next_" +
+                  std::to_string(ordinal) + ");\n"
+            : "    " + std::string{store} + "_" + binding.symbol + "(" +
+                  history_address + ", rund_next_" +
+                  std::to_string(ordinal) + ");\n";
+  }
   return true;
 }
 
@@ -199,13 +224,22 @@ struct SourceBinding final {
 
 [[nodiscard]] bool TransformSource(LoweringArtifact &artifact,
                                    const std::uint64_t input_count,
-                                   const std::uint64_t output_count) {
+                                   const std::uint64_t output_count,
+                                   const std::span<const std::uint64_t>
+                                       history_pitch_bytes) {
   const ComputeApi api = artifact.key.api;
+  const bool history = !history_pitch_bytes.empty();
   if ((api != ComputeApi::Metal && api != ComputeApi::Vulkan) ||
       output_count == 0u || output_count > input_count ||
       input_count > std::numeric_limits<std::uint32_t>::max() ||
-      output_count > std::numeric_limits<std::uint32_t>::max()) {
+      output_count > std::numeric_limits<std::uint32_t>::max() ||
+      (history && history_pitch_bytes.size() != output_count)) {
     return false;
+  }
+  for (const std::uint64_t pitch : history_pitch_bytes) {
+    if (pitch == 0u || pitch > std::numeric_limits<std::uint32_t>::max()) {
+      return false;
+    }
   }
   std::vector<SourceBinding> inputs;
   std::vector<SourceBinding> outputs;
@@ -223,7 +257,7 @@ struct SourceBinding final {
   }
 
   const ArtifactKey source_key = artifact.key;
-  const ArtifactKey recurrence_key = RecurrenceKey(source_key);
+  const ArtifactKey recurrence_key = RecurrenceKey(source_key, history);
   if (!RewriteKey(artifact.source_text, source_key, recurrence_key)) {
     return false;
   }
@@ -296,9 +330,12 @@ struct SourceBinding final {
   prelude += "; ++rund_iteration) {\n";
 
   std::vector<std::string> final_stores(outputs.size());
+  std::vector<std::string> history_stores(outputs.size());
   for (std::size_t index = 0u; index < outputs.size(); ++index) {
     if (!ReplaceOutput(artifact.source_text, api, artifact.key.scalar,
-                       outputs[index], index, final_stores[index])) {
+                       outputs[index], index,
+                       history ? history_pitch_bytes[index] : 0u,
+                       final_stores[index], history_stores[index])) {
       return false;
     }
   }
@@ -316,13 +353,18 @@ struct SourceBinding final {
     return false;
   }
   std::string epilogue;
+  for (const std::string &store : history_stores) {
+    epilogue += store;
+  }
   for (std::size_t index = 0u; index < outputs.size(); ++index) {
     epilogue += "    rund_carry_" + std::to_string(index) + " = rund_next_" +
                 std::to_string(index) + ";\n";
   }
   epilogue += "  }\n";
-  for (const std::string &store : final_stores) {
-    epilogue += store;
+  if (!history) {
+    for (const std::string &store : final_stores) {
+      epilogue += store;
+    }
   }
   artifact.source_text.insert(end, epilogue);
 

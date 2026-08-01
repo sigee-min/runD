@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Fix runD SDK verification, CMake discovery, tuple, backend, and typed runtime failures.">
+    <title>Troubleshooting — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/troubleshooting/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Troubleshooting — runD Docs">
+    <meta property="og:description" content="Diagnose SDK verification, CMake discovery, host tuple, backend, and typed runtime failures.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/troubleshooting/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Troubleshooting</span></p>
+        <h1>Start with the boundary that failed.</h1>
+        <p class="doc-intro">
+          Installation, package discovery, target admission, and execution are separate checks.
+          Keep the first typed failure intact and fix that boundary before retrying.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">Symptom → cause → fix</span><span class="meta-chip">Fail closed</span><span class="meta-chip">No text parsing</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#result">Read a result</a>
+          <a href="#verify">Verifier failures</a>
+          <a href="#cmake">CMake and linking</a>
+          <a href="#backend">Backend failures</a>
+          <a href="#report">Report a useful issue</a>
+        </nav>
+
+        <section id="result">
+          <h2>Read the typed result first</h2>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">result handling · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">if (!result) {
+  const std::string_view message = result.error();
+  std::fprintf(stderr, "runD failure (code=%u): %.*s\n",
+               static_cast&lt;unsigned&gt;(result.code()),
+               static_cast&lt;int&gt;(message.size()), message.data());
+  return result.exit_code();
+}</code></pre>
+          </div>
+          <p>
+            This fragment expects <code>&lt;cstdio&gt;</code>, <code>&lt;string_view&gt;</code>, and
+            a typed runD result in scope. The complete Quick Start program includes the same logging.
+          </p>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Need</th><th scope="col">Use</th></tr></thead>
+              <tbody>
+                <tr><td>Branch, retry, or classify</td><td><code>code()</code> or the domain's typed reason.</td></tr>
+                <tr><td>Show a person what failed</td><td><code>error()</code>, a stable derived text projection.</td></tr>
+                <tr><td>Return from a process</td><td>The failing value's <code>exit_code()</code>.</td></tr>
+                <tr><td>Signal an application assertion</td><td>Exit <code>2</code>, only after every product result succeeded.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Do not compare or parse <code>error()</code> text for control flow.</p>
+        </section>
+
+        <section id="verify">
+          <h2>Verifier failures</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Symptom</th><th scope="col">Likely cause</th><th scope="col">Fix</th></tr></thead>
+              <tbody>
+                <tr><td>Checksum or seal mismatch</td><td>Files came from different releases or one download changed.</td><td>Delete all three files and download the archive, checksum, and verifier from the same release.</td></tr>
+                <tr><td>Destination or prefix exists</td><td>The verifier will not overwrite a versioned prefix.</td><td>Use an existing parent directory whose <code>rund-sdk-1.0.1-darwin-arm64</code> child does not exist.</td></tr>
+                <tr><td>Host tuple mismatch</td><td>Architecture, compiler, standard library, Apple SDK, or deployment target differs.</td><td>Run the copyable probe in the <a href="/runD/docs/platforms/#darwin-1-0-1-host-tuple">exact Darwin 1.0.1 tuple</a>. There is no supported bypass; use a matching host/toolchain or a newer rebuilt SDK.</td></tr>
+                <tr><td>Backend dependency mismatch</td><td>One or more sealed MoltenVK/Vulkan formula versions or resolved library identities differ.</td><td>Compare against the same <a href="/runD/docs/platforms/#darwin-1-0-1-host-tuple">tuple authority</a>. 1.0.1 has no supported fresh binary route when it differs.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A failed verifier publishes no usable SDK prefix. The fix is a coherent release tuple,
+            not a manual copy of headers or libraries.
+          </p>
+        </section>
+
+        <section id="cmake">
+          <h2>CMake and linking</h2>
+          <h3><code>find_package(runD)</code> cannot find the SDK</h3>
+          <div class="doc-code"><pre class="code"><code>cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.1-darwin-arm64"</code></pre></div>
+          <p>
+            Point at the verified prefix, not the archive, a source checkout, an application build
+            directory, or a copied <code>include/</code> folder. The prefix must contain
+            <code>lib/cmake/runD/runDConfig.cmake</code>.
+          </p>
+
+          <h3>Header or symbol errors</h3>
+          <ul>
+            <li>Use <code>find_package(runD 1.0.1 EXACT CONFIG REQUIRED)</code>.</li>
+            <li>Link the application or implementation-only library <code>PRIVATE runD::sdk</code>.</li>
+            <li>Use <code>PUBLIC runD::sdk</code> only when a public header exposes runD types or templates.</li>
+            <li>Delete the application build directory after switching SDK artifacts.</li>
+          </ul>
+          <div class="callout callout-warning">
+            <strong>One package boundary</strong>
+            <code>add_subdirectory(runD)</code>, source-tree include paths, vendored source, and direct
+            subsystem targets are not supported consumption paths.
+          </div>
+        </section>
+
+        <section id="backend">
+          <h2>Backend and execution failures</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Failure class</th><th scope="col">What it means</th><th scope="col">Action</th></tr></thead>
+              <tbody>
+                <tr><td>Unsupported</td><td>The requested operation or policy is outside the implementation contract.</td><td>Change the operation or policy to one documented as admitted; changing backend alone does not fix this class.</td></tr>
+                <tr><td>Unavailable</td><td>The target exists but its device or runtime cannot be opened now.</td><td>Check the host dependency and device state, then retry the same target.</td></tr>
+                <tr><td>Admission or capacity failure</td><td>A type, shape, count, graph, buffer, queue, or bounded resource contract was rejected.</td><td>Inspect the typed code and change the declared bound or workload shape.</td></tr>
+                <tr><td>Device or execution failure</td><td>The admitted path failed after selection.</td><td>Record target, graph/output evidence, SDK tuple, and the original typed code.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            runD never turns these failures into a successful CPU execution. See
+            <a href="/runD/docs/platforms/#darwin-1-0-1-host-tuple">Platforms</a> for the exact current tuple and
+            <a href="/runD/docs/api/#errors">API &amp; Errors</a> for result ownership.
+          </p>
+        </section>
+
+        <section id="report">
+          <h2>Report a useful issue</h2>
+          <p>Include:</p>
+          <ul>
+            <li>operation and selected target;</li>
+            <li>typed code/reason and its derived error text;</li>
+            <li>SDK version, artifact identity, architecture, compiler, and Apple SDK;</li>
+            <li>MoltenVK/Vulkan package identity when that path is involved;</li>
+            <li>the smallest input shape and complete reproduction.</li>
+          </ul>
+          <p>
+            Do not attach secret input or private protocol bytes. Open a
+            <a href="https://github.com/sigee-min/runD/issues">GitHub issue</a> only after reducing the
+            failure to a shareable case.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/start/"><span><small>Try again</small><strong>Return to the verified Quick Start</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Keep the first typed failure</span><span><a href="/runD/docs/api/">Result and error reference →</a></span></div></footer>
+  </body>
+</html>

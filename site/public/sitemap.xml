@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://sigee-min.github.io/runD/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/start/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/troubleshooting/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/determinism/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/compute/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/replay/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/runtime/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/numerics/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/performance/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/platforms/</loc></url>
+  <url><loc>https://sigee-min.github.io/runD/docs/api/</loc></url>
+</urlset>

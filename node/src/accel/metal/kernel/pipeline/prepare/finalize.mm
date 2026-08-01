@@ -21,63 +21,71 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
   if (captured.commands.size() == reset_command_count) {
     return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
   }
-  // The final captured producer also needs an ICB barrier: command-buffer
-  // completion alone does not publish a concurrent indirect dispatch's
-  // writes to later readback command buffers.
-  [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-  pipeline->control_command_count =
-      2u + import_count + static_cast<std::uint32_t>(needs_reset) +
-      static_cast<std::uint32_t>(pipeline->telemetry.size()) + fold_count +
-      advance_count + canonicalize_count;
-  [encoder setComputePipelineState:complete];
-  [encoder setBuffer:pipeline->control offset:0u atIndex:0u];
-  [encoder setBytes:&status_params length:sizeof(status_params) atIndex:1u];
-  if (profile_steps) {
-    [encoder setBuffer:pipeline->step_control offset:0u atIndex:2u];
-  }
-  id<MTLBuffer> const states =
-      pipeline->states == nil ? pipeline->control : pipeline->states;
-  [encoder setBuffer:states offset:0u atIndex:3u];
-  [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
-      threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
-  if (!native_publications.empty()) {
-    [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-    for (const MetalPublish &publication : native_publications) {
-      if (publication.params.count == 0u) {
-        continue;
-      }
-      id<MTLBuffer> const target =
-          (__bridge id<MTLBuffer>)publication.target.get();
-      std::array<id<MTLBuffer>, 3u> sources{
-          (__bridge id<MTLBuffer>)publication.sources[0].get(),
-          (__bridge id<MTLBuffer>)publication.sources[1].get(),
-          (__bridge id<MTLBuffer>)publication.sources[2].get()};
-      if (target == nil || pipeline->states == nil ||
-          std::any_of(sources.begin(), sources.end(),
-                      [](const id<MTLBuffer> value) { return value == nil; })) {
-        return rund::AccelCheck{false, "accel_metal_buffer_failed"};
-      }
-      [encoder setComputePipelineState:publish];
-      [encoder setBuffer:sources[0] offset:0u atIndex:0u];
-      [encoder setBuffer:sources[1] offset:0u atIndex:1u];
-      [encoder setBuffer:sources[2] offset:0u atIndex:2u];
-      [encoder setBuffer:target offset:0u atIndex:3u];
-      [encoder setBuffer:pipeline->control offset:0u atIndex:4u];
-      [encoder setBuffer:pipeline->states offset:0u atIndex:5u];
-      [encoder setBytes:&publication.params
-                 length:sizeof(publication.params)
-                atIndex:6u];
-      const NSUInteger count =
-          static_cast<NSUInteger>(publication.params.count);
-      const NSUInteger width =
-          std::min(count, [publish maxTotalThreadsPerThreadgroup]);
-      [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u)
-          threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-      captured.commands.back().control = true;
-      ++pipeline->dispatch_count;
-      ++pipeline->control_command_count;
+  if (aggregate_selected) {
+    if (captured.commands.size() != 2u) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
+    pipeline->control_command_count = 1u;
+  } else {
+    // The final captured producer also needs an ICB barrier: command-buffer
+    // completion alone does not publish a concurrent indirect dispatch's
+    // writes to later readback command buffers.
     [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    pipeline->control_command_count =
+        2u + import_count + static_cast<std::uint32_t>(needs_reset) +
+        static_cast<std::uint32_t>(pipeline->telemetry.size()) + fold_count +
+        advance_count + canonicalize_count;
+    [encoder setComputePipelineState:complete];
+    [encoder setBuffer:pipeline->control offset:0u atIndex:0u];
+    [encoder setBytes:&status_params length:sizeof(status_params) atIndex:1u];
+    if (profile_steps) {
+      [encoder setBuffer:pipeline->step_control offset:0u atIndex:2u];
+    }
+    id<MTLBuffer> const states =
+        pipeline->states == nil ? pipeline->control : pipeline->states;
+    [encoder setBuffer:states offset:0u atIndex:3u];
+    [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+    if (!native_publications.empty()) {
+      [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+      for (const MetalPublish &publication : native_publications) {
+        if (publication.params.count == 0u) {
+          continue;
+        }
+        id<MTLBuffer> const target =
+            (__bridge id<MTLBuffer>)publication.target.get();
+        std::array<id<MTLBuffer>, 3u> sources{
+            (__bridge id<MTLBuffer>)publication.sources[0].get(),
+            (__bridge id<MTLBuffer>)publication.sources[1].get(),
+            (__bridge id<MTLBuffer>)publication.sources[2].get()};
+        if (target == nil || pipeline->states == nil ||
+            std::any_of(
+                sources.begin(), sources.end(),
+                [](const id<MTLBuffer> value) { return value == nil; })) {
+          return rund::AccelCheck{false, "accel_metal_buffer_failed"};
+        }
+        [encoder setComputePipelineState:publish];
+        [encoder setBuffer:sources[0] offset:0u atIndex:0u];
+        [encoder setBuffer:sources[1] offset:0u atIndex:1u];
+        [encoder setBuffer:sources[2] offset:0u atIndex:2u];
+        [encoder setBuffer:target offset:0u atIndex:3u];
+        [encoder setBuffer:pipeline->control offset:0u atIndex:4u];
+        [encoder setBuffer:pipeline->states offset:0u atIndex:5u];
+        [encoder setBytes:&publication.params
+                   length:sizeof(publication.params)
+                  atIndex:6u];
+        const NSUInteger count =
+            static_cast<NSUInteger>(publication.params.count);
+        const NSUInteger width =
+            std::min(count, [publish maxTotalThreadsPerThreadgroup]);
+        [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u)
+            threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        captured.commands.back().control = true;
+        ++pipeline->dispatch_count;
+        ++pipeline->control_command_count;
+      }
+      [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    }
   }
   if (captured.capacity_failed) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -204,23 +212,22 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       return;
     }
     std::uint64_t host = sizeof(MetalMapEncodeResources);
-    for (const std::uint64_t bytes : {
-             static_cast<std::uint64_t>(map->input_plans.capacity()) *
-                 sizeof(InputWindowPlan),
-             static_cast<std::uint64_t>(map->checks.capacity()) *
-                 sizeof(MetalMapCheck),
-             static_cast<std::uint64_t>(map->windows.capacity()) *
-                 sizeof(rund::kernel::ComputeDispatchWindow),
-             static_cast<std::uint64_t>(
-                 map->resident.overflow_inputs.capacity()) *
-                 sizeof(MetalResidentBufferResult),
-             static_cast<std::uint64_t>(
-                 map->resident.overflow_outputs.capacity()) *
-                 sizeof(MetalResidentBufferResult)}) {
+    for (const std::uint64_t bytes :
+         {static_cast<std::uint64_t>(map->input_plans.capacity()) *
+              sizeof(InputWindowPlan),
+          static_cast<std::uint64_t>(map->checks.capacity()) *
+              sizeof(MetalMapCheck),
+          static_cast<std::uint64_t>(map->windows.capacity()) *
+              sizeof(rund::kernel::ComputeDispatchWindow),
+          static_cast<std::uint64_t>(map->resident.overflow_inputs.capacity()) *
+              sizeof(MetalResidentBufferResult),
+          static_cast<std::uint64_t>(
+              map->resident.overflow_outputs.capacity()) *
+              sizeof(MetalResidentBufferResult)}) {
       host = ::rund::detail::counter::SaturatingAdd(host, bytes);
     }
-    recurrence_host_bytes = ::rund::detail::counter::SaturatingAdd(
-        recurrence_host_bytes, host);
+    recurrence_host_bytes =
+        ::rund::detail::counter::SaturatingAdd(recurrence_host_bytes, host);
     recurrence_device_bytes = ::rund::detail::counter::SaturatingAdd(
         recurrence_device_bytes, map->param.bytes);
     if (map->param.reused) {

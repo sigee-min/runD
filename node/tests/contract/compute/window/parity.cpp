@@ -41,7 +41,7 @@ CheckParity(Device &device, const Backend backend, Fingerprint &body_identity,
   builder.profile(PipelineProfile::Steps);
   builder.template windows<maximum, tile>(*body, rund::compute::window(*count),
                                           read(*initial, *input),
-                                          write(*output));
+                                          write_final(*output));
   const auto planned = builder.plan();
   if (!planned ||
       planned->persistent_bytes <
@@ -177,7 +177,7 @@ template <class T>
   auto builder = pipeline(device);
   builder.template windows<maximum, tile>(*body, rund::compute::window(*count),
                                           read(*initial, *input),
-                                          write(*output));
+                                          write_final(*output));
   const auto plan = builder.plan();
   if (!plan) {
     return 2;

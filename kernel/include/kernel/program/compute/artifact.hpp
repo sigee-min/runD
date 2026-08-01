@@ -20,6 +20,7 @@ enum class LoweringArtifactVariant : u8 {
   Canonical = 0u,
   Controlled = 1u,
   Recurrence = 2u,
+  HistoryRecurrence = 3u,
 };
 
 struct ArtifactKey {

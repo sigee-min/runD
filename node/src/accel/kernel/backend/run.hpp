@@ -156,6 +156,10 @@ struct BackendRecurrence final {
   std::uint32_t iteration{};
   std::uint32_t bound{1u};
   const BackendWindow *window{};
+  // An externally retained occurrence is semantically observable after the
+  // enclosing submission. A terminal-only recurrence transform must not
+  // replace the authored per-iteration stores with one final store.
+  bool writes_each_iteration{};
 };
 
 struct BackendRead final {

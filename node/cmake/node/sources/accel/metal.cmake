@@ -41,6 +41,9 @@ list(APPEND NODE_SOURCES
   src/accel/metal/kernel/pipeline/source.cpp
   src/accel/metal/kernel/pipeline/status.mm
   src/accel/metal/kernel/pipeline/stub.cpp
+  src/accel/metal/kernel/pipeline/aggregate/admit.mm
+  src/accel/metal/kernel/pipeline/aggregate/prepare.mm
+  src/accel/metal/kernel/pipeline/aggregate/source.cpp
   src/accel/metal/kernel/pipeline/prepare/admit.mm
   src/accel/metal/kernel/pipeline/prepare/allocate.mm
   src/accel/metal/kernel/pipeline/prepare/capture.mm

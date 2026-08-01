@@ -14,12 +14,14 @@ instead of copying its name set.
 
 Admitted entries cover root contracts, project metadata, public contribution
 and security policy, GitHub automation, CMake support, documentation, tooling,
-SDK packaging, the Wiki source archive, and product-level subsystems. Local
-entries are limited to generated or private state. Debris is not repository
-authority. Source evidence excludes registered platform-debris names.
-Generated Python bytecode and `__pycache__` directories under an admitted root
-fail closed instead of becoming product-source identity; tool caches belong
-under `.cache/`.
+SDK packaging, the public landing and documentation website, and product-level
+subsystems. The `site` root owns the GitHub Pages presentation layer for the
+landing and documentation experience; it links to product contracts instead
+of becoming a second product authority. Local entries are limited to generated
+or private state. Debris is not repository authority. Source evidence excludes
+registered platform-debris names. Generated Python bytecode and `__pycache__`
+directories under an admitted root fail closed instead of becoming
+product-source identity; tool caches belong under `.cache/`.
 
 ## Root Admission
 
@@ -32,7 +34,7 @@ A new tracked root directory is allowed only when it is one of these:
 
 Feature slices, experiments, adapters, benchmark outputs, scratch evidence,
 release artifacts, and temporary work do not get root directories. They belong
-under the owning subsystem, `tools`, `docs`, `wiki`, `package`, or `.cache`.
+under the owning subsystem, `tools`, `docs`, `site`, `package`, or `.cache`.
 
 ## Update Rule
 

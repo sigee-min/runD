@@ -21,7 +21,8 @@ struct VulkanPipelineTelemetrySource;
     const rund::kernel::ComputeDispatchWindow *windows,
     rund::kernel::u64 window_count, const rund::kernel::BindingSet &bindings,
     const BoundControl &control,
-    std::shared_ptr<void> &resources);
+    std::shared_ptr<void> &resources,
+    rund::kernel::u32 iterations = 1u);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanMap(VulkanAdapter &adapter, const std::shared_ptr<void> &resources,
                 void *command_buffer);

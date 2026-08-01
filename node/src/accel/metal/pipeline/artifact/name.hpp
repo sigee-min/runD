@@ -30,6 +30,9 @@ void AppendMetalArtifactHex64(std::string& out,
   } else if (key.variant ==
              rund::kernel::LoweringArtifactVariant::Recurrence) {
     name += "_recurrence";
+  } else if (key.variant ==
+             rund::kernel::LoweringArtifactVariant::HistoryRecurrence) {
+    name += "_history_recurrence";
   }
   return [NSString stringWithUTF8String:name.c_str()];
 }

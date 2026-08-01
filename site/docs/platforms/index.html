@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="See the exact runD supported, validated, and unsupported platform and backend release boundaries.">
+    <title>Platforms — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/platforms/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Platforms — runD Docs">
+    <meta property="og:description" content="See the exact supported, validated, and unsupported platform and backend release boundaries.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/platforms/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Platforms</span></p>
+        <h1>What ships today.</h1>
+        <p class="doc-intro">
+          A backend-neutral Flow model is not permission to overstate release coverage. Support belongs to
+          exact platform, producer, artifact, dependency, and verification tuples.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">1.0.1 Alpha</span><span class="meta-chip">Tuple policy</span><span class="meta-chip">Fail closed</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#matrix">Current matrix</a>
+          <a href="#darwin-1-0-1-host-tuple">Darwin 1.0.1 tuple</a>
+          <a href="#artifact">Artifact and verifier</a>
+          <a href="#backends">Additional backends</a>
+          <a href="#status">Status terms</a>
+        </nav>
+
+        <section id="matrix">
+          <h2>Current matrix</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Triplet</th><th scope="col">Status</th><th scope="col">Current backend evidence</th><th scope="col">Artifact</th></tr></thead>
+              <tbody>
+                <tr><td>darwin-arm64</td><td><span class="status-chip status-supported">Supported</span></td><td>CPU, native Metal, Vulkan/MoltenVK</td><td>Release archive + checksum + verifier</td></tr>
+                <tr><td>linux-x64</td><td><span class="status-chip status-candidate">Validated</span></td><td>No release-backend matrix claimed</td><td>Source candidate; no consumer release promise</td></tr>
+                <tr><td>windows-x64</td><td><span class="status-chip status-unsupported">Not supported</span></td><td>None claimed</td><td>None</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="darwin-1-0-1-host-tuple">
+          <h2>Exact Darwin 1.0.1 host tuple</h2>
+          <p>
+            The supported binary is not “any recent Apple Silicon Mac.” Every row below must match.
+            These values come from the sealed <code>artifact-identity.tsv</code> carried by the
+            released SDK; the readable compiler line is shown beside CMake's canonical compiler
+            identity so you can recognize the same toolchain before running the verifier.
+          </p>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Tuple field</th><th scope="col">Exact 1.0.1 value</th></tr></thead>
+              <tbody>
+                <tr><td>Host</td><td>Darwin on <code>arm64</code></td></tr>
+                <tr><td>CMake compiler identity</td><td><code>AppleClang 21.0.0.21000101</code></td></tr>
+                <tr><td>Human compiler line</td><td><code>Apple clang version 21.0.0 (clang-2100.1.1.101)</code></td></tr>
+                <tr><td>Compiler target</td><td><code>arm64-apple-darwin25.3.0</code></td></tr>
+                <tr><td>Target architecture</td><td><code>arm64</code></td></tr>
+                <tr><td>C++ standard library</td><td><code>libc++ 210106</code></td></tr>
+                <tr><td>Apple SDK</td><td><code>macosx 26.5</code>, build <code>25F70</code></td></tr>
+                <tr><td>Deployment target</td><td><code>26.0</code>, compiler macro <code>260000</code></td></tr>
+                <tr><td><code>molten-vk</code></td><td><code>1.4.1</code></td></tr>
+                <tr><td><code>vulkan-headers</code></td><td><code>1.4.341.0</code></td></tr>
+                <tr><td><code>vulkan-loader</code></td><td><code>1.4.341.0</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Run this preflight on the Mac that will consume the SDK. It mirrors the verifier's
+            compiler, target, SDK, standard-library, deployment-target, and Homebrew version probes.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">shell · inspect the current host</span><button class="copy-button" type="button" data-copy="#host-tuple-probe" aria-live="polite">Copy</button></div>
+            <pre class="code" id="host-tuple-probe"><code>set -eu
+
+rund_probe_cxx=${CXX:-/usr/bin/c++}
+rund_probe_cxx=$(command -v "$rund_probe_cxx")
+rund_probe_dir=$(mktemp -d)
+trap 'cmake -E remove_directory "$rund_probe_dir"' EXIT
+
+printf '%s\n' \
+  'cmake_minimum_required(VERSION 3.20)' \
+  'project(rund_host_probe LANGUAGES CXX)' \
+  'file(WRITE "${CMAKE_BINARY_DIR}/identity.tsv"' \
+  '  "compiler_id\t${CMAKE_CXX_COMPILER_ID}\n"' \
+  '  "compiler_version\t${CMAKE_CXX_COMPILER_VERSION}\n")' \
+  &gt; "$rund_probe_dir/CMakeLists.txt"
+cmake -S "$rund_probe_dir" -B "$rund_probe_dir/build" \
+  -D "CMAKE_CXX_COMPILER=$rund_probe_cxx" &gt;/dev/null
+sed -n '1,2p' "$rund_probe_dir/build/identity.tsv"
+
+printf 'compiler_human\t'
+"$rund_probe_cxx" --version | sed -n '1p'
+printf 'compiler_target\t%s\n' "$("$rund_probe_cxx" -dumpmachine)"
+printf 'target_architecture\t%s\n' "$(uname -m)"
+printf 'apple_sdk_version\t%s\n' "$(xcrun --sdk macosx --show-sdk-version)"
+printf 'apple_sdk_build\t%s\n' "$(xcrun --sdk macosx --show-sdk-build-version)"
+
+rund_probe_sdk=$(xcrun --sdk macosx --show-sdk-path)
+rund_probe_macros=$(printf '#include &lt;version&gt;\n' |
+  "$rund_probe_cxx" -std=c++20 -arch arm64 -isysroot "$rund_probe_sdk" \
+    -mmacosx-version-min=26.0 -dM -E -x c++ -)
+printf 'cxx_standard_library_version\t%s\n' \
+  "$(printf '%s\n' "$rund_probe_macros" |
+    awk '$2 == "_LIBCPP_VERSION" { print $3 }')"
+printf 'macos_deployment_target_macro\t%s\n' \
+  "$(printf '%s\n' "$rund_probe_macros" |
+    awk '$2 == "__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__" { print $3 }')"
+
+brew list --versions molten-vk vulkan-headers vulkan-loader</code></pre>
+          </div>
+          <p>Expected output for the supported release host:</p>
+          <div class="doc-code"><pre class="code"><code>compiler_id	AppleClang
+compiler_version	21.0.0.21000101
+compiler_human	Apple clang version 21.0.0 (clang-2100.1.1.101)
+compiler_target	arm64-apple-darwin25.3.0
+target_architecture	arm64
+apple_sdk_version	26.5
+apple_sdk_build	25F70
+cxx_standard_library_version	210106
+macos_deployment_target_macro	260000
+molten-vk 1.4.1
+vulkan-headers 1.4.341.0
+vulkan-loader 1.4.341.0</code></pre></div>
+          <p>
+            Metal and Foundation come from that Apple SDK. Vulkan/MoltenVK remains an external
+            dependency; the archive does not bundle it. Matching this visible output is a useful
+            preflight, while <code>rund-verify</code> remains the final authority because it also
+            checks resolved native-library identity.
+          </p>
+          <div class="callout callout-warning">
+            <strong>A mismatch has no supported bypass in 1.0.1</strong>
+            There is no force-extraction flag, compatibility override, verifier bypass, dependency
+            bottle set, versioned Homebrew tap, or other fresh binary route. Use a host and toolchain
+            that match every row above, or use a newer SDK rebuilt for your tuple.
+          </div>
+        </section>
+
+        <section id="artifact">
+          <h2>Use the archive, checksum, and verifier as one set</h2>
+          <p>
+            The archive contains public headers, libraries, package files, license, and sealed identities.
+            Its adjacent checksum binds the archive bytes. <code>rund-verify</code> validates both and
+            executes the installed package boundary before publishing the versioned prefix.
+          </p>
+          <div class="doc-code"><pre class="code"><code>rund-sdk-1.0.1-darwin-arm64.tar.gz
+rund-sdk-1.0.1-darwin-arm64.sha256
+rund-verify</code></pre></div>
+          <ul>
+            <li>Download all three from the same release.</li>
+            <li>Install into a fresh versioned prefix.</li>
+            <li>Point CMake at that prefix and link only <code>runD::sdk</code>.</li>
+            <li>Never treat a retained CI candidate or successful source build as a supported consumer artifact.</li>
+          </ul>
+          <p><a href="/runD/docs/start/">Follow the complete Quick Start →</a></p>
+        </section>
+
+        <section id="backends">
+          <h2>Additional backends</h2>
+          <p>
+            The public identity is the Flow contract, not a fixed list of GPU APIs. A new lowering can be
+            introduced without creating a second computation language, but it must carry the same numeric,
+            graph, ordering, resource, failure, output, and evidence contracts.
+          </p>
+          <p>
+            The 1.0.1 Alpha makes no CUDA or other additional-backend support claim. Future intent is not a
+            shipped product tuple.
+          </p>
+        </section>
+
+        <section id="status">
+          <h2>Status language</h2>
+          <ul>
+            <li><strong>Supported</strong>: a release artifact exists and package, consumer, and component validation passed.</li>
+            <li><strong>Validated</strong>: source-level tests pass, but no release artifact is promised.</li>
+            <li><strong>Not supported</strong>: no supported artifact or conformance claim is published.</li>
+          </ul>
+          <p>
+            The rendered matrix above follows the checked tuple registry. For release engineering details,
+            inspect the optional
+            <a href="https://github.com/sigee-min/runD/blob/main/package/docs/platform/support.md">platform policy source ↗</a>.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/api/"><span><small>Next reference</small><strong>Find the public surface behind the release</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Support is an evidence tuple</span><span><a href="/runD/docs/start/">Install the supported release →</a></span></div></footer>
+  </body>
+</html>

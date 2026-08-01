@@ -154,6 +154,8 @@ concept HasComputeTelemetry = requires(T stats) {
   stats.pipeline.step_count;
   stats.pipeline.resource_count;
   stats.pipeline.barrier_count;
+  stats.pipeline.sealed_repetition_count;
+  stats.pipeline.coalesced_repetition_count;
   stats.pipeline.claim_conflict_count;
   stats.pipeline.verified_step_count;
   stats.pipeline.failed_step_index;
@@ -172,6 +174,13 @@ concept ConfiguresPipelineProfile = requires(T &builder) {
   } -> std::same_as<T &>;
   {
     std::move(builder).profile(rund::compute::PipelineProfile::Steps)
+  } -> std::same_as<T &&>;
+};
+template <class T>
+concept ConfiguresPipelineSealedRepetitions = requires(T &builder) {
+  { builder.template sealed_repetitions<1u>() } -> std::same_as<T &>;
+  {
+    std::move(builder).template sealed_repetitions<1024u>()
   } -> std::same_as<T &&>;
 };
 template <class T>
@@ -272,6 +281,9 @@ concept HasPipelineProfileSnapshot = requires(const T &snapshot) {
 };
 static_assert(HasComputeTelemetry<rund::compute::Stats>);
 static_assert(ConfiguresPipelineProfile<rund::compute::PipelineBuilder>);
+static_assert(
+    ConfiguresPipelineSealedRepetitions<rund::compute::PipelineBuilder>);
+static_assert(rund::compute::PipelineSealedRepetitionCapacity == 1024u);
 static_assert(PlansPipeline<rund::compute::PipelineBuilder>);
 static_assert(HasPipelinePlan<rund::compute::PipelinePlan>);
 static_assert(HasPipelineProfile<rund::compute::Pipeline>);
@@ -282,6 +294,8 @@ static_assert(
     HasPipelineProfileSnapshot<rund::compute::PipelineProfileSnapshot>);
 static_assert(rund::compute::PipelineStats{}.failed_step_index ==
               rund::compute::PipelineStats::no_failed_step);
+static_assert(rund::compute::Stats{}.pipeline.sealed_repetition_count == 0u);
+static_assert(rund::compute::Stats{}.pipeline.coalesced_repetition_count == 0u);
 static_assert(!rund::compute::Stats{}.available());
 static_assert(rund::compute::Stats{}.backend ==
               rund::compute::Backend::Unavailable);

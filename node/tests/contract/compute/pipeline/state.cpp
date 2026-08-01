@@ -119,7 +119,7 @@ namespace rund_node_test_pipeline {
   auto recurrent = pipeline(device)
                        .state(*recurrent_first, *recurrent_second)
                        .repeat<2u>(*advance, read(*recurrent_first),
-                                   write(*recurrent_second))
+                                   write_final(*recurrent_second))
                        .commit()
                        .prepare();
   const std::shared_ptr<detail::PipelineState> recurrent_state =
@@ -160,7 +160,8 @@ namespace rund_node_test_pipeline {
   auto recurrent_restore =
       pipeline(device)
           .state(*restored_first, *restored_second)
-          .repeat<2u>(*advance, read(*restored_first), write(*restored_second))
+          .repeat<2u>(*advance, read(*restored_first),
+                      write_final(*restored_second))
           .restore(*recurrent_snapshot)
           .commit()
           .prepare();

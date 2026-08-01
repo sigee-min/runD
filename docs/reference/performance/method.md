@@ -415,47 +415,73 @@ state; the raw CSV is not an installed baseline packet.
 `tools/measure/compute/run --recurrence <metal|vulkan>` isolates the prepared
 Map recurrence lowering on the same current-source boundary. It compiles one
 4,096-element `I32` Program implementing `x + 1`, executes exactly 256
-iterations, and compares two routes: 256 independently submitted Program runs
-and one `Pipeline::repeat<256>` run. Twelve paired samples alternate order six
-times each after both routes are warm. Typed readback occurs outside the timed
-pairs.
+iterations, and compares three routes: 256 independently submitted Program
+runs, one terminal-only `Pipeline::repeat<256>(..., write_final(...))` run,
+and one lossless `Pipeline::repeat<256>(..., write_each(...))` run. Twelve
+serial/terminal pairs and twelve terminal/history pairs independently alternate
+order six times each after all three routes are warm. Typed readback occurs
+outside the timed pairs.
 
-The row is admissible only with identical nonzero content hashes, 256 serial
-submits and dispatches, one recurrence submit, one recurrence dispatch, one
-logical Pipeline step, a fully verified prefix, and zero warm compile,
-allocation, descriptor, upload, download, and round-trip counters. The logical
-Pipeline hazard count remains 255 because it records the authored recurrence
-proof. The element-local lowering removes those physical inter-iteration
-barriers; it does not rewrite the public logical plan.
+The row is admissible only with identical nonzero serial and terminal content
+hashes, exact iteration-major history contents, 256 serial submits and
+dispatches, one terminal submit and dispatch, one history submit and dispatch,
+one logical Pipeline step on each fused route, fully verified prefixes, and
+zero warm compile, allocation, descriptor, upload, download, and round-trip
+counters. The logical Pipeline hazard count remains 255 because it records the
+authored recurrence proof. The element-local lowering removes those physical
+inter-iteration barriers; it does not rewrite the public logical plan.
 
 For `N` iterations, `E` elements, carried payload `S`, invariant payload `C`,
-output payload `O`, and `W` device-capacity windows, the serial prepared
-command shape has `N * W` Map dispatches and exposes
-`Theta(N * E * (S + C + O))` payload loads and stores. The proved
-single-dispatch element-local recurrence has `W` dispatches and exposes
-`Theta(E * (S + C + O))` payload loads and stores while retaining the same
+output payload `O`, and `W` device-capacity windows, the serial prepared command
+shape has `N * W` Map dispatches and exposes
+`Theta(N * E * (S + C + O))` payload loads and stores. The proved terminal-only
+element-local recurrence has `W` dispatches and exposes
+`Theta(E * (S + C + O))` payload loads and stores. The history route also has
+`W` dispatches and exposes `Theta(E * (S + C + N * O))` payload traffic because
+every authored output is mandatory. Both fused routes retain the same
 `Theta(N * E)` arithmetic in the same per-element iteration order. Dispatch
-and generated-program payload operations improve by the exact factor `N`.
-Physical memory traffic and the reported wall ratio remain measurements
-because compiler register allocation, spills, arithmetic, occupancy, cache,
-driver, and submission costs are device facts.
+count improves by the exact factor `N`; only the terminal route can remove the
+intermediate output stores. Physical memory traffic and both reported wall
+ratios remain measurements because compiler register allocation, spills,
+arithmetic, occupancy, cache, driver, and submission costs are device facts.
 
 `tools/measure/compute/run --window-repeat <metal|vulkan>` fixes
 `Max = 516096`, `Tile = 1024`, `K = 504`, and `N = 64`. Its serial comparator
 precomputes the same 504 tile seeds outside the timed region, then times
 32,256 independently submitted one-Action Pipeline runs. The nested route
-times one complete Seed/Action/Fold Pipeline execution. Twelve samples use
-balanced ABBA order after both routes are warm; observation and the serial
-outer Fold occur after timing.
+times one complete Seed/Action/Fold Pipeline execution. The repeated route
+times 256 actual `run()` calls on a separate ordinary Pipeline inside one timed
+interval. The sealed route uses the identical nested declaration with
+`sealed_repetitions<256>()`. After all four routes are warm, the harness runs
+three independent twelve-sample AB/BA comparisons: serial versus single
+ordinary nested, single ordinary nested versus sealed, and 256 actual ordinary
+runs versus sealed. Each comparison alternates which route runs first, so both
+directed cross-route carryovers occur six times. Before recording each
+comparison, one untimed AB followed by BA establishes the same phase-local
+precondition and ends on the route that begins the first measured pair.
+Boundaries between successive measured pairs are therefore same-route
+carryovers, and a prior phase cannot become the immediate predecessor of the
+next phase's first sample. Observation and the serial outer Fold occur after
+timing.
+The queue and resident count are already materialized inputs to both routes;
+this workload measures the nested consumer, not GYEOL's active-queue producer
+or a Compact-plus-consumer fusion.
 
 The nested row is admissible only with 571 retained route templates, 33,264
 authored Seed/Action/Fold occurrences, 504 executed outer windows, 32,256 executed inner
 iterations, one nested submission, no failed coordinate, exact serial/nested
 result parity, and zero warm compile, allocation, upload, download,
-binding-mutation, and fallback evidence. An eligible status-free element-local
-Action must additionally use the common tile-transducer proof and the `K * 3`
-physical Seed/transducer/Fold Program-occurrence shape; the authored count does
-not expand the native stream. The CSV
+binding-mutation, and fallback evidence. The common tile-transducer proof is
+mandatory. Vulkan and a Metal stream that is ineligible for the narrower
+complete-aggregate proof use the `K * 3` physical
+Seed/transducer/Fold Program-occurrence shape. This exact Metal workload must
+instead admit `WindowIndexedReduceSumU32` and report two physical dispatches,
+one control command, one submission, `K + 1` workgroups, exact result/failure
+parity, and no canonical occurrence-stream fallback. The matching contract
+test must also prove that its two `K`-word partial ranges are non-overlapping
+plan-owned Seed workspace and that no native aggregate scratch Buffer is
+allocated or double-counted. In either shape the authored count does not
+expand the native stream. The CSV
 `*_warm_binding_mutation_count` columns are the public
 `PipelineStats::rebinding_count`: they count post-prepare retained-binding
 mutations, not cold native capture or emission of frozen descriptors. Their
@@ -474,11 +500,54 @@ they are not native Vulkan throughput evidence.
 The Metal wall time includes the hard-cut executor's remaining host envelope:
 one outer command-buffer/encoder lifecycle, one bulk resource-residency call,
 one full-ICB range call, commit/completion, and fixed control observation. It
-contains no runD command/range/binding/state traversal, but it also includes
-the device cost of issuing frozen commands whose inactive payload threads
-return through uniform guards. One nested submit and zero binding mutation
-must therefore be interpreted with both the structural hard-cut contract and
-the measured wall result, not as literally zero host or inactive-device cost.
+contains no runD command/range/binding/state traversal. The canonical stream
+still includes the device cost of frozen commands whose inactive payload
+threads return through uniform guards. The exact aggregate stream instead
+contains one `K`-threadgroup tile dispatch, one ICB Buffer barrier, and one
+ordered finalize dispatch; it has no inactive guard commands but still pays
+fixed-capacity tile work and the same host envelope. One nested submit and zero
+binding mutation must therefore be interpreted with both the selected
+structural path and the measured wall result, not as literally zero host or
+inactive-device cost.
+
+### Input-Sealed Repetition Throughput
+
+The sealed row is admissible only when the single ordinary, actually repeated
+ordinary, and sealed Pipelines publish the same result bits, their
+`PipelinePlan` values are equal, one ordinary execution and the sealed execution
+use the same physical submit and dispatch counts, and the sealed Pipeline
+reports `sealed_repetition_count = R` with
+`coalesced_repetition_count = R - 1`. The repeated interval must complete
+exactly `R` successful ordinary `run()` calls and advance that Pipeline's
+generation by exactly `R`; the immutable per-run stats shape then makes its
+reported submit and dispatch totals exactly `R` times the single-run counts.
+Diagnostic stats reads remain outside the timed interval. All four routes must
+report zero warm compilation, allocation, upload, download, binding mutation,
+and fallback evidence. The untimed pre/post validation sweeps inspect all `R`
+ordinary repeated-run stats individually; timed intervals inspect the final
+immutable per-run shape after the clock stops. Each ratio uses only the medians
+from its own AB/BA pair. The benchmark's caller-owned inputs are frozen for the
+complete sample; the product contract independently rejects transactional state
+and any exact external write-to-next-read overlap.
+
+Let `T_single` be the ordinary nested median, `T_R_ordinary` the median of the
+timed interval containing `R` actual ordinary runs, and `T_sealed` the sealed
+median. The report derives:
+
+```text
+sealed_equivalent_time        = T_sealed / R
+measured_throughput_speedup    = T_R_ordinary / T_sealed
+single_execution_ratio        = T_single / T_sealed
+```
+
+`measured_throughput_speedup` is an actual paired wall-time ratio; it never
+substitutes `R * T_single` for the measured repeated interval.
+`single_execution_ratio` is the latency comparison, and it must be reported
+beside the throughput figure. Neither value applies to changing active queues,
+state feedback, per-tick checkpoints, host intervention, or intermediate
+publication; those workloads are ineligible rather than silently coalesced. A
+ratio derived from a historical row or another executable may not be spliced
+into the paired sealed result.
 
 ## Telemetry Overhead Method
 

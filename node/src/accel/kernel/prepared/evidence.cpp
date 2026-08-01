@@ -44,20 +44,30 @@ PipelineOutcome(const PipelineState &pipeline,
 } // namespace
 
 void Accumulate(EvidenceCounts &counts, const RunState &state) noexcept {
+  Accumulate(counts, state, 1u);
+}
+
+void Accumulate(EvidenceCounts &counts, const RunState &state,
+                const std::uint64_t occurrences) noexcept {
+  const auto scale = [occurrences](const std::uint64_t value) noexcept {
+    return ::rund::detail::counter::SaturatingMultiply(value, occurrences);
+  };
   counts.original_operations = ::rund::detail::counter::SaturatingAdd(
-      counts.original_operations, state.execution.original_operation_count);
+      counts.original_operations,
+      scale(state.execution.original_operation_count));
   counts.fused_operations = ::rund::detail::counter::SaturatingAdd(
-      counts.fused_operations, state.execution.fused_operation_count);
+      counts.fused_operations, scale(state.execution.fused_operation_count));
   counts.original_dispatches = ::rund::detail::counter::SaturatingAdd(
-      counts.original_dispatches, state.dispatch.original_dispatch_count);
+      counts.original_dispatches,
+      scale(state.dispatch.original_dispatch_count));
   counts.final_dispatches = ::rund::detail::counter::SaturatingAdd(
-      counts.final_dispatches, state.dispatch.final_dispatch_count);
+      counts.final_dispatches, scale(state.dispatch.final_dispatch_count));
   counts.fusion_rejections = ::rund::detail::counter::SaturatingAdd(
-      counts.fusion_rejections, state.execution.fusion_rejection_count);
+      counts.fusion_rejections, scale(state.execution.fusion_rejection_count));
   counts.internal_roundtrip_bytes = ::rund::detail::counter::SaturatingAdd(
-      counts.internal_roundtrip_bytes, state.roundtrip.internal_bytes);
+      counts.internal_roundtrip_bytes, scale(state.roundtrip.internal_bytes));
   counts.external_roundtrip_bytes = ::rund::detail::counter::SaturatingAdd(
-      counts.external_roundtrip_bytes, state.roundtrip.external_bytes);
+      counts.external_roundtrip_bytes, scale(state.roundtrip.external_bytes));
 }
 
 rund::AccelEvidence BatchEvidence(const rund::AccelContext &context,

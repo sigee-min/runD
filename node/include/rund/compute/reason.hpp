@@ -40,7 +40,7 @@ namespace detail {
   }
   switch (category(reason)) {
   case Code::Invalid:
-    return value <= ordinal(Reason::ScatterReduceIndexOutOfRange);
+    return value <= ordinal(Reason::PipelineTemporalDependency);
   case Code::Unsupported:
     return value <= ordinal(Reason::BatchCpuUnsupported);
   case Code::Unavailable:

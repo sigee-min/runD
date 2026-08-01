@@ -18,12 +18,54 @@ template <class T>
 concept WritesConst = requires(const T value) { rund::compute::write(value); };
 
 template <class T>
+concept WritesTemporary =
+    requires(T value) { rund::compute::write(std::move(value)); };
+
+template <class T>
+concept WritesFinalConst =
+    requires(const T value) { rund::compute::write_final(value); };
+
+template <class T>
+concept WritesFinalTemporary =
+    requires(T value) { rund::compute::write_final(std::move(value)); };
+
+template <class T>
+concept WritesEachConst =
+    requires(const T value) { rund::compute::write_each(value); };
+
+template <class T>
+concept WritesEachTemporary =
+    requires(T value) { rund::compute::write_each(std::move(value)); };
+
+template <class T>
+concept ReadsValue = requires(T value) { rund::compute::read(value); };
+
+template <class T>
+concept WritesValue = requires(T value) { rund::compute::write(value); };
+
+template <class T>
+concept WritesFinalValue =
+    requires(T value) { rund::compute::write_final(value); };
+
+template <class T>
+concept WritesEachValue =
+    requires(T value) { rund::compute::write_each(value); };
+
+template <class T>
 concept ReadsVolatile =
     requires(volatile T &value) { rund::compute::read(value); };
 
 template <class T>
 concept WritesVolatile =
     requires(volatile T &value) { rund::compute::write(value); };
+
+template <class T>
+concept WritesFinalVolatile =
+    requires(volatile T &value) { rund::compute::write_final(value); };
+
+template <class T>
+concept WritesEachVolatile =
+    requires(volatile T &value) { rund::compute::write_each(value); };
 
 template <class T>
 concept HasDependsOnSurface = requires(T value) { value.depends_on(0u, 1u); };
@@ -40,6 +82,29 @@ concept PreparesRvalue = requires(T value) { std::move(value).prepare(); };
 template <class T>
 concept HasRunSurface = requires(T value) { value.run(); };
 
+struct ValidHostFeedback final {
+  [[nodiscard]] rund::compute::Status
+  operator()(rund::compute::HostIteration &) noexcept {
+    return rund::compute::Status::success();
+  }
+};
+
+struct ThrowingHostFeedback final {
+  [[nodiscard]] rund::compute::Status
+  operator()(rund::compute::HostIteration &) {
+    return rund::compute::Status::success();
+  }
+};
+
+struct InvalidHostFeedback final {
+  void operator()(rund::compute::HostIteration &) noexcept {}
+};
+
+template <class Callback>
+concept CanHostFeedback = requires(Pipeline &prepared, Callback callback) {
+  rund::compute::host_feedback(prepared, 4u, callback);
+};
+
 template <class T>
 concept RetainsColdPipelineBindings = requires(T value) {
   value.inputs;
@@ -49,18 +114,76 @@ concept RetainsColdPipelineBindings = requires(T value) {
 };
 
 template <class Builder, class Program, class Input, class Output>
-concept CanThen =
+concept CanThenWithWrite =
     requires(Builder builder, Program program, Input input, Output output) {
       builder.then(program, rund::compute::read(input),
                    rund::compute::write(output));
     };
 
 template <class Builder, class Program, class Input, class Output>
-concept CanRepeat =
+concept CanThenWithFinal =
+    requires(Builder builder, Program program, Input input, Output output) {
+      builder.then(program, rund::compute::read(input),
+                   rund::compute::write_final(output));
+    };
+
+template <class Builder, class Program, class Input, class Output>
+concept CanThenWithEach =
+    requires(Builder builder, Program program, Input input, Output output) {
+      builder.then(program, rund::compute::read(input),
+                   rund::compute::write_each(output));
+    };
+
+template <class Builder, class Program, class Input, class Output>
+concept CanRepeatWithWrite =
     requires(Builder builder, Program program, Input input, Output output) {
       builder.template repeat<8u>(program, rund::compute::read(input),
                                   rund::compute::write(output));
     };
+
+template <class Builder, class Program, class Input, class Output>
+concept CanRepeatWithFinal =
+    requires(Builder builder, Program program, Input input, Output output) {
+      builder.template repeat<8u>(program, rund::compute::read(input),
+                                  rund::compute::write_final(output));
+    };
+
+template <class Builder, class Program, class Input, class Output>
+concept CanRepeatWithEach =
+    requires(Builder builder, Program program, Input input, Output output) {
+      builder.template repeat<8u>(program, rund::compute::read(input),
+                                  rund::compute::write_each(output));
+    };
+
+template <class Builder, class Program, class Count, class Input, class Output>
+concept CanWindowsWithWrite = requires(
+    Builder builder, Program program, Count count, Input input, Output output) {
+  builder.template windows<64u, 8u>(program, rund::compute::window(count),
+                                    rund::compute::read(input),
+                                    rund::compute::write(output));
+};
+
+template <class Builder, class Program, class Count, class Input, class Output>
+concept CanWindowsWithFinal = requires(
+    Builder builder, Program program, Count count, Input input, Output output) {
+  builder.template windows<64u, 8u>(program, rund::compute::window(count),
+                                    rund::compute::read(input),
+                                    rund::compute::write_final(output));
+};
+
+template <class Builder, class Program, class Count, class Input, class Output>
+concept CanWindowsWithEach = requires(Builder builder, Program program,
+                                      Count count, Input input, Output output) {
+  builder.template windows<64u, 8u>(program, rund::compute::window(count),
+                                    rund::compute::read(input),
+                                    rund::compute::write_each(output));
+};
+
+template <std::size_t N, class Builder>
+concept CanSealRepetitions = requires(Builder builder) {
+  builder.template sealed_repetitions<N>();
+  std::move(builder).template sealed_repetitions<N>();
+};
 
 template <std::size_t N, class Seed, class Action, class Fold>
 concept CanMakeTileRepeat = requires(Seed seed, Action action, Fold fold) {
@@ -73,8 +196,28 @@ concept CanTileWindowsLvalue = requires(Builder builder, Body body, Count count,
                                         Outer outer, Seed seed, Output output) {
   builder.template windows<64u, 8u>(body, rund::compute::window(count),
                                     rund::compute::read(outer, seed),
-                                    rund::compute::write(output));
+                                    rund::compute::write_final(output));
 };
+
+template <class Builder, class Body, class Count, class Outer, class Seed,
+          class Output>
+concept CanTileWindowsWithWrite =
+    requires(Builder builder, Body body, Count count, Outer outer, Seed seed,
+             Output output) {
+      builder.template windows<64u, 8u>(body, rund::compute::window(count),
+                                        rund::compute::read(outer, seed),
+                                        rund::compute::write(output));
+    };
+
+template <class Builder, class Body, class Count, class Outer, class Seed,
+          class Output>
+concept CanTileWindowsWithEach =
+    requires(Builder builder, Body body, Count count, Outer outer, Seed seed,
+             Output output) {
+      builder.template windows<64u, 8u>(body, rund::compute::window(count),
+                                        rund::compute::read(outer, seed),
+                                        rund::compute::write_each(output));
+    };
 
 template <class Builder, class Body, class Count, class Outer, class Seed,
           class Output>
@@ -82,7 +225,7 @@ concept CanTileWindowsRvalue = requires(Builder builder, Body body, Count count,
                                         Outer outer, Seed seed, Output output) {
   std::move(builder).template windows<64u, 8u>(
       body, rund::compute::window(count), rund::compute::read(outer, seed),
-      rund::compute::write(output));
+      rund::compute::write_final(output));
 };
 
 template <class Builder, class Body, class Count, class Outer, class Output>
@@ -90,7 +233,7 @@ concept CanTileWindowsWithoutSeed = requires(
     Builder builder, Body body, Count count, Outer outer, Output output) {
   builder.template windows<64u, 8u>(body, rund::compute::window(count),
                                     rund::compute::read(outer),
-                                    rund::compute::write(output));
+                                    rund::compute::write_final(output));
 };
 
 template <std::size_t Terminal, class Builder, class Body, class Count,
@@ -100,28 +243,49 @@ concept CanTerminalTileWindows =
              Output output) {
       builder.template windows<64u, 8u>(
           body, rund::compute::window(count).template until<Terminal>(),
-          rund::compute::read(outer, seed), rund::compute::write(output));
+          rund::compute::read(outer, seed), rund::compute::write_final(output));
     };
 
 using ReadPack =
     decltype(rund::compute::read(std::declval<Buffer<std::int32_t> &>()));
 using WritePack =
     decltype(rund::compute::write(std::declval<Buffer<std::int32_t> &>()));
+using WriteFinalPack = decltype(rund::compute::write_final(
+    std::declval<Buffer<std::int32_t> &>()));
+using WriteEachPack =
+    decltype(rund::compute::write_each(std::declval<Buffer<std::int32_t> &>()));
 
 static_assert(!std::is_copy_constructible_v<Pipeline>);
 static_assert(std::is_nothrow_move_constructible_v<Pipeline>);
 static_assert(!std::is_copy_constructible_v<PipelineBuilder>);
 static_assert(std::is_nothrow_move_constructible_v<PipelineBuilder>);
+static_assert(!std::is_copy_constructible_v<rund::compute::HostIteration>);
+static_assert(!std::is_move_constructible_v<rund::compute::HostIteration>);
 static_assert(std::is_nothrow_copy_constructible_v<StateSnapshot>);
 static_assert(std::is_nothrow_copy_assignable_v<StateSnapshot>);
 static_assert(!std::is_copy_constructible_v<ReadPack>);
 static_assert(std::is_nothrow_move_constructible_v<ReadPack>);
 static_assert(!std::is_copy_constructible_v<WritePack>);
 static_assert(std::is_nothrow_move_constructible_v<WritePack>);
+static_assert(!std::is_copy_constructible_v<WriteFinalPack>);
+static_assert(std::is_nothrow_move_constructible_v<WriteFinalPack>);
+static_assert(!std::is_copy_constructible_v<WriteEachPack>);
+static_assert(std::is_nothrow_move_constructible_v<WriteEachPack>);
 static_assert(!ReadsTemporary<Buffer<std::int32_t>>);
 static_assert(!WritesConst<Buffer<std::int32_t>>);
+static_assert(!WritesTemporary<Buffer<std::int32_t>>);
+static_assert(!WritesFinalConst<Buffer<std::int32_t>>);
+static_assert(!WritesFinalTemporary<Buffer<std::int32_t>>);
+static_assert(!WritesEachConst<Buffer<std::int32_t>>);
+static_assert(!WritesEachTemporary<Buffer<std::int32_t>>);
+static_assert(!ReadsValue<std::int32_t>);
+static_assert(!WritesValue<std::int32_t>);
+static_assert(!WritesFinalValue<std::int32_t>);
+static_assert(!WritesEachValue<std::int32_t>);
 static_assert(!ReadsVolatile<Buffer<std::int32_t>>);
 static_assert(!WritesVolatile<Buffer<std::int32_t>>);
+static_assert(!WritesFinalVolatile<Buffer<std::int32_t>>);
+static_assert(!WritesEachVolatile<Buffer<std::int32_t>>);
 static_assert(!HasDependsOnSurface<PipelineBuilder>);
 static_assert(!HasAfterSurface<PipelineBuilder>);
 static_assert(!PreparesLvalue<PipelineBuilder>);
@@ -129,6 +293,15 @@ static_assert(PreparesRvalue<PipelineBuilder>);
 static_assert(rund::compute::PipelineStepCapacity == 64u);
 static_assert(rund::compute::PipelineIterationCapacity == 1024u);
 static_assert(rund::compute::PipelineInnerIterationCapacity == 1024u);
+static_assert(rund::compute::PipelineSealedRepetitionCapacity == 1024u);
+static_assert(CanSealRepetitions<1u, PipelineBuilder>);
+static_assert(
+    CanSealRepetitions<rund::compute::PipelineSealedRepetitionCapacity,
+                       PipelineBuilder>);
+static_assert(!CanSealRepetitions<0u, PipelineBuilder>);
+static_assert(
+    !CanSealRepetitions<rund::compute::PipelineSealedRepetitionCapacity + 1u,
+                        PipelineBuilder>);
 static_assert(rund::compute::detail::PipelineBindingCapacity ==
               rund::compute::PipelineIterationCapacity *
                   rund::compute::detail::PipelineLeafCapacity);
@@ -140,14 +313,38 @@ static_assert(sizeof(rund::compute::detail::PipelineStep) <=
 static_assert(sizeof(rund::compute::detail::BufferClaim) ==
               sizeof(void *) * 2u);
 using IntProgram = rund::compute::Program<std::int32_t(std::int32_t)>;
-static_assert(!CanThen<PipelineBuilder, IntProgram, Buffer<std::uint32_t>,
-                       Buffer<std::int32_t>>);
-static_assert(!CanThen<PipelineBuilder, IntProgram, Buffer<std::int32_t>,
-                       Buffer<std::uint32_t>>);
-static_assert(CanRepeat<PipelineBuilder, IntProgram, Buffer<std::int32_t>,
-                        Buffer<std::int32_t>>);
-static_assert(!CanRepeat<PipelineBuilder, IntProgram, Buffer<std::uint32_t>,
-                         Buffer<std::int32_t>>);
+static_assert(CanThenWithWrite<PipelineBuilder, IntProgram,
+                               Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(!CanThenWithFinal<PipelineBuilder, IntProgram,
+                                Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(!CanThenWithEach<PipelineBuilder, IntProgram,
+                               Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(!CanThenWithWrite<PipelineBuilder, IntProgram,
+                                Buffer<std::uint32_t>, Buffer<std::int32_t>>);
+static_assert(!CanThenWithWrite<PipelineBuilder, IntProgram,
+                                Buffer<std::int32_t>, Buffer<std::uint32_t>>);
+static_assert(!CanRepeatWithWrite<PipelineBuilder, IntProgram,
+                                  Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(CanRepeatWithFinal<PipelineBuilder, IntProgram,
+                                 Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(CanRepeatWithEach<PipelineBuilder, IntProgram,
+                                Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(!CanRepeatWithFinal<PipelineBuilder, IntProgram,
+                                  Buffer<std::uint32_t>, Buffer<std::int32_t>>);
+static_assert(!CanRepeatWithEach<PipelineBuilder, IntProgram,
+                                 Buffer<std::int32_t>, Buffer<std::uint32_t>>);
+
+using WindowProgram = rund::compute::Program<std::int32_t(
+    std::int32_t, std::uint32_t, std::uint32_t)>;
+static_assert(
+    !CanWindowsWithWrite<PipelineBuilder, WindowProgram, Buffer<std::uint32_t>,
+                         Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(
+    CanWindowsWithFinal<PipelineBuilder, WindowProgram, Buffer<std::uint32_t>,
+                        Buffer<std::int32_t>, Buffer<std::int32_t>>);
+static_assert(
+    !CanWindowsWithEach<PipelineBuilder, WindowProgram, Buffer<std::uint32_t>,
+                        Buffer<std::int32_t>, Buffer<std::int32_t>>);
 
 using TileSeedProgram =
     rund::compute::Program<rund::compute::Outputs<std::int32_t, std::int16_t>(
@@ -203,10 +400,21 @@ static_assert(!std::is_constructible_v<TileBody, TileSeedProgram,
 static_assert(!PreparesLvalue<TileBody>);
 static_assert(!PreparesRvalue<TileBody>);
 static_assert(!HasRunSurface<TileBody>);
+static_assert(CanHostFeedback<ValidHostFeedback>);
+static_assert(!CanHostFeedback<ThrowingHostFeedback>);
+static_assert(!CanHostFeedback<InvalidHostFeedback>);
 static_assert(
     CanTileWindowsLvalue<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
                          Buffer<std::uint32_t>, Buffer<std::int64_t>,
                          Buffer<std::uint32_t>>);
+static_assert(
+    !CanTileWindowsWithWrite<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                             Buffer<std::uint32_t>, Buffer<std::int64_t>,
+                             Buffer<std::uint32_t>>);
+static_assert(
+    !CanTileWindowsWithEach<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
+                            Buffer<std::uint32_t>, Buffer<std::int64_t>,
+                            Buffer<std::uint32_t>>);
 static_assert(
     CanTileWindowsRvalue<PipelineBuilder, TileBody, Buffer<std::uint32_t>,
                          Buffer<std::uint32_t>, Buffer<std::int64_t>,
@@ -360,8 +568,7 @@ struct WeightField final {};
           })
           .compile();
   constexpr std::array<std::uint32_t, 17u> shared_initial{
-      1u, 2u, 3u, 4u, 0u, 0u, 0u, 0u, 0u,
-      0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+      1u, 2u, 3u, 4u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
   auto shared_storage = Upload(device, shared_initial);
   if (!shared_count_program || !shared_storage) {
     return 13;
@@ -382,10 +589,9 @@ struct WeightField final {};
                 write(*first, *shared_count, *second, *shared_count, *last,
                       *shared_count))
           .prepare();
-  const Status shared_run =
-      shared_count_pipeline
-          ? shared_count_pipeline->run()
-          : Status::fail(shared_count_pipeline.reason());
+  const Status shared_run = shared_count_pipeline
+                                ? shared_count_pipeline->run()
+                                : Status::fail(shared_count_pipeline.reason());
   std::array<std::uint32_t, shared_initial.size()> shared_values{};
   if (!shared_run ||
       !ReadExact(*shared_count_pipeline, *shared_storage, shared_values) ||

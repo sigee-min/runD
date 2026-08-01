@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Understand runD canonical inputs, Live, Record, Replay, Scenario, checkpoints, and divergence evidence.">
+    <title>Replay — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/replay/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Replay — runD Docs">
+    <meta property="og:description" content="Understand canonical inputs, Live, Record, Replay, Scenario, checkpoints, and divergence evidence.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/replay/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Replay</span></p>
+        <h1>One input boundary. Every mode.</h1>
+        <p class="doc-intro">
+          Live, Record, Replay, and Scenario drive the same computation through canonical application-owned
+          inputs. Replay is evidence, not a second implementation of the domain.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">Canonical input</span><span class="meta-chip">Checkpoints</span><span class="meta-chip">State hashes</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#admission">Admission boundary</a>
+          <a href="#record">Record and replay</a>
+          <a href="#scenario">Scenario</a>
+          <a href="#checkpoint">Checkpoint and history</a>
+          <a href="#inspect">Inspect divergence</a>
+        </nav>
+
+        <section id="admission">
+          <h2>Admission is the determinism boundary</h2>
+          <p>
+            The application owns the meaning and encoding of an observation. Once admitted, runD can give
+            it stable identity, order, recording, and replay. Native wall-clock arrival and operating-system
+            ready-list order remain outside that boundary.
+          </p>
+          <div class="formula">host observation → canonical admission → deterministic runtime state</div>
+        </section>
+
+        <section id="record">
+          <h2>Mode behavior is exact</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Mode</th><th scope="col">Input origin</th><th scope="col">Source calls</th><th scope="col">Fallback</th></tr></thead>
+              <tbody>
+                <tr><td>Live</td><td>Application source</td><td>Exactly once per row</td><td>Not applicable</td></tr>
+                <tr><td>Record</td><td>Application source + retained record</td><td>Exactly once per row</td><td>Not applicable</td></tr>
+                <tr><td>Replay</td><td>Retained canonical record</td><td>Zero</td><td>None</td></tr>
+                <tr><td>Scenario</td><td>Retained Record + validated Choice patches</td><td>Zero</td><td>None</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout">
+            <strong>Fail closed</strong>
+            Replay and Scenario do not call the live source, read the network, or synthesize a default value
+            when canonical evidence is missing.
+          </div>
+          <h3>A checked Record → Replay path</h3>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">replay.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#replay-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="replay-example"><code data-source="package/tests/consumer/example/replay.cpp">#include &lt;rund/replay.hpp&gt;
+
+#include &lt;array&gt;
+#include &lt;cstddef&gt;
+#include &lt;cstdint&gt;
+
+namespace {
+
+int Replay(rund::Session &amp;session) {
+  std::byte produced = std::byte{7};
+  std::uint32_t source_calls = 0u;
+  bool simulation_ok = false;
+  rund::replay::Binding replay{};
+  auto source = [&amp;](rund::replay::Writer &amp;writer) -&gt; std::uint64_t {
+    ++source_calls;
+    const std::array bytes{produced};
+    (void)writer.append(bytes);
+    return 1u;
+  };
+  const auto commands =
+      replay.input(rund::replay::Input{.id = 1u, .schema = 1u}, source);
+  auto simulate = [&amp;](rund::replay::Context &amp;context) {
+    const auto value = commands.read(context);
+    simulation_ok = value &amp;&amp; value.sequence() == 1u &amp;&amp; value.size() == 1u &amp;&amp;
+                    value.bytes()[0] == std::byte{7};
+  };
+
+  const auto recorded = rund::replay::record(session, simulate);
+  if (!recorded) {
+    return recorded.exit_code();
+  }
+  produced = std::byte{255};
+  simulation_ok = false;
+  const auto replayed = rund::replay::run(session, recorded, simulate);
+  if (!replayed) {
+    return replayed.exit_code();
+  }
+  return simulation_ok &amp;&amp; source_calls == 1u ? 0 : 2;
+}
+
+} // namespace
+
+int main() {
+  rund::Session session{};
+  const auto opened = session.open(rund::SessionConfig{.workers = 1u});
+  if (!opened) {
+    return opened.exit_code();
+  }
+
+  const int operation = Replay(session);
+  const auto closed = session.close();
+  if (operation != 0 &amp;&amp; operation != 2) {
+    return operation;
+  }
+  return closed ? operation : closed.exit_code();
+}</code></pre>
+          </div>
+          <p>
+            The source is called once while recording. After the source value changes, strict Replay still
+            returns the recorded byte and makes zero additional source calls.
+          </p>
+        </section>
+
+        <section id="scenario">
+          <h2>Scenario changes input, not the simulation path</h2>
+          <p>
+            A Choice belongs to the bound Channel, so id, schema, sequence, and replacement bytes cannot
+            drift apart. Scenario validates and freezes all choices before restore or simulation.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">Scenario choice · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">std::array replacement{std::byte{0x2a}};
+std::array choices{commands.choice(sequence, replacement)};
+
+auto changed =
+    rund::replay::scenario(session, baseline, choices, simulate);
+if (!changed) return changed.exit_code();</code></pre>
+          </div>
+          <p>
+            Duplicate, missing, ambiguous, invalid, or over-capacity rows fail without invoking the
+            callback. Inspect <code>matches()</code> only after a successful Scenario.
+          </p>
+        </section>
+
+        <section id="checkpoint">
+          <h2>Checkpoints make divergence local</h2>
+          <p>
+            A stateful Binding owns one checkpoint schema and one borrowed restore codec. Checkpoint state
+            is copied into immutable storage; continuation commits its start/state lineage so an unrelated
+            Record cannot be spliced into the chain.
+          </p>
+          <div class="doc-code"><pre class="code"><code>input identity
+  → retained Record
+  → checkpoint state hash + lineage
+  → continued Record
+  → next checkpoint</code></pre></div>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">checkpoint and bounded History · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">auto checkpoint = replay.checkpoint(baseline, state_bytes);
+if (!checkpoint) return checkpoint.exit_code();
+
+auto resume = replay.resume(checkpoint);
+if (!resume) return resume.exit_code();
+auto continued = resume.record(session, simulate);
+if (!continued) return continued.exit_code();
+
+rund::replay::History history{rund::replay::Retention{
+    .max_segments = 64,
+    .max_bytes = 16 * 1024 * 1024,
+    .max_events = 4096,
+}};
+if (!history) return history.exit_code();
+auto added = replay.append(history, std::move(continued), state_bytes);
+if (!added) return added.exit_code();</code></pre>
+          </div>
+          <p>
+            <code>History</code> stores a bounded ring of immutable Record/Checkpoint segments. Segment
+            count, retained bytes, and evidence rows are all explicit limits; eviction preserves a
+            contiguous suffix and does not mutate copied Segment values.
+          </p>
+        </section>
+
+        <section id="inspect">
+          <h2>Inspect the first divergent boundary</h2>
+          <p>
+            <code>check</code> performs strict equality. <code>diff</code> reports typed differences, and
+            <code>window</code> exposes bounded context around the first observation, host-event, input,
+            transcript, or trace mismatch. Save/load APIs enforce explicit limits before publishing
+            immutable evidence.
+          </p>
+          <div class="callout">
+            <strong>The computation remains singular</strong>
+            Replay supplies canonical input to the same application callback and explicit Compute target.
+            It does not replace backend execution with a host approximation or fallback.
+          </div>
+          <p>
+            Continue to <a href="/runD/docs/runtime/">Runtime</a> for Session shutdown and telemetry, or
+            inspect the optional checked
+            <a href="https://github.com/sigee-min/runD/tree/main/package/tests/consumer/example">Scenario, checkpoint, and History examples ↗</a>.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/platforms/"><span><small>Next boundary</small><strong>See which release tuples carry this claim</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Canonical inputs, one runtime path</span><span><a href="/runD/docs/runtime/">Session and telemetry →</a></span></div></footer>
+  </body>
+</html>

@@ -51,7 +51,7 @@ namespace rund::node::test_contract::window {
     auto builder = pipeline(device);
     builder
         .windows<maximum, tile>(*body, rund::compute::window(*count),
-                                read(*initial), write(*output))
+                                read(*initial), write_final(*output))
         .then(*consume, read(*output), write(*consumed));
     auto prepared = std::move(builder).prepare();
     if (!prepared) {

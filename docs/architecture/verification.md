@@ -111,7 +111,7 @@ Both are product-source manifests and must be byte-identical. The selected
 source-manifest contract reuses `before`; it does not add another tree walk.
 
 `tools/source/manifest` includes tracked and untracked product source, docs,
-contracts, tests, package files, release workflows, tools, and wiki pages.
+contracts, tests, package files, release workflows, tools, and public site pages.
 Only platform debris registered in `docs/architecture/root/layout.tsv` is
 excluded. Generated Python bytecode under admitted roots is ignored because it
 is not source authority. Unknown or missing roots, non-regular entries, and

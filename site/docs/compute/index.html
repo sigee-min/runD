@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Choose runD Flow, Program, Job, resident, Batch, and Pipeline execution shapes without changing computation meaning.">
+    <title>Compute — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/compute/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Compute — runD Docs">
+    <meta property="og:description" content="Choose Flow, Program, Job, resident, Batch, and Pipeline execution shapes without changing computation meaning.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/compute/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Compute</span></p>
+        <h1>One language. Several physical shapes.</h1>
+        <p class="doc-intro">
+          Begin with a borrowed Flow. Keep the same graph and move into Program, resident execution,
+          Pipeline, or Batch only when the workload exposes the corresponding repeated cost.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">&lt;rund/compute.hpp&gt;</span><span class="meta-chip">runD::sdk</span><span class="meta-chip">Bounded DSL</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#flow">Flow</a>
+          <a href="#language">Operations</a>
+          <a href="#shape">Choose a shape</a>
+          <a href="#program">Reuse a Program</a>
+          <a href="#async">Compile asynchronously</a>
+          <a href="#resident">Resident, Batch, Pipeline</a>
+          <a href="#session-submit">Submit through Session</a>
+          <a href="#target">Targets</a>
+        </nav>
+
+        <section id="flow">
+          <h2>Start with Flow</h2>
+          <p>
+            <code>on(target, input)</code> borrows an lvalue contiguous range. Construction copies no
+            payload. Intermediate operations remain lazy, and <code>collect()</code> is the complete
+            terminal that opens the selected backend, compiles, transfers, executes, and reads back.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">Flow chain · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">auto result = rund::compute::on(target, input)
+    .map("adjust", [](auto value) { return value + 1; })
+    .scan(rund::compute::Scan::InclusiveSum)
+    .collect();</code></pre>
+          </div>
+        </section>
+
+        <section id="language">
+          <h2>The scalar language is bounded</h2>
+          <p>
+            The lambda constructs a canonical expression circuit from fixed-width integer and Fixed values.
+            Bounded selection, append, work queues, indexed reads and writes, grouping, collectives, and
+            explicit unrolling compose a finite graph before execution.
+          </p>
+          <ul>
+            <li>Every input type and count is exact.</li>
+            <li>Every capacity and iteration ceiling is known before compile.</li>
+            <li>Overflow and unsupported expression shapes are typed admission failures.</li>
+            <li>No backend callback, shader handle, or hidden CPU implementation enters the public Flow.</li>
+          </ul>
+          <p>
+            The primary chain includes map, filter, scan, reduce, sort, argsort, compact, histogram,
+            window, gather, scatter, partition, segmented collectives, bounded expand/join, group-by,
+            records, multiple outputs, and explicit unrolling. Add
+            <code>&lt;rund/compute/math.hpp&gt;</code> for composite expressions, matrices,
+            transforms, factorization, solve, and spectrum stages.
+          </p>
+        </section>
+
+        <section id="shape">
+          <h2>Choose by repeated cost</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Surface</th><th scope="col">Use it when</th><th scope="col">Identity that stays fixed</th></tr></thead>
+              <tbody>
+                <tr><td><code>collect()</code></td><td>You need one convenient host result.</td><td>Flow graph, law, target, result.</td></tr>
+                <tr><td><code>Program</code></td><td>The graph repeats with changing input.</td><td>Compiled canonical Program.</td></tr>
+                <tr><td><code>Job</code></td><td>You need explicit bindings and execution lifecycle.</td><td>Program plus bounded input shape.</td></tr>
+                <tr><td><code>resident()</code></td><td>State should remain on the selected device.</td><td>Program and explicit Buffer state.</td></tr>
+                <tr><td><code>Pipeline</code></td><td>Dependent Programs share resident intermediates.</td><td>Declaration order, hazards, commit.</td></tr>
+                <tr><td><code>Batch</code></td><td>Independent jobs should share one submission boundary.</td><td>Job order and per-job result identity.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="program">
+          <h2>Compile once when the graph repeats</h2>
+          <p>
+            A Program keeps the canonical graph and compiled backend artifact while inputs change. It
+            executes again on every call; this is reuse, not result memoization.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">program.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#program-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="program-example"><code data-source="package/tests/consumer/example/program.cpp">#include &lt;rund/compute.hpp&gt;
+
+#include &lt;algorithm&gt;
+#include &lt;array&gt;
+#include &lt;cstdint&gt;
+#include &lt;span&gt;
+#include &lt;utility&gt;
+
+int main() {
+  constexpr std::size_t Count = 4u;
+  auto device = rund::compute::open(rund::compute::Target::cpu(1u));
+  if (!device) {
+    return device.exit_code();
+  }
+
+  auto flow = rund::compute::on(*device).map&lt;std::int32_t&gt;(
+      "affine", Count, [](auto value) { return value * 2 + 5; });
+  auto program = std::move(flow).compile();
+  if (!program) {
+    return program.exit_code();
+  }
+
+  constexpr std::array&lt;std::int32_t, Count&gt; Initial{1, 2, 3, 4};
+  constexpr std::array&lt;std::int32_t, Count&gt; Changed{10, 20, 30, 40};
+  auto first = program-&gt;run(std::span&lt;const std::int32_t&gt;{Initial});
+  auto second = program-&gt;run(std::span&lt;const std::int32_t&gt;{Changed});
+  if (!first) {
+    return first.exit_code();
+  }
+  if (!second) {
+    return second.exit_code();
+  }
+
+  constexpr std::array&lt;std::int32_t, Count&gt; First{7, 9, 11, 13};
+  constexpr std::array&lt;std::int32_t, Count&gt; Second{25, 45, 65, 85};
+  return std::ranges::equal(*first, First) &amp;&amp;
+                 std::ranges::equal(*second, Second)
+             ? 0
+             : 2;
+}</code></pre>
+          </div>
+        </section>
+
+        <section id="async">
+          <h2>Overlap compilation only when you have other work</h2>
+          <p>
+            Add <code>&lt;rund/compute/async.hpp&gt;</code> and open the Device with an explicit
+            <code>Compile</code> worker and queue budget. <code>compile_async()</code> consumes the
+            Flow and returns immediately after admission; the future yields the same Program result as
+            synchronous <code>compile()</code>.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">async.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#async-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="async-example"><code data-source="package/tests/consumer/example/async.cpp">#include &lt;rund/compute.hpp&gt;
+#include &lt;rund/compute/async.hpp&gt;
+
+#include &lt;array&gt;
+#include &lt;cstdint&gt;
+#include &lt;span&gt;
+#include &lt;vector&gt;
+
+int main() {
+  constexpr std::size_t Count = 4u;
+  auto device = rund::compute::open(
+      rund::compute::Target::cpu(1u),
+      rund::compute::Compile{.workers = 1u, .capacity = 2u});
+  if (!device) {
+    return device.exit_code();
+  }
+
+  auto pending =
+      rund::compute::on(*device)
+          .map&lt;std::int32_t&gt;("async-adjust", Count,
+                             [](auto value) { return value * 2 + 5; })
+          .compile_async();
+  if (!pending) {
+    return pending.exit_code();
+  }
+
+  auto program = pending-&gt;get();
+  if (!program) {
+    return program.exit_code();
+  }
+
+  constexpr std::array&lt;std::int32_t, Count&gt; input{1, 2, 3, 4};
+  auto output = program-&gt;run(std::span&lt;const std::int32_t&gt;{input});
+  if (!output) {
+    return output.exit_code();
+  }
+  return *output == std::vector&lt;std::int32_t&gt;{7, 9, 11, 13} ? 0 : 2;
+}</code></pre>
+          </div>
+          <p>
+            Check both boundaries. A failed outer result means the recipe was not admitted; inspect
+            <code>reason()</code> for unavailable service or full capacity and retry only after fixing
+            that resource condition. A failed result from <code>future::get()</code> is the actual graph
+            compilation failure; fix the reported graph or target condition. Neither path switches target.
+          </p>
+        </section>
+
+        <section id="resident">
+          <h2>Keep data resident only when reuse pays</h2>
+          <h3>Resident Job</h3>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">resident loop · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">auto job = program-&gt;resident(input);
+if (!job) return job.exit_code();
+
+for (std::size_t i = 0; i &lt; iterations; ++i) {
+  auto completed = job-&gt;run();
+  if (!completed) return completed.exit_code();
+}
+auto output = job-&gt;read();</code></pre>
+          </div>
+          <p>
+            Resident creation prepares bounded storage and uploads the initial input. Warm
+            <code>run()</code> changes execution state without an implicit readback; <code>read()</code>
+            is the explicit host boundary.
+          </p>
+
+          <h3>Batch independent GPU Jobs</h3>
+          <p>
+            <code>Batch</code> accepts at most 64 resident Jobs from the same opened Device and executes
+            them behind one native submission boundary. It does not fuse their graphs, change order, or
+            support CPU Jobs. Empty, duplicate, cross-Device, busy, and over-capacity admission fail
+            before any Job executes.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">Batch submission · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">rund::compute::Batch batch;
+if (auto added = batch.add(*first); !added) return added.exit_code();
+if (auto added = batch.add(*second); !added) return added.exit_code();
+if (auto completed = batch.run(); !completed) return completed.exit_code();
+
+auto first_output = first-&gt;read();
+auto second_output = second-&gt;read();</code></pre>
+          </div>
+
+          <h3>Pipeline dependent Programs</h3>
+          <p>
+            Include <code>&lt;rund/compute/pipeline.hpp&gt;</code> when compiled Programs share resident
+            buffers. Declare stages in order, bind exact reads and writes, call <code>prepare()</code>
+            once, reuse <code>run()</code>, then publish state only through explicit commit/readback.
+            Hazards, claims, poison, and failure remain tied to declaration order.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">two-stage Pipeline · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">auto prepared =
+    rund::compute::pipeline(device)
+        .then(*produce, rund::compute::read(*input),
+              rund::compute::write(*middle))
+        .then(*consume, rund::compute::read(*middle),
+              rund::compute::write(*output))
+        .prepare();
+if (!prepared) return prepared.exit_code();
+
+rund::compute::Pipeline pipeline = std::move(prepared).value();
+if (auto ran = pipeline.run(); !ran) return ran.exit_code();
+if (auto read = pipeline.read(*output, observed); !read) {
+  return read.exit_code();
+}</code></pre>
+          </div>
+          <p>
+            The names above stand for already compiled Programs, resident Buffers, and caller-owned
+            output storage. For a larger profile-and-memory example, inspect the optional checked
+            <a href="https://github.com/sigee-min/runD/blob/main/package/tests/consumer/example/pipeline.cpp">Pipeline consumer source ↗</a>.
+          </p>
+        </section>
+
+        <section id="session-submit">
+          <h2>Submit a prepared Job through an active Session</h2>
+          <p>
+            Add <code>&lt;rund/compute/session.hpp&gt;</code> when the application already owns a
+            runtime Session. Prepare the resident Job first, then submit that same Job; Session schedules
+            it but does not recompile, change target, or read the result back.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">compute-session.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#compute-session-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="compute-session-example"><code data-source="package/tests/consumer/example/compute-session.cpp">#include &lt;rund/compute.hpp&gt;
+#include &lt;rund/compute/session.hpp&gt;
+#include &lt;rund/session.hpp&gt;
+
+#include &lt;array&gt;
+#include &lt;cstdint&gt;
+#include &lt;vector&gt;
+
+int main() {
+  constexpr std::array&lt;std::int32_t, 4u&gt; input{1, 2, 3, 4};
+  auto program =
+      rund::compute::on(rund::compute::Target::cpu(2u))
+          .map&lt;std::int32_t&gt;("session-adjust", input.size(),
+                             [](auto value) { return value * 2 + 5; })
+          .compile();
+  if (!program) {
+    return program.exit_code();
+  }
+
+  auto job = program-&gt;resident(input);
+  if (!job) {
+    return job.exit_code();
+  }
+
+  int operation = 0;
+  const rund::Session::Result hosted =
+      rund::run(rund::SessionConfig{.workers = 2u},
+                [&amp;](rund::Session &amp;session) {
+                  const rund::compute::Completion completed =
+                      session.compute(*job).submit().wait();
+                  operation = completed.exit_code();
+                });
+  if (!hosted) {
+    return hosted.exit_code();
+  }
+  if (operation != 0) {
+    return operation;
+  }
+
+  auto output = job-&gt;read();
+  if (!output) {
+    return output.exit_code();
+  }
+  return *output == std::vector&lt;std::int32_t&gt;{7, 9, 11, 13} ? 0 : 2;
+}</code></pre>
+          </div>
+          <p>
+            Keep the two outcomes separate: <code>Completion</code> owns submission and backend
+            execution failure, while <code>Session::Result</code> owns lifecycle and drain failure.
+            Read the Job only after both succeed. A busy Job must finish before resubmission; a stopped
+            Session requires a new active lifecycle, not a standalone or CPU fallback.
+          </p>
+        </section>
+
+        <section id="target">
+          <h2>Explicit target selection</h2>
+          <p>
+            The current Alpha exposes CPU, Metal, and Vulkan target constructors. These are current
+            lowering implementations, not the identity of the Flow language. An additional backend must
+            implement the same graph, numeric, ordering, failure, and evidence contracts before it can join.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">target constructors · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">Target::cpu()
+Target::metal()
+Target::vulkan()</code></pre>
+          </div>
+          <div class="callout">
+            <strong>No fallback</strong>
+            Target selection is a product decision. An unavailable target fails with machine-readable
+            state instead of running the computation somewhere else.
+          </div>
+        </section>
+
+        <section>
+          <h2>Use the focused public surface</h2>
+          <p>
+            Use focused <code>&lt;rund/*.hpp&gt;</code> entries and link only <code>runD::sdk</code>.
+            Kernel scheduling, accelerator adapters, native device values, and Node runtime integration
+            remain implementation layers behind the installed contract.
+          </p>
+          <p>
+            <a href="/runD/docs/performance/">Choose by measured cost</a>, or open
+            <a href="/runD/docs/api/">API &amp; Errors</a> for focused extensions, result ownership,
+            and failure actions.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/performance/"><span><small>Next decision</small><strong>Measure the physical boundary you selected</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>One graph language</span><span><a href="https://github.com/sigee-min/runD/blob/main/docs/reference/compute.md">Owning Compute reference ↗</a></span></div></footer>
+  </body>
+</html>

@@ -250,7 +250,7 @@ configure/build/run lifecycle.
 
 The workflow reads the canonical `linux-x64` classification from
 [`platform/tuples.tsv`](./platform/tuples.tsv) through the shared status reader;
-release and wiki guides own no second platform matrix. Retaining a workflow
+release and public site guides own no second platform matrix. Retaining a workflow
 candidate never promotes the tuple. The workflow brackets its one repository
 build in the registered `.cache/release` root with the source-manifest boundary
 and delegates identity generation and archive lifecycle to the same owners as

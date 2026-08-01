@@ -32,7 +32,7 @@ namespace rund_node_test_pipeline {
   }
   auto oversized = pipeline(device)
                        .repeat<PipelineIterationCapacity + 1u>(
-                           *body, read(*input), write(*output))
+                           *body, read(*input), write_final(*output))
                        .prepare();
   if (oversized || oversized.reason() != Reason::PipelineCapacity) {
     return 9;
@@ -40,7 +40,7 @@ namespace rund_node_test_pipeline {
   auto loop = pipeline(device)
                   .profile(PipelineProfile::Steps)
                   .repeat<PipelineIterationCapacity>(*body, read(*input),
-                                                     write(*output))
+                                                     write_final(*output))
                   .prepare();
   if (!loop) {
     std::fprintf(stderr, "repeat prepare reason=%u\n",
@@ -183,7 +183,7 @@ namespace rund_node_test_pipeline {
     auto plain = plain_output
                      ? pipeline(device)
                            .repeat<PipelineIterationCapacity>(
-                               *body, read(*input), write(*plain_output))
+                               *body, read(*input), write_final(*plain_output))
                            .prepare()
                      : Result<Pipeline>::fail(Reason::PipelineInvalid);
     std::array<std::int32_t, seed.size()> plain_values{};
@@ -244,8 +244,9 @@ namespace rund_node_test_pipeline {
   }
   auto active_loop = pipeline(device)
                          .profile(PipelineProfile::Steps)
-                         .repeat<6u>(*active_body, read(*active_values, *count),
-                                     write(*remaining_values, *remaining_count))
+                         .repeat<6u>(
+                             *active_body, read(*active_values, *count),
+                             write_final(*remaining_values, *remaining_count))
                          .prepare();
   auto reference_builder = pipeline(device).profile(PipelineProfile::Steps);
   reference_builder

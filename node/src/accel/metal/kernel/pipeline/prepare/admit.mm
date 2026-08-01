@@ -1,47 +1,114 @@
 #include "../build.hpp"
 
+#include "../aggregate/admit.hpp"
+
 #include "../../../buffer/resident/find.hpp"
 #include "../../../resident.hpp"
 #include "../../../resident/access.hpp"
 #include "../../../runtime/map/api.hpp"
+#include "../../../runtime/map/resources.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <new>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
 rund::AccelCheck MetalPipelineBuild::Admit() {
-  if (templates.empty() || entries.empty() ||
-      entries.size() != barriers.size() ||
-      templates.size() != status.active_step_count ||
-      entries.size() != status.command_count ||
-      entries.front().run == nullptr || entries.front().run->pick == nullptr) {
+  if (templates.empty() || templates.size() != status.active_step_count ||
+      templates.front().run == nullptr ||
+      templates.front().run->pick == nullptr) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
-  for (std::size_t index = 0u; index < entries.size(); ++index) {
-    if (entries[index].occurrence_index != index ||
-        entries[index].template_index >= templates.size() ||
-        (entries[index].transducer != NoTileTransducer &&
-         entries[index].transducer >= transducers.size())) {
+  const bool compact_input = entries.empty() && barriers.empty() &&
+                             status.command_count == 2u &&
+                             aggregates.size() == 1u;
+  if (!compact_input) {
+    if (entries.empty() || entries.size() != barriers.size() ||
+        entries.size() != status.command_count ||
+        entries.front().run == nullptr ||
+        entries.front().run->pick == nullptr) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
+    for (std::size_t index = 0u; index < entries.size(); ++index) {
+      if (entries[index].occurrence_index != index ||
+          entries[index].template_index >= templates.size() ||
+          (entries[index].transducer != NoTileTransducer &&
+           entries[index].transducer >= transducers.size())) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
+    }
+  }
+  const rund::AccelCheck valid =
+      ValidateMetalKernelContext(*templates.front().run->pick, context);
+  if (!valid.ok || context.adapter == nullptr) {
+    return valid;
+  }
+  if (aggregates.size() == 1u) {
+    const NestedAggregate &aggregate = aggregates.front();
+    const bool complete_templates =
+        aggregate.seed.first == 0u &&
+        aggregate.seed.count == aggregate.window.outer_bound &&
+        aggregate.action.first == aggregate.seed.end() &&
+        aggregate.action.count == aggregate.window.inner_bound &&
+        aggregate.fold.first == aggregate.action.end() &&
+        aggregate.fold.count == 3u && aggregate.fold.end() == templates.size();
+    const bool complete_publication =
+        publications.size() == 1u && aggregate.publication_index == 0u;
+    const bool profile_ready =
+        !profile_steps || aggregate.profile.aggregate_profile_supported;
+    const bool seed_profile_owner =
+        aggregate.seed.first < status.active_step_count &&
+        status.declared_steps[aggregate.seed.first] <
+            status.declared_step_count;
+    if (complete_templates && complete_publication && profile_ready &&
+        seed_profile_owner) {
+      const rund::AccelCheck admitted = AdmitMetalNestedAggregate(
+          aggregate, status, profile_steps, context, native_aggregate);
+      if (!admitted.ok) {
+        if (compact_input || std::string_view{admitted.reason} !=
+                                 "accel_kernel_primitive_unsupported") {
+          return admitted;
+        }
+      } else {
+        aggregate_profile_owner = status.declared_steps[aggregate.seed.first];
+        aggregate_selected = true;
+      }
+    }
+  }
+  if (aggregate_selected) {
+    try {
+      pipeline = std::make_shared<MetalSequence>();
+      pipeline->adapter = context.adapter;
+      pipeline->profile_steps = profile_steps;
+      if (profile_steps) {
+        if (status.declared_step_count == 0u ||
+            status.declared_step_count > PreparedPipelineStepCapacity) {
+          return rund::AccelCheck{false, "compute_pipeline_capacity"};
+        }
+        pipeline->step_evidence.resize(status.declared_step_count);
+      }
+    } catch (const std::bad_alloc &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    return rund::AccelCheck{true, "ok"};
+  }
+  if (compact_input) {
+    // The compact representation intentionally owns no canonical occurrence
+    // stream. Reaching this point means the common proof and native admission
+    // disagreed, so fail closed instead of manufacturing a second authority.
+    return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
   recurrence = BuildMapRecurrence(entries, barriers);
   if (recurrence.invalid()) {
     return rund::AccelCheck{false, recurrence.reason};
   }
-  const rund::AccelCheck valid =
-      ValidateMetalKernelContext(*entries.front().run->pick, context);
-  if (!valid.ok || context.adapter == nullptr) {
-    return valid;
-  }
   std::uint32_t state_count = 0u;
   try {
-    constexpr std::uint32_t unset =
-        std::numeric_limits<std::uint32_t>::max();
+    constexpr std::uint32_t unset = std::numeric_limits<std::uint32_t>::max();
     std::vector<std::uint32_t> deferred_inner_advance;
     std::vector<std::uint32_t> deferred_inner_bound;
     for (const BackendBatchEntry &entry : entries) {
@@ -169,9 +236,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
              window->inner_iteration < window->inner_bound &&
              window->route == 0u &&
              window->inner_advance ==
-                 (entries[entry_index].transducer == NoTileTransducer
-                      ? 1u
-                      : 0u)) ||
+                 (entries[entry_index].transducer == NoTileTransducer ? 1u
+                                                                      : 0u)) ||
             (window->phase == BackendWindowPhase::NestedFold &&
              window->route < 3u &&
              (window->inner_advance == 0u ||
@@ -181,8 +247,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       if (entries[entry_index].transducer != NoTileTransducer) {
         const TileTransducer &transducer =
             transducers[entries[entry_index].transducer];
-        if (!nested ||
-            window->phase != BackendWindowPhase::NestedAction ||
+        if (!nested || window->phase != BackendWindowPhase::NestedAction ||
             !transducer.recurrence.ready() ||
             transducer.template_first != entries[entry_index].template_index ||
             transducer.template_count != window->inner_bound) {
@@ -195,8 +260,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       if (!count.check.ok || count.device_buffer == nullptr ||
           window->maximum == 0u || window->tile == 0u ||
           window->tile > window->maximum || window->bound == 0u ||
-          window->iteration >= window->bound ||
-          !nested_shape_valid ||
+          window->iteration >= window->bound || !nested_shape_valid ||
           window->count.source.count != 1u ||
           window->count.source.element_bytes != sizeof(std::uint32_t) ||
           (window->count.source.offset_bytes % sizeof(std::uint32_t)) != 0u) {
@@ -309,6 +373,12 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     if (!ready.ok) {
       return ready;
     }
+    auto *const prepared = static_cast<MetalMapEncodeResources *>(
+        pipeline->recurrence.get());
+    if (prepared == nullptr) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
+    prepared->binding_owner = recurrence.history;
   }
   for (std::size_t index = 0u; index < transducers.size(); ++index) {
     const TileTransducer &transducer = transducers[index];
@@ -328,11 +398,10 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     }
     rund::AccelCheck ready{};
     try {
-      ready = PrepareMetalMap(
-          *owner.run->pick, map.plan, map.artifact, map.windows,
-          map.window_count, map.bindings, map.first->control,
-          pipeline->transducers[index],
-          static_cast<std::uint32_t>(map.iterations));
+      ready = PrepareMetalMap(*owner.run->pick, map.plan, map.artifact,
+                              map.windows, map.window_count, map.bindings,
+                              map.first->control, pipeline->transducers[index],
+                              static_cast<std::uint32_t>(map.iterations));
     } catch (const std::bad_alloc &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }

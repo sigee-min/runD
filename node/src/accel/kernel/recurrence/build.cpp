@@ -27,8 +27,10 @@ enum class RecurrenceMarker : std::uint8_t {
 Build(const std::span<const BackendBatchEntry> entries,
       const std::span<const std::uint8_t> barriers,
       const RecurrenceMarker marker) {
+  bool writes_each_iteration = false;
   const bool marked = marker == RecurrenceMarker::TopLevel
-                          ? ExactRecurrenceMarker(entries)
+                          ? ExactRecurrenceMarker(entries,
+                                                  writes_each_iteration)
                           : ExactNestedMapRecurrenceMarker(entries);
   if (!marked) {
     return {};
@@ -51,7 +53,8 @@ Build(const std::span<const BackendBatchEntry> entries,
   }
   const BoundStep &first = first_run->steps[0];
   if (!BoundStepMatches(first, rund::kernel::NodeKind::Map) ||
-      first.control.active() || first.planned->artifact == nullptr ||
+      first.control.active() || !first.step->map_semantic.recurrence_total ||
+      first.planned->artifact == nullptr ||
       first.step->artifact.kind != first.planned->artifact->kind ||
       first.planned->artifact != &first.step->artifact ||
       !first.step->artifact.metadata.read_routes.empty() ||
@@ -86,7 +89,8 @@ Build(const std::span<const BackendBatchEntry> entries,
     const BoundStep &step = run->steps[0];
     const BindingSet binding = MapBindingFor(step);
     if (!BoundStepMatches(step, rund::kernel::NodeKind::Map) ||
-        step.control.active() || step.planned->artifact == nullptr ||
+        step.control.active() || !step.step->map_semantic.recurrence_total ||
+        step.planned->artifact == nullptr ||
         step.planned->artifact != &step.step->artifact ||
         !SamePlan(first.planned->plan, step.planned->plan) ||
         !SameArtifact(first.step->artifact, step.step->artifact) ||
@@ -138,7 +142,6 @@ Build(const std::span<const BackendBatchEntry> entries,
   result.first = &first;
   result.last = last;
   result.bindings = first_binding;
-  result.bindings.resident_outputs = last_binding.resident_outputs;
   result.artifact = first.step->artifact;
   result.plan = first.planned->plan;
   result.windows = first.map_windows.data();
@@ -146,7 +149,28 @@ Build(const std::span<const BackendBatchEntry> entries,
   result.iterations = entries.size();
   result.reason = "compute_pipeline_recurrence_source_invalid";
   try {
-    if (!TransformSource(result.artifact, input_count, output_count)) {
+    std::shared_ptr<MapRecurrenceHistory> history;
+    if (writes_each_iteration) {
+      history = std::make_shared<MapRecurrenceHistory>();
+      if (!ExactHistoryOutputs(entries, output_count, *history)) {
+        result.reason = "compute_pipeline_recurrence_history_invalid";
+        return result;
+      }
+      result.bindings.resident_outputs = history->range();
+      if (result.bindings.resident_outputs.count != output_count) {
+        result.reason = "compute_pipeline_recurrence_history_invalid";
+        return result;
+      }
+      result.history = history;
+    } else {
+      result.bindings.resident_outputs = last_binding.resident_outputs;
+    }
+    const std::span<const std::uint64_t> history_pitches =
+        history == nullptr
+            ? std::span<const std::uint64_t>{}
+            : std::span<const std::uint64_t>{history->pitch_bytes};
+    if (!TransformSource(result.artifact, input_count, output_count,
+                         history_pitches)) {
       return result;
     }
   } catch (const std::bad_alloc &) {

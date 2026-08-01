@@ -103,14 +103,15 @@ MeasureMetalWork(const std::span<const MetalCommand> commands) noexcept {
 
 void append_command(MetalCapture &capture, const MetalGrid kind,
                     const MTLSize grid, const MTLSize threads) {
-  const bool owned =
-      capture.owner != std::numeric_limits<std::uint32_t>::max();
-  if (capture.pipeline == nil || capture.guard_zero == nil ||
-      kind == MetalGrid::None || empty_grid(threads) ||
-      (capture.binding_mask &
-       (std::uint32_t{1u} << kMetalPipelineGuardBinding)) != 0u ||
-      (owned && (capture.guard_states == nil ||
-                 capture.owner >= capture.guard_state_count))) {
+  const bool owned = capture.owner != std::numeric_limits<std::uint32_t>::max();
+  if (capture.pipeline == nil || kind == MetalGrid::None ||
+      empty_grid(threads) || (capture.unguarded && owned) ||
+      (!capture.unguarded &&
+       (capture.guard_zero == nil ||
+        (capture.binding_mask &
+         (std::uint32_t{1u} << kMetalPipelineGuardBinding)) != 0u ||
+        (owned && (capture.guard_states == nil ||
+                   capture.owner >= capture.guard_state_count))))) {
     capture.failed = true;
     return;
   }
@@ -120,11 +121,13 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
   const std::size_t binding_begin = capture.command_bindings.size();
   const std::size_t threadgroup_begin = capture.command_threadgroups.size();
   const std::size_t binding_count =
-      std::popcount(capture.binding_mask) + 1u;
+      std::popcount(capture.binding_mask) +
+      static_cast<std::size_t>(!capture.unguarded);
   const std::size_t threadgroup_count = std::popcount(capture.threadgroup_mask);
-  capture.highest_binding =
-      std::max<NSUInteger>(capture.highest_binding,
-                           kMetalPipelineGuardBinding + 1u);
+  if (!capture.unguarded) {
+    capture.highest_binding = std::max<NSUInteger>(
+        capture.highest_binding, kMetalPipelineGuardBinding + 1u);
+  }
   if (binding_count > capture.command_bindings.max_size() - binding_begin ||
       threadgroup_count >
           capture.command_threadgroups.max_size() - threadgroup_begin ||
@@ -160,14 +163,16 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
       });
       bindings &= bindings - 1u;
     }
-    capture.command_bindings.push_back(MetalCommandBinding{
-        .buffer = owned ? capture.guard_states : capture.guard_zero,
-        .offset = owned ? static_cast<NSUInteger>(capture.owner) *
-                                  sizeof(ResidentState) +
-                              offsetof(ResidentState, stopped)
-                        : 0u,
-        .index = kMetalPipelineGuardBinding,
-    });
+    if (!capture.unguarded) {
+      capture.command_bindings.push_back(MetalCommandBinding{
+          .buffer = owned ? capture.guard_states : capture.guard_zero,
+          .offset = owned ? static_cast<NSUInteger>(capture.owner) *
+                                    sizeof(ResidentState) +
+                                offsetof(ResidentState, stopped)
+                          : 0u,
+          .index = kMetalPipelineGuardBinding,
+      });
+    }
     std::uint32_t threadgroups = capture.threadgroup_mask;
     while (threadgroups != 0u) {
       const NSUInteger index =

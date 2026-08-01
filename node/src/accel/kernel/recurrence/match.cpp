@@ -161,20 +161,25 @@ namespace {
 }
 
 [[nodiscard]] bool ExactRecurrenceMarker(
-    const std::span<const BackendBatchEntry> entries) noexcept {
+    const std::span<const BackendBatchEntry> entries,
+    bool &writes_each_iteration) noexcept {
+  writes_each_iteration = false;
   if (entries.size() <= 1u ||
       entries.size() > std::numeric_limits<std::uint32_t>::max()) {
     return false;
   }
   const std::uint32_t logical = entries.front().recurrence.logical_step;
   const std::uint32_t bound = static_cast<std::uint32_t>(entries.size());
+  const bool history = entries.front().recurrence.writes_each_iteration;
   for (std::size_t index = 0u; index < entries.size(); ++index) {
     const BackendRecurrence marker = entries[index].recurrence;
     if (marker.logical_step != logical || marker.bound != bound ||
-        marker.iteration != index || marker.window != nullptr) {
+        marker.iteration != index || marker.window != nullptr ||
+        marker.writes_each_iteration != history) {
       return false;
     }
   }
+  writes_each_iteration = history;
   return true;
 }
 
@@ -197,7 +202,8 @@ namespace {
     const BackendRecurrence marker = entries[index].recurrence;
     const BackendWindow *const window = marker.window;
     if (marker.logical_step != logical || marker.bound != bound ||
-        marker.iteration != index || window == nullptr ||
+        marker.iteration != index || marker.writes_each_iteration ||
+        window == nullptr ||
         window->phase != BackendWindowPhase::NestedAction ||
         window->state != first->state || window->maximum != first->maximum ||
         window->tile != first->tile || window->expected != first->expected ||
@@ -209,6 +215,121 @@ namespace {
             first->count.source.offset_bytes ||
         window->count.handle != first->count.handle) {
       return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool ExactHistoryOutputs(
+    const std::span<const BackendBatchEntry> entries,
+    const std::uint64_t output_count, MapRecurrenceHistory &history) {
+  constexpr std::uint64_t source_address_bytes =
+      static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) +
+      1u;
+  if (entries.size() <= 1u || output_count == 0u ||
+      output_count > std::numeric_limits<std::size_t>::max()) {
+    return false;
+  }
+  const BackendRun *const first_run = entries.front().run;
+  if (first_run == nullptr || first_run->steps == nullptr ||
+      first_run->step_count != 1u) {
+    return false;
+  }
+  const BindingSet first = MapBindingFor(first_run->steps[0]);
+  if (!first.ok || first.resident_outputs.count != output_count ||
+      !first.resident_outputs.has_refs() ||
+      !first.resident_outputs.has_handles()) {
+    return false;
+  }
+
+  const std::size_t count = static_cast<std::size_t>(output_count);
+  history.outputs.resize(count);
+  history.handles.resize(count);
+  history.pitch_bytes.resize(count);
+  for (std::uint64_t output = 0u; output < output_count; ++output) {
+    const ResidentBufferRef *const ref = first.resident_outputs.ref(output);
+    const std::shared_ptr<void> *const handle =
+        first.resident_outputs.handle(output);
+    if (ref == nullptr || handle == nullptr || *handle == nullptr ||
+        ref->id == 0u || ref->bytes == 0u || ref->count == 0u ||
+        ref->element_bytes == 0u || ref->stride_bytes < ref->element_bytes ||
+        ref->usage != rund::kernel::kResidentUsageWrite ||
+        ref->count > std::numeric_limits<std::uint64_t>::max() /
+                         ref->stride_bytes ||
+        ref->count > std::numeric_limits<std::uint64_t>::max() /
+                         entries.size()) {
+      return false;
+    }
+    const std::uint64_t pitch = ref->count * ref->stride_bytes;
+    const std::uint64_t total_count = ref->count * entries.size();
+    const std::uint64_t last = total_count - 1u;
+    if (last > std::numeric_limits<std::uint64_t>::max() /
+                   ref->stride_bytes) {
+      return false;
+    }
+    const std::uint64_t last_offset = last * ref->stride_bytes;
+    if (last_offset > source_address_bytes ||
+        ref->element_bytes > source_address_bytes - last_offset ||
+        ref->offset_bytes > ref->bytes ||
+        last_offset > ref->bytes - ref->offset_bytes ||
+        ref->element_bytes >
+            ref->bytes - ref->offset_bytes - last_offset) {
+      return false;
+    }
+    history.outputs[static_cast<std::size_t>(output)] = *ref;
+    history.outputs[static_cast<std::size_t>(output)].count = total_count;
+    history.handles[static_cast<std::size_t>(output)] = *handle;
+    history.pitch_bytes[static_cast<std::size_t>(output)] = pitch;
+  }
+
+  for (std::size_t iteration = 0u; iteration < entries.size(); ++iteration) {
+    const BackendRun *const run = entries[iteration].run;
+    if (run == nullptr || run->steps == nullptr || run->step_count != 1u) {
+      return false;
+    }
+    const BindingSet binding = MapBindingFor(run->steps[0]);
+    if (!binding.ok || binding.resident_outputs.count != output_count ||
+        !binding.resident_outputs.has_refs() ||
+        !binding.resident_outputs.has_handles()) {
+      return false;
+    }
+    for (std::uint64_t output = 0u; output < output_count; ++output) {
+      const std::size_t position = static_cast<std::size_t>(output);
+      const ResidentBufferRef &full = history.outputs[position];
+      const ResidentBufferRef *const slice =
+          binding.resident_outputs.ref(output);
+      const std::shared_ptr<void> *const handle =
+          binding.resident_outputs.handle(output);
+      const std::uint64_t slice_count = full.count / entries.size();
+      const std::uint64_t pitch = history.pitch_bytes[position];
+      if (iteration > std::numeric_limits<std::uint64_t>::max() / pitch ||
+          full.offset_bytes > std::numeric_limits<std::uint64_t>::max() -
+                                  iteration * pitch) {
+        return false;
+      }
+      const std::uint64_t expected_offset =
+          full.offset_bytes + iteration * pitch;
+      if (slice == nullptr || handle == nullptr || *handle == nullptr ||
+          *handle != history.handles[position] || slice->id != full.id ||
+          slice->bytes != full.bytes ||
+          slice->offset_bytes != expected_offset ||
+          slice->element_bytes != full.element_bytes ||
+          slice->stride_bytes != full.stride_bytes ||
+          slice->count != slice_count || slice->usage != full.usage) {
+        return false;
+      }
+    }
+  }
+
+  const ResidentBindingRange complete = history.range();
+  if (complete.count != output_count) {
+    return false;
+  }
+  for (std::uint64_t left = 0u; left < output_count; ++left) {
+    for (std::uint64_t right = left + 1u; right < output_count; ++right) {
+      if (Aliases(complete, left, complete, right)) {
+        return false;
+      }
     }
   }
   return true;

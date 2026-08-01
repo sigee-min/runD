@@ -140,6 +140,10 @@ SameControlStats(const rund::compute::ControlStats &left,
       left.pipeline.step_count == right.pipeline.step_count &&
       left.pipeline.resource_count == right.pipeline.resource_count &&
       left.pipeline.barrier_count == right.pipeline.barrier_count &&
+      left.pipeline.sealed_repetition_count ==
+          right.pipeline.sealed_repetition_count &&
+      left.pipeline.coalesced_repetition_count ==
+          right.pipeline.coalesced_repetition_count &&
       left.pipeline.claim_conflict_count ==
           right.pipeline.claim_conflict_count &&
       left.pipeline.verified_step_count == right.pipeline.verified_step_count &&
@@ -213,4 +217,4 @@ SameControlStats(const rund::compute::ControlStats &left,
       stats));
 }
 
-}  // namespace rund_node_test_pipeline
+} // namespace rund_node_test_pipeline

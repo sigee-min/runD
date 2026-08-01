@@ -37,6 +37,10 @@ standalone `run()` or `Session::compute(Pipeline&)`. Pipeline does not add a
 second graph language or scheduler. Its declaration-order, hazard, claim,
 poison, one-submit, explicit-readback, status, memory, and performance laws are
 owned by the [Node Compute Pipeline contract](../../node/docs/contracts/compute/pipeline.md).
+`sealed_repetitions<N>()` is the narrower input-sealed repetition contract: cold
+exact-range proof must exclude caller-owned temporal feedback and transactional
+state, and one execution still owns one publication and generation. It is not
+an `N`-tick simulation or intermediate-observation surface.
 
 ## 1. Primary Borrowed Flow
 
@@ -162,7 +166,12 @@ algorithm has a named SDK primitive. The normal-form argument is:
    for work items. Small compile-time circuit expansion uses `unroll<N>`.
    Fixed resident recurrence uses Pipeline `repeat<N>`. Bounded resident
    recurrence uses `windows<Max, Tile>` with one device-resident count and an
-   optional recurrent U32 terminal leaf. Both reuse one compiled body Program
+   optional recurrent U32 terminal leaf. Fixed recurrence makes retention
+   explicit: `write_final(result)` keeps only the terminal state, while
+   `write_each(history)` keeps every state in caller-owned iteration-major
+   storage. Bounded windows are terminal-only and use `write_final`. Plain
+   `write` remains the output spelling for ordinary `then(...)` steps. Both
+   recurrence forms reuse one compiled body Program
    plus one Program-internal workspace. Pipeline orders cross-Program
    transitions, consumes occurrence-local telemetry before route reuse, and
    publishes persistent state only at `commit()`.
@@ -173,6 +182,13 @@ algorithm has a named SDK primitive. The normal-form argument is:
    recurrence. Preparation keeps the three Programs once and stores a
    hierarchical `O(ceil(Max / Tile) + N)` schedule rather than a flattened
    outer-times-inner graph.
+5. A CPU decision between successful Pipeline executions is declared outside
+   the device graph with `host_feedback(pipeline, count, callback)`. The
+   callback observes every completed run through `HostIteration`, may update
+   exact typed inputs only when `has_next()` is true, and commits each
+   successful prefix before continuing. This deliberately pays one GPU
+   submission/completion per host iteration; omitting it leaves the prepared
+   resident path unchanged.
 
 By induction over that finite transition graph, every admitted bounded
 word-array program has a Flow/Pipeline representation. The converse is

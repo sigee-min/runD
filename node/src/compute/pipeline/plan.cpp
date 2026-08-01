@@ -41,6 +41,10 @@ plan_pipeline(const std::shared_ptr<PipelineBuildState> &build) noexcept {
   if (build->device == nullptr) {
     return Result<PipelinePlan>::fail(Reason::DeviceInvalid);
   }
+  if (build->sealed_repetitions == 0u ||
+      build->sealed_repetitions > PipelineSealedRepetitionCapacity) {
+    return Result<PipelinePlan>::fail(Reason::PipelineCapacity);
+  }
   if (build->steps.empty()) {
     return Result<PipelinePlan>::fail(Reason::PipelineEmpty);
   }
@@ -79,6 +83,11 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
   }
   if (build->device == nullptr) {
     return Result<std::shared_ptr<PipelineState>>::fail(Reason::DeviceInvalid);
+  }
+  if (build->sealed_repetitions == 0u ||
+      build->sealed_repetitions > PipelineSealedRepetitionCapacity) {
+    return Result<std::shared_ptr<PipelineState>>::fail(
+        Reason::PipelineCapacity);
   }
   if (build->steps.empty()) {
     return Result<std::shared_ptr<PipelineState>>::fail(Reason::PipelineEmpty);
@@ -125,8 +134,8 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
     }
     const Status bound = bind_pipeline(build, preparation);
     if (!bound) {
-      return Result<std::shared_ptr<PipelineState>>::fail(
-          bound.reason(), preparation.failure);
+      return Result<std::shared_ptr<PipelineState>>::fail(bound.reason(),
+                                                          preparation.failure);
     }
     std::shared_ptr<PipelineState> &state = preparation.state;
     if (build->seed != nullptr) {

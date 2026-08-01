@@ -71,7 +71,7 @@ document owns.
 
 ## C++ Fences
 
-Every C++ fence in repository, subsystem, package, and wiki documentation is
+Every C++ fence in repository, subsystem, package, and site documentation is
 classified in its info string:
 
 ````text

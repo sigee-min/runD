@@ -12,6 +12,7 @@
 namespace rund::node::accel::detail {
 
 struct TileTransducer;
+struct NestedAggregate;
 
 [[nodiscard]] rund::AccelCheck RunFakeKernel(const BackendRun &run);
 [[nodiscard]] rund::AccelCheck RunMetalKernel(const BackendRun &run);
@@ -42,6 +43,7 @@ PrepareMetalPipeline(std::span<const BackendBatchEntry> templates,
                      std::span<const BackendBatchEntry> entries,
                      std::span<const std::uint8_t> barriers,
                      std::span<const TileTransducer> transducers,
+                     std::span<const NestedAggregate> aggregates,
                      std::span<const BackendPublish> publications,
                      PreparedPipelineStatusLayout &status, bool profile_steps,
                      std::shared_ptr<void> &prepared,
@@ -71,6 +73,7 @@ PrepareVulkanPipeline(std::span<const BackendBatchEntry> templates,
                       std::span<const BackendBatchEntry> entries,
                       std::span<const std::uint8_t> barriers,
                       std::span<const TileTransducer> transducers,
+                      std::span<const NestedAggregate> aggregates,
                       std::span<const BackendPublish> publications,
                       PreparedPipelineStatusLayout &status, bool profile_steps,
                       std::shared_ptr<void> &prepared,

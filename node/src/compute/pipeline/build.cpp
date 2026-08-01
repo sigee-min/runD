@@ -1,9 +1,9 @@
 #include <rund/compute/pipeline.hpp>
 #include <rund/compute/resource/plan.hpp>
 
+#include "../program/output.hpp"
 #include "../size.hpp"
 #include "../type.hpp"
-#include "../program/output.hpp"
 #include "state.hpp"
 
 #include <algorithm>
@@ -192,12 +192,12 @@ void append_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     build->failure = Reason::ProgramInvalid;
     return;
   }
-  const std::size_t binding_capacity =
-      build->nested_windows.empty() ? PipelineBindingCapacity
-                                    : PipelineRouteBindingCapacity;
-  const std::size_t route_capacity =
-      build->nested_windows.empty() ? PipelineIterationCapacity
-                                    : PipelineRouteCapacity;
+  const std::size_t binding_capacity = build->nested_windows.empty()
+                                           ? PipelineBindingCapacity
+                                           : PipelineRouteBindingCapacity;
+  const std::size_t route_capacity = build->nested_windows.empty()
+                                         ? PipelineIterationCapacity
+                                         : PipelineRouteCapacity;
   if (build->logical_step_count >= PipelineStepCapacity ||
       build->steps.size() >= route_capacity ||
       inputs.size() > PipelineLeafCapacity ||
@@ -256,6 +256,7 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
                        const std::span<const ResourceView> inputs,
                        const std::span<const ResourceView> outputs,
                        const std::size_t iterations,
+                       const bool write_each_iteration,
                        const ResourceView *const resident,
                        const std::size_t maximum, const std::size_t tile,
                        const std::size_t terminal,
@@ -273,12 +274,12 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
   }
   const std::size_t controls = resident == nullptr ? 0u : 2u;
   const std::size_t step_bindings = inputs.size() + controls + outputs.size();
-  const std::size_t route_capacity =
-      build->nested_windows.empty() ? PipelineIterationCapacity
-                                    : PipelineRouteCapacity;
-  const std::size_t binding_capacity =
-      build->nested_windows.empty() ? PipelineBindingCapacity
-                                    : PipelineRouteBindingCapacity;
+  const std::size_t route_capacity = build->nested_windows.empty()
+                                         ? PipelineIterationCapacity
+                                         : PipelineRouteCapacity;
+  const std::size_t binding_capacity = build->nested_windows.empty()
+                                           ? PipelineBindingCapacity
+                                           : PipelineRouteBindingCapacity;
   std::size_t expanded_bindings = 0u;
   if (iterations == 0u || iterations > PipelineIterationCapacity ||
       outputs.empty() || outputs.size() > inputs.size() ||
@@ -296,6 +297,7 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
     build->failure = Reason::PipelineCapacity;
     return;
   }
+  const bool write_each = write_each_iteration && iterations > 1u;
   const std::size_t first = build->steps.size();
   const std::size_t old_bindings = build->binding_count;
   const std::size_t old_internals = build->internals.size();
@@ -303,8 +305,12 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
   try {
     std::vector<PipelineBinding> scratch;
     std::vector<PipelineBinding> alternate;
-    scratch.reserve(outputs.size());
+    std::vector<PipelineBinding> history;
+    std::vector<std::size_t> history_counts;
+    scratch.reserve(write_each ? 0u : outputs.size());
     alternate.reserve(resident == nullptr ? 0u : outputs.size());
+    history.reserve(write_each ? outputs.size() : 0u);
+    history_counts.reserve(write_each ? outputs.size() : 0u);
     for (const ResourceView &output : outputs) {
       if (output.access != ResourceAccess::Write) {
         build->failure = Reason::BindingInvalid;
@@ -315,6 +321,15 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
           output.element_bytes != bytes) {
         build->failure = Reason::ShapeMismatch;
         return;
+      }
+      if (write_each) {
+        if (output.count % iterations != 0u) {
+          build->failure = Reason::ShapeMismatch;
+          return;
+        }
+        history.push_back(bind(output));
+        history_counts.push_back(output.count / iterations);
+        continue;
       }
       const auto owner = static_cast<std::uint32_t>(build->internals.size());
       build->internals.push_back(PipelineInternal{
@@ -366,14 +381,38 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
     }
 
     std::vector<PipelineBinding> final;
-    final.reserve(outputs.size());
-    for (const ResourceView &output : outputs) {
-      final.push_back(bind(output));
+    final.reserve(write_each ? 0u : outputs.size());
+    if (!write_each) {
+      for (const ResourceView &output : outputs) {
+        final.push_back(bind(output));
+      }
     }
+    std::vector<PipelineBinding> each;
+    each.reserve(write_each ? outputs.size() : 0u);
     for (std::size_t iteration = 0u; iteration < iterations; ++iteration) {
+      each.clear();
+      if (write_each) {
+        for (std::size_t index = 0u; index < history.size(); ++index) {
+          PipelineBinding binding = history[index];
+          std::size_t first_element = 0u;
+          std::size_t offset = 0u;
+          if (!size::multiply(iteration, history_counts[index], first_element) ||
+              !size::multiply(first_element, binding.stride, first_element) ||
+              !size::add(binding.offset, first_element, offset)) {
+            build->failure = Reason::ShapeMismatch;
+            return;
+          }
+          binding.offset = offset;
+          binding.count = history_counts[index];
+          each.push_back(std::move(binding));
+        }
+      }
       const bool final_bank =
           resident == nullptr && ((iterations - iteration) & 1u) != 0u;
       const std::span<const PipelineBinding> destination = [&] {
+        if (write_each) {
+          return std::span<const PipelineBinding>{each};
+        }
         if (final_bank) {
           return std::span<const PipelineBinding>{final};
         }
@@ -390,6 +429,7 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
       step.window_tile = tile;
       step.window_terminal = terminal;
       step.window_expected = expected;
+      step.writes_each_iteration = write_each;
       step.inputs.reserve(inputs.size() + controls);
       step.outputs.reserve(outputs.size());
       for (PipelineBinding binding : current) {
@@ -404,7 +444,7 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
       }
       for (PipelineBinding binding : destination) {
         binding.access = ResourceAccess::Write;
-        binding.hidden = resident != nullptr || !final_bank;
+        binding.hidden = !write_each && (resident != nullptr || !final_bank);
         step.outputs.push_back(std::move(binding));
       }
       build->steps.push_back(std::move(step));
@@ -442,8 +482,18 @@ void append_pipeline_repeat(const std::shared_ptr<PipelineBuildState> &build,
                             const std::span<const ResourceView> inputs,
                             const std::span<const ResourceView> outputs,
                             const std::size_t iterations) noexcept {
-  append_recurrence(build, program, inputs, outputs, iterations, nullptr, 0u,
-                    0u, NoWindowTerminal, 1u);
+  append_recurrence(build, program, inputs, outputs, iterations, false, nullptr,
+                    0u, 0u, NoWindowTerminal, 1u);
+}
+
+void append_pipeline_repeat_each(
+    const std::shared_ptr<PipelineBuildState> &build,
+    const std::shared_ptr<ProgramState> &program,
+    const std::span<const ResourceView> inputs,
+    const std::span<const ResourceView> outputs,
+    const std::size_t iterations) noexcept {
+  append_recurrence(build, program, inputs, outputs, iterations, true, nullptr,
+                    0u, 0u, NoWindowTerminal, 1u);
 }
 
 void append_pipeline_windows(const std::shared_ptr<PipelineBuildState> &build,
@@ -464,8 +514,8 @@ void append_pipeline_windows(const std::shared_ptr<PipelineBuildState> &build,
     return;
   }
   const std::size_t iterations = rounded / tile;
-  append_recurrence(build, program, inputs, outputs, iterations, &resident,
-                    maximum, tile, terminal, expected);
+  append_recurrence(build, program, inputs, outputs, iterations, false,
+                    &resident, maximum, tile, terminal, expected);
 }
 
 void append_pipeline_window_repeat(
@@ -475,8 +525,8 @@ void append_pipeline_window_repeat(
     const std::shared_ptr<ProgramState> &fold, const ResourceView &resident,
     const std::span<const ResourceView> inputs,
     const std::span<const ResourceView> outputs, const std::size_t maximum,
-    const std::size_t tile, const std::size_t inner,
-    const std::size_t terminal, const std::uint32_t expected) noexcept {
+    const std::size_t tile, const std::size_t inner, const std::size_t terminal,
+    const std::uint32_t expected) noexcept {
   if (build == nullptr || build->failure != Reason::Ok) {
     return;
   }
@@ -509,8 +559,7 @@ void append_pipeline_window_repeat(
       action_output_count > seed_output_count || fold_output_count == 0u ||
       fold_output_count != outputs.size() ||
       inputs.size() < fold_output_count ||
-      seed->input_types.size() !=
-          inputs.size() - fold_output_count + 2u ||
+      seed->input_types.size() != inputs.size() - fold_output_count + 2u ||
       seed_output_count != action->input_types.size() ||
       fold->input_types.size() != fold_output_count + seed_output_count ||
       (terminal != NoWindowTerminal &&
@@ -530,18 +579,17 @@ void append_pipeline_window_repeat(
   if (route_count > PipelineRouteCapacity ||
       build->steps.size() > PipelineRouteCapacity - route_count ||
       seed->input_types.size() + seed_output_count > PipelineLeafCapacity ||
-      action->input_types.size() + action_output_count >
-          PipelineLeafCapacity ||
+      action->input_types.size() + action_output_count > PipelineLeafCapacity ||
       fold->input_types.size() + fold_output_count > PipelineLeafCapacity) {
     build->failure = Reason::PipelineCapacity;
     return;
   }
-  if (resident.access != ResourceAccess::Read ||
-      resident.type != Type::U32 || resident.count != 1u ||
-      resident.element_bytes != sizeof(std::uint32_t) ||
-      std::any_of(inputs.begin(), inputs.end(), [](const ResourceView &view) {
-        return view.access != ResourceAccess::Read;
-      }) ||
+  if (resident.access != ResourceAccess::Read || resident.type != Type::U32 ||
+      resident.count != 1u || resident.element_bytes != sizeof(std::uint32_t) ||
+      std::any_of(inputs.begin(), inputs.end(),
+                  [](const ResourceView &view) {
+                    return view.access != ResourceAccess::Read;
+                  }) ||
       std::any_of(outputs.begin(), outputs.end(), [](const ResourceView &view) {
         return view.access != ResourceAccess::Write;
       })) {
@@ -550,20 +598,17 @@ void append_pipeline_window_repeat(
   }
 
   const auto same_slot = [](const Type left_type, const FixedFormat left_format,
-                            const std::size_t left_count,
-                            const Type right_type,
+                            const std::size_t left_count, const Type right_type,
                             const FixedFormat right_format,
                             const std::size_t right_count) noexcept {
     return left_type == right_type && left_format == right_format &&
            left_count == right_count;
   };
-  const std::size_t seed_external_count =
-      inputs.size() - fold_output_count;
+  const std::size_t seed_external_count = inputs.size() - fold_output_count;
   for (std::size_t index = 0u; index < seed_external_count; ++index) {
     const ResourceView &view = inputs[fold_output_count + index];
-    if (!same_slot(view.type, view.format, view.count,
-                   seed->input_types[index], seed->input_formats[index],
-                   seed->input_sizes[index])) {
+    if (!same_slot(view.type, view.format, view.count, seed->input_types[index],
+                   seed->input_formats[index], seed->input_sizes[index])) {
       build->failure = Reason::ShapeMismatch;
       return;
     }
@@ -579,8 +624,7 @@ void append_pipeline_window_repeat(
   for (std::size_t index = 0u; index < seed_output_count; ++index) {
     if (!same_slot(seed->output_types[index], seed->output_formats[index],
                    seed->output_sizes[index], action->input_types[index],
-                   action->input_formats[index],
-                   action->input_sizes[index]) ||
+                   action->input_formats[index], action->input_sizes[index]) ||
         !same_slot(seed->output_types[index], seed->output_formats[index],
                    seed->output_sizes[index],
                    fold->input_types[fold_output_count + index],
@@ -591,10 +635,9 @@ void append_pipeline_window_repeat(
     }
   }
   for (std::size_t index = 0u; index < action_output_count; ++index) {
-    if (!same_slot(action->output_types[index],
-                   action->output_formats[index], action->output_sizes[index],
-                   action->input_types[index], action->input_formats[index],
-                   action->input_sizes[index])) {
+    if (!same_slot(action->output_types[index], action->output_formats[index],
+                   action->output_sizes[index], action->input_types[index],
+                   action->input_formats[index], action->input_sizes[index])) {
       build->failure = Reason::ShapeMismatch;
       return;
     }
@@ -668,14 +711,12 @@ void append_pipeline_window_repeat(
         throw build->failure;
       }
       outer_seed.push_back(std::move(routed));
-      outer_first.push_back(internal(fold->output_types[index],
-                                     fold->output_formats[index],
-                                     fold->output_sizes[index],
-                                     ResourceAccess::Write));
-      outer_second.push_back(internal(fold->output_types[index],
-                                      fold->output_formats[index],
-                                      fold->output_sizes[index],
-                                      ResourceAccess::Write));
+      outer_first.push_back(
+          internal(fold->output_types[index], fold->output_formats[index],
+                   fold->output_sizes[index], ResourceAccess::Write));
+      outer_second.push_back(
+          internal(fold->output_types[index], fold->output_formats[index],
+                   fold->output_sizes[index], ResourceAccess::Write));
       final.push_back(bind(outputs[index]));
     }
     for (std::size_t index = 0u; index < seed_external_count; ++index) {
@@ -694,13 +735,13 @@ void append_pipeline_window_repeat(
     tile_first.reserve(seed_output_count);
     tile_second.reserve(action_output_count);
     for (std::size_t index = 0u; index < seed_output_count; ++index) {
-      tile_first.push_back(internal(
-          seed->output_types[index], seed->output_formats[index],
-          seed->output_sizes[index], ResourceAccess::Write));
+      tile_first.push_back(
+          internal(seed->output_types[index], seed->output_formats[index],
+                   seed->output_sizes[index], ResourceAccess::Write));
       if (index < action_output_count) {
-        tile_second.push_back(internal(
-            action->output_types[index], action->output_formats[index],
-            action->output_sizes[index], ResourceAccess::Write));
+        tile_second.push_back(
+            internal(action->output_types[index], action->output_formats[index],
+                     action->output_sizes[index], ResourceAccess::Write));
       }
     }
 
@@ -719,8 +760,7 @@ void append_pipeline_window_repeat(
     for (std::size_t ordinal = 0u; ordinal < outer; ++ordinal) {
       PipelineBuildStep step{};
       step.program = seed;
-      step.logical_step =
-          static_cast<std::uint32_t>(build->logical_step_count);
+      step.logical_step = static_cast<std::uint32_t>(build->logical_step_count);
       step.iteration = static_cast<std::uint32_t>(ordinal);
       step.iteration_bound = static_cast<std::uint32_t>(outer);
       step.nested = nested;
@@ -747,8 +787,7 @@ void append_pipeline_window_repeat(
       const bool even = (iteration & 1u) == 0u;
       PipelineBuildStep step{};
       step.program = action;
-      step.logical_step =
-          static_cast<std::uint32_t>(build->logical_step_count);
+      step.logical_step = static_cast<std::uint32_t>(build->logical_step_count);
       step.iteration = static_cast<std::uint32_t>(iteration);
       step.iteration_bound = static_cast<std::uint32_t>(inner);
       step.nested = nested;
@@ -756,9 +795,9 @@ void append_pipeline_window_repeat(
       step.inputs.reserve(seed_output_count);
       step.outputs.reserve(action_output_count);
       for (std::size_t index = 0u; index < seed_output_count; ++index) {
-        PipelineBinding binding =
-            index < action_output_count && !even ? tile_second[index]
-                                                 : tile_first[index];
+        PipelineBinding binding = index < action_output_count && !even
+                                      ? tile_second[index]
+                                      : tile_first[index];
         binding.access = ResourceAccess::Read;
         step.inputs.push_back(std::move(binding));
       }
@@ -784,13 +823,11 @@ void append_pipeline_window_repeat(
                      ? std::span<const PipelineBinding>{outer_first}
                      : std::span<const PipelineBinding>{outer_second});
       const std::span<const PipelineBinding> destination =
-          route_index == 1u
-              ? std::span<const PipelineBinding>{outer_second}
-              : std::span<const PipelineBinding>{outer_first};
+          route_index == 1u ? std::span<const PipelineBinding>{outer_second}
+                            : std::span<const PipelineBinding>{outer_first};
       PipelineBuildStep step{};
       step.program = fold;
-      step.logical_step =
-          static_cast<std::uint32_t>(build->logical_step_count);
+      step.logical_step = static_cast<std::uint32_t>(build->logical_step_count);
       step.iteration = static_cast<std::uint32_t>(route_index);
       step.iteration_bound = 3u;
       step.nested = nested;
@@ -942,6 +979,26 @@ void configure_pipeline_profile(
     return;
   }
   build->profile = profile;
+  changed(*build);
+}
+
+void configure_pipeline_sealed_repetitions(
+    const std::shared_ptr<PipelineBuildState> &build,
+    const std::size_t repetitions) noexcept {
+  if (build == nullptr || build->failure != Reason::Ok) {
+    return;
+  }
+  if (build->sealed || build->sealed_repetitions_configured ||
+      repetitions == 0u || repetitions > PipelineSealedRepetitionCapacity ||
+      repetitions > std::numeric_limits<std::uint32_t>::max()) {
+    build->failure =
+        repetitions == 0u || repetitions > PipelineSealedRepetitionCapacity
+            ? Reason::PipelineCapacity
+            : Reason::PipelineInvalid;
+    return;
+  }
+  build->sealed_repetitions = static_cast<std::uint32_t>(repetitions);
+  build->sealed_repetitions_configured = true;
   changed(*build);
 }
 

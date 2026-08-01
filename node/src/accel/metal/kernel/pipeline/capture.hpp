@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../local.hpp"
-#include "../../pipeline/guard.hpp"
 #include "../../../kernel/backend/run.hpp"
+#include "../../pipeline/guard.hpp"
+#include "../local.hpp"
 
 #include <array>
 #include <cstddef>
@@ -15,8 +15,7 @@
 
 namespace rund::node::accel::detail {
 
-constexpr NSUInteger kMetalArgumentCapacity =
-    kMetalPipelineArgumentCapacity;
+constexpr NSUInteger kMetalArgumentCapacity = kMetalPipelineArgumentCapacity;
 
 enum class MetalGrid : std::uint8_t {
   None,
@@ -95,6 +94,7 @@ struct MetalCapture final {
   std::uint32_t threadgroup_mask = 0u;
   std::uint32_t owner{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t guard_state_count{};
+  bool unguarded = false;
   bool capacity_failed = false;
   bool failed = false;
 };

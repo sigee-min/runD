@@ -54,5 +54,17 @@ rund_add_consumer(rund_package_replay_consumer example/replay.cpp 0 general)
 rund_add_consumer(rund_package_scenario_consumer example/scenario.cpp 0 general)
 rund_add_consumer(rund_package_checkpoint_consumer example/checkpoint.cpp 0 general)
 rund_add_consumer(rund_package_history_consumer example/history.cpp 0 general)
+rund_add_consumer(rund_package_async_example_consumer
+                  example/async.cpp 0 general)
+rund_add_consumer(rund_package_compute_session_example_consumer
+                  example/compute-session.cpp 0 general)
+rund_add_consumer(rund_package_task_example_consumer
+                  example/task.cpp 0 general)
+rund_add_consumer(rund_package_host_example_consumer
+                  example/host.cpp 0 general)
+rund_add_consumer(rund_package_storage_example_consumer
+                  example/storage.cpp 0 general)
+rund_add_consumer(rund_package_cluster_example_consumer
+                  example/cluster.cpp 0 general)
 rund_add_consumer(rund_package_failure_consumer exit/failure.cpp 1 general)
 rund_add_consumer(rund_package_assertion_consumer exit/assertion.cpp 2 general)

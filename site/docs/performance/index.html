@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Use the runD offload cost model, execution shapes, and exact M4 Pro observations without universal speed claims.">
+    <title>Performance — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/performance/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Performance — runD Docs">
+    <meta property="og:description" content="Use the runD offload cost model and exact M4 Pro observations without universal speed claims.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/performance/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Performance</span></p>
+        <h1>Measure the boundary you ship.</h1>
+        <p class="doc-intro">
+          A million elements can still be a poor offload workload. Submission, synchronization, transfer,
+          memory traffic, and arithmetic intensity determine whether a physical backend pays.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">Cost model</span><span class="meta-chip">Setup · warm run · Batch</span><span class="meta-chip">Exact workload evidence</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#model">Cost model</a>
+          <a href="#profile">Checked profile</a>
+          <a href="#shape">Execution shape</a>
+          <a href="#measure">Measure your host</a>
+        </nav>
+
+        <section id="model">
+          <h2>Element count is not work</h2>
+          <div class="doc-code"><pre class="code"><code>T_cpu = N C_cpu
+
+T_backend = T_submit + T_sync + T_transfer + N C_backend</code></pre></div>
+          <p>
+            Offload wins only when the per-element advantage exceeds fixed and transfer costs. A light
+            32-bit map may move roughly eight bytes per element for only a few integer operations, so its
+            arithmetic intensity remains low even at a large count.
+          </p>
+        </section>
+
+        <section id="profile">
+          <h2>One checked profile, three cost boundaries</h2>
+          <h3>Resident creation + input copy/upload</h3>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Path</th><th scope="col">Setup median</th><th scope="col">Interpretation</th></tr></thead>
+              <tbody>
+                <tr><td>CPU</td><td>86.542 µs</td><td>Resident job creation and input copy.</td></tr>
+                <tr><td>Metal</td><td>477.500 µs</td><td>Resident job creation and input upload.</td></tr>
+                <tr><td>Vulkan/MoltenVK</td><td>561.000 µs</td><td>Apple translation path, not native Vulkan evidence.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Host: checked M4 Pro profile, <code>N = 1,048,576</code>. The timer encloses
+            <code>Program::resident(input)</code>. Compilation, <code>Job::run()</code>, and result
+            read are outside it. These numbers describe setup, not CPU-versus-GPU compute speed.
+          </p>
+
+          <h3>Compute-heavy warm execution</h3>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Path</th><th scope="col">Warm run median</th><th scope="col">CPU / path</th></tr></thead>
+              <tbody>
+                <tr><td>CPU</td><td>324.959 µs</td><td>1.000×</td></tr>
+                <tr><td>Metal</td><td>123.666 µs</td><td>2.628×</td></tr>
+                <tr><td>Vulkan/MoltenVK</td><td>190.542 µs</td><td>1.705×</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Workload: dense expensive map, <code>N = 262,144</code>. Resident creation and one
+            validated warmup happen before sampling; each sample times only <code>Job::run()</code>.
+            The suite accepts the result only when its graph and output hashes match the CPU reference.
+          </p>
+
+          <h3>Submission amortization</h3>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Path</th><th scope="col">64 serial jobs</th><th scope="col">One Batch</th><th scope="col">Serial / Batch</th></tr></thead>
+              <tbody>
+                <tr><td>Metal</td><td>7,347.062 µs</td><td>227.645 µs</td><td>32.274×</td></tr>
+                <tr><td>Vulkan/MoltenVK</td><td>9,136.105 µs</td><td>583.146 µs</td><td>15.667×</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Workload: 64 independent jobs of 64 elements on the same checked M4 Pro profile. This proves
+            the structural benefit of one submission boundary for this case. The serial wall path also
+            includes per-job stats and host-loop work, so the ratio is not a pure kernel or submission
+            speedup.
+          </p>
+        </section>
+
+        <section id="shape">
+          <h2>Optimize shape without changing meaning</h2>
+          <ul>
+            <li><strong>Program</strong> removes repeated graph construction and compilation.</li>
+            <li><strong>Resident</strong> removes warm allocation and host transfer.</li>
+            <li><strong>Pipeline</strong> removes intermediate host materialization and extra submissions.</li>
+            <li><strong>Batch</strong> amortizes submission and synchronization across independent jobs.</li>
+          </ul>
+          <div class="callout">
+            <strong>Determinism remains fixed</strong>
+            Batching cannot reorder jobs. Fusion cannot reassociate a reduction. A measurement becomes
+            admissible only after graph identity and output identity have been verified.
+          </div>
+        </section>
+
+        <section id="measure">
+          <h2>Measure the boundary on your host</h2>
+          <p>
+            The single-Flow abstraction does not create a portable performance ranking. A new device,
+            runtime, driver, lowering, data shape, or execution surface requires its own admitted evidence.
+          </p>
+          <p>
+            These commands are repository engineering harnesses, not programs shipped in the binary SDK.
+            Run them from a runD source checkout after building and installing the matching Release SDK.
+          </p>
+          <div class="doc-code"><pre class="code"><code>tools/measure/compute/run --resident cpu
+tools/measure/compute/run --resident metal
+tools/measure/compute/run --resident vulkan
+tools/measure/compute/run --pipeline metal
+tools/measure/compute/run --pipeline vulkan</code></pre></div>
+          <p>
+            The checked baseline stores observed values and separate regression upper bounds. A row is
+            admitted only after semantic identity and output evidence pass; a passing upper bound is not a
+            speedup claim. For exact methodology and additional routes, inspect the optional engineering
+            <a href="https://github.com/sigee-min/runD/blob/main/docs/reference/performance/README.md">measurement reference ↗</a>.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/platforms/"><span><small>Next reference</small><strong>Separate measured paths from supported release tuples</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Measurements are scoped evidence</span><span><a href="/runD/docs/compute/">Choose an execution shape →</a></span></div></footer>
+  </body>
+</html>

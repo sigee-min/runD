@@ -343,7 +343,7 @@ CheckOverflow(rund::compute::Pipeline &pipeline,
       .then(*workset, read(*flags), write(*queue, *count))
       .windows<kMaximum, kTile>(body, rund::compute::window(*count),
                                 read(*output_first, *queue, *domain),
-                                write(*nested_output))
+                                write_final(*nested_output))
       .then(*publish, read(*nested_output), write(*output_second))
       .commit();
   const auto plan = builder.plan();

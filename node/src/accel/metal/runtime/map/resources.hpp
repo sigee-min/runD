@@ -22,6 +22,9 @@ struct MetalMapEncodeResources {
   MetalAdapter *adapter = nullptr;
   rund::kernel::ComputePlan plan{};
   rund::kernel::BindingSet bindings{};
+  // BindingSet is a non-owning projection. Recurrence history may project
+  // proof-owned refs, so retain that owner through the last encode/finish.
+  std::shared_ptr<const void> binding_owner{};
   std::vector<InputWindowPlan> input_plans{};
   std::vector<MetalMapCheck> checks{};
   std::vector<rund::kernel::ComputeDispatchWindow> windows{};

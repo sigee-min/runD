@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <type_traits>
@@ -31,6 +32,7 @@ class StateSnapshot;
 
 namespace detail {
 
+struct HostFeedbackAccess;
 struct PipelineStateAccess;
 
 struct DeviceAccess final {
@@ -59,6 +61,11 @@ void append_pipeline_repeat(const std::shared_ptr<PipelineBuildState> &build,
                             std::span<const ResourceView> inputs,
                             std::span<const ResourceView> outputs,
                             std::size_t iterations) noexcept;
+void append_pipeline_repeat_each(
+    const std::shared_ptr<PipelineBuildState> &build,
+    const std::shared_ptr<ProgramState> &program,
+    std::span<const ResourceView> inputs, std::span<const ResourceView> outputs,
+    std::size_t iterations) noexcept;
 void append_pipeline_windows(const std::shared_ptr<PipelineBuildState> &build,
                              const std::shared_ptr<ProgramState> &program,
                              const ResourceView &resident,
@@ -82,6 +89,9 @@ void append_pipeline_state(const std::shared_ptr<PipelineBuildState> &build,
 void configure_pipeline_profile(
     const std::shared_ptr<PipelineBuildState> &build,
     PipelineProfile profile) noexcept;
+void configure_pipeline_sealed_repetitions(
+    const std::shared_ptr<PipelineBuildState> &build,
+    std::size_t repetitions) noexcept;
 void commit_pipeline(const std::shared_ptr<PipelineBuildState> &build) noexcept;
 void seed_pipeline(
     const std::shared_ptr<PipelineBuildState> &build,
@@ -235,6 +245,66 @@ private:
   std::shared_ptr<detail::PipelineState> state_{};
 };
 
+class HostIteration final {
+public:
+  HostIteration(const HostIteration &) = delete;
+  HostIteration &operator=(const HostIteration &) = delete;
+  HostIteration(HostIteration &&) = delete;
+  HostIteration &operator=(HostIteration &&) = delete;
+
+  [[nodiscard]] std::size_t completed() const noexcept { return completed_; }
+  [[nodiscard]] std::size_t total() const noexcept { return total_; }
+  [[nodiscard]] std::size_t remaining() const noexcept {
+    return total_ - completed_;
+  }
+  [[nodiscard]] bool has_next() const noexcept { return completed_ < total_; }
+  [[nodiscard]] Stats stats() const noexcept { return pipeline_->stats(); }
+  [[nodiscard]] WriteStats write_stats() const noexcept { return writes_; }
+
+  template <class T>
+  [[nodiscard]] Status
+  read(const Buffer<T> &buffer,
+       const std::span<std::type_identity_t<T>> output) const noexcept {
+    return pipeline_->read(buffer, output);
+  }
+
+  template <class T>
+  [[nodiscard]] Status
+  write(Buffer<T> &buffer,
+        const std::span<const std::type_identity_t<T>> input) noexcept {
+    if (!has_next()) {
+      return Status::fail(Reason::AlreadyCompleted);
+    }
+    return detail::write_buffer(
+        detail::BufferAccess::state(buffer),
+        detail::HostView{input.data(), input.size(), detail::type<T>()},
+        writes_);
+  }
+
+private:
+  friend struct detail::HostFeedbackAccess;
+  HostIteration(Pipeline &pipeline, const std::size_t completed,
+                const std::size_t total) noexcept
+      : pipeline_(&pipeline), completed_(completed), total_(total) {}
+
+  Pipeline *pipeline_{};
+  std::size_t completed_{};
+  std::size_t total_{};
+  WriteStats writes_{};
+};
+
+namespace detail {
+
+struct HostFeedbackAccess final {
+  [[nodiscard]] static HostIteration
+  iteration(Pipeline &pipeline, const std::size_t completed,
+            const std::size_t total) noexcept {
+    return HostIteration{pipeline, completed, total};
+  }
+};
+
+} // namespace detail
+
 class PipelineBuilder final {
 public:
   PipelineBuilder(const PipelineBuilder &) = delete;
@@ -249,6 +319,20 @@ public:
 
   PipelineBuilder &&profile(const PipelineProfile profile) && noexcept {
     static_cast<PipelineBuilder &>(*this).profile(profile);
+    return std::move(*this);
+  }
+
+  template <std::size_t N>
+    requires(N != 0u && N <= PipelineSealedRepetitionCapacity)
+  PipelineBuilder &sealed_repetitions() & noexcept {
+    detail::configure_pipeline_sealed_repetitions(state_, N);
+    return *this;
+  }
+
+  template <std::size_t N>
+    requires(N != 0u && N <= PipelineSealedRepetitionCapacity)
+  PipelineBuilder &&sealed_repetitions() && noexcept {
+    static_cast<PipelineBuilder &>(*this).template sealed_repetitions<N>();
     return std::move(*this);
   }
 
@@ -318,7 +402,7 @@ public:
                                 detail::TypeList<I...>>::value)
   PipelineBuilder &repeat(const Program<Signature> &program,
                           detail::ReadPack<I...> inputs,
-                          detail::WritePack<O...> outputs) & noexcept {
+                          detail::WriteFinalPack<O...> outputs) & noexcept {
     detail::append_pipeline_repeat(state_,
                                    detail::ProgramAccess::state(program),
                                    inputs.views_, outputs.views_, N);
@@ -335,7 +419,40 @@ public:
                                 detail::TypeList<I...>>::value)
   PipelineBuilder &&repeat(const Program<Signature> &program,
                            detail::ReadPack<I...> inputs,
-                           detail::WritePack<O...> outputs) && noexcept {
+                           detail::WriteFinalPack<O...> outputs) && noexcept {
+    static_cast<PipelineBuilder &>(*this).template repeat<N>(
+        program, std::move(inputs), std::move(outputs));
+    return std::move(*this);
+  }
+
+  template <std::size_t N, class Signature, class... I, class... O>
+    requires(N != 0u &&
+             std::is_same_v<typename detail::SignatureTypes<Signature>::Inputs,
+                            detail::TypeList<I...>> &&
+             std::is_same_v<typename detail::SignatureTypes<Signature>::Outputs,
+                            detail::TypeList<O...>> &&
+             detail::StartsWith<detail::TypeList<O...>,
+                                detail::TypeList<I...>>::value)
+  PipelineBuilder &repeat(const Program<Signature> &program,
+                          detail::ReadPack<I...> inputs,
+                          detail::WriteEachPack<O...> outputs) & noexcept {
+    detail::append_pipeline_repeat_each(state_,
+                                        detail::ProgramAccess::state(program),
+                                        inputs.views_, outputs.views_, N);
+    return *this;
+  }
+
+  template <std::size_t N, class Signature, class... I, class... O>
+    requires(N != 0u &&
+             std::is_same_v<typename detail::SignatureTypes<Signature>::Inputs,
+                            detail::TypeList<I...>> &&
+             std::is_same_v<typename detail::SignatureTypes<Signature>::Outputs,
+                            detail::TypeList<O...>> &&
+             detail::StartsWith<detail::TypeList<O...>,
+                                detail::TypeList<I...>>::value)
+  PipelineBuilder &&repeat(const Program<Signature> &program,
+                           detail::ReadPack<I...> inputs,
+                           detail::WriteEachPack<O...> outputs) && noexcept {
     static_cast<PipelineBuilder &>(*this).template repeat<N>(
         program, std::move(inputs), std::move(outputs));
     return std::move(*this);
@@ -358,11 +475,10 @@ public:
   PipelineBuilder &windows(const Program<Signature> &program,
                            const WindowInput<Terminal> &resident,
                            detail::ReadPack<I...> inputs,
-                           detail::WritePack<O...> outputs) & noexcept {
+                           detail::WriteFinalPack<O...> outputs) & noexcept {
     detail::append_pipeline_windows(
         state_, detail::ProgramAccess::state(program), resident.count_,
-        inputs.views_, outputs.views_, Max, Tile, Terminal,
-        resident.expected_);
+        inputs.views_, outputs.views_, Max, Tile, Terminal, resident.expected_);
     return *this;
   }
 
@@ -383,7 +499,7 @@ public:
   PipelineBuilder &&windows(const Program<Signature> &program,
                             const WindowInput<Terminal> &resident,
                             detail::ReadPack<I...> inputs,
-                            detail::WritePack<O...> outputs) && noexcept {
+                            detail::WriteFinalPack<O...> outputs) && noexcept {
     static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
         program, resident, std::move(inputs), std::move(outputs));
     return std::move(*this);
@@ -416,7 +532,7 @@ public:
   PipelineBuilder &windows(
       const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
       const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
-      detail::WritePack<O...> outputs) & noexcept {
+      detail::WriteFinalPack<O...> outputs) & noexcept {
     detail::append_pipeline_window_repeat(
         state_, detail::ProgramAccess::state(body.seed_),
         detail::ProgramAccess::state(body.action_),
@@ -453,7 +569,7 @@ public:
   PipelineBuilder &&windows(
       const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
       const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
-      detail::WritePack<O...> outputs) && noexcept {
+      detail::WriteFinalPack<O...> outputs) && noexcept {
     static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
         body, resident, std::move(inputs), std::move(outputs));
     return std::move(*this);
@@ -499,6 +615,29 @@ private:
 [[nodiscard]] inline PipelineBuilder pipeline(const Device &device) noexcept {
   return PipelineBuilder{
       detail::make_pipeline(detail::DeviceAccess::state(device))};
+}
+
+template <class Callback>
+  requires(std::is_nothrow_invocable_r_v<Status, Callback &, HostIteration &>)
+[[nodiscard]] Status host_feedback(Pipeline &pipeline,
+                                   const std::size_t iterations,
+                                   Callback &&callback) noexcept {
+  if (!pipeline.valid()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  for (std::size_t index = 0u; index < iterations; ++index) {
+    const Status ran = pipeline.run();
+    if (!ran) {
+      return ran;
+    }
+    auto iteration =
+        detail::HostFeedbackAccess::iteration(pipeline, index + 1u, iterations);
+    const Status feedback = std::invoke(callback, iteration);
+    if (!feedback) {
+      return feedback;
+    }
+  }
+  return Status::success();
 }
 
 } // namespace rund::compute

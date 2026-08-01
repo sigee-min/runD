@@ -41,13 +41,13 @@ template <class Value>
   auto single = pipeline(device);
   single.template windows<tile, tile>(
       *single_body, rund::compute::window(*single_total),
-      read(*single_seed, *single_input), write(*single_output));
+      read(*single_seed, *single_input), write_final(*single_output));
   const auto single_plan = single.plan();
 
   auto large = pipeline(device);
   large.template windows<maximum, tile>(
       *large_body, rund::compute::window(*large_total),
-      read(*large_seed, *large_input), write(*large_output));
+      read(*large_seed, *large_input), write_final(*large_output));
   const auto large_plan = large.plan();
   if (!single_plan || !large_plan || single_plan->transient_bytes == 0u ||
       single_plan->total_bytes !=

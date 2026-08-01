@@ -11,7 +11,7 @@ namespace {
 
 PipelineHash::PipelineHash() noexcept {
   text("rund.compute.pipeline");
-  number(2u);
+  number(3u);
 }
 
 void PipelineHash::byte(const std::uint8_t value) noexcept {

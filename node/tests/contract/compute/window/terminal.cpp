@@ -51,7 +51,7 @@ namespace rund::node::test_contract::window {
       pipeline(device)
           .windows<maximum, tile>(
               *body, rund::compute::window(*count).until<1u>(7u),
-              read(*initial, *terminal), write(*output, *stopped))
+              read(*initial, *terminal), write_final(*output, *stopped))
           .prepare();
   if (!prepared) {
     return 2;

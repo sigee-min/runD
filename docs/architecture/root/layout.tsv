@@ -16,8 +16,8 @@ admitted-dir	math32
 admitted-dir	math64
 admitted-dir	node
 admitted-dir	package
+admitted-dir	site
 admitted-dir	tools
-admitted-dir	wiki
 local-dir	.cache
 local-dir	.git
 local-dir	.private

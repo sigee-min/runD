@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta
+      name="description"
+      content="Write one bounded C++20 Flow, choose an explicit execution target, and get the accepted bytes or a typed failure without backend-specific application kernels."
+    >
+    <title>runD — Deterministic C++20 Compute Across Execution Backends</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="runD — Deterministic C++20 Compute Across Execution Backends">
+    <meta
+      property="og:description"
+      content="One public C++20 Flow across supported execution targets, with exact accepted output and no implicit fallback."
+    >
+    <meta property="og:url" content="https://sigee-min.github.io/runD/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/runD/" aria-label="runD home">
+          <span class="brand-mark" aria-hidden="true">rD</span>
+          <span>runD</span>
+          <span class="brand-version">1.0.1 Alpha</span>
+        </a>
+        <button
+          class="menu-button"
+          type="button"
+          aria-label="Open navigation"
+          aria-expanded="false"
+          aria-controls="site-menu"
+          data-menu-button
+        >
+          <span class="menu-lines" aria-hidden="true"></span>
+        </button>
+        <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false">
+          <a class="nav-link" href="/runD/" aria-current="page">Overview</a>
+          <a class="nav-link" href="/runD/docs/">Docs</a>
+          <a class="nav-link" href="/runD/docs/api/">API</a>
+          <a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a>
+          <a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">C++20 runtime and compute SDK</p>
+            <h1>One deterministic Flow.<br><span class="same">Choose the execution target.</span></h1>
+            <p class="hero-lede">
+              Express a bounded integer or fixed-point state transition once. Every successful
+              supported target returns the same accepted bytes. An unavailable target returns its
+              typed failure—never a hidden fallback.
+            </p>
+            <ul class="hero-points" aria-label="runD integration contract">
+              <li>One public Flow</li>
+              <li>Explicit Target selection</li>
+              <li>Exact accepted output</li>
+            </ul>
+            <div class="hero-actions">
+              <a class="button button-primary" href="/runD/docs/start/">
+                Run the parity example <span class="button-arrow" aria-hidden="true">→</span>
+              </a>
+              <a class="button" href="/runD/docs/compute/">
+                Explore the Compute API <span class="button-arrow" aria-hidden="true">→</span>
+              </a>
+            </div>
+            <p class="release-line">
+              <span>1.0.1 Alpha</span>
+              <span>Darwin ARM64 binary</span>
+              <span>C++20</span>
+              <span>MIT</span>
+            </p>
+          </div>
+
+          <figure class="hero-example" aria-labelledby="hero-example-title">
+            <figcaption class="example-heading" id="hero-example-title">
+              <span>Same Flow. Explicit target.</span>
+              <span>public API excerpt</span>
+            </figcaption>
+            <div class="example-code">
+              <pre class="code" id="hero-code"><code><span class="kw">using</span> Target = rund::compute::<span class="type">Target</span>;
+
+<span class="kw">auto</span> execute = [&amp;](Target target) {
+  <span class="kw">return</span> rund::compute::<span class="fn">on</span>(target, input)
+      .<span class="fn">map</span>(<span class="str">"step"</span>, [](<span class="kw">auto</span> x) { <span class="kw">return</span> x * 2 + 1; })
+      .<span class="fn">collect</span>();
+};
+
+<span class="kw">auto</span> cpu    = execute(Target::<span class="fn">cpu</span>());
+<span class="kw">auto</span> metal  = execute(Target::<span class="fn">metal</span>());
+<span class="kw">auto</span> vulkan = execute(Target::<span class="fn">vulkan</span>());</code></pre>
+            </div>
+            <div class="checked-output">
+              <span>Checked example output</span>
+              <code>same bytes: cpu = metal = vulkan [3, 5, 7, 9]</code>
+            </div>
+            <p class="example-note">
+              The complete example handles each <code>Result</code> before comparing bytes.
+            </p>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="fit">
+        <div class="container">
+          <div class="section-header section-header-wide">
+            <div>
+              <p class="section-tag">01 / Where it earns its place</p>
+              <h2>Built for state that cannot drift.</h2>
+            </div>
+            <p>
+              Use runD when backend differences are correctness defects—not merely performance
+              noise.
+            </p>
+          </div>
+
+          <div class="fit-grid">
+            <div class="fit-group">
+              <p class="group-label">Use runD when</p>
+              <article class="fit-item">
+                <h3>Authoritative simulation</h3>
+                <p>Keep lockstep, solver, or world-state transitions identical across successful supported targets.</p>
+              </article>
+              <article class="fit-item">
+                <h3>Replayable compute</h3>
+                <p>Make numeric law, ordering, graph identity, bounds, and canonical input part of the reproducible contract.</p>
+              </article>
+              <article class="fit-item">
+                <h3>Backend choice without duplicate application kernels</h3>
+                <p>Keep one public Flow and select the physical target explicitly when the workload or host changes.</p>
+              </article>
+              <a class="text-link" href="/runD/docs/determinism/">See the exact determinism boundary →</a>
+            </div>
+
+            <aside class="fit-group fit-boundary" aria-label="Workloads outside the current release">
+              <p class="group-label">Not this release</p>
+              <ul class="boundary-list">
+                <li>Arbitrary runtime C++ callbacks with exact cross-target output</li>
+                <li>Unconstrained floating-point parity</li>
+                <li>Automatic “fastest device” selection or fallback</li>
+                <li>A supported Windows binary or general Linux release matrix</li>
+              </ul>
+              <p>
+                These are product boundaries, not hidden setup switches.
+                <a href="/runD/docs/platforms/">Check the current platform contract →</a>
+              </p>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="sdk">
+        <div class="container">
+          <div class="section-header section-header-wide">
+            <div>
+              <p class="section-tag">02 / The SDK path</p>
+              <h2>Start with <code>collect()</code>. Add machinery only when work repeats.</h2>
+            </div>
+            <p>
+              One package covers the first result, reusable device work, and the runtime services
+              around it.
+            </p>
+          </div>
+
+          <div class="package-line" aria-label="CMake package integration">
+            <span>CMake</span>
+            <code>target_link_libraries(app PRIVATE runD::sdk)</code>
+            <a href="/runD/docs/start/#project">Complete project →</a>
+          </div>
+
+          <div class="sdk-grid">
+            <div class="sdk-column">
+              <p class="group-label">Choose the smallest compute shape</p>
+              <dl class="sdk-paths">
+                <div>
+                  <dt><code>Flow + collect()</code></dt>
+                  <dd>Run one bounded computation and return a host result.</dd>
+                </div>
+                <div>
+                  <dt><code>Program</code></dt>
+                  <dd>Compile the graph once and bind new input without rebuilding it.</dd>
+                </div>
+                <div>
+                  <dt><code>resident()</code></dt>
+                  <dd>Keep repeating state on the selected device across warm runs.</dd>
+                </div>
+                <div>
+                  <dt><code>Pipeline</code></dt>
+                  <dd>Connect dependent Programs without forcing intermediate host copies.</dd>
+                </div>
+                <div>
+                  <dt><code>Batch</code></dt>
+                  <dd>Put independent prepared jobs behind one submission boundary.</dd>
+                </div>
+              </dl>
+              <a class="text-link" href="/runD/docs/compute/">Choose an execution shape →</a>
+            </div>
+
+            <div class="sdk-column runtime-column">
+              <p class="group-label">Runtime beside compute</p>
+              <div class="runtime-item">
+                <h3>Session and Tasks</h3>
+                <p>Own lifecycle, scheduler resources, bounded work, and Compute submission together.</p>
+              </div>
+              <div class="runtime-item">
+                <h3>Host, Network, and Storage</h3>
+                <p>Admit external input through explicit ownership and bounded byte-level operations.</p>
+              </div>
+              <div class="runtime-item">
+                <h3>Replay and Telemetry</h3>
+                <p>Capture canonical evidence and inspect bounded findings without changing the result.</p>
+              </div>
+              <a class="text-link" href="/runD/docs/runtime/">Integrate the runtime →</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="evidence">
+        <div class="container">
+          <div class="section-header">
+            <div>
+              <p class="section-tag">03 / Measured on an M4 Pro</p>
+              <h2>The execution shape matters as much as the backend.</h2>
+            </div>
+            <p>
+              These checked observations answer two integration questions. They are not a portable
+              CPU-versus-GPU ranking.
+            </p>
+          </div>
+
+          <div class="evidence-list">
+            <article class="evidence-row">
+              <div class="evidence-question">
+                <p class="group-label">When resident work is compute-heavy</p>
+                <h3>Compute-heavy warm map</h3>
+                <p>M4 Pro · N = 262,144 · median warm <code>Job::run()</code></p>
+              </div>
+              <dl class="timing-list" aria-label="Warm map median timings">
+                <div><dt>CPU</dt><dd>324.959 µs</dd></div>
+                <div><dt>Metal</dt><dd>123.666 µs</dd></div>
+                <div><dt>Vulkan / MoltenVK</dt><dd>190.542 µs</dd></div>
+              </dl>
+              <p class="evidence-takeaway">
+                Use this to decide whether repeated resident execution deserves an accelerator
+                measurement for your graph.
+              </p>
+            </article>
+
+            <article class="evidence-row">
+              <div class="evidence-question">
+                <p class="group-label">When submissions dominate</p>
+                <h3>64 small GPU jobs</h3>
+                <p>M4 Pro · 64 jobs × 64 elements · serial API wall path → one Batch</p>
+              </div>
+              <dl class="timing-list timing-pairs" aria-label="Serial versus batch median timings">
+                <div><dt>Metal</dt><dd>7,347.062 → 227.645 µs</dd></div>
+                <div><dt>Vulkan / MoltenVK</dt><dd>9,136.105 → 583.146 µs</dd></div>
+              </dl>
+              <p class="evidence-takeaway">
+                Use this to decide whether independent prepared jobs should share one submission
+                boundary. The ratio is not a pure kernel-speed claim.
+              </p>
+            </article>
+          </div>
+
+          <p class="evidence-caveat">
+            Warm figures exclude Resident creation and initial upload. Vulkan here runs through
+            MoltenVK on Apple hardware. A different graph, device, driver, or data shape requires a
+            new measurement.
+          </p>
+          <div class="section-actions">
+            <a class="button" href="/runD/docs/performance/">
+              Inspect the methodology <span class="button-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="button" href="/runD/docs/compute/">Choose the execution shape</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="availability">
+        <div class="container">
+          <div class="section-header">
+            <div>
+              <p class="section-tag">04 / 1.0.1 Alpha</p>
+              <h2>Try the verified SDK on Apple silicon.</h2>
+            </div>
+            <p>
+              The current consumer release is intentionally narrow. Check the host boundary before
+              integration.
+            </p>
+          </div>
+
+          <div class="support-grid">
+            <article class="support-item support-primary">
+              <span class="status-chip status-supported">Supported binary</span>
+              <h3>Darwin ARM64</h3>
+              <p>CPU · native Metal · Vulkan through MoltenVK</p>
+            </article>
+            <article class="support-item">
+              <span class="status-chip status-candidate">Source candidate</span>
+              <h3>Linux x64</h3>
+              <p>Validated source candidate; no consumer release backend matrix is claimed.</p>
+            </article>
+            <article class="support-item">
+              <span class="status-chip status-unsupported">Unsupported</span>
+              <h3>Windows x64</h3>
+              <p>No binary or execution path is claimed for 1.0.1.</p>
+            </article>
+          </div>
+
+          <div class="dependency-notice">
+            <h3>Vulkan dependency</h3>
+            <p>
+              The archive does not bundle MoltenVK. The verifier requires the exact admitted
+              dependency tuple, so check the <a href="/runD/docs/platforms/">platform contract</a>
+              before installing.
+            </p>
+          </div>
+
+          <div class="section-actions">
+            <a class="button button-primary" href="/runD/docs/start/">
+              Verify, install, and run <span class="button-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="button" href="/runD/docs/platforms/">Check the exact host tuple</a>
+            <a class="button" href="https://github.com/sigee-min/runD">View source</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-top">
+          <div>
+            <a class="brand" href="/runD/">
+              <span class="brand-mark" aria-hidden="true">rD</span>
+              <span>runD</span>
+            </a>
+            <p class="footer-copy">One bounded C++20 Flow across explicit execution targets.</p>
+          </div>
+          <nav class="footer-links" aria-label="Footer navigation">
+            <a href="/runD/docs/">Documentation</a>
+            <a href="/runD/docs/api/">API &amp; Errors</a>
+            <a href="/runD/docs/troubleshooting/">Troubleshooting</a>
+            <a href="https://github.com/sigee-min/runD">Source</a>
+            <a href="https://github.com/sigee-min/runD/releases">Releases</a>
+            <a href="https://github.com/sigee-min/runD/blob/main/CONTRIBUTING.md">Contributing</a>
+            <a href="https://github.com/sigee-min/runD/blob/main/SECURITY.md">Security</a>
+          </nav>
+        </div>
+        <div class="footer-bottom">
+          <span>MIT License · sigee-min/runD</span>
+          <span>1.0.1 Alpha</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

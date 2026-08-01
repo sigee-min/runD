@@ -55,6 +55,33 @@ struct ResetPlan final {
   ExecStep last{};
 };
 
+// Fixed-width semantic summary derived once from the admitted canonical Map
+// IR. Source backends discard ParsedIR and canonical bytes after graph-token
+// creation; recurrence classification consumes this normalized value instead
+// of retaining or reparsing either representation.
+enum class MapSemanticKind : std::uint8_t {
+  Unknown,
+  AddWrapU32Pair,
+  AddWrapU32Immediate,
+  ResidentWindowBaseU32,
+  ResidentWindowItemsU32,
+  ResidentWindowCountU32,
+};
+
+struct MapSemantic final {
+  MapSemanticKind kind{MapSemanticKind::Unknown};
+  std::uint32_t immediate{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t windows{};
+  // Cold ParsedIR proof that every node is total for all admitted lane values.
+  // Recurrence lowering consumes this bit after canonical IR has been dropped;
+  // source text is never reparsed as semantic authority.
+  bool recurrence_total{};
+};
+
+static_assert(sizeof(MapSemantic) == 24u);
+
 static_assert(sizeof(SourceStep) == 4u);
 static_assert(sizeof(ExecStep) == 4u);
 static_assert(sizeof(ResetPlan) == 16u);
@@ -63,6 +90,7 @@ struct KernelExecutionStep {
   Operation operation{};
   rund::kernel::LoweringArtifact artifact{};
   rund::kernel::compute_lowering_detail::ComputeInputAdmission cpu_input{};
+  MapSemantic map_semantic{};
   KernelBindingIndices graph_binding_indices{};
   bool graph_binding_indices_ok = false;
   std::uint64_t primitive_hash_hi = 0u;

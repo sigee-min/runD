@@ -50,7 +50,8 @@ int CheckFixedRecurrence(rund::compute::Device &device,
 
   auto prepared =
       pipeline(device)
-          .template repeat<iterations>(*body, read(*initial), write(*recurrent))
+          .template repeat<iterations>(*body, read(*initial),
+                                       write_final(*recurrent))
           .prepare();
   std::array<T, 4u> actual{};
   if (!prepared) {
@@ -179,7 +180,8 @@ int CheckWindow(rund::Session &session, rund::compute::Device &device) {
   auto prepared = pipeline(device)
                       .windows<maximum, tile>(
                           *body, rund::compute::window(*count).until<1u>(7u),
-                          read(*initial, *terminal), write(*output, *stopped))
+                          read(*initial, *terminal),
+                          write_final(*output, *stopped))
                       .prepare();
   if (!prepared) {
     return 2;

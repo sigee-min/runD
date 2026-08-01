@@ -63,7 +63,7 @@ cmake -E make_directory "$candidate"
   if [ -f "$root/README.md" ]; then
     printf '%s\n' "$root/README.md"
   fi
-  for directory in "$root/docs" "$root/wiki" "$root"/*/docs; do
+  for directory in "$root/docs" "$root"/*/docs; do
     if [ -d "$directory" ]; then
       find "$directory" -type f -name '*.md' -print
     fi

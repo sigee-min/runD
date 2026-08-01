@@ -1,0 +1,15 @@
+export const pages = [
+  "index.html",
+  "docs/index.html",
+  "docs/start/index.html",
+  "docs/troubleshooting/index.html",
+  "docs/determinism/index.html",
+  "docs/compute/index.html",
+  "docs/replay/index.html",
+  "docs/runtime/index.html",
+  "docs/numerics/index.html",
+  "docs/performance/index.html",
+  "docs/platforms/index.html",
+  "docs/api/index.html",
+  "404.html",
+];

@@ -1,5 +1,7 @@
 #include "../build.hpp"
 
+#include "../aggregate/prepare.hpp"
+
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -7,10 +9,100 @@
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+namespace {
+
+[[nodiscard]] rund::AccelCheck PopulateAggregateProfile(
+    const NestedAggregate &aggregate,
+    const std::span<const BackendBatchEntry> templates,
+    const PreparedPipelineStatusLayout &status, const std::uint32_t owner,
+    const std::uint64_t work_items, const std::uint64_t workgroups,
+    const std::uint64_t physical_dispatches,
+    std::vector<PreparedPipelineStepEvidence> &rows) noexcept {
+  if (templates.size() != status.active_step_count ||
+      rows.size() != status.declared_step_count || owner >= rows.size()) {
+    return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+  }
+  std::fill(rows.begin(), rows.end(), PreparedPipelineStepEvidence{});
+  for (std::size_t index = 0u; index < templates.size(); ++index) {
+    const BackendRun *const run = templates[index].run;
+    const std::uint32_t declared = status.declared_steps[index];
+    const std::uint64_t occurrences = aggregate.authored_occurrences(index);
+    if (run == nullptr || declared >= rows.size() || occurrences == 0u ||
+        run->original_dispatch_count == 0u ||
+        occurrences > std::numeric_limits<std::uint64_t>::max() /
+                          run->original_dispatch_count) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    const std::uint64_t original = occurrences * run->original_dispatch_count;
+    PreparedPipelineStepEvidence &row = rows[declared];
+    if (original > std::numeric_limits<std::uint64_t>::max() -
+                       row.original_dispatch_count) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    row.original_dispatch_count += original;
+  }
+  PreparedPipelineStepEvidence &physical = rows[owner];
+  physical.final_dispatch_count = physical_dispatches;
+  physical.physical_dispatch_count = physical_dispatches;
+  physical.workgroup_count = workgroups;
+  physical.work_item_count = work_items;
+  return rund::AccelCheck{true, "ok"};
+}
+
+} // namespace
 
 rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
                                               PreparedPipelineMemory &memory) {
   device = (__bridge id<MTLDevice>)pipeline->adapter->device.get();
+  if (aggregate_selected) {
+    pipeline->dispatch_count = 2u;
+    pipeline->reset_count = 0u;
+    pipeline->reset_bytes = 0u;
+    pipeline->state_count = 0u;
+    pipeline->uses_status_arena = false;
+    pipeline->direct_aggregate = true;
+    pipeline->recurrence.reset();
+    pipeline->transducers = {};
+    pipeline->telemetry = {};
+    pipeline->control =
+        [device newBufferWithLength:PreparedPipelineControlBytes
+                            options:MTLResourceStorageModeShared];
+    if (profile_steps) {
+      pipeline->step_control =
+          [device newBufferWithLength:static_cast<NSUInteger>(
+                                          status.declared_step_count) *
+                                      PreparedPipelineStepControlBytes
+                              options:MTLResourceStorageModeShared];
+    }
+    if (pipeline->control == nil || [pipeline->control contents] == nullptr ||
+        (profile_steps &&
+         (pipeline->step_control == nil ||
+          [pipeline->step_control contents] == nullptr ||
+          aggregate_profile_owner >= pipeline->step_evidence.size()))) {
+      return rund::AccelCheck{false, "accel_metal_buffer_failed"};
+    }
+    const PreparedPipelineControl initial{};
+    std::memcpy([pipeline->control contents], &initial, sizeof(initial));
+    const rund::AccelCheck aggregate_ready =
+        PrepareMetalNestedAggregate(*pipeline->adapter, native_aggregate);
+    if (!aggregate_ready.ok) {
+      return aggregate_ready;
+    }
+    if (profile_steps) {
+      auto *const controls = static_cast<PreparedPipelineStepControl *>(
+          [pipeline->step_control contents]);
+      std::fill_n(controls, pipeline->step_evidence.size(),
+                  PreparedPipelineStepControl{});
+      const rund::AccelCheck projected = PopulateAggregateProfile(
+          aggregates.front(), templates, status, aggregate_profile_owner,
+          native_aggregate.work_item_count, native_aggregate.workgroup_count,
+          pipeline->dispatch_count, pipeline->step_evidence);
+      if (!projected.ok) {
+        return projected;
+      }
+    }
+    return aggregate_ready;
+  }
   if (pipeline->dispatch_count == 0u) {
     pipeline->retained_bytes = sizeof(MetalSequence);
     memory.host = PreparedMemory{.current = pipeline->retained_bytes,

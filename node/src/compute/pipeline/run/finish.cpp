@@ -32,6 +32,7 @@ void reset_pipeline_stats(PipelineState &state) noexcept {
       .step_count = state.logical_step_count,
       .resource_count = state.resources.size(),
       .barrier_count = barriers,
+      .sealed_repetition_count = state.sealed_repetitions,
       .claim_conflict_count = conflicts,
       .failed_step_index = PipelineStats::no_failed_step,
       .status_entry_count = state.status_entry_count,
@@ -116,8 +117,7 @@ PipelineOutcome finish_accel_pipeline(
     stats.pipeline.failed_inner_iteration =
         coordinate(evidence.control.failed_inner_iteration);
     stats.pipeline.failed_nested_phase =
-        static_cast<PipelineNestedPhase>(
-            evidence.control.failed_nested_phase);
+        static_cast<PipelineNestedPhase>(evidence.control.failed_nested_phase);
     stats.pipeline.executed_outer_window_count =
         evidence.control.executed_outer_window_count;
     stats.pipeline.skipped_outer_window_count =

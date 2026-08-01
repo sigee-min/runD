@@ -119,7 +119,7 @@ namespace rund_node_test_pipeline {
           .state(*recurrent_first, *recurrent_second)
           .repeat<6u>(*recurrent_program,
                       read(*recurrent_first, *recurrent_input),
-                      write(*recurrent_second, *recurrent_output))
+                      write_final(*recurrent_second, *recurrent_output))
           .commit();
   const auto recurrent_plan = recurrent_builder.plan();
   if (!recurrent_plan ||

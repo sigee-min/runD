@@ -734,7 +734,25 @@ CaptureBindingIdentity(const rund::compute::Pipeline &pipeline,
   const std::uint64_t active = CeilDiv(count, kTile);
   const std::uint64_t submits =
       backend == rund::compute::Backend::Cpu ? 0u : 1u;
-  return stats.command_submits == submits && stats.pipeline.step_count == 1u &&
+  const bool physical_shape =
+      backend != rund::compute::Backend::Metal ||
+      (stats.dispatches == 2u && stats.pipeline.control_command_count == 1u);
+  const bool bounded_telemetry =
+      backend == rund::compute::Backend::Cpu
+          ? stats.control.generated_item_count == 0u &&
+                stats.control.generated_capacity == 0u &&
+                stats.control.indirect_dispatch_count == 0u &&
+                stats.control.indirect_work_item_count == 0u
+          : stats.control.generated_item_count == 2u * count &&
+                stats.control.generated_capacity == 2u * active * kTile &&
+                stats.control.indirect_dispatch_count == 2u * active &&
+                stats.control.indirect_work_item_count == 2u * count;
+  return physical_shape && bounded_telemetry &&
+         stats.control.overflow_ordinal ==
+             rund::compute::ControlStats::no_overflow &&
+         stats.pipeline.status_entry_count ==
+             (backend == rund::compute::Backend::Cpu ? 0u : 3u * kOuter) &&
+         stats.command_submits == submits && stats.pipeline.step_count == 1u &&
          stats.pipeline.verified_step_count == 1u &&
          stats.pipeline.failed_step_index == PipelineStats::no_failed_step &&
          stats.pipeline.executed_outer_window_count == active &&
@@ -781,7 +799,7 @@ CheckCount(rund::compute::Device &device, const rund::compute::Backend backend,
   auto builder = pipeline(device);
   builder.windows<kMaximum, kTile>(body, rund::compute::window(*count),
                                    read(*outer, *queue, *domain),
-                                   write(*output));
+                                   write_final(*output));
   const auto plan = builder.plan();
   if (!plan || !PlanShape(*plan, seed, action, fold)) {
     if (plan) {
@@ -928,7 +946,7 @@ CheckCount(rund::compute::Device &device, const rund::compute::Backend backend,
         stderr,
         "nested warm backend=%u count=%u status=%u reason=%u output=%u/%u "
         "generation=%llu outer=%llu/%llu inner=%llu/%llu "
-        "templates=%llu commands=%llu rebind=%llu "
+        "templates=%llu commands=%llu dispatches=%llu control=%llu rebind=%llu "
         "iterations=%llu/%llu alloc=%llu compile=%llu bindings=%u\n",
         static_cast<unsigned>(backend), count_value,
         static_cast<unsigned>(warm.ok()), static_cast<unsigned>(warm.reason()),
@@ -946,6 +964,9 @@ CheckCount(rund::compute::Device &device, const rund::compute::Backend backend,
             warm_stats.pipeline.prepared_template_count),
         static_cast<unsigned long long>(
             warm_stats.pipeline.prepared_command_count),
+        static_cast<unsigned long long>(warm_stats.dispatches),
+        static_cast<unsigned long long>(
+            warm_stats.pipeline.control_command_count),
         static_cast<unsigned long long>(warm_stats.pipeline.rebinding_count),
         static_cast<unsigned long long>(warm_stats.control.iteration_count),
         static_cast<unsigned long long>(
@@ -977,7 +998,8 @@ CheckTransactionalBindingIdentity(rund::compute::Device &device,
 
   auto builder = pipeline(device);
   builder.state(*first_bank, *second_bank)
-      .repeat<kInner>(*increment, read(*first_bank), write(*second_bank))
+      .repeat<kInner>(*increment, read(*first_bank),
+                      write_final(*second_bank))
       .commit();
   const auto plan = builder.plan();
   if (!plan) {
@@ -1092,7 +1114,7 @@ CheckTransactionalBindingIdentity(rund::compute::Device &device,
     auto builder = pipeline(device);
     builder.windows<Maximum, Tile>(
         body, rund::compute::window(*count).until<1u>(7u),
-        read(*outer, *terminal), write(*output, *stopped));
+        read(*outer, *terminal), write_final(*output, *stopped));
     const auto plan = builder.plan();
     if (!plan) {
       return 2;
@@ -1238,7 +1260,7 @@ template <class Seed, class Action, class Fold>
   const auto body = tile_repeat<kInner>(seed, action, fold);
   auto builder = pipeline(device);
   builder.windows<kMaximum, kTile>(body, rund::compute::window(*count),
-                                   read(*outer), write(*output));
+                                   read(*outer), write_final(*output));
   const auto plan = builder.plan();
   if (!plan) {
     return 2;
@@ -1374,7 +1396,8 @@ template <class Seed, class Action, class Fold>
   auto builder = pipeline(device);
   builder.profile(PipelineProfile::Steps)
       .windows<kMaximum, kTile>(body, rund::compute::window(*count),
-                                read(*outer, *queue, *domain), write(*output));
+                                read(*outer, *queue, *domain),
+                                write_final(*output));
   const auto plan = builder.plan();
   if (!plan) {
     return 2;
@@ -1392,6 +1415,9 @@ template <class Seed, class Action, class Fold>
   if (!prepared || !ran || !profile || profile->written != kTemplates ||
       profile->total != kTemplates || !prepared->read(*output, actual) ||
       actual[0] != SerialOracle(active_count) ||
+      (backend == Backend::Metal &&
+       (profile->execution.dispatches != 2u ||
+        profile->execution.pipeline.control_command_count != 1u)) ||
       profile->execution.pipeline.executed_outer_window_count != 2u ||
       profile->execution.pipeline.executed_inner_iteration_count !=
           2u * kInner ||
@@ -1400,7 +1426,8 @@ template <class Seed, class Action, class Fold>
     std::fprintf(
         stderr,
         "nested profile backend=%u prepared=%u run=%u/%u profile=%u/%u "
-        "rows=%llu/%llu output=%u/%u outer=%llu inner=%llu submits=%llu\n",
+        "rows=%llu/%llu output=%u/%u outer=%llu inner=%llu submits=%llu "
+        "dispatches=%llu control=%llu\n",
         static_cast<unsigned>(backend), static_cast<unsigned>(prepared.ok()),
         static_cast<unsigned>(ran.ok()), static_cast<unsigned>(ran.reason()),
         static_cast<unsigned>(profile.ok()),
@@ -1415,7 +1442,11 @@ template <class Seed, class Action, class Fold>
             profile ? profile->execution.pipeline.executed_inner_iteration_count
                     : 0u),
         static_cast<unsigned long long>(
-            profile ? profile->execution.command_submits : 0u));
+            profile ? profile->execution.command_submits : 0u),
+        static_cast<unsigned long long>(profile ? profile->execution.dispatches
+                                                : 0u),
+        static_cast<unsigned long long>(
+            profile ? profile->execution.pipeline.control_command_count : 0u));
     return 3;
   }
 
@@ -1439,6 +1470,60 @@ template <class Seed, class Action, class Fold>
             static_cast<unsigned long long>(expected_physical),
             static_cast<unsigned long long>(execution.workgroup_count),
             static_cast<unsigned long long>(execution.work_item_count));
+        return 4;
+      }
+    }
+  }
+
+  if (backend == Backend::Metal) {
+    for (std::size_t index = 0u; index < rows.size(); ++index) {
+      const PipelineStepStats &execution = rows[index].execution;
+      const bool physical_owner = index == 0u;
+      const std::uint64_t expected_dispatches = physical_owner ? 2u : 0u;
+      const std::uint64_t expected_workgroups =
+          physical_owner ? kOuter + 1u : 0u;
+      const std::uint32_t seed_live =
+          index == 0u ? kTile : (index == 1u ? active_count - kTile : 0u);
+      const bool seed_active = index < kOuter && seed_live != 0u;
+      const std::uint64_t generated = 2u * seed_live;
+      const std::uint64_t capacity = seed_active ? 2u * kTile : 0u;
+      const std::uint64_t indirect = seed_active ? 2u : 0u;
+      if (execution.sample_count != 1u || execution.original_dispatches == 0u ||
+          execution.final_dispatches != expected_dispatches ||
+          execution.workgroup_count != expected_workgroups ||
+          (physical_owner ? execution.work_item_count == 0u
+                          : execution.work_item_count != 0u) ||
+          execution.control.generated_item_count != generated ||
+          execution.control.generated_capacity != capacity ||
+          execution.control.indirect_dispatch_count != indirect ||
+          execution.control.indirect_work_item_count != generated ||
+          execution.control.overflow_ordinal != ControlStats::no_overflow) {
+        std::fprintf(
+            stderr,
+            "nested Metal aggregate profile row=%llu samples=%llu "
+            "original=%llu physical=%llu groups=%llu items=%llu "
+            "generated=%llu/%llu capacity=%llu/%llu indirect=%llu/%llu "
+            "work=%llu/%llu overflow=%llu\n",
+            static_cast<unsigned long long>(index),
+            static_cast<unsigned long long>(execution.sample_count),
+            static_cast<unsigned long long>(execution.original_dispatches),
+            static_cast<unsigned long long>(execution.final_dispatches),
+            static_cast<unsigned long long>(execution.workgroup_count),
+            static_cast<unsigned long long>(execution.work_item_count),
+            static_cast<unsigned long long>(
+                execution.control.generated_item_count),
+            static_cast<unsigned long long>(generated),
+            static_cast<unsigned long long>(
+                execution.control.generated_capacity),
+            static_cast<unsigned long long>(capacity),
+            static_cast<unsigned long long>(
+                execution.control.indirect_dispatch_count),
+            static_cast<unsigned long long>(indirect),
+            static_cast<unsigned long long>(
+                execution.control.indirect_work_item_count),
+            static_cast<unsigned long long>(generated),
+            static_cast<unsigned long long>(
+                execution.control.overflow_ordinal));
         return 4;
       }
     }
@@ -1521,7 +1606,7 @@ template <class Seed, class Fold>
         auto builder = pipeline(device);
         builder.windows<kMaximum, kTile>(body, rund::compute::window(*count),
                                          read(*outer, *queue, *domain),
-                                         write(output));
+                                         write_final(output));
         return builder;
       };
 
@@ -1672,7 +1757,7 @@ template <class Action, class Fold>
     auto builder = pipeline(device);
     builder.windows<Maximum, tile>(body, rund::compute::window(*count),
                                    read(*outer_state, *queue, *domain),
-                                   write(*output));
+                                   write_final(*output));
     return builder.plan();
   };
 
@@ -1789,10 +1874,10 @@ CheckNestedAggregateStats(rund::compute::Device &device,
   builder
       .windows<first_maximum, first_tile>(
           first_body, rund::compute::window(*first_count),
-          read(*first_outer_seed), write(*first_output))
+          read(*first_outer_seed), write_final(*first_output))
       .windows<second_maximum, second_tile>(
           second_body, rund::compute::window(*second_count),
-          read(*second_outer_seed), write(*second_output));
+          read(*second_outer_seed), write_final(*second_output));
   auto prepared = std::move(builder).prepare();
   std::array<std::uint32_t, 1u> first_actual{};
   std::array<std::uint32_t, 1u> second_actual{};
@@ -1840,6 +1925,326 @@ CheckNestedAggregateStats(rund::compute::Device &device,
 }
 
 template <class Seed, class Action, class Fold>
+[[nodiscard]] int CheckAggregateSeedFailures(
+    rund::compute::Device &device, const rund::compute::Backend backend,
+    const Seed &seed, const Action &action, const Fold &fold) {
+  using namespace rund::compute;
+  const auto same_execution = [](const PipelineStepStats &left,
+                                 const PipelineStepStats &right) {
+    return left.sample_count == right.sample_count &&
+           left.original_dispatches == right.original_dispatches &&
+           left.final_dispatches == right.final_dispatches &&
+           left.barrier_count == right.barrier_count &&
+           left.worker_count == right.worker_count &&
+           left.participating_workers == right.participating_workers &&
+           left.tile_count == right.tile_count &&
+           left.tile_size == right.tile_size &&
+           left.vector_chunks == right.vector_chunks &&
+           left.tail_chunks == right.tail_chunks &&
+           left.workgroup_count == right.workgroup_count &&
+           left.work_item_count == right.work_item_count &&
+           rund_node_test_pipeline::SameControlStats(left.control,
+                                                     right.control);
+  };
+  const auto run_case = [&](const bool reduce_overflow) {
+    constexpr std::array<std::uint32_t, 1u> initial{kOuterSeed};
+    constexpr std::array<std::uint32_t, 1u> output_values{kSentinel};
+    const std::array<std::uint32_t, 1u> count_values{reduce_overflow ? 6u : 5u};
+    std::array<std::uint32_t, kMaximum> queue_values{kQueue};
+    std::array<std::uint32_t, kDomain> domain_values{kDomainValues};
+    if (reduce_overflow) {
+      domain_values[kQueue[4u]] = std::numeric_limits<std::uint32_t>::max();
+      domain_values[kQueue[5u]] = 1u;
+    } else {
+      queue_values[4u] = static_cast<std::uint32_t>(kDomain);
+    }
+
+    auto outer = device.upload<std::uint32_t>(initial);
+    auto queue = device.upload<std::uint32_t>(queue_values);
+    auto domain = device.upload<std::uint32_t>(domain_values);
+    auto count = device.upload<std::uint32_t>(count_values);
+    auto output = device.upload<std::uint32_t>(output_values);
+    auto observer =
+        on(device)
+            .map<std::uint32_t>("nested-aggregate-failure-observe", 1u,
+                                [](auto value) { return value; })
+            .compile();
+    auto scratch = device.buffer<std::uint32_t>(1u);
+    if (!outer || !queue || !domain || !count || !output || !observer ||
+        !scratch) {
+      return 1;
+    }
+
+    const auto body = tile_repeat<kInner>(seed, action, fold);
+    auto builder = pipeline(device);
+    builder.profile(PipelineProfile::Steps)
+        .windows<kMaximum, kTile>(body, rund::compute::window(*count),
+                                  read(*outer, *queue, *domain),
+                                  write_final(*output));
+    auto prepared = std::move(builder).prepare();
+    std::array<std::uint32_t, 1u> actual{};
+    const Status first_failed =
+        prepared ? prepared->run() : Status::fail(prepared.reason());
+    const Stats first_stats = prepared ? prepared->stats() : Stats{};
+    std::array<PipelineStepProfile, kTemplates> first_rows{};
+    const auto first_profile =
+        prepared ? prepared->profile(first_rows)
+                 : Result<PipelineProfileSnapshot>::fail(prepared.reason());
+    const Reason expected_reason = reduce_overflow
+                                       ? Reason::ReduceSumOverflow
+                                       : Reason::GatherIndexOutOfRange;
+    const std::uint64_t expected_ordinal =
+        reduce_overflow ? std::numeric_limits<std::uint64_t>::max() : 0u;
+    const std::uint64_t expected_generated =
+        backend == Backend::Cpu ? 0u : (reduce_overflow ? 12u : 9u);
+    const std::uint64_t expected_capacity =
+        backend == Backend::Cpu ? 0u : (reduce_overflow ? 16u : 12u);
+    const std::uint64_t expected_indirect =
+        backend == Backend::Cpu ? 0u : (reduce_overflow ? 4u : 3u);
+    const bool direct_shape = backend != Backend::Metal ||
+                              first_stats.pipeline.control_command_count == 1u;
+    if (!prepared || first_failed || first_failed.reason() != expected_reason ||
+        !first_profile || first_profile->written != kTemplates ||
+        first_profile->total != kTemplates || first_profile->truncated() ||
+        prepared->generation() != 0u || prepared->poisoned() ||
+        !Observe(*observer, *output, *scratch, actual) ||
+        actual != output_values || !direct_shape ||
+        first_stats.command_submits != (backend == Backend::Cpu ? 0u : 1u) ||
+        first_stats.pipeline.verified_step_count != 0u ||
+        first_stats.pipeline.failed_step_index != 0u ||
+        first_stats.pipeline.failed_outer_window != 1u ||
+        first_stats.pipeline.failed_inner_iteration !=
+            PipelineStats::no_coordinate ||
+        first_stats.pipeline.failed_nested_phase != PipelineNestedPhase::Seed ||
+        first_stats.pipeline.executed_outer_window_count != 1u ||
+        first_stats.pipeline.skipped_outer_window_count != 0u ||
+        first_stats.pipeline.executed_inner_iteration_count != kInner ||
+        first_stats.pipeline.skipped_inner_iteration_count != 0u ||
+        first_stats.control.iteration_count != 1u ||
+        first_stats.control.skipped_iteration_count != 0u ||
+        first_stats.control.generated_item_count != expected_generated ||
+        first_stats.control.generated_capacity != expected_capacity ||
+        first_stats.control.indirect_dispatch_count != expected_indirect ||
+        first_stats.control.indirect_work_item_count != expected_generated ||
+        first_stats.control.overflow_ordinal != expected_ordinal ||
+        first_stats.publication.discard_count != 1u ||
+        first_profile->execution.pipeline.verified_step_count != 0u ||
+        first_profile->execution.pipeline.failed_step_index != 0u) {
+      std::fprintf(
+          stderr,
+          "nested aggregate seed failure backend=%u reduce=%u prepared=%u "
+          "status=%u reason=%u/%u profile=%u/%u rows=%llu/%llu "
+          "generation=%llu poison=%u output=%u/%u "
+          "verified=%llu failed=%llu coords=%llu/%llu/%u outer=%llu/%llu "
+          "inner=%llu/%llu control=%llu/%llu ordinal=%llu dispatch=%llu "
+          "commands=%llu discard=%llu submits=%llu\n",
+          static_cast<unsigned>(backend),
+          static_cast<unsigned>(reduce_overflow),
+          static_cast<unsigned>(prepared.ok()),
+          static_cast<unsigned>(first_failed.ok()),
+          static_cast<unsigned>(first_failed.reason()),
+          static_cast<unsigned>(expected_reason),
+          static_cast<unsigned>(first_profile.ok()),
+          static_cast<unsigned>(first_profile.reason()),
+          static_cast<unsigned long long>(first_profile ? first_profile->written
+                                                        : 0u),
+          static_cast<unsigned long long>(first_profile ? first_profile->total
+                                                        : 0u),
+          static_cast<unsigned long long>(prepared ? prepared->generation()
+                                                   : 0u),
+          static_cast<unsigned>(prepared ? prepared->poisoned() : false),
+          actual[0u], kSentinel,
+          static_cast<unsigned long long>(
+              first_stats.pipeline.verified_step_count),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.failed_step_index),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.failed_outer_window),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.failed_inner_iteration),
+          static_cast<unsigned>(first_stats.pipeline.failed_nested_phase),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.executed_outer_window_count),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.skipped_outer_window_count),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.executed_inner_iteration_count),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.skipped_inner_iteration_count),
+          static_cast<unsigned long long>(first_stats.control.iteration_count),
+          static_cast<unsigned long long>(
+              first_stats.control.skipped_iteration_count),
+          static_cast<unsigned long long>(first_stats.control.overflow_ordinal),
+          static_cast<unsigned long long>(first_stats.dispatches),
+          static_cast<unsigned long long>(
+              first_stats.pipeline.control_command_count),
+          static_cast<unsigned long long>(
+              first_stats.publication.discard_count),
+          static_cast<unsigned long long>(first_stats.command_submits));
+      return 2;
+    }
+
+    if (backend == Backend::Metal) {
+      const PipelineStepStats &prefix = first_rows[0u].execution;
+      const PipelineStepStats &failed = first_rows[1u].execution;
+      const std::uint64_t failed_generated = reduce_overflow ? 4u : 1u;
+      const std::uint64_t failed_capacity = reduce_overflow ? 8u : 4u;
+      const std::uint64_t failed_indirect = reduce_overflow ? 2u : 1u;
+      if (first_rows[0u].outer_window != 0u ||
+          first_rows[1u].outer_window != 1u ||
+          first_rows[0u].nested_phase != PipelineNestedPhase::Seed ||
+          first_rows[1u].nested_phase != PipelineNestedPhase::Seed ||
+          prefix.sample_count != 1u || prefix.final_dispatches != 2u ||
+          prefix.workgroup_count != kOuter + 1u ||
+          prefix.work_item_count == 0u ||
+          prefix.control.generated_item_count != 2u * kTile ||
+          prefix.control.generated_capacity != 2u * kTile ||
+          prefix.control.indirect_dispatch_count != 2u ||
+          prefix.control.indirect_work_item_count != 2u * kTile ||
+          prefix.control.overflow_ordinal != ControlStats::no_overflow ||
+          failed.sample_count != 1u || failed.original_dispatches == 0u ||
+          failed.final_dispatches != 0u || failed.workgroup_count != 0u ||
+          failed.work_item_count != 0u ||
+          failed.control.generated_item_count != failed_generated ||
+          failed.control.generated_capacity != failed_capacity ||
+          failed.control.indirect_dispatch_count != failed_indirect ||
+          failed.control.indirect_work_item_count != failed_generated ||
+          failed.control.overflow_ordinal != expected_ordinal ||
+          !rund_node_test_pipeline::TimingUnavailable(first_rows[0u].timing) ||
+          !rund_node_test_pipeline::TimingUnavailable(first_rows[1u].timing)) {
+        std::fprintf(
+            stderr,
+            "nested aggregate failure profile backend=%u reduce=%u "
+            "prefix=%llu/%llu/%llu/%llu/%llu failed=%llu/%llu/%llu/%llu/"
+            "%llu rows=%u/%u phases=%u/%u\n",
+            static_cast<unsigned>(backend),
+            static_cast<unsigned>(reduce_overflow),
+            static_cast<unsigned long long>(prefix.sample_count),
+            static_cast<unsigned long long>(prefix.final_dispatches),
+            static_cast<unsigned long long>(prefix.workgroup_count),
+            static_cast<unsigned long long>(
+                prefix.control.generated_item_count),
+            static_cast<unsigned long long>(prefix.control.overflow_ordinal),
+            static_cast<unsigned long long>(failed.sample_count),
+            static_cast<unsigned long long>(failed.final_dispatches),
+            static_cast<unsigned long long>(
+                failed.control.generated_item_count),
+            static_cast<unsigned long long>(
+                failed.control.indirect_dispatch_count),
+            static_cast<unsigned long long>(failed.control.overflow_ordinal),
+            first_rows[0u].outer_window, first_rows[1u].outer_window,
+            static_cast<unsigned>(first_rows[0u].nested_phase),
+            static_cast<unsigned>(first_rows[1u].nested_phase));
+        return 3;
+      }
+      for (std::size_t index = 2u; index < first_rows.size(); ++index) {
+        if (first_rows[index].execution.available() ||
+            !rund_node_test_pipeline::TimingUnavailable(
+                first_rows[index].timing)) {
+          std::fprintf(stderr,
+                       "nested aggregate failure suffix backend=%u reduce=%u "
+                       "row=%llu work=%llu timing=%llu\n",
+                       static_cast<unsigned>(backend),
+                       static_cast<unsigned>(reduce_overflow),
+                       static_cast<unsigned long long>(index),
+                       static_cast<unsigned long long>(
+                           first_rows[index].execution.sample_count),
+                       static_cast<unsigned long long>(
+                           first_rows[index].timing.sample_count));
+          return 4;
+        }
+      }
+    }
+
+    const Status second_failed = prepared->run();
+    const Stats second_stats = prepared->stats();
+    std::array<PipelineStepProfile, kTemplates> second_rows{};
+    const auto second_profile = prepared->profile(second_rows);
+    if (second_failed || second_failed.reason() != expected_reason ||
+        !second_profile || second_profile->written != kTemplates ||
+        second_profile->total != kTemplates || second_profile->truncated() ||
+        prepared->generation() != 0u || prepared->poisoned() ||
+        second_stats.pipeline.verified_step_count != 0u ||
+        second_stats.pipeline.failed_step_index != 0u ||
+        second_stats.pipeline.failed_outer_window != 1u ||
+        second_stats.pipeline.failed_nested_phase !=
+            PipelineNestedPhase::Seed ||
+        second_stats.publication.discard_count != 2u ||
+        second_profile->execution.pipeline.verified_step_count != 0u ||
+        second_profile->execution.pipeline.failed_step_index != 0u) {
+      std::fprintf(
+          stderr,
+          "nested aggregate failure repeat backend=%u reduce=%u status=%u "
+          "reason=%u/%u profile=%u/%u rows=%llu/%llu generation=%llu "
+          "poison=%u verified=%llu failed=%llu outer=%llu phase=%u "
+          "discard=%llu\n",
+          static_cast<unsigned>(backend),
+          static_cast<unsigned>(reduce_overflow),
+          static_cast<unsigned>(second_failed.ok()),
+          static_cast<unsigned>(second_failed.reason()),
+          static_cast<unsigned>(expected_reason),
+          static_cast<unsigned>(second_profile.ok()),
+          static_cast<unsigned>(second_profile.reason()),
+          static_cast<unsigned long long>(
+              second_profile ? second_profile->written : 0u),
+          static_cast<unsigned long long>(second_profile ? second_profile->total
+                                                         : 0u),
+          static_cast<unsigned long long>(prepared->generation()),
+          static_cast<unsigned>(prepared->poisoned()),
+          static_cast<unsigned long long>(
+              second_stats.pipeline.verified_step_count),
+          static_cast<unsigned long long>(
+              second_stats.pipeline.failed_step_index),
+          static_cast<unsigned long long>(
+              second_stats.pipeline.failed_outer_window),
+          static_cast<unsigned>(second_stats.pipeline.failed_nested_phase),
+          static_cast<unsigned long long>(
+              second_stats.publication.discard_count));
+      return 5;
+    }
+    for (std::size_t index = 0u; index < first_rows.size(); ++index) {
+      if (!same_execution(first_rows[index].execution,
+                          second_rows[index].execution) ||
+          (backend == Backend::Metal &&
+           !rund_node_test_pipeline::TimingUnavailable(
+               second_rows[index].timing))) {
+        std::fprintf(
+            stderr,
+            "nested aggregate failure profile reset backend=%u reduce=%u "
+            "row=%llu samples=%llu/%llu timing=%llu generated=%llu/%llu "
+            "overflow=%llu/%llu\n",
+            static_cast<unsigned>(backend),
+            static_cast<unsigned>(reduce_overflow),
+            static_cast<unsigned long long>(index),
+            static_cast<unsigned long long>(
+                first_rows[index].execution.sample_count),
+            static_cast<unsigned long long>(
+                second_rows[index].execution.sample_count),
+            static_cast<unsigned long long>(
+                second_rows[index].timing.sample_count),
+            static_cast<unsigned long long>(
+                first_rows[index].execution.control.generated_item_count),
+            static_cast<unsigned long long>(
+                second_rows[index].execution.control.generated_item_count),
+            static_cast<unsigned long long>(
+                first_rows[index].execution.control.overflow_ordinal),
+            static_cast<unsigned long long>(
+                second_rows[index].execution.control.overflow_ordinal));
+        return 6;
+      }
+    }
+    return 0;
+  };
+
+  const int gather = run_case(false);
+  if (gather != 0) {
+    return gather;
+  }
+  const int reduce = run_case(true);
+  return reduce == 0 ? 0 : 10 + reduce;
+}
+
+template <class Seed, class Action, class Fold>
 [[nodiscard]] int CheckComposition(rund::compute::Device &device,
                                    const rund::compute::Backend backend,
                                    const Seed &seed, const Action &action,
@@ -1872,8 +2277,9 @@ template <class Seed, class Action, class Fold>
   builder
       .windows<kMaximum, kTile>(body, rund::compute::window(*count),
                                 read(*outer, *queue, *domain),
-                                write(*nested_output))
-      .template repeat<2u>(*increment, read(*nested_output), write(*derived));
+                                write_final(*nested_output))
+      .template repeat<2u>(*increment, read(*nested_output),
+                           write_final(*derived));
   const auto plan = builder.plan();
   const std::uint64_t logical_workspace =
       kOuter * (seed.graph().memory.logical_bytes +
@@ -1951,7 +2357,8 @@ template <class Seed, class Action, class Fold>
   return 0;
 }
 
-[[nodiscard]] int CheckProductPlan(rund::compute::Device &device) {
+[[nodiscard]] int CheckProductPlan(rund::compute::Device &device,
+                                   const rund::compute::Backend backend) {
   using namespace rund::compute;
   constexpr std::size_t maximum = 33u;
   constexpr std::size_t tile = 1u;
@@ -1989,7 +2396,7 @@ template <class Seed, class Action, class Fold>
   auto builder = pipeline(device);
   builder.windows<maximum, tile>(body, rund::compute::window(*count),
                                  read(*outer_buffer, *queue, *domain),
-                                 write(*output));
+                                 write_final(*output));
   const auto plan = builder.plan();
   constexpr std::uint64_t state_bytes = (outer + 5u) * sizeof(std::uint32_t);
   if (!plan || plan->outer_window_count != outer ||
@@ -2016,6 +2423,43 @@ template <class Seed, class Action, class Fold>
           static_cast<unsigned long long>(plan->physical_bytes));
     }
     return 2;
+  }
+  auto prepared = std::move(builder)
+                      .budget(MemoryBudget{.bytes = plan->peak_bytes})
+                      .prepare();
+  const Status ran =
+      prepared ? prepared->run() : Status::fail(prepared.reason());
+  const Stats stats = prepared ? prepared->stats() : Stats{};
+  std::array<std::uint32_t, 1u> actual{};
+  std::uint32_t expected = initial[0];
+  for (const std::uint32_t item : queue_values) {
+    expected += kDomainValues[item] + static_cast<std::uint32_t>(inner);
+  }
+  const bool unexpected_direct = backend == Backend::Metal &&
+                                 stats.dispatches == 2u &&
+                                 stats.pipeline.control_command_count == 1u;
+  if (!prepared || !ran || !prepared->read(*output, actual) ||
+      actual[0] != expected || unexpected_direct ||
+      stats.pipeline.executed_outer_window_count != outer ||
+      stats.pipeline.executed_inner_iteration_count != outer * inner ||
+      stats.pipeline.prepared_command_count != commands ||
+      stats.command_submits != (backend == Backend::Cpu ? 0u : 1u)) {
+    std::fprintf(
+        stderr,
+        "nested product fallback backend=%u prepared=%u status=%u/%u "
+        "output=%u/%u dispatches=%llu control=%llu outer=%llu inner=%llu "
+        "commands=%llu submits=%llu\n",
+        static_cast<unsigned>(backend), static_cast<unsigned>(prepared.ok()),
+        static_cast<unsigned>(ran.ok()), static_cast<unsigned>(ran.reason()),
+        actual[0], expected, static_cast<unsigned long long>(stats.dispatches),
+        static_cast<unsigned long long>(stats.pipeline.control_command_count),
+        static_cast<unsigned long long>(
+            stats.pipeline.executed_outer_window_count),
+        static_cast<unsigned long long>(
+            stats.pipeline.executed_inner_iteration_count),
+        static_cast<unsigned long long>(stats.pipeline.prepared_command_count),
+        static_cast<unsigned long long>(stats.command_submits));
+    return 3;
   }
   return 0;
 }
@@ -2068,11 +2512,16 @@ template <class Seed, class Action, class Fold>
   if (aggregate != 0) {
     return 175 + aggregate;
   }
+  const int aggregate_failures =
+      CheckAggregateSeedFailures(device, backend, *seed, *action, *fold);
+  if (aggregate_failures != 0) {
+    return 178 + aggregate_failures;
+  }
   const int maximum = CheckMaximumPlan(device, *action, *fold);
   if (maximum != 0) {
     return 180 + maximum;
   }
-  const int product = CheckProductPlan(device);
+  const int product = CheckProductPlan(device, backend);
   return product == 0 ? 0 : 190 + product;
 }
 

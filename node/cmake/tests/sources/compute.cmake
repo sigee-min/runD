@@ -90,8 +90,11 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/chunk.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/completion.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/empty.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/sealed.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/fixed.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/feedback.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/hazard.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/history.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/oracle.cpp|compute.pipeline,compute.window"
   "tests/contract/compute/pipeline/identity.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/loss.cpp|compute.pipeline"
@@ -203,8 +206,11 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/chunk.cpp
   tests/contract/compute/pipeline/completion.cpp
   tests/contract/compute/pipeline/empty.cpp
+  tests/contract/compute/pipeline/sealed.cpp
   tests/contract/compute/pipeline/fixed.cpp
+  tests/contract/compute/pipeline/feedback.cpp
   tests/contract/compute/pipeline/hazard.cpp
+  tests/contract/compute/pipeline/history.cpp
   tests/contract/compute/pipeline/oracle.cpp
   tests/contract/compute/pipeline/identity.cpp
   tests/contract/compute/pipeline/loss.cpp

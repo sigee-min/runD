@@ -31,8 +31,12 @@ struct VulkanMapCheck final {
 struct VulkanMapEncodeResources {
   VulkanAdapter *adapter = nullptr;
   std::uint32_t iterations{1u};
+  bool history_recurrence{};
   rund::kernel::ComputePlan plan{};
   rund::kernel::BindingSet bindings{};
+  // BindingSet is a non-owning projection. Recurrence history may project
+  // proof-owned refs, so retain that owner through the last encode/finish.
+  std::shared_ptr<const void> binding_owner{};
   std::vector<InputWindowPlan> input_plans{};
   std::vector<VulkanMapCheck> checks{};
   std::vector<rund::kernel::ComputeDispatchWindow> windows{};
@@ -71,6 +75,13 @@ void DestroyVulkanMapEncodeResources(void *raw);
     const VulkanAdapter &adapter, const rund::kernel::ResidentBufferRef &ref,
     const rund::kernel::ComputeDispatchWindow &window, VkDeviceSize &offset,
     VkDeviceSize &range, const char *&reason) noexcept;
+[[nodiscard]] bool VulkanMapResidentOutputWindowSpan(
+    const VulkanMapEncodeResources &map,
+    const rund::kernel::ResidentBufferRef &ref,
+    const rund::kernel::ComputeDispatchWindow &window, VkDeviceSize &offset,
+    VkDeviceSize &range, const char *&reason) noexcept;
+[[nodiscard]] bool ValidateVulkanMapHistoryOutputs(
+    const VulkanMapEncodeResources &map, const char *&reason) noexcept;
 #endif
 
 } // namespace rund::node::accel::detail

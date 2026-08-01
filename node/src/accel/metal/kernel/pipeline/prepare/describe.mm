@@ -10,6 +10,58 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
 rund::AccelCheck MetalPipelineBuild::Describe() {
+  // Direct aggregate admission already proved and resolved the complete
+  // pipeline. Canonical status, telemetry, reset, and occurrence metadata
+  // have no execution consumer on this path. Preserve only the public logical
+  // status slices by inspecting one representative of each proved-identical
+  // Seed/Action/Fold Program; do not retain raw arenas or occurrence records.
+  if (aggregate_selected) {
+    try {
+      const NestedAggregate &aggregate = aggregates.front();
+      const auto status_count = [&](const std::uint32_t template_index,
+                                    std::uint32_t &out) {
+        if (template_index >= templates.size()) {
+          return false;
+        }
+        const BackendBatchEntry &entry = templates[template_index];
+        auto *const resources =
+            entry.prepared == nullptr
+                ? nullptr
+                : static_cast<MetalKernelResources *>(entry.prepared->get());
+        if (resources == nullptr) {
+          return false;
+        }
+        std::vector<MetalPipelineStatusBindingRecord> bindings;
+        std::vector<MetalPipelineStatusSourceMeta> sources;
+        std::uint32_t raw = 0u;
+        out = 0u;
+        return CollectMetalStatus(*resources, 0u, bindings, sources, raw, out);
+      };
+      std::uint32_t seed_status = 0u;
+      std::uint32_t action_status = 0u;
+      std::uint32_t fold_status = 0u;
+      if (!status_count(aggregate.seed.first, seed_status) ||
+          !status_count(aggregate.action.first, action_status) ||
+          !status_count(aggregate.fold.first, fold_status)) {
+        return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
+      }
+      for (std::uint32_t index = 0u; index < status.active_step_count;
+           ++index) {
+        const std::uint32_t count =
+            index < aggregate.seed.end()
+                ? seed_status
+                : (index < aggregate.action.end() ? action_status
+                                                  : fold_status);
+        if (!SetPreparedProgramStatusSlice(status, index, count)) {
+          return rund::AccelCheck{false, "compute_pipeline_capacity"};
+        }
+      }
+      status_entry_count = status.status_entry_count;
+      return rund::AccelCheck{true, "ok"};
+    } catch (const std::bad_alloc &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+  }
   try {
     const std::size_t binding_capacity =
         templates.size() * kMetalPipelineStatusBindingCapacity;
@@ -37,8 +89,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         current.adapter != context.adapter) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
-    const std::uint32_t declared_step =
-        status.declared_steps[template_index];
+    const std::uint32_t declared_step = status.declared_steps[template_index];
     if (entry.template_index != template_index ||
         declared_step >= status.declared_step_count) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -132,9 +183,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
     const TileTransducer *const transducer =
-        entry.transducer == NoTileTransducer
-            ? nullptr
-            : &transducers[entry.transducer];
+        entry.transducer == NoTileTransducer ? nullptr
+                                             : &transducers[entry.transducer];
     const std::uint64_t physical_dispatches =
         transducer == nullptr ? resources->dispatch_count
                               : transducer->recurrence.window_count;
@@ -148,9 +198,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         pipeline->dispatch_count = recurrence.window_count;
       }
     } else {
-      if (physical_dispatches >
-          std::numeric_limits<std::uint64_t>::max() -
-              pipeline->dispatch_count) {
+      if (physical_dispatches > std::numeric_limits<std::uint64_t>::max() -
+                                    pipeline->dispatch_count) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
       pipeline->dispatch_count += physical_dispatches;
@@ -170,9 +219,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
               : (transducer == nullptr ? entry.run->final_dispatch_count
                                        : physical_dispatches);
       const std::uint64_t physical =
-          recurrence.ready()
-              ? (recurrence_owner ? recurrence.window_count : 0u)
-              : physical_dispatches;
+          recurrence.ready() ? (recurrence_owner ? recurrence.window_count : 0u)
+                             : physical_dispatches;
       if (original > std::numeric_limits<std::uint64_t>::max() -
                          row.original_dispatch_count ||
           final > std::numeric_limits<std::uint64_t>::max() -
@@ -211,12 +259,10 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
                         std::numeric_limits<std::uint64_t>::max() /
                             entry.run->original_dispatch_count
                 ? std::numeric_limits<std::uint64_t>::max()
-                : occurrence_counts[index] *
-                      entry.run->original_dispatch_count;
+                : occurrence_counts[index] * entry.run->original_dispatch_count;
         PreparedPipelineStepEvidence &row = pipeline->step_evidence[declared];
-        row.original_dispatch_count =
-            ::rund::detail::counter::SaturatingAdd(
-                row.original_dispatch_count, original);
+        row.original_dispatch_count = ::rund::detail::counter::SaturatingAdd(
+            row.original_dispatch_count, original);
       }
     }
   }
@@ -257,8 +303,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
   std::size_t status_index = 0u;
   for (std::size_t template_index = 0u; template_index < templates.size();
        ++template_index) {
-    const PreparedProgramStatusSlice bindings =
-        binding_slices[template_index];
+    const PreparedProgramStatusSlice bindings = binding_slices[template_index];
     const std::size_t binding_end =
         static_cast<std::size_t>(bindings.first) + bindings.count;
     if (binding_end > status_bindings.size()) {

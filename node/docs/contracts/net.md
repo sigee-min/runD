@@ -654,5 +654,6 @@ includes or native socket admission.
 ## Update Rule
 
 A network surface change updates this page, the matching header, its focused
-contract, the installed consumer, and the wiki atomically. Each public concept
-has one current namespace, path, name, and executable example.
+contract, the installed consumer, and any affected public site guide atomically.
+Each public concept has one current namespace, path, name, and executable
+example.

@@ -175,6 +175,7 @@ struct MetalSequence final {
   std::uint64_t instrumentation_byte_count{};
   bool uses_status_arena{};
   bool profile_steps{};
+  bool direct_aggregate{};
   submission::State<MetalSequence> submission{};
 };
 

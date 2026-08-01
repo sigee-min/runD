@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Choose runD Compute integer and Fixed values, Math32, Math64, and canonical numeric evidence.">
+    <title>Numerics — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/numerics/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Numerics — runD Docs">
+    <meta property="og:description" content="Choose the runD numeric surface for cross-backend state, raw fixed lanes, vector math, and evidence.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/numerics/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Numerics</span></p>
+        <h1>Choose the number system before the backend.</h1>
+        <p class="doc-intro">
+          Cross-backend authority starts with width, format, rounding, overflow, and approximation
+          policy. runD exposes separate surfaces for Compute state, raw vector lanes, and evidence.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">32/64-bit integer</span><span class="meta-chip">Fixed</span><span class="meta-chip">Math32/Math64</span><span class="meta-chip">Evidence</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#choose">Choose a surface</a>
+          <a href="#compute-fixed">Compute Fixed</a>
+          <a href="#lanes">Math32 and Math64</a>
+          <a href="#evidence">Numeric evidence</a>
+          <a href="#limits">Limits</a>
+        </nav>
+
+        <section id="choose">
+          <h2>Choose by where the value lives</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Need</th><th scope="col">Entry</th><th scope="col">Contract</th></tr></thead>
+              <tbody>
+                <tr><td>Authoritative values inside one CPU/GPU Flow</td><td><code>&lt;rund/compute.hpp&gt;</code></td><td><code>int32_t</code>, <code>uint32_t</code>, <code>int64_t</code>, <code>uint64_t</code>, or <code>compute::Fixed&lt;I,F&gt;</code>.</td></tr>
+                <tr><td>Composite Compute math and matrices</td><td><code>&lt;rund/compute/math.hpp&gt;</code></td><td>The same canonical Flow and numeric policy; no second graph language.</td></tr>
+                <tr><td>Deterministic real-time SIMD and vector helpers</td><td><code>&lt;math32/math32.hpp&gt;</code></td><td>32-bit lanes and raw signed Q1.31 formulas.</td></tr>
+                <tr><td>Widened high-precision SIMD and vector helpers</td><td><code>&lt;math64/math64.hpp&gt;</code></td><td>64-bit lanes and raw signed Q1.63 formulas.</td></tr>
+                <tr><td>Portable numeric-policy identity and text</td><td><code>&lt;rund/evidence.hpp&gt;</code></td><td>Validated Contract, stable Id, encode, and decode.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout callout-warning">
+            <strong>There is no <code>&lt;rund/fixed.hpp&gt;</code></strong>
+            Stored cross-backend Fixed values belong to Compute. Math32 and Math64 expose raw fixed-lane
+            formulas, not another stored fixed value type.
+          </div>
+        </section>
+
+        <section id="compute-fixed">
+          <h2>Compute Fixed makes storage policy explicit</h2>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">Fixed construction · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">using State = rund::compute::Fixed&lt;16, 16&gt;;
+
+const State half = State::ratio&lt;1, 2&gt;();
+const State one = State::from_raw(1 &lt;&lt; 16);</code></pre>
+          </div>
+          <p>
+            A stored Fixed format has exactly 32 or 64 bits. Intermediate expressions may widen, but
+            every precision-losing storage boundary uses explicit <code>quantize&lt;T&gt;()</code>.
+            Format, rounding, overflow, and approximation policy participate in graph and Program identity.
+          </p>
+          <ul>
+            <li>Implicit conversion to or from <code>float</code> and <code>double</code> is rejected.</li>
+            <li>Mixed Fixed formats do not combine implicitly.</li>
+            <li>Integer and Fixed expression domains remain distinct.</li>
+            <li>CPU, Metal, and Vulkan lower the same admitted expression opcodes.</li>
+          </ul>
+        </section>
+
+        <section id="lanes">
+          <h2>Math32 and Math64 own raw vector lanes</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Family</th><th scope="col">Math32</th><th scope="col">Math64</th></tr></thead>
+              <tbody>
+                <tr><td>Fixed lane</td><td>Signed Q1.31</td><td>Signed Q1.63</td></tr>
+                <tr><td>SIMD</td><td>I32/U32 lanes and masks</td><td>I64/U64 lanes and masks</td></tr>
+                <tr><td>Common helpers</td><td colspan="2">Saturating arithmetic, fixed multiply/divide, nonlinear/turn math, statistics, geometry, SoA, quantization, neural, probability, and recurrence families.</td></tr>
+                <tr><td>Typical choice</td><td>Real-time and quantized workloads</td><td>Widened precision and larger accumulation range</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Pure functions return values directly. Prepared ranges, quantization, probability, and other
+            validating helpers expose a status or result; check it before using output storage.
+          </p>
+        </section>
+
+        <section id="evidence">
+          <h2>Encode the numeric contract you actually used</h2>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">numeric evidence · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">#include &lt;rund/evidence.hpp&gt;
+
+const auto numeric =
+    rund::evidence::make(rund::evidence::fixed&lt;16, 16&gt;());
+if (!numeric) return numeric.exit_code();
+
+const auto text = rund::evidence::encode(numeric);
+const auto decoded = rund::evidence::decode(text);
+if (!decoded) return decoded.exit_code();
+
+return decoded.id() == numeric.id() ? 0 : 2;</code></pre>
+          </div>
+          <p>
+            Start from a preset such as <code>i32()</code>, <code>i64()</code>,
+            <code>fixed&lt;I,F&gt;()</code>, or a strict/diagnostic/presentation floating-point preset.
+            <code>Numeric::Code</code> is the outcome authority; identity and contract observers are
+            meaningful only after success.
+          </p>
+        </section>
+
+        <section id="limits">
+          <h2>Know where exact authority stops</h2>
+          <ul>
+            <li>Public Compute currently excludes floating-point inputs even though the broader evidence model can describe strict floating-point policy.</li>
+            <li>Diagnostic or presentation floating point cannot feed authoritative state.</li>
+            <li>Native SIMD width is a physical implementation detail; lane formulas and output bits are the contract.</li>
+            <li>An unsupported format or policy combination fails admission instead of selecting a weaker rule.</li>
+          </ul>
+          <p>
+            Read <a href="/runD/docs/determinism/">Determinism</a> for graph and ordering scope, then
+            <a href="/runD/docs/compute/">Compute</a> for the bounded expression language.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/api/"><span><small>Next reference</small><strong>Find every public entry and result family</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Width, policy, identity</span><span><a href="/runD/docs/determinism/">Determinism boundary →</a></span></div></footer>
+  </body>
+</html>

@@ -1,5 +1,7 @@
 #include "../build.hpp"
 
+#include "../aggregate/prepare.hpp"
+
 #include <algorithm>
 #include <new>
 
@@ -15,6 +17,18 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
   captured.guard_zero = pipeline->guard_zero;
   captured.guard_states = pipeline->states;
   captured.guard_state_count = pipeline->state_count;
+  if (aggregate_selected) {
+    captured.unguarded = true;
+    reset_command_count = 0u;
+    id<MTLBuffer> const step_control =
+        profile_steps ? pipeline->step_control : pipeline->control;
+    const rund::AccelCheck encoded = EncodeMetalNestedAggregate(
+        native_aggregate, pipeline->control, step_control, encoder);
+    if (encoded.ok && captured.commands.size() == 2u) {
+      captured.commands.back().control = true;
+    }
+    return encoded;
+  }
   MetalPipelineStatusParams open = status_params;
   open.phase = 0u;
   [encoder setComputePipelineState:complete];

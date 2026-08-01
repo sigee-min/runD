@@ -96,10 +96,10 @@ int NestedWorkTotals(rund::Session &session, rund::compute::Device &device) {
   auto prepared = pipeline(device)
                       .windows<first_maximum, first_tile>(
                           first_body, rund::compute::window(*first_count),
-                          read(*first_outer_seed), write(*first_output))
+                          read(*first_outer_seed), write_final(*first_output))
                       .windows<second_maximum, second_tile>(
                           second_body, rund::compute::window(*second_count),
-                          read(*second_outer_seed), write(*second_output))
+                          read(*second_outer_seed), write_final(*second_output))
                       .prepare();
   if (!prepared) {
     return 2;

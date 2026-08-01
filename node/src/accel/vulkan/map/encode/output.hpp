@@ -22,8 +22,8 @@ BindVulkanMapOutputs(VulkanAdapter &adapter,
     const rund::kernel::ResidentBufferRef *const ref =
         map.bindings.resident_outputs.ref(index);
     if (ref == nullptr ||
-        !VulkanMapResidentWindowSpan(adapter, *ref, window, output_offset,
-                                     output_range, reason)) {
+        !VulkanMapResidentOutputWindowSpan(map, *ref, window, output_offset,
+                                           output_range, reason)) {
       SetVulkanLastError(adapter, reason);
       return false;
     }
@@ -57,8 +57,8 @@ BindVulkanMapOutputs(VulkanAdapter &adapter,
     const rund::kernel::ResidentBufferRef *const ref =
         map.bindings.resident_outputs.ref(index);
     if (ref == nullptr ||
-        !VulkanMapResidentWindowSpan(*map.adapter, *ref, window, offset, range,
-                                     reason) ||
+        !VulkanMapResidentOutputWindowSpan(map, *ref, window, offset, range,
+                                           reason) ||
         map.resident.output(index).device_buffer == nullptr) {
       SetVulkanLastError(*map.adapter, reason);
       return false;

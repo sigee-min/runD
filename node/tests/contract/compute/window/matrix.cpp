@@ -86,7 +86,7 @@ namespace rund::node::test_contract::window {
   builder.windows<kMatrixMaximum, kMatrixTile>(
       *body, rund::compute::window(*count_view),
       read(*first, *second, *witness, *fail_at),
-      write(*first_view, *second_view));
+      write_final(*first_view, *second_view));
   const auto plan = builder.plan();
   constexpr std::uint64_t published_bytes =
       2u * kMatrixWidth * sizeof(std::uint32_t);

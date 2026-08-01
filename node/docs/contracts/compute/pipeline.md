@@ -35,9 +35,12 @@ escape.
 
 ## Product Surface
 
-The product surface has one durable owner type. `read(...)` and `write(...)`
-are transient typed binding packs; they own no execution state and are consumed
-immediately by `then(...)`, `repeat<N>(...)`, or `windows<Max, Tile>(...)`.
+The product surface has one durable owner type. `read(...)`, `write(...)`,
+`write_final(...)`, and `write_each(...)` are transient typed binding packs;
+they own no execution state and are consumed immediately by their matching
+declaration operation. `then(...)` accepts `write`, fixed `repeat<N>(...)`
+accepts `write_final` or `write_each`, and bounded `windows<Max, Tile>(...)`
+accepts `write_final`.
 
 ```cpp fragment
 using Real = rund::compute::Fixed<32, 32>;
@@ -103,35 +106,135 @@ types and counts at compile time. Rvalue Buffers are rejected. Pipeline retains
 the Buffer owners, so moving the caller's handles cannot change prepared
 identity.
 
+`sealed_repetitions<N>()` is the bounded input-sealed repetition contract. `N`
+is a positive compile-time count no greater than
+`PipelineSealedRepetitionCapacity = 1024`. It does not advance simulation time,
+expose `N` intermediate publications, or manufacture `N` generation changes.
+One `run()` remains one claim, one physical execution, one terminal publication,
+and one generation transition. The repetition count says that this one
+execution represents `N` identical invocations whose inputs and observation
+boundary are deliberately sealed by the caller:
+
+```cpp fragment
+auto prepared = rund::compute::pipeline(device)
+                    .sealed_repetitions<256>()
+                    .then(classify,
+                          rund::compute::read(frozen_input),
+                          rund::compute::write(output))
+                    .prepare();
+```
+
+The cold planner admits `N > 1` only when the exact caller-owned read footprint
+is disjoint from the exact caller-owned write footprint across an invocation
+boundary. It orders every external write of invocation `t` before every
+external read of invocation `t + 1` and reuses the canonical
+`resource::analyze` strided-range authority. Interleaved Views with no physical
+intersection are admitted; any exact nonempty intersection is rejected with
+`PipelineTemporalDependency`. Any `.state(...).commit()` pair is an explicit
+temporal carry and is rejected by the same reason. Program- and
+Pipeline-private storage remains governed by the existing deterministic
+reusable-execution reset/overwrite contract and is not reclassified as caller
+state.
+
+Let `R` and `W` be the external byte sets read and written by one deterministic
+invocation. Admission proves `R ∩ W = ∅`. The caller seals `R` for the complete
+repetition set, so every invocation observes the same input bits; each therefore
+produces the same status and writes the same output bits. By induction,
+executing once and retaining the final write has the same payload and status at
+the single terminal observation as evaluating that payload `N` times. It is
+deliberately not equivalent to `N` public `run()` calls, because those calls
+would expose `N` claims, failures, publications, and generation transitions.
+This is an idempotent repetition elimination, not a result cache: no prior
+result is looked up, contents and hashes remain outside the fingerprint, and
+every public `run()` still physically executes once.
+
+A successful attempt reports `sealed_repetition_count = N` and
+`coalesced_repetition_count = N - 1`. A failed or unpublished attempt reports
+zero coalesced repetitions, advances no Pipeline generation, and keeps the
+ordinary first-failure, discard, and poisoning rules. Dispatch, submit, profile,
+and control counters report the one physical attempt and are never multiplied
+by `N`. The prepared owner retains only the scalar repetition count; the exact
+temporal proof uses cold planning workspace that is released before publication
+and adds no payload Buffer, transfer, descriptor, or warm host loop.
+`sealed_repetitions<1>()` is the canonical identity and has the same fingerprint
+as an otherwise identical builder with no sealed-repetition call.
+
+The caller, including GYEOL, continues to own time-varying input production,
+active-set evolution, tick meaning, and intermediate observation. A changing
+active queue, recurrent accumulator, checkpoint per logical tick, or host input
+between repetitions is not eligible for this contract and requires a true
+ordered multi-invocation execution owner instead.
+
 `repeat<N>(...)` is the fixed-count resident recurrence authority. The
 Program's flattened output types must exactly match the prefix of its input
 types; those leaves are loop-carried state and any remaining input leaves are
-loop invariants. `N` is a positive compile-time execution bound. The caller
-binds the initial state once and the final state once:
+loop invariants. `N` is a positive compile-time execution bound. Output
+retention is explicit and has exactly two spellings:
 
 ```cpp fragment
-auto tick = rund::compute::pipeline(device)
-                .repeat<8>(solver,
-                           rund::compute::read(seed, constants),
-                           rund::compute::write(result))
-                .prepare();
+auto terminal =
+    rund::compute::pipeline(device)
+        .repeat<8>(solver,
+                   rund::compute::read(seed, constants),
+                   rund::compute::write_final(result))
+        .prepare();
+
+auto lossless =
+    rund::compute::pipeline(device)
+        .repeat<8>(solver,
+                   rund::compute::read(seed, constants),
+                   rund::compute::write_each(history))
+        .prepare();
 ```
 
+`write_final` retains only $x_N$ and is the terminal-only, minimum-traffic
+path. `write_each` retains $x_1 ... x_N$ in caller-owned Buffers without a
+host boundary. Plain `write` remains the ordinary `then(...)` output spelling
+and is deliberately not accepted by `repeat`; the old
+`repeat(..., write(...))` surface does not coexist as a compatibility
+authority.
+
+For output leaf $j$, let $E_j$ be the Program output element count. A
+`write_each(history_j)` target has exactly $N E_j$ elements and uses
+leaf-local iteration-major layout:
+
+```text
+history_j[k * E_j + e] = output_j(k, e)
+0 <= k < N
+0 <= e < E_j
+```
+
+The seed $x_0$ is not stored. A strided target applies its declared stride
+after the iteration-major logical index. `N == 1` canonicalizes
+`write_each` to `write_final`, including Pipeline fingerprint and lowering
+route. For `N > 1`, retention policy and exact slice layout participate in
+Pipeline identity. History is one ordinary public output generation: it
+becomes readable only after the complete enclosing run succeeds. A submitted
+failure that may have changed a history target poisons that whole
+nontransactional Buffer; no written prefix is published as a successful
+history.
+
 Preparation compiles no second graph. It allocates one private resident
-scratch bank for the carried output leaves and exactly one Program-internal
-workspace for the complete recurrence. The seed route and the two alternating
-bank routes bind that same workspace; they never allocate occurrence-local
-copies of Program internal values. Preparation cold-freezes those routes so
-the final iteration always publishes to the declared output bank.
+scratch bank for `write_final` carried output leaves and exactly one
+Program-internal workspace for the complete recurrence. `write_each` instead
+uses the preceding caller history slice as the next carried input and
+allocates no carried scratch bank. The seed route and all recurrence routes
+bind the same Program workspace; they never allocate occurrence-local copies
+of Program internal values. Preparation cold-freezes those routes so
+`write_final` publishes the terminal bank and `write_each` writes every
+declared slice.
 The recurrence is one declared Pipeline step and therefore consumes one of the
 64 public steps. Its physical prepared iterations consume the separate 1,024
 iteration envelope. CPU executes the frozen entries in the same order; Metal
 and Vulkan preserve that exact logical order. A recurrence whose complete
 physical body is one element-local Map is lowered to one native dispatch per
 pre-existing device-capacity window: one lane loads its carried and invariant
-inputs, evaluates iterations `0..N-1` in that order, retains carried values in
-registers, and writes only the final state. Other Program shapes retain the
-canonical ordered command stream with
+inputs, evaluates iterations `0..N-1` in that order, and retains carried
+values in registers. `write_final` performs one terminal store per output
+element. `write_each` performs one store per output element inside each loop
+iteration, directly into the proved caller history slice; it still uses one
+native dispatch per pre-existing device-capacity window and no carried
+scratch. Other Program shapes retain the canonical ordered command stream with
 resource visibility barriers between carried writes and subsequent reads.
 There is no host callback, count readback, graph rebuild, compilation, or warm
 allocation between iterations.
@@ -141,9 +244,13 @@ count, device model, timing, or a tuning threshold. All occurrences must be the
 same status-free Map artifact and dispatch plan; every carried output must feed
 the matching next input view; all other input views must be invariant; and
 carried, invariant, and final output views must satisfy the no-alias proof.
+Any status-capable Map is ineligible and retains the canonical ordered backend
+path and that backend's existing status semantics; register recurrence neither
+emulates nor broadens status reporting.
 The derived shader is mechanically specialized from the Program's canonical
-lowered source and receives a fingerprint distinct from the ordinary Map. It
-is not a second graph or calculation authority. If an eligible source cannot
+lowered source and receives an executable variant distinct from the ordinary
+Map; terminal and each-iteration variants are distinct from one another. It is
+not a second graph or calculation authority. If an eligible source cannot
 be transformed with exact symbol and replacement cardinality, preparation
 fails closed rather than silently recording the slower recurrence.
 The compiled recurrence owner is physically separated into `match`, `source`,
@@ -210,7 +317,8 @@ has size `S`, invariant input payload per element is `C`, output payload per
 element is `O`, authored logical binding width is `L <= 64`, element count is
 `E`, and
 the recurrence bound is `N`. Preparation retains one `Theta(G)` compiled body,
-one `Theta(I)` chunked virtual arena, and `Theta(S)` carried scratch; the frozen
+one `Theta(I)` chunked virtual arena, and at most `Theta(S)` `write_final`
+carried scratch; the frozen
 logical schedule and its exact binding/hazard evidence are `Theta(N * L)`.
 They are cold, bounded metadata rather than duplicated graph compilation or
 payload storage. `I` is the canonical `MemoryPlan::physical_bytes`, not the sum
@@ -222,11 +330,15 @@ ceiling.
 For `W` pre-existing device-capacity windows, the canonical multi-dispatch
 route performs `N * W` dispatches and `N - 1` visibility boundaries. Its
 authored commands expose `Theta(N * E * (S + C + O))` payload loads and
-stores. The proved element-local Map route performs `W` dispatches, has no
-inter-iteration visibility boundary, and exposes
-`Theta(E * (S + C + O))` payload loads and stores while retaining
-`Theta(N * E)` arithmetic. Dispatches and program-visible payload operations
-therefore decrease linearly in `N`. Physical memory traffic and wall time
+stores. The proved element-local Map route performs `W` dispatches and has no
+inter-iteration visibility boundary. `write_final` exposes
+`Theta(E * (S + C + O))` payload loads and stores. Lossless `write_each`
+exposes `Theta(E * (S + C + N * O))`: the `N * E * O` output stores are the
+information-theoretic minimum for retaining all `N` states and go directly to
+caller storage. Both retain `Theta(N * E)` arithmetic. Dispatches decrease
+linearly in `N`; terminal-only program-visible payload operations also
+decrease linearly, while lossless history cannot remove its required stores.
+Physical memory traffic and wall time
 remain measurements because compiler register allocation, spills, cache,
 occupancy, arithmetic cost, driver submission, and device behavior are not
 algebraic constants. A body with more than one physical dispatch or any
@@ -269,6 +381,53 @@ reconciles with complete Pipeline-owned memory without
 multiplying arena bytes by step count, recurrence `N`, or transactional route
 count.
 
+### Explicit Host Feedback
+
+A host decision between executions is not a `repeat` retention mode. It is an
+explicit public run/read/write boundary:
+
+```cpp fragment
+auto status = rund::compute::host_feedback(
+    prepared, steps,
+    [&](rund::compute::HostIteration &step) noexcept -> rund::compute::Status {
+      if (auto read = step.read(result, observed); !read) {
+        return read;
+      }
+      if (!step.has_next()) {
+        return rund::compute::Status::success();
+      }
+      make_next_input(observed, next_input);
+      return step.write(input, next_input);
+    });
+```
+
+`host_feedback` invokes the callback after every successful `Pipeline::run`,
+including the last. `completed()` is one-based, `total()` is the requested
+run count, and `has_next()` distinguishes an intermediate feedback boundary
+from the terminal observation. `write(...)` accepts an exact full typed Buffer
+only while `has_next()` is true; a terminal write fails with
+`AlreadyCompleted`. A zero count is a valid no-op on a valid Pipeline.
+
+Each successful run is independently committed before its callback. If run
+`k` fails, its ordinary Pipeline failure and poisoning contract is returned
+and callback `k` is not invoked. If callback `k` fails, successful runs
+`1..k` remain committed and the next run is not started. This prefix-commit
+law preserves the existing two-bank state parity and generation transition;
+there is no hidden whole-loop checkpoint, journal, or rollback authority.
+Callback writes use the ordinary exclusive Buffer claim and exact typed
+upload path. Multiple writes inside one callback are ordered operations, not
+an implicit multi-Buffer transaction.
+
+For a GPU, `H` requested host iterations require `H` submissions, `H`
+completions, any selected output readbacks, and up to `H - 1` selected input
+uploads. This cost is intentional and is absent unless the caller selects
+`host_feedback`. `write_final` and `write_each` remain one enclosing
+submission on an eligible prepared GPU Pipeline. The callback object, host
+values, and runtime host-iteration count are outside Pipeline fingerprint and
+device graph identity. Consequently the device graph remains deterministic
+for each exact input generation; replaying the complete host-driven trajectory
+also requires the same callback decisions and uploaded input bits.
+
 ### Resident Window
 
 `windows<Max, Tile>(...)` is the bounded resident recurrence authority. The
@@ -284,9 +443,14 @@ auto prepared =
             fold,
             rund::compute::window(active).until<1>(7u),
             rund::compute::read(accumulator, terminal, geometry),
-            rund::compute::write(result, stopped))
+            rund::compute::write_final(result, stopped))
         .prepare();
 ```
+
+The bounded route is terminal-only and accepts `write_final`, not plain
+`write` or `write_each`. A runtime resident count does not define a fixed-size
+lossless history shape; inactive and terminal windows are therefore never
+given an implicit history interpretation.
 
 `until<Index>(expected)` is optional. `Index` names one flattened recurrent
 output-prefix leaf and therefore the corresponding recurrent input leaf. That
@@ -484,7 +648,7 @@ auto prepared =
             body,
             rund::compute::window(active),
             rund::compute::read(outer_seed, seed_external),
-            rund::compute::write(outer_result))
+            rund::compute::write_final(outer_result))
         .prepare();
 ```
 
@@ -505,8 +669,8 @@ Seed  : (S..., U32 count, U32 ordinal) -> (T...)
 Action: (T...)                         -> (P...)
 Fold  : (O..., T...)                   -> (O...)
 
-windows read pack  = (O..., S...)
-windows write pack = (O...)
+windows read pack        = (O..., S...)
+windows final-write pack = (O...)
 ```
 
 `P` must be an exact type prefix of `T`; `Q` is the remaining suffix. The
@@ -614,9 +778,10 @@ expands the one-element scalar, applies a window offset to it, or reinterprets a
 zero stride. Mixed direct/uniform use and any input with no sole admitted read
 mode keep the scalar route.
 
-For an admitted transducer, cold Metal and Vulkan lowering encode exactly one
-Action Program occurrence between Seed and Fold for each outer window, so the
-physical Program-occurrence shape is `K * 3` instead of `K * (N + 2)`. That
+For an admitted transducer, canonical Metal and Vulkan lowering encode exactly
+one Action Program occurrence between Seed and Fold for each outer window, so
+the physical Program-occurrence shape is `K * 3` instead of
+`K * (N + 2)`. That
 Action shader loads one `P || Q` tile, evaluates the authored transition in
 the exact order `j = 0 .. N - 1`, retains `P` in registers, keeps `Q`
 invariant, and stores only `P(N)`. Fold advances the logical inner-work counter
@@ -624,6 +789,87 @@ by `N`; profiles and public plan counts remain authored coordinates. Because
 the admitted Action has no status-bearing path, removing its intermediate
 failure coordinates cannot hide a possible failure. An ineligible Action
 retains all `N` physical invocations and exact inner-failure attribution.
+
+Metal has one narrower complete-aggregate lowering for the exact
+`WindowIndexedReduceSumU32` recurrence. The common accelerator compiler, not
+Metal source inspection, must prove all of the following before the lowering
+exists:
+
+- the Pipeline consists of one complete Seed/Action/Fold template group and
+  one matching terminal publication;
+- every Seed has the same admitted Program fingerprint, U32 policy, six-step
+  resident-window -> indexed Gather -> U32 sum shape, resident lineage, and
+  failure-node projection;
+- Action is the same status-free scalar `tile_state + tile_count` or
+  `tile_state + immediate` U32-wrap Map for all `N` authored iterations;
+- Fold is the same status-free scalar `outer_state + tile_state` U32-wrap Map
+  on all three banks; and
+- declared-step and optional profile projection are exact.
+
+On that path cold common preparation retains only the `K + N + 3` compact
+templates and one fixed-width proof object. It does not allocate the
+`K * (N + 2)` occurrence descriptors, copied windows, barriers, recurrence
+transducer, raw status arena, resident selector array, or guard Buffer. Metal
+records two commands in the one reusable ICB: a `K`-threadgroup tile stage and
+one ordered finalize stage. Common proof selects two dense, write-owned,
+nonoverlapping U32 ranges from the Seed Program's already planned internal
+workspace. Each range has at least `K` elements, every Seed occurrence resolves
+the same owner/range identity, and the proof retains both owners. The aggregate
+may borrow them because its complete-stream replacement executes none of the
+canonical Seed commands that own those dead intermediates. The tile stage writes
+the exact low sum word to one range and a disjoint status word to the other:
+`bad < Tile`, `overflow == Tile`, and `success == UINT32_MAX`; admission requires
+`Tile < UINT32_MAX`. Live count is deterministically recomputed from count,
+outer, and Tile during finalize. An ICB Buffer barrier publishes those `8K`
+borrowed bytes. The finalize stage then visits outer windows in authored order,
+selects the first failure, projects logical telemetry/profile rows, applies
+Action and Fold, and performs the sole terminal publication. No aggregate
+Buffer, hidden backend scratch allocation, or unplanned payload exists; the two
+ranges and their physical owners are already charged by `PipelinePlan` and
+`MemoryBudget`.
+
+The tile stage may speculatively read later immutable queue/domain windows
+before the finalize stage discovers an earlier logical failure. Those reads
+write only the proved dead Seed-workspace ranges and have no public status,
+profile, publication, or resident-state effect. The finalize stage is the sole commit
+authority, so observable failure order and the verified prefix remain exactly
+authored. Invalid indices are reduced with `min` inside each tile and tiles are
+examined from `0` upward. Each U32 term and the U32 tile count imply
+`sum <= (2^32 - 1)^2 < 2^64`; a `uint2` reduction is therefore exact, and a
+nonzero high word is equivalent to canonical U32 Reduce overflow.
+
+Action loop collapse is also exact rather than approximate: repeated U32-wrap
+addition is addition in `Z/(2^32)`, so `x <- x + q` repeated `N` times equals
+`x + N*q (mod 2^32)`. Fold remains serial in outer order. No floating-point
+reassociation, schedule-dependent reduction, or unordered publication is
+introduced. The device derives `active_outer = ceil(count / Tile)` and skips
+inactive outer rows; runD consumes the caller-provided compact queue and count
+but does not create GYEOL's active-work queue.
+
+That ownership boundary is intentional for this exact lowering. Its common
+proof requires the complete Pipeline to be only the one Seed/Action/Fold group
+plus its matching publication, so an authored
+`Compact -> windows(tile_repeat) -> publish` Pipeline remains the canonical
+composed stream in this release. It still submits once, but the aggregate does
+not absorb Compact or manufacture its queue. Crossing that boundary would need
+a separate common proof for Compact's queue/count transaction, failure and
+telemetry projection, and workspace lifetime; it is not a Metal-only source
+rewrite or an implicit responsibility of runD's recurrence primitive.
+Complete-stream admission is intentional: a Compact producer placed before the
+nested group in the same Pipeline keeps the canonical composable path. GYEOL
+must provide an already materialized queue/count to this exact specialization,
+or sequence its producer and consumer Pipelines explicitly. runD does not
+silently fuse, rebuild, or take ownership of that application work queue.
+
+The successful aggregate warm path reports two physical dispatches, one
+control command, and one submission while preserving the authored
+`prepared_command_count`. Profile row zero owns both physical dispatches,
+`K + 1` workgroups, and their exact work-item count; all rows retain authored
+identity and logical bounded-control evidence. If native aggregate shader or
+device admission fails during cold preparation, common preparation lazily
+materializes the canonical occurrence stream once and retries without the
+aggregate proof. The successful aggregate path never owns that fallback
+stream, and warm execution never selects between authorities.
 
 This is the same recurrence law, not reassociation: induction on `j` gives the
 same `P(j)` bits because every operation, Fixed quantization, rounding,
@@ -635,8 +881,10 @@ it. Metal and Vulkan use one Pipeline submission with no warm count readback,
 allocation, compilation, descriptor growth, binding mutation, or fallback.
 CPU executes the identical logical order inside one Pipeline run and retains
 the same compact prepared ownership. Metal executes one full ICB range; its
-device guards suppress inactive payloads without a warm descriptor, range,
-binding, or recurrence-state traversal.
+canonical stream's device guards suppress inactive payloads without a warm
+descriptor, range, binding, or recurrence-state traversal, while the exact
+aggregate stream has no guard commands and derives its active outer bound on
+device.
 
 `PipelineStats::rebinding_count` counts post-prepare mutations of the retained
 Job, Buffer, View, or prepared-owner binding identity. It is zero by
@@ -675,6 +923,7 @@ The fixed product envelope is:
 ```text
 steps <= 64
 flat prepared iterations <= 1024
+input-sealed repetitions <= 1024
 compact nested route templates <= 2051 (= 2 * 1024 + 3)
 nested contribution is O(outer windows + inner iterations), never their product
 combined logical input and output leaves per Program <= 32
@@ -875,12 +1124,13 @@ never reinterprets a primitive's private scratch or status schedule.
 ## Fingerprint
 
 The canonical Pipeline fingerprint is a 128-bit value. Identity policy version
-`2` hashes:
+`3` hashes:
 
 ```text
 F(P) = H(
   "rund.compute.pipeline",
-  identity policy version = 2,
+  identity policy version = 3,
+  input-sealed repetition count,
   ordered step count,
   ordered Program fingerprints,
   ordered logical leaf role and index,
@@ -920,7 +1170,8 @@ time, and authoritative input hashes remain caller or Replay evidence.
 3. validate Program, Device, type, extent, and numeric policy;
 4. canonicalize Buffer owners by first use;
 5. reject unsupported same-step aliases;
-6. build the exact range-hazard plan and fingerprint;
+6. build the exact range-hazard plan, prove any sealed repetitions, and hash
+   the frozen identity;
 7. create one external-buffer-bound private prepared step per Program;
 8. allocate each Program's private internal storage and its backend-owned
    packed status/control storage;
@@ -1069,9 +1320,15 @@ with one open command that resets both the 128-byte control and the exact
 device-private `ResidentState[0..S)` prefix, then one raw-arena reset only when
 a private replacement status word exists, and ends with the canonical
 completion path. Resetting resident state is not a second attempt command.
+This open/status/state shape is the canonical stream and its transducer
+fallback; the exact aggregate specialization described above is a narrower
+complete-stream replacement. Its ICB contains only the parallel tile command,
+one Buffer barrier, and the ordered finalize command. Finalize performs the
+single logical control transition and publication, so that stream owns no
+separate open, raw-status reset, resident-state reset, or guard command.
 
-Nested-window state transitions use the following one-authority cut. The
-change removes physical controls only; authored Seed/Action/Fold order,
+Canonical nested-window state transitions use the following one-authority cut.
+The change removes physical controls only; authored Seed/Action/Fold order,
 failure coordinates, counters, bank parity, and publication remain invariant.
 
 | Boundary | Previous physical transition | Current physical transition | Preserved state |
@@ -1088,7 +1345,7 @@ exactly either zero for individually counted Action controls or `inner_bound`
 for a proved Action transducer. Any forged or inconsistent shape fails
 preparation rather than corrupting work evidence.
 
-For the focused transduced window-repeat shape with `K` outer windows, one
+For the canonical transduced window-repeat fallback with `K` outer windows, one
 private raw-status reset, one status-bearing Seed per window, one resident
 state, and one publication, the exact Metal control count is
 `2 + 1 + K + K + 1 + 1 + 1 = 2K + 6`: open/close, raw reset, Seed folds,
@@ -1096,8 +1353,11 @@ Seed preflights, final Fold advance, canonicalization, and final publication.
 At `K = 504` this is 1,014 controls. The 5,042 public dispatches include the
 two publication dispatches, so the physical ICB command count is
 `5,042 + 1,014 - 2 = 6,054`; the removed stream had 7,062 commands.
+The exact aggregate specialization does not retain or execute that stream: at
+the same `K` it owns two dispatch commands, one ICB Buffer barrier, one logical
+control command, and one native submission.
 
-Every Pipeline-private Metal kernel entry carries one reserved
+Every canonical Pipeline-private Metal kernel entry carries one reserved
 `device const uint*` guard at Buffer index 30. Apple's 31-entry per-kernel
 Buffer limit makes indices 0 through 30 the complete hardware ABI. Pipeline
 reserves index 30, so its Pipeline-private executable admits at most 30
@@ -1112,6 +1372,10 @@ uses Buffer index 30 fails Pipeline-private preparation with
 `accel_metal_pipeline_unavailable` rather than being silently aliased. This is
 an intentional alpha ABI hard cut, not a claim that the public logical IR limit
 or standalone Metal capacity was reduced.
+The exact aggregate kernels use their own closed ABI and no guard Buffer; their
+tile stage can affect only the first `K` words of each of two proved plan-owned
+Seed-intermediate ranges, and their ordered finalize stage is the sole public
+commit authority.
 
 Metal's compute ICB cannot retain an indirect-buffer dispatch. Exactly in
 Pipeline-private preparation, gather, controlled resident windows, bounded
@@ -1642,6 +1906,7 @@ through the common Compute result vocabulary.
 | `PipelineInvalid` | Moved-from, unprepared, or structurally invalid owner. |
 | `PipelineEmpty` | Preparation has no declared Program step. |
 | `PipelineCapacity` | A fixed step, binding, resource, or command bound is exceeded. |
+| `PipelineTemporalDependency` | Sealed repetitions have transactional state or an exact caller-owned write-to-next-read overlap. |
 | `BindingDeviceMismatch` | A Program or Buffer does not belong to the builder's exact Device. |
 | `ShapeMismatch` | A binding's scalar lane, element count, or complete byte extent differs from the Program slot. |
 | `FixedFormatMismatch` | Fixed `(I,F)`, rounding, overflow, or approximation policy differs. |
@@ -1756,14 +2021,16 @@ projection rather than parallel top-level counters:
 | `step_count` | Frozen Program step count. |
 | `resource_count` | First-use canonical Buffer-resource count. |
 | `barrier_count` | Exact nonzero boundaries in the compact frozen schedule: canonical resource hazards plus shared-workspace reuse; independent of `prepared_command_count`. |
+| `sealed_repetition_count` | Frozen input-sealed repetition count; one for an ordinary Pipeline. It does not multiply physical work counters or publication generation. |
+| `coalesced_repetition_count` | `sealed_repetition_count - 1` only after a successful terminal publication; zero before execution and after every failed or unpublished attempt. |
 | `claim_conflict_count` | Complete Pipeline admissions rejected by one Buffer claim conflict. |
 | `verified_step_count` | Contiguous declaration-ordered prefix whose Program completion is known successful. |
 | `failed_step_index` | First known failed step, or `PipelineStats::no_failed_step` when no failed step is known. |
 | `status_entry_count` | Packed device status entries owned by all steps. |
 | `control_byte_count` | Host-observed control bytes; exactly 128 iff the backend reports `control_observed`, otherwise zero, including CPU, zero-work, and control-lost failure. |
-| `control_command_count` | Exact `2 + C + F + T + R + M` Metal, `2 + C + F + T` Vulkan, or zero-work command law above; separate from Program dispatches and barriers. |
+| `control_command_count` | One for the exact Metal aggregate specialization; otherwise exact `2 + C + F + T + R + M` Metal, `2 + C + F + T` Vulkan, or the zero-work command law above. It is separate from Program dispatches and barriers. |
 | `prepared_template_count` | Compact retained route-template count. It does not count native occurrence references. |
-| `prepared_command_count` | Checked authored occurrence capacity. A nested body contributes `K * (N + 2)` logical Seed/Action/Fold occurrences even when a proved Action transducer lowers them to `K * 3` physical Program occurrences. It does not imply distinct Program, Job, binding, or native-command owners. |
+| `prepared_command_count` | Checked authored occurrence capacity. A nested body contributes `K * (N + 2)` logical Seed/Action/Fold occurrences even when a proved Action transducer lowers them to `K * 3` physical Program occurrences or the exact Metal aggregate lowers the complete stream to two physical commands. It does not imply distinct Program, Job, binding, or native-command owners. |
 | `rebinding_count` | Post-prepare retained binding-identity mutations. The immutable prepared executor reports zero by construction; cold native descriptor encoding is not a mutation, and the structural owner/View snapshot is the independent proof. |
 | `claim_ns` | Saturating nanoseconds spent in the resource-claim boundary; diagnostic timing, not a portable performance claim. |
 | `control_ns` | Saturating nanoseconds spent resetting, reducing, and observing control state; diagnostic timing, not payload-readback time. |
@@ -1910,6 +2177,12 @@ occurrence rows retain their authored dispatch identity and report zero
 physical dispatch with timing unavailable. No proportional timing or work is
 fabricated. Summing physical dispatches over the recurrence rows equals the
 Pipeline's actually executed dispatch count.
+For the exact Metal aggregate, logical profile row zero is the sole physical
+owner: it reports both dispatches, `K + 1` workgroups, and the checked tile plus
+finalize work-item total. Every other logical row retains its authored identity
+and bounded-control projection but reports zero physical dispatches. This is
+the same first-owner rule applied to a complete-stream specialization, not a
+proportional redistribution of physical work.
 
 With `PipelineProfile::None`, preparation retains no step query or evidence
 block and warm execution performs no per-step clock read, evidence copy, query
@@ -2190,6 +2463,13 @@ reuse, and destruction follow the backend's existing resource authority;
 Vulkan performs the added descriptor-pool and parameter-buffer lifetime work
 under its adapter lock, so the specialization cannot escape either memory
 accounting or pool lifetime authority.
+For the exact Metal aggregate, the native owner includes no aggregate scratch
+Buffer. Its two `K`-word partial ranges borrow already planned Seed-intermediate
+owners, so their payload remains charged once to Pipeline workspace and is not
+recounted as native memory. The native owner also excludes the canonical
+raw-status arena, resident selector/state array, guard Buffer, and
+`K * (N + 2)` occurrence descriptors because none of those authorities exists
+on the successful specialized path.
 
 `memory_snapshot()` emits one Pipeline metadata group, one aggregate internal
 group for private step storage when nonempty, one native prepared-owner group,
@@ -2255,6 +2535,15 @@ device issue and uniform-guard cost for its frozen physical commands, including
 inactive ones; performance measurements retain that cost. If the status arena
 contains `Q` U32 entries,
 canonicalization and deterministic reduction perform `Theta(Q)` device work.
+The exact Metal aggregate is the narrower exception to those canonical device
+costs: its full ICB range contains two dispatches, no inactive guard commands,
+and no status arena. The parallel tile stage performs `K` fixed-grid
+threadgroups into two `K`-word plan-owned ranges; its SIMD-group count is capped
+at `max(1, ceil(Tile / SIMDWidth))`, and a threadgroup whose outer window is
+inactive returns uniformly before its first barrier. One ICB Buffer barrier
+orders the single finalize thread, which scans active outer rows in authored
+order and commits once. Host work remains the same constant command-buffer,
+bulk-residency, range, commit, completion, and 128-byte control envelope.
 Cold dependency projection is `Theta(B + D)` after exact hazard analysis rather
 than a dependency-by-barrier nested search, and transactional projection is
 `Theta(A + R + P)` rather than pair-by-binding/resource searches. The cold plan
@@ -2543,6 +2832,49 @@ can claim the Pipeline contract:
     binding, indirect-grid, or recurrence-state traversal. Focused semantic
     tests and an immediate-pre-edit/after ABBA measurement are both required;
     a one-submit counter alone is not hard-cut evidence.
+30. the exact `WindowIndexedReduceSumU32` aggregate proof rejects every
+    mismatched Program identity, binding role, numeric policy, schedule,
+    failure projection, and profile projection; successful Metal preparation
+    owns no expanded occurrence stream, raw-status/state/guard layer, or warm
+    fallback selector. Its two-command ICB proves exact result bits, earliest
+    invalid ordinal, authored failure coordinates, verified prefix, work
+    totals, two-dispatch/one-control profile ownership, exact reuse of two
+    nonoverlapping plan-owned `K`-word ranges, zero native aggregate scratch
+    allocation, one submission, warm-stable memory, and zero compile/allocation/
+    upload/download/rebinding/fallback counters against the serial oracle. CPU
+    and Vulkan retain the canonical path and must pass the same semantic
+    vectors.
+31. `sealed_repetitions<N>()` proves exact external write-to-next-read
+    disjointness with the canonical strided-range analyzer, rejects
+    transactional state and exact feedback on both `plan()` and `prepare()`,
+    admits physically disjoint interleaved Views, preserves result bits across
+    CPU, Metal, and Vulkan, executes the same dispatch/submit shape as
+    `sealed_repetitions<1>()`, advances one generation only after success, and
+    reports `N - 1` coalesced repetitions only on that success. A device failure
+    proves zero coalescence and zero publication. Fingerprints include `N`,
+    remain allocation- and backend-independent, and canonicalize an omitted
+    declaration with `sealed_repetitions<1>()`. The unit declaration also
+    admits the same exact feedback and transactional-state shapes as an ordinary
+    Pipeline, fixing the `N == 1` proof bypass boundary.
+32. recurrence output role is a compile-time hard cut: `then` accepts only
+    `write`, fixed `repeat` accepts only `write_final` or `write_each`, and
+    bounded `windows` accepts only `write_final`. `write_each` proves exact
+    leaf-local `N * E` shape, contiguous and strided iteration-major layout,
+    no carried scratch bank, complete-history publication/poisoning, distinct
+    `N > 1` identity, and `N == 1` fingerprint/lowering equivalence with
+    `write_final`. Eligible Metal/Vulkan Map recurrence retains one
+    submission and one dispatch while storing every required state; the
+    terminal-only recurrence keeps its pre-change one-submit/one-dispatch
+    counters and measured wall path.
+33. `host_feedback` invokes one `HostIteration` after every successful public
+    run, permits typed read each time and typed write only before a next run,
+    reports exact per-boundary transfer stats, and performs no callback on a
+    failed run. Zero iterations is a no-op. Callback and run failure preserve
+    all earlier committed generations, stop before the next run, and do not
+    poison a previously successful prefix. CPU and GPU tests prove exact
+    values, callback coordinates, final-write rejection, and one GPU
+    submission per requested host iteration; compile contracts reject throwing
+    or non-Status callbacks.
 
 An unavailable backend capability, typed rejection, partial implementation,
 direct-encode fallback, skipped native Vulkan run, or documentation-only API is

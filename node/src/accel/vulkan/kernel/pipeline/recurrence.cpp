@@ -29,7 +29,7 @@ namespace {
   const rund::AccelCheck ready = PrepareVulkanMap(
       *owner.pick, recurrence.plan, recurrence.artifact, recurrence.windows,
       recurrence.window_count, recurrence.bindings, recurrence.first->control,
-      prepared);
+      prepared, static_cast<std::uint32_t>(recurrence.iterations));
   auto *const map = static_cast<VulkanMapEncodeResources *>(prepared.get());
   if (!ready.ok || map == nullptr || map->adapter != &adapter ||
       map->controlled() || map->windows.empty() ||
@@ -37,7 +37,7 @@ namespace {
     return ready.ok ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
                     : ready;
   }
-  map->iterations = static_cast<std::uint32_t>(recurrence.iterations);
+  map->binding_owner = recurrence.history;
   resource = std::move(prepared);
   return rund::AccelCheck{true, "ok"};
 }

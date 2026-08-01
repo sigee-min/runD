@@ -43,9 +43,15 @@ rund::AccelCheck PrepareVulkanMap(
     const rund::kernel::ComputeDispatchWindow *const windows,
     const rund::kernel::u64 window_count,
     const rund::kernel::BindingSet &bindings, const BoundControl &control,
-    std::shared_ptr<void> &resources) {
+    std::shared_ptr<void> &resources, const rund::kernel::u32 iterations) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
+  const bool history_recurrence =
+      artifact.key.variant ==
+      rund::kernel::LoweringArtifactVariant::HistoryRecurrence;
+  if (iterations == 0u || (history_recurrence && iterations < 2u)) {
+    return rund::AccelCheck{false, "compute_pipeline_recurrence_history_invalid"};
+  }
   auto *const adapter = CheckedVulkanAdapter(pick);
   if (adapter == nullptr) {
     return rund::AccelCheck{false, "accel_vulkan_unavailable"};
@@ -60,6 +66,8 @@ rund::AccelCheck PrepareVulkanMap(
   auto *const raw = new VulkanMapEncodeResources{};
   std::shared_ptr<void> owned{raw, DestroyVulkanMapEncodeResources};
   raw->adapter = adapter;
+  raw->iterations = iterations;
+  raw->history_recurrence = history_recurrence;
   raw->plan = plan;
   raw->bindings = bindings;
   raw->input_plans.resize(static_cast<std::size_t>(plan.input_buffer_count));
@@ -81,6 +89,11 @@ rund::AccelCheck PrepareVulkanMap(
     }
   }
   raw->windows.assign(windows, windows + window_count);
+  const char *history_reason = "ok";
+  if (!ValidateVulkanMapHistoryOutputs(*raw, history_reason)) {
+    SetVulkanLastError(*adapter, history_reason);
+    return rund::AccelCheck{false, history_reason};
+  }
   const rund::kernel::LoweringArtifact strided_artifact =
       SpecializeMap(artifact, plan, bindings, adapter->storage_align);
   const rund::kernel::LoweringArtifact controlled_artifact =
@@ -130,6 +143,7 @@ rund::AccelCheck PrepareVulkanMap(
   (void)bindings;
   (void)control;
   (void)resources;
+  (void)iterations;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

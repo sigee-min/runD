@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Verify, install, link, and run the runD 1.0.1 Alpha Darwin ARM64 SDK.">
+    <title>Quick Start — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/start/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Quick Start — runD Docs">
+    <meta property="og:description" content="Verify, install, link, and run the runD 1.0.1 Alpha Darwin ARM64 SDK.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/start/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+        <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+        <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false">
+          <a class="nav-link" href="/runD/">Overview</a>
+          <a class="nav-link" href="/runD/docs/">Docs</a>
+          <a class="nav-link" href="/runD/docs/api/">API</a>
+          <a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a>
+          <a class="nav-link nav-cta" href="/runD/docs/start/" aria-current="page">Quick Start</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <div class="container docs-shell">
+        <aside class="docs-sidebar" aria-label="Documentation sections">
+          <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+          <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+          <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+          <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+        </aside>
+        <article class="doc-content">
+          <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Quick Start</span></p>
+          <h1>Run the first verified Flow.</h1>
+          <p class="doc-intro">
+            Install the sealed Darwin SDK, build the checked consumer example, and verify its exact
+            result. Every command below uses the prefix created by the verifier.
+          </p>
+          <div class="doc-meta"><span class="meta-chip">1.0.1 Alpha</span><span class="meta-chip">Darwin ARM64</span><span class="meta-chip">C++20</span><span class="meta-chip">Exact output check</span></div>
+
+          <nav class="doc-toc" aria-label="On this page">
+            <strong>On this page</strong>
+            <a href="#prepare">Prepare the host</a>
+            <a href="#install">Verify and install</a>
+            <a href="#project">Create the project</a>
+            <a href="#run">Build and run</a>
+            <a href="#targets">Verify backend parity</a>
+          </nav>
+
+          <section id="prepare">
+            <h2>1. Prepare the host</h2>
+            <div class="table-wrap">
+              <table class="docs-table">
+                <thead><tr><th scope="col">Need</th><th scope="col">Current release boundary</th></tr></thead>
+                <tbody>
+                  <tr><td>Host and toolchain</td><td>Every field in the <a href="/runD/docs/platforms/#darwin-1-0-1-host-tuple">exact Darwin 1.0.1 host tuple</a>.</td></tr>
+                  <tr><td>Backend dependencies</td><td>The exact Homebrew versions in that same tuple; the SDK does not bundle MoltenVK.</td></tr>
+                  <tr><td>Install location</td><td>An existing destination directory with no <code>rund-sdk-1.0.1-darwin-arm64</code> child.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="callout callout-warning">
+              <strong>Do not unpack the archive by hand</strong>
+              The verifier checks checksum, archive safety, source and artifact identity, public CMake
+              target, host tuple, and native dependencies before publishing the SDK prefix.
+            </div>
+            <div class="callout callout-warning">
+              <strong>Run the host preflight before downloading</strong>
+              Copy the inspection block on
+              <a href="/runD/docs/platforms/#darwin-1-0-1-host-tuple">Platforms</a>. If any field
+              differs, stop there and follow that page's supported resolution; do not unpack or patch
+              the binary.
+            </div>
+          </section>
+
+          <section id="install">
+            <h2>2. Verify and install</h2>
+            <p>
+              Create an empty working directory. Download these three adjacent files from the
+              <a href="https://github.com/sigee-min/runD/releases/tag/1.0.1">1.0.1 release</a> into it:
+            </p>
+            <div class="doc-code"><pre class="code"><code>rund-sdk-1.0.1-darwin-arm64.tar.gz
+rund-sdk-1.0.1-darwin-arm64.sha256
+rund-verify</code></pre></div>
+            <div class="doc-code">
+              <div class="code-toolbar"><span class="code-file">shell</span><button class="copy-button" type="button" data-copy="#verify-code" aria-live="polite">Copy</button></div>
+              <pre class="code" id="verify-code"><code>chmod +x ./rund-verify
+./rund-verify \
+  ./rund-sdk-1.0.1-darwin-arm64.tar.gz \
+  ./rund-sdk-1.0.1-darwin-arm64.sha256 \
+  "$PWD"</code></pre>
+            </div>
+            <p>
+              Success creates <code>$PWD/rund-sdk-1.0.1-darwin-arm64</code>. Failure creates no
+              usable prefix; keep the typed diagnostic and use
+              <a href="/runD/docs/troubleshooting/">Troubleshooting</a> instead of bypassing it.
+            </p>
+          </section>
+
+          <section id="project">
+            <h2>3. Create the project</h2>
+            <div class="doc-code">
+              <div class="code-toolbar"><span class="code-file">CMakeLists.txt</span><button class="copy-button" type="button" data-copy="#cmake-code" aria-live="polite">Copy</button></div>
+              <pre class="code" id="cmake-code"><code>cmake_minimum_required(VERSION 3.20)
+project(rund_first_flow LANGUAGES CXX)
+
+find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
+
+add_executable(rund_first_flow main.cpp)
+target_link_libraries(rund_first_flow PRIVATE runD::sdk)</code></pre>
+            </div>
+            <p>
+              Link only <code>runD::sdk</code>. Do not add the source tree, copy include paths, or link
+              Kernel, Accel, Node, Metal, or Vulkan targets yourself.
+            </p>
+            <div class="doc-code">
+              <div class="code-toolbar"><span class="code-file">main.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#first-flow" aria-live="polite">Copy</button></div>
+              <pre class="code" id="first-flow"><code data-source="package/tests/consumer/example/compute.cpp">#include &lt;rund/compute.hpp&gt;
+
+#include &lt;array&gt;
+#include &lt;cstdint&gt;
+#include &lt;cstdio&gt;
+#include &lt;string_view&gt;
+#include &lt;vector&gt;
+
+int main() {
+  std::array&lt;std::int32_t, 4&gt; input{1, 2, 3, 4};
+  auto output = rund::compute::on(rund::compute::Target::cpu(), input)
+                    .map("twice", [](auto value) { return value * 2 + 5; })
+                    .collect();
+  if (!output) {
+    const std::string_view message = output.error();
+    std::fprintf(stderr, "cpu failed (code=%u): %.*s\n",
+                 static_cast&lt;unsigned&gt;(output.code()),
+                 static_cast&lt;int&gt;(message.size()), message.data());
+    return output.exit_code();
+  }
+  if (*output != std::vector&lt;std::int32_t&gt;{7, 9, 11, 13}) {
+    std::fputs("unexpected output; expected [7, 9, 11, 13]\n", stderr);
+    return 2;
+  }
+  std::printf("cpu: [%d, %d, %d, %d]\n", (*output)[0], (*output)[1],
+              (*output)[2], (*output)[3]);
+  return 0;
+}</code></pre>
+            </div>
+          </section>
+
+          <section id="run">
+            <h2>4. Build and run</h2>
+            <div class="doc-code">
+              <div class="code-toolbar"><span class="code-file">shell</span><button class="copy-button" type="button" data-copy="#build-code" aria-live="polite">Copy</button></div>
+              <pre class="code" id="build-code"><code>cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.1-darwin-arm64"
+cmake --build build
+./build/rund_first_flow</code></pre>
+            </div>
+            <div class="callout">
+              <strong>Expected output: <code>cpu: [7, 9, 11, 13]</code></strong>
+              It then exits 0. A product failure prints its code and diagnostic and returns its own
+              <code>exit_code()</code>. Exit <code>2</code> means runD succeeded but the application
+              assertion did not match.
+            </div>
+          </section>
+
+          <section id="targets">
+            <h2>5. Verify the same bytes on every target</h2>
+            <p>
+              Replace <code>main.cpp</code> with this complete checked program and rebuild. The Flow is
+              declared once; only the explicit target changes. Each result must succeed before the
+              program compares its output bytes.
+            </p>
+            <div class="doc-code">
+              <div class="code-toolbar"><span class="code-file">parity.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#parity-flow" aria-live="polite">Copy</button></div>
+              <pre class="code" id="parity-flow"><code data-source="package/tests/consumer/example/parity.cpp">#include &lt;rund/compute.hpp&gt;
+
+#include &lt;array&gt;
+#include &lt;cstdint&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstring&gt;
+#include &lt;string_view&gt;
+#include &lt;vector&gt;
+
+int main() {
+  const std::array&lt;std::int32_t, 4&gt; input{1, 2, 3, 4};
+
+  const auto execute = [&amp;input](const rund::compute::Target target) {
+    return rund::compute::on(target, input)
+        .map("step", [](auto value) { return value * 2 + 1; })
+        .collect();
+  };
+
+  const auto cpu = execute(rund::compute::Target::cpu());
+  const auto metal = execute(rund::compute::Target::metal());
+  const auto vulkan = execute(rund::compute::Target::vulkan());
+
+  const auto report = [](const std::string_view target, const auto &amp;result) {
+    const std::string_view message = result.error();
+    std::fprintf(stderr, "%.*s failed (code=%u): %.*s\n",
+                 static_cast&lt;int&gt;(target.size()), target.data(),
+                 static_cast&lt;unsigned&gt;(result.code()),
+                 static_cast&lt;int&gt;(message.size()), message.data());
+    return result.exit_code();
+  };
+  if (!cpu) {
+    return report("cpu", cpu);
+  }
+  if (!metal) {
+    return report("metal", metal);
+  }
+  if (!vulkan) {
+    return report("vulkan", vulkan);
+  }
+
+  const auto same_bits = [](const auto &amp;left, const auto &amp;right) {
+    return left.size() == right.size() &amp;&amp;
+           std::memcmp(left.data(), right.data(),
+                       left.size() * sizeof(std::int32_t)) == 0;
+  };
+  const std::vector&lt;std::int32_t&gt; expected{3, 5, 7, 9};
+  if (*cpu != expected || !same_bits(*cpu, *metal) ||
+      !same_bits(*metal, *vulkan)) {
+    std::fputs("backend output mismatch\n", stderr);
+    return 2;
+  }
+
+  std::printf("same bytes: cpu = metal = vulkan [%d, %d, %d, %d]\n", (*cpu)[0],
+              (*cpu)[1], (*cpu)[2], (*cpu)[3]);
+  return 0;
+}</code></pre>
+            </div>
+            <p>
+              Expected output is
+              <code>same bytes: cpu = metal = vulkan [3, 5, 7, 9]</code>.
+              An unavailable accelerator prints its typed failure and exits; it never reruns the Flow
+              on CPU. This checked source is the complete public parity example for the release.
+            </p>
+          </section>
+
+          <div class="callout">
+            <strong>Stuck?</strong>
+            Match the diagnostic to checksum, prefix, CMake, host tuple, or backend remedies in
+            <a href="/runD/docs/troubleshooting/">Troubleshooting</a>.
+          </div>
+
+          <a class="doc-next" href="/runD/docs/determinism/"><span><small>Next concept</small><strong>Why the meaning survives another backend</strong></span><span aria-hidden="true">→</span></a>
+        </article>
+      </div>
+    </main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>MIT License · runD 1.0.1 Alpha</span><span><a href="/runD/docs/troubleshooting/">Installation help →</a></span></div></footer>
+  </body>
+</html>

@@ -219,8 +219,8 @@ They do not allocate protocol queues or own client/session meaning.
 
 The complete operation, ordering, complexity, result, replay, and telemetry
 contract is [Network](./contracts/net.md). The user-facing map and examples
-live in [Network API](../../wiki/Network.md); this guide does not mirror
-that reference.
+route through the [site API documentation](../../site/docs/api/index.html);
+this guide does not mirror that teaching surface.
 
 ## Guide Rules
 

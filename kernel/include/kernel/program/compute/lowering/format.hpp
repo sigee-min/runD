@@ -16,6 +16,8 @@ ArtifactVariantName(const LoweringArtifactVariant variant) noexcept {
     return "controlled";
   case LoweringArtifactVariant::Recurrence:
     return "recurrence";
+  case LoweringArtifactVariant::HistoryRecurrence:
+    return "history_recurrence";
   }
   return "invalid";
 }

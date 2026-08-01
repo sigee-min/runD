@@ -15,9 +15,13 @@ namespace rund::node::accel::detail {
 ValidMetalSequence(const MetalSequence *const sequence) noexcept {
   return sequence != nullptr && sequence->adapter != nullptr &&
          ((sequence->command_count == 0u && sequence->commands == nil) ||
-          (sequence->command_count != 0u &&
-           sequence->commands != nil && sequence->control != nil &&
-           sequence->guard_zero != nil &&
+          (sequence->command_count != 0u && sequence->commands != nil &&
+           sequence->control != nil &&
+           (sequence->direct_aggregate || sequence->guard_zero != nil) &&
+           (!sequence->direct_aggregate ||
+            (sequence->command_count == 2u && sequence->state_count == 0u &&
+             sequence->guard_zero == nil && sequence->states == nil &&
+             sequence->raw_status == nil && !sequence->uses_status_arena)) &&
            (sequence->state_count == 0u || sequence->states != nil) &&
            (!sequence->profile_steps || (sequence->step_control != nil &&
                                          !sequence->step_evidence.empty())) &&
@@ -43,9 +47,9 @@ ValidMetalSequence(const MetalSequence *const sequence) noexcept {
                             count:sequence.declared.size()
                             usage:MTLResourceUsageRead | MTLResourceUsageWrite];
   }
-  [command.encoder executeCommandsInBuffer:sequence.commands
-                                  withRange:NSMakeRange(0u,
-                                                        sequence.command_count)];
+  [command.encoder
+      executeCommandsInBuffer:sequence.commands
+                    withRange:NSMakeRange(0u, sequence.command_count)];
   [command.encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   CloseCommand(command);
   return rund::AccelCheck{true, "ok"};

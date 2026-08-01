@@ -25,33 +25,27 @@ static_assert(std::is_nothrow_move_constructible_v<Pipeline>);
 static_assert(!std::copy_constructible<PipelineBuilder>);
 static_assert(std::is_nothrow_move_constructible_v<PipelineBuilder>);
 static_assert(std::copy_constructible<StateSnapshot>);
-static_assert(std::same_as<
-              decltype(std::declval<rund::Session &>().compute(
-                  std::declval<Pipeline &>())),
-              rund::compute::Request>);
+static_assert(std::same_as<decltype(std::declval<rund::Session &>().compute(
+                               std::declval<Pipeline &>())),
+                           rund::compute::Request>);
 
 template <class T>
-concept ReadsTemporary = requires(T value) {
-  rund::compute::read(std::move(value));
-};
+concept ReadsTemporary =
+    requires(T value) { rund::compute::read(std::move(value)); };
 
 template <class T>
-concept WritesConst = requires(const T value) {
-  rund::compute::write(value);
-};
+concept WritesConst = requires(const T value) { rund::compute::write(value); };
 
 template <class T>
 concept ViewsTemporary = requires(T value) { std::move(value).view(); };
 
 template <class T>
-concept WritesConstView = requires(const T &value) {
-  rund::compute::write(value.view());
-};
+concept WritesConstView =
+    requires(const T &value) { rund::compute::write(value.view()); };
 
 template <class T>
-concept WritesMutableView = requires(T &value) {
-  rund::compute::write(value.view());
-};
+concept WritesMutableView =
+    requires(T &value) { rund::compute::write(value.view()); };
 
 static_assert(!ReadsTemporary<Buffer<std::int32_t>>);
 static_assert(!WritesConst<Buffer<std::int32_t>>);
@@ -61,25 +55,23 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
 
 [[nodiscard]] int DependentWide(rund::compute::Device &device) {
   using Real = rund::compute::Fixed<20, 44>;
-  constexpr std::array<Real, 4u> position{
-      Real::from_raw(3), Real::from_raw(6), Real::from_raw(9),
-      Real::from_raw(12)};
-  constexpr std::array<Real, 4u> velocity{
-      Real::from_raw(2), Real::from_raw(4), Real::from_raw(6),
-      Real::from_raw(8)};
-  constexpr std::array<Real, 4u> force{
-      Real::from_raw(1), Real::from_raw(3), Real::from_raw(5),
-      Real::from_raw(7)};
+  constexpr std::array<Real, 4u> position{Real::from_raw(3), Real::from_raw(6),
+                                          Real::from_raw(9),
+                                          Real::from_raw(12)};
+  constexpr std::array<Real, 4u> velocity{Real::from_raw(2), Real::from_raw(4),
+                                          Real::from_raw(6), Real::from_raw(8)};
+  constexpr std::array<Real, 4u> force{Real::from_raw(1), Real::from_raw(3),
+                                       Real::from_raw(5), Real::from_raw(7)};
 
-  auto integrate =
-      rund::compute::on(device)
-          .input<Real>(position.size())
-          .zip_input<Real>(velocity.size())
-          .zip_input<Real>(force.size())
-          .map("pipeline-installed-integrate", [](auto p, auto v, auto f) {
-            return rund::compute::quantize<Real>(p + v + f);
-          })
-          .compile();
+  auto integrate = rund::compute::on(device)
+                       .input<Real>(position.size())
+                       .zip_input<Real>(velocity.size())
+                       .zip_input<Real>(force.size())
+                       .map("pipeline-installed-integrate",
+                            [](auto p, auto v, auto f) {
+                              return rund::compute::quantize<Real>(p + v + f);
+                            })
+                       .compile();
   auto advance =
       rund::compute::on(device)
           .map<Real>("pipeline-installed-advance", position.size(),
@@ -96,14 +88,13 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
     return 1;
   }
 
-  auto prepared =
-      rund::compute::pipeline(device)
-          .profile(rund::compute::PipelineProfile::Steps)
-          .then(*integrate, rund::compute::read(*p, *v, *f),
-                rund::compute::write(*middle))
-          .then(*advance, rund::compute::read(*middle),
-                rund::compute::write(*output))
-          .prepare();
+  auto prepared = rund::compute::pipeline(device)
+                      .profile(rund::compute::PipelineProfile::Steps)
+                      .then(*integrate, rund::compute::read(*p, *v, *f),
+                            rund::compute::write(*middle))
+                      .then(*advance, rund::compute::read(*middle),
+                            rund::compute::write(*output))
+                      .prepare();
   if (!prepared) {
     return prepared.exit_code();
   }
@@ -122,9 +113,10 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   if (!read) {
     return read.exit_code();
   }
-  return observed == std::array<Real, 4u>{
-                         Real::from_raw(12), Real::from_raw(26),
-                         Real::from_raw(40), Real::from_raw(54)} &&
+  return observed == std::array<Real, 4u>{Real::from_raw(12),
+                                          Real::from_raw(26),
+                                          Real::from_raw(40),
+                                          Real::from_raw(54)} &&
                  pipeline.stats().pipeline.step_count == 2u &&
                  pipeline.stats().pipeline.resource_count == 5u &&
                  pipeline.stats().pipeline.barrier_count == 1u &&
@@ -136,8 +128,7 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
                  steps[1].program == advance->fingerprint() &&
                  steps[0].execution.available() &&
                  steps[1].execution.available() &&
-                 steps[0].timing.available() &&
-                 steps[1].timing.available() &&
+                 steps[0].timing.available() && steps[1].timing.available() &&
                  steps[0].timing.clock ==
                      rund::compute::StepClock::HostSteady &&
                  steps[1].timing.clock ==
@@ -158,15 +149,13 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   constexpr std::array<std::int32_t, 4u> second{10, 20, 30, 40};
   constexpr std::array<std::int32_t, 4u> third{100, 200, 300, 400};
 
-  auto program =
-      rund::compute::on(device)
-          .input<std::int32_t>(first.size())
-          .zip_input<std::int32_t>(second.size())
-          .zip_input<std::int32_t>(third.size())
-          .map("pipeline-multi-input-sum", [](auto a, auto b, auto c) {
-            return a + b + c;
-          })
-          .compile();
+  auto program = rund::compute::on(device)
+                     .input<std::int32_t>(first.size())
+                     .zip_input<std::int32_t>(second.size())
+                     .zip_input<std::int32_t>(third.size())
+                     .map("pipeline-multi-input-sum",
+                          [](auto a, auto b, auto c) { return a + b + c; })
+                     .compile();
   auto a = device.upload<std::int32_t>(first);
   auto b = device.upload<std::int32_t>(second);
   auto c = device.upload<std::int32_t>(third);
@@ -187,11 +176,10 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
     return sum.exit_code();
   }
 
-  auto prepared =
-      rund::compute::pipeline(device)
-          .then(*program, rund::compute::read(*a, *b, *c),
-                rund::compute::write(*sum))
-          .prepare();
+  auto prepared = rund::compute::pipeline(device)
+                      .then(*program, rund::compute::read(*a, *b, *c),
+                            rund::compute::write(*sum))
+                      .prepare();
   if (!prepared) {
     return prepared.exit_code();
   }
@@ -263,11 +251,12 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   constexpr std::array<std::int32_t, 4u> input{2, 4, 6, 8};
   auto program =
       rund::compute::on(device)
-          .map<std::int32_t>("pipeline-record", input.size(), [](auto value) {
-            return rund::compute::record(
-                rund::compute::field<Value>(value),
-                rund::compute::field<Doubled>(value * 2));
-          })
+          .map<std::int32_t>("pipeline-record", input.size(),
+                             [](auto value) {
+                               return rund::compute::record(
+                                   rund::compute::field<Value>(value),
+                                   rund::compute::field<Doubled>(value * 2));
+                             })
           .compile();
   auto source = device.upload<std::int32_t>(input);
   auto values = device.buffer<std::int32_t>(input.size());
@@ -330,16 +319,16 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
 
 [[nodiscard]] int MultiOutputAlias(rund::compute::Device &device) {
   constexpr std::array<std::int32_t, 4u> input{3, 6, 9, 12};
-  auto program =
-      rund::compute::on(device)
-          .map<std::int32_t>("pipeline-alias", input.size(),
-                             [](auto value) { return value; })
-          .branch([](auto values) {
-            const auto doubled = values.map(
-                "pipeline-alias-double", [](auto value) { return value * 2; });
-            return rund::compute::outputs(values, doubled, values);
-          })
-          .compile();
+  auto program = rund::compute::on(device)
+                     .map<std::int32_t>("pipeline-alias", input.size(),
+                                        [](auto value) { return value; })
+                     .branch([](auto values) {
+                       const auto doubled =
+                           values.map("pipeline-alias-double",
+                                      [](auto value) { return value * 2; });
+                       return rund::compute::outputs(values, doubled, values);
+                     })
+                     .compile();
   auto source = device.upload<std::int32_t>(input);
   auto values = device.buffer<std::int32_t>(input.size());
   auto doubled = device.buffer<std::int32_t>(input.size());
@@ -356,11 +345,10 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
     return doubled.exit_code();
   }
 
-  auto prepared =
-      rund::compute::pipeline(device)
-          .then(*program, rund::compute::read(*source),
-                rund::compute::write(*values, *doubled, *values))
-          .prepare();
+  auto prepared = rund::compute::pipeline(device)
+                      .then(*program, rund::compute::read(*source),
+                            rund::compute::write(*values, *doubled, *values))
+                      .prepare();
   if (!prepared) {
     return prepared.exit_code();
   }
@@ -393,15 +381,15 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
                   .compile();
   auto input = device.upload<std::int32_t>(seed);
   auto output = device.buffer<std::int32_t>(seed.size());
-  if (!body || !input || !output) {
+  auto history = device.buffer<std::int32_t>(8u * seed.size());
+  if (!body || !input || !output || !history) {
     return 1;
   }
-  auto prepared =
-      rund::compute::pipeline(device)
-          .profile(rund::compute::PipelineProfile::Steps)
-          .repeat<8u>(*body, rund::compute::read(*input),
-                      rund::compute::write(*output))
-          .prepare();
+  auto prepared = rund::compute::pipeline(device)
+                      .profile(rund::compute::PipelineProfile::Steps)
+                      .repeat<8u>(*body, rund::compute::read(*input),
+                                  rund::compute::write_final(*output))
+                      .prepare();
   if (!prepared || !prepared->run()) {
     return 2;
   }
@@ -421,7 +409,57 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
       return 4;
     }
   }
+
+  auto lossless = rund::compute::pipeline(device)
+                      .repeat<8u>(*body, rund::compute::read(*input),
+                                  rund::compute::write_each(*history))
+                      .prepare();
+  std::array<std::int32_t, 8u * seed.size()> each{};
+  if (!lossless || !lossless->run() || !lossless->read(*history, each)) {
+    return 5;
+  }
+  for (std::size_t iteration = 0u; iteration < 8u; ++iteration) {
+    for (std::size_t element = 0u; element < seed.size(); ++element) {
+      if (each[iteration * seed.size() + element] !=
+          seed[element] + 3 * static_cast<std::int32_t>(iteration + 1u)) {
+        return 6;
+      }
+    }
+  }
   return 0;
+}
+
+[[nodiscard]] int HostFeedback(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 2u> seed{1, 4};
+  auto body = rund::compute::on(device)
+                  .map<std::int32_t>("pipeline-host-feedback", seed.size(),
+                                     [](auto value) { return value + 1; })
+                  .compile();
+  auto input = device.upload<std::int32_t>(seed);
+  auto output = device.buffer<std::int32_t>(seed.size());
+  if (!body || !input || !output) {
+    return 1;
+  }
+  auto prepared = rund::compute::pipeline(device)
+                      .then(*body, rund::compute::read(*input),
+                            rund::compute::write(*output))
+                      .prepare();
+  if (!prepared) {
+    return 2;
+  }
+  std::array<std::int32_t, seed.size()> observed{};
+  const auto status = rund::compute::host_feedback(
+      *prepared, 3u,
+      [&](rund::compute::HostIteration &step) noexcept
+          -> rund::compute::Status {
+        if (auto read = step.read(*output, observed); !read) {
+          return read;
+        }
+        return step.has_next()
+                   ? step.write(*input, std::span<const std::int32_t>{observed})
+                   : rund::compute::Status::success();
+      });
+  return status && observed == std::array<std::int32_t, 2u>{4, 7} ? 0 : 3;
 }
 
 [[nodiscard]] int NestedResidentRecurrence(rund::compute::Device &device) {
@@ -431,31 +469,28 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   constexpr std::array<std::uint32_t, 1u> outer_seed{10u};
   constexpr std::array<std::uint32_t, 1u> count_value{maximum};
 
-  auto seed =
-      rund::compute::on(device)
-          .input<std::uint32_t>(1u)
-          .zip_input<std::uint32_t>(1u)
-          .branch([](auto count, auto ordinal) {
-            (void)count;
-            return ordinal.map("pipeline-installed-nested-seed",
-                               [](auto value) { return value + 1u; });
-          })
-          .compile();
-  auto action =
-      rund::compute::on(device)
-          .map<std::uint32_t>("pipeline-installed-nested-action", 1u,
-                              [](auto value) { return value + 1u; })
-          .compile();
-  auto fold =
-      rund::compute::on(device)
-          .input<std::uint32_t>(1u)
-          .zip_input<std::uint32_t>(1u)
-          .branch([](auto outer, auto local) {
-            return outer.combine(
-                "pipeline-installed-nested-fold", local,
-                [](auto left, auto right) { return left + right; });
-          })
-          .compile();
+  auto seed = rund::compute::on(device)
+                  .input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto count, auto ordinal) {
+                    (void)count;
+                    return ordinal.map("pipeline-installed-nested-seed",
+                                       [](auto value) { return value + 1u; });
+                  })
+                  .compile();
+  auto action = rund::compute::on(device)
+                    .map<std::uint32_t>("pipeline-installed-nested-action", 1u,
+                                        [](auto value) { return value + 1u; })
+                    .compile();
+  auto fold = rund::compute::on(device)
+                  .input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto outer, auto local) {
+                    return outer.combine(
+                        "pipeline-installed-nested-fold", local,
+                        [](auto left, auto right) { return left + right; });
+                  })
+                  .compile();
   auto outer = device.upload<std::uint32_t>(outer_seed);
   auto count = device.upload<std::uint32_t>(count_value);
   auto output = device.buffer<std::uint32_t>(1u);
@@ -465,12 +500,12 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
 
   const auto body = rund::compute::tile_repeat<inner>(*seed, *action, *fold);
   auto builder = rund::compute::pipeline(device);
-  builder.windows<maximum, tile>(
-      body, rund::compute::window(*count), rund::compute::read(*outer),
-      rund::compute::write(*output));
+  builder.windows<maximum, tile>(body, rund::compute::window(*count),
+                                 rund::compute::read(*outer),
+                                 rund::compute::write_final(*output));
   const auto plan = builder.plan();
-  if (!plan || plan->outer_window_count != 3u ||
-      plan->tile_capacity != tile || plan->inner_iteration_count != inner ||
+  if (!plan || plan->outer_window_count != 3u || plan->tile_capacity != tile ||
+      plan->inner_iteration_count != inner ||
       plan->prepared_template_count != 9u ||
       plan->prepared_command_count != 15u) {
     return 2;
@@ -484,8 +519,7 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   const auto read = prepared->read(*output, actual);
   return read && actual[0] == 25u &&
                  prepared->stats().pipeline.executed_outer_window_count == 3u &&
-                 prepared->stats().pipeline.executed_inner_iteration_count ==
-                     9u
+                 prepared->stats().pipeline.executed_inner_iteration_count == 9u
              ? 0
              : 4;
 }
@@ -513,6 +547,9 @@ int main() {
     return result;
   }
   if (const int result = Recurrence(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = HostFeedback(*opened); result != 0) {
     return result;
   }
   if (const int result = NestedResidentRecurrence(*opened); result != 0) {

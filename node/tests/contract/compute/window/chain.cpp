@@ -66,7 +66,7 @@ namespace rund::node::test_contract::window {
       .windows<kMatrixMaximum, kMatrixTile>(
           *body, rund::compute::window(*count),
           read(*first, *second, *witness, *fail_at),
-          write(*first_view, *second_view))
+          write_final(*first_view, *second_view))
       .then(*consumer, read(*first_view, *second_view), write(*derived));
   const auto plan = builder.plan();
   if (!plan || plan->publish_count != 2u ||

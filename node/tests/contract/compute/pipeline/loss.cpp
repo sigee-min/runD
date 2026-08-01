@@ -68,6 +68,34 @@ namespace rund_node_test_pipeline {
   if (native == nullptr) {
     return 5;
   }
+
+  auto sealed_input = Upload(device, initial);
+  auto sealed_output = device.buffer<std::int32_t>(initial.size());
+  auto sealed =
+      sealed_input && sealed_output
+          ? pipeline(device)
+                .sealed_repetitions<8u>()
+                .then(*advance, read(*sealed_input), write(*sealed_output))
+                .prepare()
+          : Result<Pipeline>::fail(Reason::PipelineInvalid);
+  if (!sealed) {
+    return 12;
+  }
+  if (!rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+    return 13;
+  }
+  const Status sealed_lost = sealed->run();
+  const Stats sealed_lost_stats = sealed->stats();
+  if (sealed_lost || sealed_lost.reason() != Reason::DeviceLost ||
+      !sealed->poisoned() || sealed->generation() != 0u ||
+      sealed_lost_stats.command_submits != 1u ||
+      sealed_lost_stats.publication.generation != 0u ||
+      sealed_lost_stats.publication.device_loss_count != 1u ||
+      sealed_lost_stats.pipeline.sealed_repetition_count != 8u ||
+      sealed_lost_stats.pipeline.coalesced_repetition_count != 0u) {
+    return 14;
+  }
+
   if (backend == Backend::Vulkan) {
     if (!rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
       return 5;

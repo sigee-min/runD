@@ -256,6 +256,8 @@ Status prepare_backend(PipelineState &value) noexcept {
             .iteration = state->steps[index].iteration,
             .bound = state->steps[index].iteration_bound,
             .window = window,
+            .writes_each_iteration =
+                state->steps[index].writes_each_iteration,
         });
         barriers.push_back(
             active == 0u ? 0u : static_cast<std::uint8_t>(pending_barrier));

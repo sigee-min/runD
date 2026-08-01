@@ -32,6 +32,7 @@ behavior, update the docs and implementation together or record the blocker.
 | [`/node/docs`](../node/docs/README.md) | Local runtime, resource admission, topology evidence, scheduler, host, network, and replay. |
 | [`/cluster/docs`](../cluster/docs/README.md) | Optional distributed placement and retry identity policy. |
 | [`/package`](../package/README.md) | SDK/release artifact packaging, CMake package export, and external consumption policy. |
+| [`/site`](../site/README.md) | Public landing and documentation-site experience, presentation rules, and GitHub Pages delivery plan. |
 
 ## Root Rules
 

@@ -36,7 +36,8 @@ Status acquire_claims(DeviceState &device,
       failure = Reason::BufferBusy;
     } else if (!claim.write &&
                claim.buffer->readers ==
-                   std::numeric_limits<decltype(claim.buffer->readers)>::max()) {
+                   std::numeric_limits<
+                       decltype(claim.buffer->readers)>::max()) {
       failure = Reason::BufferBusy;
     }
     if (failure != Reason::Ok) {
@@ -144,6 +145,10 @@ void publish_pipeline_terminal(PipelineState &state,
               terminal.failed_step < state.steps.size()
           ? logical_step_index(state, terminal.failed_step)
           : PipelineStats::no_failed_step;
+  state.stats.pipeline.coalesced_repetition_count =
+      succeeded && state.sealed_repetitions != 0u
+          ? static_cast<std::uint64_t>(state.sealed_repetitions - 1u)
+          : 0u;
 
   const bool writes_may_have_changed = !succeeded && terminal.writes_possible;
   if (state.device == nullptr || state.device->claims == nullptr) {

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eee9dc">
+    <meta name="description" content="Use runD Session, Tasks, Host, Network, Storage, Telemetry, and optional Cluster APIs from one SDK.">
+    <title>Runtime — runD Docs</title>
+    <link rel="canonical" href="https://sigee-min.github.io/runD/docs/runtime/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Runtime — runD Docs">
+    <meta property="og:description" content="Choose the focused runD runtime header for sessions, tasks, host services, networking, storage, and telemetry.">
+    <meta property="og:url" content="https://sigee-min.github.io/runD/docs/runtime/">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><div class="container header-inner">
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
+      <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
+    </div></header>
+    <main id="main"><div class="container docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Start</p><a href="/runD/docs/" data-doc-link>Docs home</a><a href="/runD/docs/start/" data-doc-link>Quick Start</a><a href="/runD/docs/troubleshooting/" data-doc-link>Troubleshooting</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Core</p><a href="/runD/docs/determinism/" data-doc-link>Determinism</a><a href="/runD/docs/compute/" data-doc-link>Compute</a><a href="/runD/docs/replay/" data-doc-link>Replay</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">SDK</p><a href="/runD/docs/runtime/" data-doc-link>Runtime</a><a href="/runD/docs/numerics/" data-doc-link>Numerics</a></div>
+        <div class="docs-sidebar-group"><p class="docs-sidebar-title">Reference</p><a href="/runD/docs/performance/" data-doc-link>Performance</a><a href="/runD/docs/platforms/" data-doc-link>Platforms</a><a href="/runD/docs/api/" data-doc-link>API &amp; Errors</a></div>
+      </aside>
+      <article class="doc-content">
+        <p class="doc-breadcrumb"><a href="/runD/docs/">Docs</a><span>/</span><span>Runtime</span></p>
+        <h1>Use one owner for each runtime job.</h1>
+        <p class="doc-intro">
+          Session owns lifecycle. Tasks own cooperative work. Network owns byte transport. Telemetry
+          observes completed work without replacing its result.
+        </p>
+        <div class="doc-meta"><span class="meta-chip">Focused headers</span><span class="meta-chip">Bounded resources</span><span class="meta-chip">Typed outcomes</span></div>
+
+        <nav class="doc-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#entries">Choose an entry</a>
+          <a href="#session">Session lifecycle</a>
+          <a href="#tasks">Cooperative tasks</a>
+          <a href="#host">Host input</a>
+          <a href="#storage">Storage budget</a>
+          <a href="#cluster">Cluster placement</a>
+          <a href="#network">Network ownership</a>
+          <a href="#telemetry">Telemetry</a>
+        </nav>
+
+        <section id="entries">
+          <h2>Choose the narrowest public entry</h2>
+          <div class="table-wrap">
+            <table class="docs-table">
+              <thead><tr><th scope="col">Task</th><th scope="col">Header</th><th scope="col">Owner</th></tr></thead>
+              <tbody>
+                <tr><td>Open, reuse, and close a runtime</td><td><code>&lt;rund/session.hpp&gt;</code></td><td><code>rund::Session</code>, one-shot <code>rund::run</code>, and telemetry configuration.</td></tr>
+                <tr><td>Spawn and await cooperative work</td><td><code>&lt;rund/task.hpp&gt;</code></td><td><code>rund::task</code> tasks, groups, channels, yield, sleep, and cancellation.</td></tr>
+                <tr><td>Admit files, environment, random, and logical time</td><td><code>&lt;rund/host.hpp&gt;</code></td><td><code>rund::host</code> host-observation boundary.</td></tr>
+                <tr><td>Move bytes over sockets</td><td><code>&lt;rund/net.hpp&gt;</code></td><td><code>rund::net</code> socket ownership, readiness, stream/datagram I/O, and bounded servers.</td></tr>
+                <tr><td>Account retained storage</td><td><code>&lt;rund/storage.hpp&gt;</code></td><td><code>rund::storage</code> hierarchical budget admission.</td></tr>
+                <tr><td>Optional deterministic placement</td><td><code>&lt;cluster/cluster.hpp&gt;</code></td><td><code>rund::cluster</code> shard placement and retry identity.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Every entry still links through the single <code>runD::sdk</code> CMake target.</p>
+        </section>
+
+        <section id="session">
+          <h2>Start with one-shot Session work</h2>
+          <p>
+            Use <code>rund::run</code> for one bounded callback. It opens the Session, runs the callback,
+            drains scheduled work, closes, and returns one result.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">runtime.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#runtime-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="runtime-example"><code data-source="package/tests/consumer/example/runtime.cpp">#include &lt;rund/session.hpp&gt;
+
+int main() {
+  const rund::Session::Result result =
+      rund::run(rund::SessionConfig{.workers = 1u}, [] {});
+  return result.exit_code();
+}</code></pre>
+          </div>
+          <h3>Open once for repeated work</h3>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">reusable Session · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">rund::Session session;
+auto opened = session.open(config);
+if (!opened) return opened.exit_code();
+
+for (const auto&amp; tick : ticks) {
+  auto completed = session.scope([&amp;] { simulate(tick); });
+  if (!completed) { operation = completed.exit_code(); break; }
+}
+
+auto closed = session.close();
+return operation == 0 ? closed.exit_code() : operation;</code></pre>
+          </div>
+          <p>
+            Reuse one Session for repeated ticks. Ordinary code calls blocking <code>close()</code> once;
+            use <code>drain()</code> only when you deliberately need to observe the Draining state.
+          </p>
+        </section>
+
+        <section id="tasks">
+          <h2>Spawn cooperative work inside a Session</h2>
+          <p>
+            Include <code>&lt;rund/task.hpp&gt;</code> for bounded work that shares the active Session
+            scheduler. Keep the returned Handle, check admission, and join it before captured state goes
+            out of scope.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">task.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#task-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="task-example"><code data-source="package/tests/consumer/example/task.cpp">#include &lt;rund/session.hpp&gt;
+#include &lt;rund/task.hpp&gt;
+
+int main() {
+  int value = 0;
+  rund::task::Status task_result = rund::task::Status::success();
+  const rund::Session::Result hosted =
+      rund::run(rund::SessionConfig{.workers = 1u}, [&amp;] {
+        const rund::task::Handle task =
+            rund::task::spawn("set-value", [&amp;] { value = 42; });
+        if (!task) {
+          task_result = rund::task::Status::fail(task.code());
+          return;
+        }
+        task_result = rund::task::join(task);
+      });
+  if (!hosted) {
+    return hosted.exit_code();
+  }
+  if (!task_result) {
+    return task_result.exit_code();
+  }
+  return value == 42 ? 0 : 2;
+}</code></pre>
+          </div>
+          <p>
+            <code>Handle::code()</code> is the admission failure; <code>Status::code()</code> is the
+            joined task failure. A missing runtime requires an active Session scope. A capacity failure
+            requires fewer live tasks or a larger caller-configured scheduler capacity. Neither failure
+            means the callable ran.
+          </p>
+        </section>
+
+        <section id="host">
+          <h2>Admit host input once</h2>
+          <p>
+            Include <code>&lt;rund/host.hpp&gt;</code> for environment, file, random, logical-clock, and
+            timer operations. This example reads an environment value while the Session records the host
+            observation.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">host.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#host-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="host-example"><code data-source="package/tests/consumer/example/host.cpp">#include &lt;rund/host.hpp&gt;
+#include &lt;rund/session.hpp&gt;
+
+#include &lt;string&gt;
+#include &lt;utility&gt;
+
+int main() {
+  int operation = 0;
+  std::string path{};
+  const rund::Session::Result hosted =
+      rund::run(rund::SessionConfig{.workers = 1u}, [&amp;] {
+        auto value = rund::host::env::get("PATH");
+        if (!value) {
+          operation = value.exit_code();
+          return;
+        }
+        path = std::move(*value);
+      });
+  if (!hosted) {
+    return hosted.exit_code();
+  }
+  if (operation != 0) {
+    return operation;
+  }
+  (void)path;
+  return 0;
+}</code></pre>
+          </div>
+          <p>
+            A missing environment variable is a successful empty value; a failed Result means the
+            operation itself could not be admitted or represented. Inspect its <code>code()</code> or
+            <code>error()</code>, fix the input or resource condition, and rerun the containing scope.
+          </p>
+          <div class="callout">
+            <strong>One input authority</strong>
+            Network or host bytes are not simulation state by themselves. Decode and validate them once,
+            then admit canonical input through <a href="/runD/docs/replay/">Replay</a>.
+          </div>
+        </section>
+
+        <section id="storage">
+          <h2>Reserve storage before retaining bytes</h2>
+          <p>
+            Include <code>&lt;rund/storage.hpp&gt;</code> when several producers must share one hard
+            in-process byte budget. Reserve a conservative allocated-byte ceiling, commit measured use,
+            then refund when the retained data is released.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">storage.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#storage-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="storage-example"><code data-source="package/tests/consumer/example/storage.cpp">#include &lt;rund/storage.hpp&gt;
+
+int main() {
+  rund::storage::Budget budget{1024u};
+  if (!budget) {
+    return budget.exit_code();
+  }
+
+  auto reservation = budget.reserve(256u);
+  if (!reservation) {
+    return reservation.exit_code();
+  }
+  const rund::storage::Status committed = reservation.commit(
+      rund::storage::Usage{.physical_bytes = 128u, .allocated_bytes = 256u});
+  if (!committed) {
+    return committed.exit_code();
+  }
+
+  const rund::storage::Report used = budget.report();
+  if (!used) {
+    return used.exit_code();
+  }
+  if (used.allocated_bytes != 256u || used.available_bytes != 768u) {
+    return 2;
+  }
+
+  const rund::storage::Status refunded = reservation.refund();
+  return refunded.exit_code();
+}</code></pre>
+          </div>
+          <p>
+            <code>StorageCapacityExceeded</code> means another live reservation or committed allocation
+            owns the bytes; release it or change the owner-set budget before retrying. A commit failure
+            means the supplied measured allocation exceeded its reservation or was otherwise invalid.
+            The Reservation keeps the exactly-once refund obligation until refund or destruction.
+          </p>
+        </section>
+
+        <section id="cluster">
+          <h2>Place a shard from an ordered candidate set</h2>
+          <p>
+            Include <code>&lt;cluster/cluster.hpp&gt;</code> only when the application needs optional
+            deterministic placement or retry identity. The application supplies stable shard, candidate,
+            and epoch identities; runD returns one typed decision.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">cluster.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#cluster-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="cluster-example"><code data-source="package/tests/consumer/example/cluster.cpp">#include &lt;cluster/cluster.hpp&gt;
+
+#include &lt;array&gt;
+
+int main() {
+  const rund::cluster::ShardRef shard{
+      rund::cluster::JobId{10u},
+      rund::cluster::ShardId{20u},
+  };
+  constexpr std::array&lt;rund::cluster::NodeId, 2u&gt; candidates{
+      rund::cluster::NodeId{40u},
+      rund::cluster::NodeId{50u},
+  };
+  const rund::cluster::PlacementResult placed =
+      rund::cluster::place_shard(rund::cluster::PlacementRequest{
+          shard, candidates, rund::cluster::PlacementEpoch{7u}});
+  if (!placed) {
+    return placed.exit_code();
+  }
+  return placed.placement.node == candidates.front() ? 0 : 2;
+}</code></pre>
+          </div>
+          <p>
+            <code>PlacementCode::ShardRequired</code> means the shard identity is incomplete;
+            <code>NodeRequired</code> means the ordered candidate set has no valid node. Correct those
+            inputs and evaluate again. Candidate order is part of the caller-supplied decision input.
+          </p>
+        </section>
+
+        <section id="network">
+          <h2>Network owns transport, not protocol meaning</h2>
+          <p>
+            <code>net::Socket</code> is the move-only owner. <code>SocketView</code> is a borrowed,
+            non-closing capability. Scalar stream and datagram operations are move-only awaitables; the
+            application owns buffers and protocol interpretation.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">network.cpp · checked compilation example</span><button class="copy-button" type="button" data-copy="#network-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="network-example"><code data-source="package/tests/consumer/example/network.cpp">#include &lt;rund/net.hpp&gt;
+#include &lt;rund/task.hpp&gt;
+
+#include &lt;cstddef&gt;
+#include &lt;span&gt;
+
+rund::task::Task&lt;void&gt; Read(const rund::net::SocketView socket,
+                            const std::span&lt;std::byte&gt; bytes,
+                            rund::net::ReceiveResult &amp;result) {
+  result = co_await rund::net::receive(socket, bytes);
+}
+
+rund::task::Task&lt;void&gt; SendPacket(const rund::net::SocketView socket,
+                                  const std::span&lt;const std::byte&gt; bytes,
+                                  const rund::net::Address peer,
+                                  rund::net::datagram::SendResult &amp;result) {
+  result = co_await rund::net::datagram::send(socket, bytes, peer);
+}</code></pre>
+          </div>
+          <p>
+            Readiness sets, accept/connect, drains, frames, and servers add explicit budgets. Scope exit
+            closes owning sockets; a borrowed view cannot close or outlive its owner.
+          </p>
+        </section>
+
+        <section id="telemetry">
+          <h2>Observe cost without changing the result</h2>
+          <p>
+            Bind one lvalue observer to <code>SessionConfig</code>. Basic telemetry reports stable
+            identities, counters, hashes, and findings. Detail additionally measures phase timing.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">telemetry.cpp · checked installed example</span><button class="copy-button" type="button" data-copy="#telemetry-example" aria-live="polite">Copy</button></div>
+            <pre class="code" id="telemetry-example"><code data-source="package/tests/consumer/example/telemetry.cpp">#include &lt;rund/replay.hpp&gt;
+
+#include &lt;cstdio&gt;
+#include &lt;string_view&gt;
+
+int main() {
+  auto observe = [](const rund::telemetry::Event &amp;event) {
+    rund::telemetry::describe(event, [](const std::string_view text) {
+      std::printf("%.*s", static_cast&lt;int&gt;(text.size()), text.data());
+    });
+    std::putchar('\n');
+  };
+
+  rund::SessionConfig config{.workers = 1u};
+  config.telemetry = rund::telemetry::bind(observe);
+  rund::Session session{};
+  const rund::Session::Status opened = session.open(config);
+  if (!opened) {
+    return opened.exit_code();
+  }
+
+  const rund::replay::Live result =
+      rund::replay::live(session, [](rund::replay::Context &amp;) {});
+  const rund::Session::Status closed = session.close();
+  if (!result) {
+    return result.exit_code();
+  }
+  return closed.exit_code();
+}</code></pre>
+          </div>
+          <p>
+            The observer must outlive terminal operations and <code>Session::close()</code>. A finding
+            suggests an action; it never replaces the operation's typed outcome.
+          </p>
+        </section>
+
+        <a class="doc-next" href="/runD/docs/numerics/"><span><small>Next SDK guide</small><strong>Choose the numeric surface that owns your state</strong></span><span aria-hidden="true">→</span></a>
+      </article>
+    </div></main>
+    <footer class="site-footer"><div class="container footer-bottom"><span>Lifecycle, work, transport, observation</span><span><a href="/runD/docs/api/">All direct headers →</a></span></div></footer>
+  </body>
+</html>

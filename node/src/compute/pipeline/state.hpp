@@ -124,6 +124,10 @@ struct PipelineBuildStep final {
   std::uint32_t window_expected{1u};
   std::uint16_t nested{};
   PipelineRoute route{PipelineRoute::Ordinary};
+  // True only when repeat(...) retains this occurrence in caller-owned
+  // iteration history. It prevents a terminal-only recurrence lowering from
+  // eliding the authored intermediate writes.
+  bool writes_each_iteration{};
 };
 
 struct PipelineBuildNestedWindow final {
@@ -167,11 +171,13 @@ struct PipelineBuildState final {
   std::shared_ptr<StateSnapshotState> seed;
   std::size_t binding_count{};
   std::size_t logical_step_count{};
+  std::uint32_t sealed_repetitions{1u};
   PipelineProfile profile{PipelineProfile::None};
   std::uint64_t budget{};
   bool has_budget{};
   bool commit{};
   bool sealed{};
+  bool sealed_repetitions_configured{};
   Reason failure{Reason::Ok};
 };
 
@@ -219,7 +225,8 @@ struct PipelineStep final {
   // Binding descriptors and resource ordinals are cold planning authority and
   // are not retained after the two private Jobs/native streams are frozen.
   // Warm execution needs only whether this step can make a write observable.
-  bool writes{};
+  bool writes : 1 {};
+  bool writes_each_iteration : 1 {};
   PipelineRoute route{PipelineRoute::Ordinary};
   // One-based index into PipelineState::windows.
   std::uint16_t window{};
@@ -338,6 +345,10 @@ struct PipelineState final {
   std::uint64_t generation{};
   std::uint64_t status_entry_count{};
   std::size_t logical_step_count{};
+  // One physical execution represents this many input-sealed evaluations at
+  // one terminal observation after the cold temporal proof succeeds. It never
+  // denotes this many public run()/generation transitions.
+  std::uint32_t sealed_repetitions{1u};
   // Sealed during preparation. Warm accelerator execution uses this immutable
   // count instead of walking private Jobs to rediscover the active subset.
   std::uint32_t active_step_count{};

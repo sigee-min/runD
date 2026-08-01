@@ -1,8 +1,8 @@
 #include "../prepared.hpp"
 
+#include "../recurrence.hpp"
 #include "evidence.hpp"
 #include "model.hpp"
-#include "../recurrence.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -20,6 +20,9 @@ struct ExpandedPipeline final {
   std::vector<std::uint8_t> barriers;
   std::vector<BackendWindow> windows;
   std::vector<TileTransducer> transducers;
+  std::vector<NestedAggregate> aggregates;
+  std::uint32_t command_count{};
+  bool compact_aggregate{};
   const char *reason = "accel_kernel_run_invalid";
 };
 
@@ -88,15 +91,18 @@ nested_shape(const std::span<const BackendBatchEntry> templates,
   return true;
 }
 
-[[nodiscard]] bool
-expand_pipeline(const std::span<const BackendBatchEntry> templates,
-                const std::span<const std::uint8_t> template_barriers,
-                ExpandedPipeline &expanded) {
-  if (templates.empty() || templates.size() != template_barriers.size()) {
+[[nodiscard]] bool expand_pipeline(
+    const std::span<const BackendBatchEntry> templates,
+    const std::span<const std::uint8_t> template_barriers,
+    const std::span<const BackendPublish> publications,
+    const std::span<const std::uint32_t> declared_steps,
+    const std::uint32_t declared_step_count, const bool profile_steps,
+    const std::uint32_t direct_aggregate_commands, ExpandedPipeline &expanded) {
+  if (templates.empty() || templates.size() != template_barriers.size() ||
+      templates.size() != declared_steps.size()) {
     return false;
   }
-  std::vector<std::uint32_t> group_transducers(
-      templates.size(), NoTileTransducer);
+  std::vector<std::uint32_t> group_transducers;
   std::uint64_t command_count = 0u;
   for (std::size_t index = 0u; index < templates.size();) {
     const BackendWindow *const window = templates[index].recurrence.window;
@@ -111,6 +117,67 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
     if (window->phase != BackendWindowPhase::NestedSeed ||
         !nested_shape(templates, index, end, outer_bound, inner_bound)) {
       return false;
+    }
+    NestedAggregate aggregate =
+        BuildNestedAggregate(templates, template_barriers, publications, index);
+    if (aggregate.invalid()) {
+      expanded.reason = aggregate.reason;
+      return false;
+    }
+    if (aggregate.ready()) {
+      try {
+        expanded.aggregates.push_back(std::move(aggregate));
+      } catch (const std::bad_alloc &) {
+        expanded.reason = "compute_pipeline_capacity";
+        return false;
+      }
+    }
+    const NestedAggregate *const direct = expanded.aggregates.size() == 1u
+                                              ? &expanded.aggregates.front()
+                                              : nullptr;
+    bool declared_seed_range = direct != nullptr && direct->seed.first == 0u;
+    if (declared_seed_range) {
+      const std::uint32_t first = declared_steps[direct->seed.first];
+      for (std::uint32_t outer = 0u; outer < direct->seed.count; ++outer) {
+        if (first > std::numeric_limits<std::uint32_t>::max() - outer ||
+            declared_steps[direct->seed.first + outer] != first + outer) {
+          declared_seed_range = false;
+          break;
+        }
+      }
+    }
+    bool profile_layout = !profile_steps;
+    if (profile_steps && declared_step_count == templates.size()) {
+      profile_layout = true;
+      for (std::size_t declared = 0u; declared < declared_steps.size();
+           ++declared) {
+        if (declared_steps[declared] != declared) {
+          profile_layout = false;
+          break;
+        }
+      }
+    }
+    const bool complete_direct =
+        direct_aggregate_commands != 0u && direct != nullptr && index == 0u &&
+        end == templates.size() && direct->seed.count == outer_bound &&
+        direct->action.first == direct->seed.end() &&
+        direct->action.count == inner_bound &&
+        direct->fold.first == direct->action.end() &&
+        direct->fold.count == 3u && direct->fold.end() == templates.size() &&
+        publications.size() == 1u && direct->publication_index == 0u &&
+        direct->failure.logical_step == declared_steps.front() &&
+        direct->profile.aggregate_profile_supported && declared_seed_range &&
+        profile_layout;
+    if (complete_direct) {
+      // The native aggregate consumes compact templates directly. Retaining
+      // K*(N+2) occurrence descriptors, barriers, and copied window records
+      // would recreate the intermediate memory layer this proof eliminates.
+      expanded.command_count = direct_aggregate_commands;
+      expanded.compact_aggregate = true;
+      return true;
+    }
+    if (group_transducers.empty()) {
+      group_transducers.assign(templates.size(), NoTileTransducer);
     }
     const std::size_t action_first = index + outer_bound;
     MapRecurrence recurrence = BuildNestedMapRecurrence(
@@ -152,6 +219,7 @@ expand_pipeline(const std::span<const BackendBatchEntry> templates,
       command_count > std::numeric_limits<std::size_t>::max()) {
     return false;
   }
+  expanded.command_count = static_cast<std::uint32_t>(command_count);
 
   const std::size_t capacity = static_cast<std::size_t>(command_count);
   expanded.commands.reserve(capacity);
@@ -337,65 +405,115 @@ PrepareKernelPipeline(const rund::AccelContext &context,
           .recurrence = recurrences[index],
           .template_index = static_cast<std::uint32_t>(index)};
     }
-    if (!expand_pipeline(templates, barriers, expanded)) {
+    if (!expand_pipeline(templates, barriers, publications, declared_steps,
+                         declared_step_count, profile_steps,
+                         pipeline->ops->nested_aggregate_command_count,
+                         expanded)) {
       return PreparedKernelPipeline{.reason = expanded.reason};
     }
   } catch (const std::bad_alloc &) {
     return PreparedKernelPipeline{.reason = "compute_pipeline_capacity"};
   }
-  if (expanded.commands.size() > std::numeric_limits<std::uint32_t>::max() ||
-      !PreparePipelineStatusLayout(
-          pipeline->status, declared_steps, declared_step_count,
-          static_cast<std::uint32_t>(expanded.commands.size()),
-          generation_stride)) {
-    return PreparedKernelPipeline{.reason = invalid.reason};
-  }
-  for (const BackendBatchEntry &command : expanded.commands) {
-    if (command.template_index >= pipeline->size ||
-        pipeline->states[command.template_index] == nullptr) {
-      return PreparedKernelPipeline{.reason = invalid.reason};
+  const auto account_current = [&]() -> const char * {
+    pipeline->counts = {};
+    if (expanded.command_count == 0u ||
+        !PreparePipelineStatusLayout(
+            pipeline->status, declared_steps, declared_step_count,
+            expanded.command_count, generation_stride)) {
+      return invalid.reason;
     }
-    if (command.transducer == NoTileTransducer) {
-      prepared::Accumulate(pipeline->counts,
-                           *pipeline->states[command.template_index]);
-      continue;
-    }
-    if (command.transducer >= expanded.transducers.size()) {
-      return PreparedKernelPipeline{.reason = invalid.reason};
-    }
-    const TileTransducer &transducer =
-        expanded.transducers[command.transducer];
-    const std::uint64_t template_end =
-        static_cast<std::uint64_t>(transducer.template_first) +
-        transducer.template_count;
-    if (transducer.template_count == 0u || template_end > pipeline->size) {
-      return PreparedKernelPipeline{.reason = invalid.reason};
-    }
-    // One physical transducer command represents the complete authored
-    // Action subrange for this outer window. Evidence remains logical: count
-    // every original template once while the backend reports the smaller
-    // physical dispatch count independently.
-    for (std::uint32_t offset = 0u; offset < transducer.template_count;
-         ++offset) {
-      const std::size_t template_index = transducer.template_first + offset;
-      if (pipeline->states[template_index] == nullptr) {
-        return PreparedKernelPipeline{.reason = invalid.reason};
+    if (expanded.compact_aggregate) {
+      if (expanded.aggregates.size() != 1u) {
+        return invalid.reason;
       }
-      prepared::Accumulate(pipeline->counts,
-                           *pipeline->states[template_index]);
+      const NestedAggregate &aggregate = expanded.aggregates.front();
+      for (std::size_t index = 0u; index < pipeline->size; ++index) {
+        const std::uint64_t occurrences = aggregate.authored_occurrences(index);
+        if (pipeline->states[index] == nullptr || occurrences == 0u) {
+          return invalid.reason;
+        }
+        prepared::Accumulate(pipeline->counts, *pipeline->states[index],
+                             occurrences);
+      }
+      return nullptr;
     }
-  }
-  const rund::AccelCheck built = pipeline->ops->prepare_pipeline(
-      templates, expanded.commands, expanded.barriers, expanded.transducers,
-      publications, pipeline->status, profile_steps, pipeline->backend,
-      pipeline->memory);
-  if (!built.ok) {
-    return PreparedKernelPipeline{.reason = built.reason};
+    for (const BackendBatchEntry &command : expanded.commands) {
+      if (command.template_index >= pipeline->size ||
+          pipeline->states[command.template_index] == nullptr) {
+        return invalid.reason;
+      }
+      if (command.transducer == NoTileTransducer) {
+        prepared::Accumulate(pipeline->counts,
+                             *pipeline->states[command.template_index]);
+        continue;
+      }
+      if (command.transducer >= expanded.transducers.size()) {
+        return invalid.reason;
+      }
+      const TileTransducer &transducer =
+          expanded.transducers[command.transducer];
+      const std::uint64_t template_end =
+          static_cast<std::uint64_t>(transducer.template_first) +
+          transducer.template_count;
+      if (transducer.template_count == 0u || template_end > pipeline->size) {
+        return invalid.reason;
+      }
+      // One physical transducer command represents the complete authored
+      // Action subrange for this outer window. Evidence remains logical: count
+      // every original template once while the backend reports the smaller
+      // physical dispatch count independently.
+      for (std::uint32_t offset = 0u; offset < transducer.template_count;
+           ++offset) {
+        const std::size_t template_index = transducer.template_first + offset;
+        if (pipeline->states[template_index] == nullptr) {
+          return invalid.reason;
+        }
+        prepared::Accumulate(pipeline->counts,
+                             *pipeline->states[template_index]);
+      }
+    }
+    return nullptr;
+  };
+
+  bool canonical_fallback = false;
+  for (;;) {
+    if (const char *const reason = account_current(); reason != nullptr) {
+      return PreparedKernelPipeline{.reason = reason};
+    }
+    const rund::AccelCheck built = pipeline->ops->prepare_pipeline(
+        templates, expanded.commands, expanded.barriers, expanded.transducers,
+        expanded.aggregates, publications, pipeline->status, profile_steps,
+        pipeline->backend, pipeline->memory);
+    if (built.ok) {
+      break;
+    }
+    if (!expanded.compact_aggregate || canonical_fallback) {
+      return PreparedKernelPipeline{.reason = built.reason};
+    }
+
+    // Native aggregation is an optional materialization of the common proof.
+    // If device admission or compilation rejects it, lazily build the
+    // canonical occurrence stream once. The successful hot path never owns
+    // that intermediate representation, while valid Pipelines retain their
+    // backend-neutral fallback semantics.
+    ExpandedPipeline canonical;
+    try {
+      if (!expand_pipeline(templates, barriers, publications, declared_steps,
+                           declared_step_count, profile_steps, 0u, canonical)) {
+        return PreparedKernelPipeline{.reason = canonical.reason};
+      }
+    } catch (const std::bad_alloc &) {
+      return PreparedKernelPipeline{.reason = "compute_pipeline_capacity"};
+    }
+    canonical.aggregates.clear();
+    expanded = std::move(canonical);
+    pipeline->backend.reset();
+    pipeline->memory = {};
+    canonical_fallback = true;
   }
   if (!ValidPreparedPipelineStatusLayout(
           pipeline->status, declared_steps, declared_step_count,
-          static_cast<std::uint32_t>(expanded.commands.size()),
-          generation_stride)) {
+          expanded.command_count, generation_stride)) {
     return PreparedKernelPipeline{.reason = invalid.reason};
   }
   const std::uint64_t common_host_bytes =

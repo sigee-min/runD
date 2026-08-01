@@ -20,6 +20,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                       PipelinePrepare &prepare) {
   auto state = std::make_shared<PipelineState>();
   state->device = build->device;
+  state->sealed_repetitions = build->sealed_repetitions;
   if (build->memory == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -48,13 +49,14 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   std::unordered_map<const BufferState *, std::uint32_t> ordinals;
   ordinals.reserve(std::min(build->binding_count, PipelineResourceCapacity));
   PipelineHash hash{};
+  hash.number(build->sealed_repetitions);
   hash.number(build->steps.size());
   std::size_t observed_bindings = 0u;
   std::size_t output_count = 0u;
   std::uint64_t status_entry_count = 0u;
-  const std::size_t binding_capacity =
-      build->nested_windows.empty() ? PipelineBindingCapacity
-                                    : PipelineRouteBindingCapacity;
+  const std::size_t binding_capacity = build->nested_windows.empty()
+                                           ? PipelineBindingCapacity
+                                           : PipelineRouteBindingCapacity;
 
   const auto admit =
       [&](const PipelineBinding &binding, const Type slot_type,
@@ -180,6 +182,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     step.iteration = declared.iteration;
     step.iteration_bound = declared.iteration_bound;
     step.route = declared.route;
+    step.writes_each_iteration = declared.writes_each_iteration;
     if (declared.nested != 0u) {
       const std::size_t nested_index =
           static_cast<std::size_t>(declared.nested - 1u);
@@ -194,10 +197,10 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
           nested.action_count == 0u ||
           nested.action_first != nested.seed_first + nested.seed_count ||
           nested.fold_first != nested.action_first + nested.action_count ||
-          nested.end != nested.fold_first + 3u ||
-          nested.maximum == 0u || nested.tile == 0u ||
-          nested.tile > nested.maximum || nested.count.buffer == nullptr ||
-          nested.count.type != Type::U32 || nested.count.count != 1u ||
+          nested.end != nested.fold_first + 3u || nested.maximum == 0u ||
+          nested.tile == 0u || nested.tile > nested.maximum ||
+          nested.count.buffer == nullptr || nested.count.type != Type::U32 ||
+          nested.count.count != 1u ||
           nested.count.element_bytes != sizeof(std::uint32_t)) {
         return Status::fail(Reason::PipelineInvalid);
       }
@@ -220,15 +223,13 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
             .first_step = nested.fold_first,
             .maximum = static_cast<std::uint32_t>(nested.maximum),
             .tile = static_cast<std::uint32_t>(nested.tile),
-            .terminal =
-                nested.terminal == NoWindowTerminal
-                    ? std::numeric_limits<std::uint32_t>::max()
-                    : static_cast<std::uint32_t>(nested.terminal),
+            .terminal = nested.terminal == NoWindowTerminal
+                            ? std::numeric_limits<std::uint32_t>::max()
+                            : static_cast<std::uint32_t>(nested.terminal),
             .terminal_output =
                 nested.terminal == NoWindowTerminal
                     ? 0u
-                    : fold_projection
-                          ->logical_to_physical[nested.terminal],
+                    : fold_projection->logical_to_physical[nested.terminal],
             .expected = nested.expected,
             .begin = nested.begin,
             .end = nested.end,
@@ -344,6 +345,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     hash.number(declared.window_expected);
     hash.number(declared.nested);
     hash.byte(static_cast<std::uint8_t>(declared.route));
+    hash.byte(static_cast<std::uint8_t>(declared.writes_each_iteration));
     if (declared.nested != 0u) {
       const PipelineBuildNestedWindow &nested =
           build->nested_windows[declared.nested - 1u];

@@ -248,8 +248,8 @@ descriptor around the common proved `Range`; repeated encoding performs no range
 overflow, alignment, replacement, allocation, or payload-copy work.
 
 The public `Run` receipt retains its private state in a 1,152-byte,
-`uint64_t`-aligned inline store. The source-private `RunState` is 1,104 bytes
-with 8-byte alignment, so the checked bound is `1,104 <= 1,152` with 48 bytes
+`uint64_t`-aligned inline store. The source-private `RunState` is 1,120 bytes
+with 8-byte alignment, so the checked bound is `1,120 <= 1,152` with 32 bytes
 of reserve. `Result<Run>` is 1,160 bytes on the checked 64-bit ABI. The reserve
 is an explicit stack and ABI footprint tradeoff for isolating private layout
 growth; it is neither heap storage nor extra initialized/copied payload.
@@ -435,6 +435,16 @@ Prepared Jobs may only borrow their sealed offsets. A single request larger
 than `P` is rejected before allocation; no private backend allocation path
 remains for Pipeline scratch. CPU primitive temporary storage remains part of
 its existing Program workspace and reports zero Pipeline scratch pages.
+The exact Metal nested-aggregate specialization follows the same ownership
+law without adding a scratch page. Common admission must identify two dense,
+non-overlapping U32 Seed intermediate ranges, each with capacity at least the
+outer-window bound `K`. Because the specialization replaces that complete
+Seed/Action/Fold stream, those otherwise idle plan-owned ranges hold the
+aggregate's low-word and status SoA rows for the duration of the two-command
+ICB. This is `8K` bytes of logical reuse inside the already counted transient
+arena, not a new allocation or an addition to `prepared_bytes`,
+`scratch_bytes`, or `allocation_count`. A missing, aliased, strided, or short
+range rejects the specialization and keeps the canonical stream.
 `publish_bytes` reports terminal copy traffic and is not retained storage.
 The largest and peak step/iteration/chunk coordinates identify Program
 workspace, while `view_bytes` and its step/iteration/binding coordinates

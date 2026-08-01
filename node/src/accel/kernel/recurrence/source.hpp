@@ -6,6 +6,8 @@ namespace rund::node::accel::detail {
 
 [[nodiscard]] bool TransformSource(rund::kernel::LoweringArtifact &artifact,
                                    std::uint64_t input_count,
-                                   std::uint64_t output_count);
+                                   std::uint64_t output_count,
+                                   std::span<const std::uint64_t>
+                                       history_pitch_bytes = {});
 
 } // namespace rund::node::accel::detail

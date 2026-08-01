@@ -27,6 +27,7 @@ struct BackendRun;
 struct BackendBatchEntry;
 struct BackendPublish;
 struct TileTransducer;
+struct NestedAggregate;
 struct PreparedMemory;
 struct PreparedPipelineMemory;
 class PreparedMemoryMeter;
@@ -40,6 +41,7 @@ enum class BackendBufferInitialization : std::uint8_t {
 struct BackendOps final {
   rund::AccelApi api = rund::AccelApi::Auto;
   bool resident = false;
+  std::uint32_t nested_aggregate_command_count = 0u;
   rund::Buffer (*create)(const rund::AccelDevice &, const rund::BufferDesc &,
                          BackendBufferInitialization) = nullptr;
   rund::AccelCheck (*upload)(const rund::AccelDevice &,
@@ -47,15 +49,13 @@ struct BackendOps final {
                              const std::shared_ptr<void> &, const void *,
                              std::uint64_t, std::uint64_t) = nullptr;
   BackendUpload (*upload_batch)(const rund::AccelDevice &,
-                                std::span<const UploadRoute>) =
-      nullptr;
+                                std::span<const UploadRoute>) = nullptr;
   BackendDownload (*download)(const rund::AccelDevice &,
                               const rund::kernel::ResidentBufferRef &,
                               const std::shared_ptr<void> &, void *,
                               std::uint64_t, std::uint64_t, bool) = nullptr;
   BackendDownload (*download_batch)(const rund::AccelDevice &,
-                                    std::span<const DownloadRoute>) =
-      nullptr;
+                                    std::span<const DownloadRoute>) = nullptr;
   BackendLookup (*lookup)(const rund::AccelDevice &,
                           const rund::kernel::ResidentBufferRef &,
                           const std::shared_ptr<void> &) = nullptr;
@@ -74,14 +74,12 @@ struct BackendOps final {
                                 std::span<rund::AccelCheck>,
                                 std::shared_ptr<void> &,
                                 rund::RuntimeStats &) = nullptr;
-  rund::AccelCheck (*prepare_pipeline)(std::span<const BackendBatchEntry>,
-                                       std::span<const BackendBatchEntry>,
-                                       std::span<const std::uint8_t>,
-                                       std::span<const TileTransducer>,
-                                       std::span<const BackendPublish>,
-                                       PreparedPipelineStatusLayout &, bool,
-                                       std::shared_ptr<void> &,
-                                       PreparedPipelineMemory &) = nullptr;
+  rund::AccelCheck (*prepare_pipeline)(
+      std::span<const BackendBatchEntry>, std::span<const BackendBatchEntry>,
+      std::span<const std::uint8_t>, std::span<const TileTransducer>,
+      std::span<const NestedAggregate>, std::span<const BackendPublish>,
+      PreparedPipelineStatusLayout &, bool, std::shared_ptr<void> &,
+      PreparedPipelineMemory &) = nullptr;
   rund::AccelCheck (*seed_prepared_pipeline_generation)(
       const std::shared_ptr<void> &, std::uint32_t) noexcept = nullptr;
   rund::AccelCheck (*submit_prepared_pipeline)(const std::shared_ptr<void> &,

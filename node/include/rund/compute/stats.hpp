@@ -55,6 +55,12 @@ struct PipelineStats final {
   std::uint64_t step_count{};
   std::uint64_t resource_count{};
   std::uint64_t barrier_count{};
+  // Cold-sealed repetitions represented by one physical execution. A value
+  // greater than one is admitted only after the exact temporal proof.
+  std::uint64_t sealed_repetition_count{};
+  // Successful repetitions removed beyond the one physical execution. This
+  // remains zero on every failed or unpublished attempt.
+  std::uint64_t coalesced_repetition_count{};
   std::uint64_t claim_conflict_count{};
   std::uint64_t verified_step_count{};
   std::uint64_t failed_step_index{no_failed_step};

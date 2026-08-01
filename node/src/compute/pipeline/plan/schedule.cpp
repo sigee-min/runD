@@ -11,11 +11,92 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <span>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace rund::compute::detail {
+namespace {
+
+[[nodiscard]] Status prove_sealed_repetitions(
+    const PipelineBuildState &build,
+    const std::span<const resource::Resource> resource_shapes,
+    const std::span<const resource::Access> resource_accesses,
+    const std::span<const std::uint8_t> external_resources,
+    const std::span<const resource::Access> publication_accesses) {
+  if (build.sealed_repetitions <= 1u) {
+    return Status::success();
+  }
+  if (!build.state_pairs.empty()) {
+    return Status::fail(Reason::PipelineTemporalDependency);
+  }
+
+  // Place every caller-owned write in invocation t before every caller-owned
+  // read in invocation t + 1. resource::analyze remains the sole exact-range
+  // authority, including genuinely strided Views. Any resulting W -> R witness
+  // is a temporal carry and makes repeated execution observably stateful.
+  std::vector<resource::Access> temporal_accesses;
+  temporal_accesses.reserve(resource_accesses.size() +
+                            publication_accesses.size());
+  const auto append_mode = [&](const resource::AccessMode mode) {
+    const auto append = [&](const resource::Access &source) {
+      if (source.resource == 0u ||
+          source.resource > external_resources.size()) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      if (source.mode != mode ||
+          external_resources[source.resource - 1u] == 0u) {
+        return Status::success();
+      }
+      if (temporal_accesses.size() >=
+          std::numeric_limits<std::uint32_t>::max()) {
+        return Status::fail(Reason::PipelineCapacity);
+      }
+      resource::Access access = source;
+      access.node = static_cast<std::uint32_t>(temporal_accesses.size());
+      temporal_accesses.push_back(access);
+      return Status::success();
+    };
+    for (const resource::Access &access : resource_accesses) {
+      const Status appended = append(access);
+      if (!appended) {
+        return appended;
+      }
+    }
+    for (const resource::Access &access : publication_accesses) {
+      const Status appended = append(access);
+      if (!appended) {
+        return appended;
+      }
+    }
+    return Status::success();
+  };
+  const Status writes = append_mode(resource::AccessMode::Write);
+  if (!writes) {
+    return writes;
+  }
+  const Status reads = append_mode(resource::AccessMode::Read);
+  if (!reads || temporal_accesses.empty()) {
+    return reads;
+  }
+
+  auto temporal =
+      resource::analyze(resource_shapes, temporal_accesses,
+                        static_cast<std::uint32_t>(temporal_accesses.size()));
+  if (!temporal) {
+    return Status::fail(temporal.reason());
+  }
+  for (const resource::Barrier &barrier : temporal->barriers) {
+    if (barrier.before == resource::AccessMode::Write &&
+        barrier.after == resource::AccessMode::Read) {
+      return Status::fail(Reason::PipelineTemporalDependency);
+    }
+  }
+  return Status::success();
+}
+
+} // namespace
 
 Status plan_pipeline_schedule(const PipelineBuildState &build,
                               PipelineMemoryPlan &plan) {
@@ -28,9 +109,14 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
 
   std::vector<resource::Resource> resource_shapes;
   std::vector<resource::Access> resource_accesses;
+  std::vector<std::uint8_t> external_resources;
+  std::vector<resource::Access> publication_accesses;
   resource_shapes.reserve(
       std::min(build.binding_count, PipelineResourceCapacity));
   resource_accesses.reserve(build.binding_count);
+  external_resources.reserve(
+      std::min(build.binding_count, PipelineResourceCapacity));
+  publication_accesses.reserve(build.publications.size() * 2u);
   std::unordered_map<const BufferState *, std::uint32_t> external;
   external.reserve(std::min(build.binding_count, PipelineResourceCapacity));
   std::vector<std::uint32_t> internals(build.internals.size(), unassigned);
@@ -76,6 +162,7 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
         .bytes = bytes,
         .alias_group = ordinal + 1u,
     });
+    external_resources.push_back(external_buffer != nullptr ? 1u : 0u);
     if (internal_ordinal != nullptr) {
       *internal_ordinal = ordinal;
     } else {
@@ -83,7 +170,8 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
     }
     return Result<std::uint32_t>::success(ordinal);
   };
-  const auto append_access = [&](const PipelineBinding &binding,
+  const auto append_access = [&](std::vector<resource::Access> &destination,
+                                 const PipelineBinding &binding,
                                  const std::uint32_t node,
                                  const std::uint32_t ordinal,
                                  const resource::AccessMode mode) {
@@ -97,7 +185,7 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
         !size::multiply(binding.stride, binding.element_bytes, stride_bytes)) {
       return false;
     }
-    resource_accesses.push_back(resource::Access{
+    destination.push_back(resource::Access{
         .node = node,
         .resource = ordinal + 1u,
         .mode = mode,
@@ -129,8 +217,9 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
       if (!ordinal) {
         return Status::fail(ordinal.reason());
       }
-      if (!append_access(input, static_cast<std::uint32_t>(step_index),
-                         *ordinal, resource::AccessMode::Read)) {
+      if (!append_access(resource_accesses, input,
+                         static_cast<std::uint32_t>(step_index), *ordinal,
+                         resource::AccessMode::Read)) {
         return Status::fail(Reason::PipelineCapacity);
       }
     }
@@ -152,9 +241,10 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
       const std::uint32_t source = projection->physical_sources[physical];
       if (source >= step.outputs.size() ||
           output_ordinals[physical] == unassigned ||
-          !append_access(
-              step.outputs[source], static_cast<std::uint32_t>(step_index),
-              output_ordinals[physical], resource::AccessMode::Write)) {
+          !append_access(resource_accesses, step.outputs[source],
+                         static_cast<std::uint32_t>(step_index),
+                         output_ordinals[physical],
+                         resource::AccessMode::Write)) {
         return Status::fail(Reason::PipelineInvalid);
       }
     }
@@ -165,6 +255,12 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
     if (!source || !target) {
       return Status::fail(source ? target.reason() : source.reason());
     }
+    if (!append_access(publication_accesses, publication.source, 0u, *source,
+                       resource::AccessMode::Read) ||
+        !append_access(publication_accesses, publication.target, 0u, *target,
+                       resource::AccessMode::Write)) {
+      return Status::fail(Reason::PipelineCapacity);
+    }
   }
   for (const PipelineBuildStatePair &pair : build.state_pairs) {
     auto published = admit(pair.published);
@@ -172,6 +268,18 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
     if (!published || !pending) {
       return Status::fail(published ? pending.reason() : published.reason());
     }
+  }
+
+  // Sealed repetitions may coalesce repeated invocations only when no
+  // caller-owned write becomes a caller-owned read in the next invocation.
+  // Program and
+  // Pipeline-private storage remains governed by the reusable-execution
+  // reset/overwrite contract; caller-owned state is never inferred from it.
+  const Status repetitions =
+      prove_sealed_repetitions(build, resource_shapes, resource_accesses,
+                               external_resources, publication_accesses);
+  if (!repetitions) {
+    return repetitions;
   }
 
   resource::Plan hazards;
@@ -370,6 +478,7 @@ Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   state->logical_step_count = build->logical_step_count;
   state->stats.pipeline.step_count = state->logical_step_count;
   state->stats.pipeline.resource_count = state->resources.size();
+  state->stats.pipeline.sealed_repetition_count = state->sealed_repetitions;
 
   return Status::success();
 }

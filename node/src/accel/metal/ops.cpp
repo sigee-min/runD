@@ -125,6 +125,7 @@ bool InjectDeviceLostOnce(const rund::AccelDevice &pick) noexcept {
 const BackendOps Operations{
     .api = rund::AccelApi::Metal,
     .resident = true,
+    .nested_aggregate_command_count = 2u,
     .create = Create,
     .upload = Upload,
     .upload_batch = UploadBatch,

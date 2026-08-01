@@ -369,7 +369,7 @@ auto prepared =
             body,
             rund::compute::window(count),
             rund::compute::read(outer_seed, seed_external),
-            rund::compute::write(outer_result))
+            rund::compute::write_final(outer_result))
         .prepare();
 ```
 

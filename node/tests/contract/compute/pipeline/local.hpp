@@ -59,6 +59,10 @@ SameControlStats(const rund::compute::ControlStats &,
 TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 
 [[nodiscard]] int CheckRepeat(rund::compute::Device &, Backend);
+[[nodiscard]] int CheckIterationHistory(rund::compute::Device &, Backend);
+[[nodiscard]] int CheckHostFeedback(rund::compute::Device &, Backend);
+[[nodiscard]] int CheckSealedRepetitions(rund::compute::Device &, Backend,
+                                         rund::compute::graph::Fingerprint &);
 [[nodiscard]] int CheckSurface(rund::compute::Device &);
 [[nodiscard]] int CheckWideFixed(rund::compute::Device &, Backend,
                                  rund::compute::graph::Fingerprint &,
@@ -82,6 +86,7 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 [[nodiscard]] int CheckFrozenCpuMapBindings(rund::compute::Device &);
 [[nodiscard]] int CheckSemanticStatus(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckBackend(Backend, rund::compute::graph::Fingerprint &,
+                               rund::compute::graph::Fingerprint &,
                                std::uint64_t &, std::uint64_t &,
                                std::uint64_t &);
 

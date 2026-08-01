@@ -266,7 +266,10 @@ for nested Pipeline evidence. It deliberately uses a new exact SDK identity
 because those headers and libraries are not binary-compatible with the
 published `1.0.0` tuple. Consumers must build and consume headers and libraries
 from one matched exact artifact; `1.0.0` remains a historical identity and may
-not be mixed with `1.0.1`.
+not be mixed with `1.0.1`. The current checked 64-bit tuple has a 184-byte
+`PipelineStats`, 632-byte `Stats`, and 1,152-byte inline `Run`; the sealed
+repetition fields are part of that `1.0.1` by-value ABI rather than an extension
+that an older header may safely ignore.
 
 ## Compute Contract
 
@@ -289,7 +292,8 @@ parse the future/task construction templates.
 functions and matrix, transform, factor, solve, and spectrum stages. It owns
 no second graph, target, compilation, or execution authority.
 `<rund/compute/pipeline.hpp>` is the opt-in focused direct owner of `pipeline`,
-`read`, `write`, `tile_repeat`, `PipelineBuilder`, `Pipeline`, copyable
+`read`, `write`, `tile_repeat`, `PipelineBuilder`, `Pipeline`,
+`PipelineSealedRepetitionCapacity`, copyable
 `StateSnapshot`, and the bounded profile vocabulary `PipelineProfile`, `StepClock`,
 `StepTimingRelation`, `StepTiming`, `PipelineStepStats`,
 `PipelineStepProfile`, and `PipelineProfileSnapshot`; the basic
@@ -311,6 +315,11 @@ zero counters or mistake a missing owner for CPU.
 conflict, and overflow projection. `Stats::publication` is the transactional
 generation, commit/discard, snapshot/restore, and device-loss projection.
 Neither creates another execution or failure authority.
+`Stats::pipeline::{sealed_repetition_count,coalesced_repetition_count}`
+reports an admitted Pipeline's frozen input-sealed repetition count and the
+successfully removed suffix. A default or non-Pipeline `Stats` reports both as
+zero; an ordinary prepared Pipeline reports one and zero. Physical work
+counters are never multiplied by the sealed repetition count.
 `Stats::{reset_bytes,reset_commands}` is runtime reset evidence;
 `graph::MemoryPlan::{reset_bytes,reset_count}` remains the canonical compiled
 range and first-write frontier plan.
@@ -327,12 +336,24 @@ results and hashes remain Job-owned.
 
 `PipelineBuilder` is the transient move-only declaration phase produced by
 `pipeline(device)`. `then(program, read(inputs...), write(outputs...))`
-composes one prepared step. `repeat<N>(program, read(inputs...),
-write(outputs...))` is the fixed-count resident recurrence spelling: the Program
+composes one prepared step. `sealed_repetitions<N>()` requests one terminal
+observation for `N` identical input-sealed evaluations, with
+`1 <= N <= 1024`. The cold exact strided-range planner must prove that no
+caller-owned write intersects any caller-owned next-evaluation read, and
+transactional state is ineligible; otherwise `plan()` and `prepare()` fail with
+`PipelineTemporalDependency`. Success still owns one claim, physical
+execution, publication, and generation, while failure records zero collapsed
+evaluations. This is a throughput contract for frozen inputs, not `N` public
+ticks, intermediate checkpoints, or a single-tick latency claim.
+`repeat<N>(program, read(inputs...), write_final(outputs...))` is the
+terminal-only fixed-count resident recurrence spelling.
+`write_each(history...)` selects lossless caller-owned iteration-major output;
+plain `write` is rejected on recurrence declarations. The Program
 outputs must be the exact prefix of its inputs, that prefix is loop-carried,
 and later inputs are invariant. The body is compiled once and preparation
-freezes one Program-internal workspace, the seed route, and two alternating
-resident bank routes for the positive compile-time bound. Bounded resident
+freezes one Program-internal workspace, the seed route, and either the
+terminal two-bank route or exact caller-owned history slices for the positive
+compile-time bound. `write_each` adds no private carried bank. Bounded resident
 windows add one selector that alone names the current route; an inactive
 occurrence leaves it unchanged instead of propagating payload through every
 remaining bank. The first stop disables later payload commands and performs
@@ -341,7 +362,16 @@ downstream steps and publication. Reset, View transfer, and body dispatches
 share that one gate; fixed-width status, telemetry, and selector control do
 not become a second payload authority.
 Program internal Buffers are not retained once per authored occurrence.
-`windows<Max, Tile>(...)` is the bounded resident-stream recurrence spelling.
+`host_feedback(pipeline, count, callback)` is the separate host-control
+boundary. Its `HostIteration` callback runs after every successful public run,
+may read published outputs, and may write exact typed inputs only before a
+next run. Successful prefixes remain committed on a later callback or run
+failure. Callback identity and host values are not Pipeline fingerprint
+inputs, and GPU execution pays one submit/completion per requested host
+iteration.
+`windows<Max, Tile>(...)` is the bounded resident-stream recurrence spelling
+and accepts terminal-only `write_final(...)`; it does not infer a history
+shape from a runtime count.
 The body derives its canonical `base`, active `count`, and ordinal through
 `resident<Max, Tile>` and therefore authors tile-sized intermediates while
 keeping the full input Buffer resident. It is not a request to resize an
@@ -353,7 +383,7 @@ binding, or observation surface. The enclosing Pipeline retains each compiled
 Program once. For flattened tuples `S`, `T`, `P`, and `O`, Seed has signature
 `T(S..., U32 total_count, U32 outer_ordinal)`, Action has signature `P(T...)` with `P`
 an exact prefix of `T`, and Fold has signature `O(O..., T...)`.
-`windows` consequently reads `(O..., S...)` and writes `(O...)`.
+`windows` consequently reads `(O..., S...)` and writes `write_final(O...)`.
 The `T` suffix after `P` is one invariant tile bank and Action alternates
 exactly two `P` banks for its positive compile-time bound `N`.
 Preparation retains `O(ceil(Max / Tile) + N)` compact routes rather than the
@@ -364,11 +394,12 @@ submission with no warm allocation, binding-identity mutation, count readback,
 or fallback. `rebinding_count` names post-prepare mutations; cold encoding of
 frozen descriptors is not a mutation, and the contract fixture independently
 compares all retained owner and View identities across warm executions.
-Metal's current warm path still walks those frozen direct-command and
-ICB-range descriptors to construct the API-required single-use outer command
-buffer. That count-independent walk performs no rebind and adds no submit, but
-it is not literal zero host traversal; the nested-window “no host loop”
-requirement remains open for the next backend lowering.
+Metal cold preparation records the admitted command graph in one reusable ICB.
+Warm execution creates the API-required single-use outer command buffer, makes
+one bulk resource-residency declaration, executes the full ICB range, commits,
+and observes fixed control. It walks no command, range, binding,
+indirect-grid, or recurrence-state descriptor table and performs no rebind;
+outer command-buffer/encoder lifecycle and completion remain real host work.
 Seed derives the active tail count through `resident<Max, Tile>`. Zero,
 partial-tail, overflow, terminal, and first-failure behavior is the
 resident-window contract; evidence names phase, outer window, and inner
@@ -407,6 +438,10 @@ element-unit `offset`, `size`, `stride`, `alignment`, and byte diagnostics.
 Declaration order plus exact range hazards is the dependency authority, so a
 cycle is not representable in the SDK type surface. State publication uses
 `state(...).commit()` and execution uses the prepared `Pipeline` owner.
+Pipeline fingerprint identity policy version 3 includes the frozen sealed
+repetition count. An omitted declaration and `sealed_repetitions<1>()` are
+identical; different positive counts are different identities. Contents,
+addresses, backend objects, and profile observations remain excluded.
 
 `PipelineStepProfile::index` is the logical declaration-order correlation
 authority. A `repeat<N>` step emits N rows with that same index; `iteration`
@@ -420,13 +455,15 @@ Unavailable timing has an explicit clock and zero sample count; a measured
 zero duration remains available. `Stats`, `PipelineStats`, `MemoryEntry`,
 `MemoryStats`, and `compute::telemetry::Profile` retain their meanings, while
 the recurrence release adds the two explicit iteration fields to
-`PipelineStepProfile`. The Pipeline terminal-control ABI occupies 128 bytes.
+`PipelineStepProfile` and the sealed-repetition release adds the two fixed-width
+fields to `PipelineStats`. The Pipeline terminal-control ABI occupies 128 bytes.
 Profiling mode and observations never enter the Pipeline fingerprint, Replay,
 output, snapshot, publication, or failure identity.
 
 `PipelineStepCapacity` is the 64-step logical declaration envelope and
 `PipelineIterationCapacity` is the independent 1,024-entry prepared execution
-envelope. The maximum 32 typed leaves therefore admit at most 32,768 frozen
+envelope. `PipelineSealedRepetitionCapacity` independently bounds input-sealed
+repetition at 1,024. The maximum 32 typed leaves therefore admit at most 32,768 frozen
 binding occurrences under one checked product bound. Public
 `PipelineStats::step_count`, `verified_step_count`, and
 `failed_step_index` always use logical declaration indices; native control and
