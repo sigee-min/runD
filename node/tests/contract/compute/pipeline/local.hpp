@@ -76,6 +76,7 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 [[nodiscard]] int CheckTransactionalGenerations(rund::compute::Device &,
                                                 Backend, std::uint64_t &,
                                                 std::uint64_t &);
+[[nodiscard]] int CheckReusableCheckpoints(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckVulkanCheckpointChunking(rund::compute::Device &,
                                                 Backend);
 [[nodiscard]] int CheckNativeDeviceLoss(rund::compute::Device &, Backend);

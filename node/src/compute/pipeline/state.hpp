@@ -24,6 +24,9 @@
 
 namespace rund::compute::detail {
 
+struct PipelinePublicationState;
+struct SnapshotStorageState;
+
 enum class PipelinePhase : unsigned char {
   Ready,
   Running,
@@ -150,14 +153,25 @@ struct PipelineBuildStatePair final {
   PipelineBinding pending;
 };
 
-// A window recurrence computes into private storage.  Publication is a
-// separate terminal transition so a late semantic failure can never expose a
-// partially advanced accumulator through the caller-owned Buffer.
+enum class PipelinePublishKind : std::uint8_t {
+  Terminal,
+  Window,
+};
+
+// Recurrent state and append-only window output both compute into private
+// storage. Terminal publication is gated on complete Pipeline success. Window
+// publication is count-gated after each successful Fold and is intentionally
+// non-rollback: a later failure poisons a destination that may contain an
+// already published prefix.
 struct PipelineBuildPublish final {
   PipelineBinding source;
   PipelineBinding target;
+  PipelineBinding count;
   std::size_t step{};
   std::uint32_t output{};
+  std::size_t maximum{};
+  std::size_t tile{};
+  PipelinePublishKind kind{PipelinePublishKind::Terminal};
 };
 
 struct PipelineBuildState final {
@@ -169,6 +183,8 @@ struct PipelineBuildState final {
   std::vector<PipelineBuildNestedWindow> nested_windows;
   std::shared_ptr<const PipelineMemoryPlan> memory;
   std::shared_ptr<StateSnapshotState> seed;
+  std::shared_ptr<SnapshotStorageState> storage_seed;
+  std::shared_ptr<PipelinePublicationState> device_seed;
   std::size_t binding_count{};
   std::size_t logical_step_count{};
   std::uint32_t sealed_repetitions{1u};
@@ -272,6 +288,7 @@ struct PipelineStatePair final {
 struct PipelinePublish final {
   std::shared_ptr<BufferState> source;
   std::shared_ptr<BufferState> target;
+  std::shared_ptr<BufferState> resident_count;
   Type type{Type::I32};
   FixedFormat format{};
   std::size_t source_offset{};
@@ -281,6 +298,10 @@ struct PipelinePublish final {
   std::size_t element_bytes{};
   std::uint16_t window{};
   std::uint16_t output{};
+  PipelinePublishKind kind{PipelinePublishKind::Terminal};
+  std::size_t resident_count_offset{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
 };
 
 struct PipelineSnapshotField final {
@@ -306,6 +327,35 @@ struct StateSnapshotState final {
   std::uint64_t hash{};
 };
 
+struct SnapshotStorageState final {
+  mutable std::mutex gate;
+  std::array<StateSnapshotState, 2u> banks;
+  std::size_t byte_capacity{};
+  std::size_t field_capacity{};
+  std::uint8_t active{};
+  bool valid{};
+};
+
+// Resident checkpoint authority shared by Pipeline and LatestDeviceState.
+// Frozen owners and schema survive Pipeline destruction, while the publication
+// selector changes only in the terminal Device-claim critical section.
+struct PipelinePublicationState final {
+  std::shared_ptr<DeviceState> device;
+  std::vector<PipelineStatePair> state_pairs;
+  graph::Fingerprint fingerprint{};
+  mutable std::mutex gate;
+  std::uint64_t generation{};
+  // Changes whenever this authority publishes different resident payload,
+  // including a restore whose generation/parity happen to stay unchanged.
+  std::uint64_t payload_epoch{};
+  std::uint8_t parity{};
+  bool device_lost{};
+  // At most one Pipeline may execute against shared pair owners. The attempt
+  // reservation freezes selector identity without holding this mutex across
+  // an asynchronous backend submission.
+  bool attempt_active{};
+};
+
 struct PipelineDependency final {
   std::uint32_t before{};
   std::uint32_t after{};
@@ -316,6 +366,7 @@ struct PipelineDependency final {
 
 struct PipelineState final {
   std::shared_ptr<DeviceState> device;
+  std::shared_ptr<PipelinePublicationState> publication;
   std::vector<PipelineStep> steps;
   std::vector<PipelineWindow> windows;
   // Sealed rank of physical window steps in each prefix. Empty for a Pipeline
@@ -326,7 +377,6 @@ struct PipelineState final {
   std::vector<std::shared_ptr<BufferState>> prepared_buffers;
   std::vector<BufferClaim> claims;
   std::vector<BufferClaim> alternate_claims;
-  std::vector<PipelineStatePair> state_pairs;
   std::vector<PipelinePublish> publications;
   std::vector<PipelineOutputState> outputs;
   // Lookup-only permutation of outputs, sorted by Buffer owner address. The
@@ -337,12 +387,11 @@ struct PipelineState final {
   std::unique_ptr<PipelineProfileState> profile;
   node::accel::detail::PreparedKernelPipeline prepared;
   node::accel::detail::PreparedKernelPipeline alternate_prepared;
-  graph::Fingerprint fingerprint{};
   PipelinePlan plan{};
   mutable std::mutex gate;
   PipelinePhase phase{PipelinePhase::Ready};
   Stats stats{};
-  std::uint64_t generation{};
+  CheckpointStats checkpoint_stats{};
   std::uint64_t status_entry_count{};
   std::size_t logical_step_count{};
   // One physical execution represents this many input-sealed evaluations at
@@ -352,14 +401,21 @@ struct PipelineState final {
   // Sealed during preparation. Warm accelerator execution uses this immutable
   // count instead of walking private Jobs to rediscover the active subset.
   std::uint32_t active_step_count{};
-  std::uint8_t parity{};
+  std::uint64_t attempt_generation{};
+  std::uint64_t native_generation{};
+  std::uint64_t observation_generation{};
+  std::uint64_t observation_payload_epoch{};
+  std::uint8_t attempt_parity{};
+  std::uint8_t native_parity{};
+  std::uint8_t observation_parity{};
   Reason failure{Reason::Ok};
   std::size_t verified{};
   bool failure_step_known{};
   bool writes_possible{};
   bool backend_submitted{};
   bool transactional{};
-  bool device_lost{};
+  bool preparing{true};
+  bool observation_identity_valid{};
   // A submitted failure whose native generation control could not be rebased
   // cannot safely execute again: the next completion identity is unknowable.
   bool control_poisoned{};

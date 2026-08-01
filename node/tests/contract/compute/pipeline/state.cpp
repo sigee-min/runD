@@ -157,14 +157,13 @@ namespace rund_node_test_pipeline {
   if (!restored_first || !restored_second) {
     return 54;
   }
-  auto recurrent_restore =
-      pipeline(device)
-          .state(*restored_first, *restored_second)
-          .repeat<2u>(*advance, read(*restored_first),
-                      write_final(*restored_second))
-          .restore(*recurrent_snapshot)
-          .commit()
-          .prepare();
+  auto recurrent_restore = pipeline(device)
+                               .state(*restored_first, *restored_second)
+                               .repeat<2u>(*advance, read(*restored_first),
+                                           write_final(*restored_second))
+                               .restore(*recurrent_snapshot)
+                               .commit()
+                               .prepare();
   if (!recurrent_restore || !recurrent_restore->run() ||
       !ReadExact(*recurrent_restore, *restored_second, observed) ||
       observed != recurrent_twice) {
@@ -197,11 +196,15 @@ namespace rund_node_test_pipeline {
                    .then(*gather, read(*source, *indices), write(*pending))
                    .commit()
                    .prepare();
+  const auto retry_latest =
+      retry ? retry->latest_device_state()
+            : Result<LatestDeviceState>::fail(Reason::PipelineInvalid);
   const Status first_retry =
       retry ? retry->run() : Status::fail(Reason::PipelineInvalid);
   const bool first_read = retry && ReadExact(*retry, *pending, observed);
   const bool first_overwrite = Overwrite(*indices, invalid_indices);
-  if (!retry || !first_retry || retry->generation() != 1u || !first_read ||
+  if (!retry || !retry_latest || !first_retry || retry->generation() != 1u ||
+      retry_latest->generation() != 1u || !first_read ||
       observed != source_values || !first_overwrite) {
     return 7;
   }
@@ -212,6 +215,7 @@ namespace rund_node_test_pipeline {
       failed_stats.control.overflow_ordinal != 0u ||
       failed_stats.publication.commit_count != 1u ||
       failed_stats.publication.discard_count != 1u ||
+      retry_latest->generation() != 1u ||
       !Overwrite(*indices, recovery_indices) || !retry->run() ||
       retry->generation() != 2u || !ReadExact(*retry, *source, observed) ||
       observed != recovered_values ||

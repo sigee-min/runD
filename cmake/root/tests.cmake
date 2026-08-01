@@ -146,6 +146,7 @@ if(RUND_ENABLE_PACKAGE_RELEASE_TESTS)
             -D "ROOT=${CMAKE_SOURCE_DIR}"
             -D "BUILD_DIR=${CMAKE_BINARY_DIR}"
             -D "PREFIX=${RUND_PACKAGE_INSTALL_PREFIX}"
+            -D "EXPECTED_SDK_VERSION=${RUND_PACKAGE_VERSION}"
             -P "${CMAKE_SOURCE_DIR}/package/cmake/consumer.cmake")
   set_tests_properties(package.consumer PROPERTIES
     LABELS "rund_package;rund_release;rund_smoke"

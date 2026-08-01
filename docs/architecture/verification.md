@@ -23,6 +23,7 @@ bytes.
 | `tools/check/leaks` | Native Apple leak checks for the four lifetime owners. |
 | `tools/measure/scheduler/run` | Installed scheduler latency, scaling, and memory workloads. |
 | `tools/measure/compute/run [--pipeline\|--recurrence\|--window-repeat metal\|vulkan]` | Installed Compute execution, scaling, parity, and warm-cost workloads; focused modes build one physical backend projection while retaining its CPU oracle. |
+| `tools/measure/compute/run --checkpoint cpu\|metal\|vulkan` | Compare live device publication, reusable host storage, and immutable host snapshots, including fused copy/hash latency, process allocations, transfer, staging, and RSS high-water observations. |
 | `tools/measure/flow/run` | Installed Flow construction and C++ frontend workloads. |
 | `tools/measure/graph/services/run` | Installed Program-cache, async-coalescing, and bounded-graph workloads. |
 | `tools/measure/telemetry/run` | Installed Disabled, Basic, and Detail Replay telemetry cost and parity. |
@@ -377,6 +378,26 @@ graph/output identity, but none invokes the evidence finisher or creates a
 release packet. The argument-free installed-SDK route remains the sole
 performance-baseline authority.
 
+The optional `--checkpoint` mode runs CPU, Metal, or Vulkan over the same
+one-million-element transactional state. It compares a live device handle,
+one preallocated two-bank host `SnapshotStorage`, and retained immutable
+snapshots. Each row reports the median combined tick/path wall time. Host-export
+rows also report an export-only wall median containing fused payload
+materialization and per-field FNV updates plus the root metadata-hash fold;
+there is deliberately no independent hash timer or second payload pass. The
+live-device row reports zero for that export-only field because handle
+acquisition occurs once before the measured tick cadence. Generic
+Pipeline `Stats` columns describe the last measured tick and checkpoint
+operation; reusable checkpoint counters and staging-memory columns are
+explicit before/after deltas across the complete sample cadence. RSS columns
+are process high-water observations, so their delta is diagnostic rather than
+a current-resident-byte claim. Process-wide `operator new` count and requested
+bytes are reported as medians over separately bounded run and checkpoint-path
+probes. The live-device checkpoint probe is its one selector acquisition;
+reusable and immutable probes cover only their export calls. These values
+intentionally include loader/driver allocation, such as a Vulkan translation
+layer's native queue submission, rather than relabeling it as runD memory.
+
 `tools.compute-focus` compiles that conditional diagnostic surface in the
 complete contract matrix and executes its CPU sort projection. This prevents a
 Release-only edit-loop entry from remaining outside compiler verification;
@@ -415,7 +436,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.1 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.2 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

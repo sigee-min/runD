@@ -11,6 +11,7 @@ build=$2
 source=$3
 release=$(sh "$root/tools/internal/state/root" "$root" release)
 prefix="$release/runD-install"
+version=$(sh "$root/tools/internal/package/version" "$root")
 
 if [ ! -f "$prefix/lib/cmake/runD/runDConfig.cmake" ]; then
   echo "installed Release package missing; run tools/release/run first" >&2
@@ -31,5 +32,6 @@ sh "$root/tools/internal/state/lock" --state "$root" "$build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$prefix" \
   -DrunD_DIR:PATH="$prefix/lib/cmake/runD" \
-  -DRUND_EXPECTED_PACKAGE_DIR:PATH="$prefix/lib/cmake/runD"
+  -DRUND_EXPECTED_PACKAGE_DIR:PATH="$prefix/lib/cmake/runD" \
+  -DRUND_EXPECTED_SDK_VERSION:STRING="$version"
 exec "$root/tools/internal/state/ninja" -C "$build"

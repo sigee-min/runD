@@ -219,6 +219,20 @@ struct MatrixIdentity final {
   std::uint64_t output{};
 };
 
+struct WindowOutputIdentity final {
+  Fingerprint seed{};
+  Fingerprint fold{};
+  Fingerprint pipeline{};
+  std::uint64_t output{};
+  Fingerprint high_index_fold{};
+  Fingerprint high_index_pipeline{};
+  std::uint64_t high_index_output{};
+  Fingerprint scatter_seed{};
+  Fingerprint scatter_fold{};
+  Fingerprint scatter_pipeline{};
+  std::uint64_t scatter_output{};
+};
+
 struct Identity final {
   Fingerprint body32{};
   Fingerprint pipeline32{};
@@ -228,6 +242,7 @@ struct Identity final {
   std::uint64_t output64{};
   MatrixIdentity matrix{};
   MatrixIdentity terminal{};
+  WindowOutputIdentity window_output{};
 };
 
 [[nodiscard]] int CheckPlan(Device &device);
@@ -243,5 +258,7 @@ struct Identity final {
 [[nodiscard]] int CheckWindowFreeze(Device &device, Backend backend);
 [[nodiscard]] int CheckWindowTerminal(Device &device, Backend backend,
                                       MatrixIdentity &identity);
+[[nodiscard]] int CheckWindowOutput(Device &device, Backend backend,
+                                    WindowOutputIdentity &identity);
 
 } // namespace rund::node::test_contract::window

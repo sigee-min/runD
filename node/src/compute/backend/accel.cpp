@@ -93,8 +93,9 @@ Status resolve_buffer(const DeviceState &device, const BufferState &buffer,
   return Status::success();
 }
 
-UploadResult upload_batch(DeviceState &device,
-                          const std::span<const UploadRequest> requests) {
+UploadResult
+upload_batch(DeviceState &device, const std::span<const UploadRequest> requests,
+             const node::accel::detail::TransferCompletion completion) {
   const AccelDeviceState *const accel = accel_device(device);
   if (accel == nullptr || requests.empty()) {
     return UploadResult{.status = Status::fail(Reason::TransferInvalid)};
@@ -102,16 +103,13 @@ UploadResult upload_batch(DeviceState &device,
   if (requests.size() > TransferCapacity) {
     return UploadResult{.status = Status::fail(Reason::PipelineCapacity)};
   }
-  std::array<node::accel::detail::UploadEntry, TransferCapacity>
-      transfers{};
-  std::array<node::accel::detail::UploadRoute, TransferCapacity>
-      routes{};
+  std::array<node::accel::detail::UploadEntry, TransferCapacity> transfers{};
+  std::array<node::accel::detail::UploadRoute, TransferCapacity> routes{};
   for (std::size_t index = 0u; index < requests.size(); ++index) {
     const UploadRequest request = requests[index];
     AccelBufferState *const target =
         request.buffer == nullptr ? nullptr : accel_buffer(*request.buffer);
-    if (target == nullptr ||
-        (request.bytes != 0u && request.data == nullptr)) {
+    if (target == nullptr || (request.bytes != 0u && request.data == nullptr)) {
       return UploadResult{.status = Status::fail(Reason::TransferInvalid)};
     }
     transfers[index] = node::accel::detail::UploadEntry{
@@ -123,10 +121,11 @@ UploadResult upload_batch(DeviceState &device,
   const node::accel::detail::AccelTransfer transfer =
       node::accel::detail::UploadAccelBuffers(
           accel->context,
-          std::span<const node::accel::detail::UploadEntry>{
-              transfers.data(), requests.size()},
-          std::span<node::accel::detail::UploadRoute>{
-              routes.data(), requests.size()});
+          std::span<const node::accel::detail::UploadEntry>{transfers.data(),
+                                                            requests.size()},
+          std::span<node::accel::detail::UploadRoute>{routes.data(),
+                                                      requests.size()},
+          completion);
   return UploadResult{
       .status = transfer.check.ok
                     ? Status::success()
@@ -180,10 +179,8 @@ DownloadResult download_batch(DeviceState &device,
   if (requests.size() > TransferCapacity) {
     return DownloadResult{.status = Status::fail(Reason::PipelineCapacity)};
   }
-  std::array<node::accel::detail::DownloadEntry, TransferCapacity>
-      transfers{};
-  std::array<node::accel::detail::DownloadRoute, TransferCapacity>
-      routes{};
+  std::array<node::accel::detail::DownloadEntry, TransferCapacity> transfers{};
+  std::array<node::accel::detail::DownloadRoute, TransferCapacity> routes{};
   for (std::size_t index = 0u; index < requests.size(); ++index) {
     const DownloadRequest request = requests[index];
     const AccelBufferState *const source =
@@ -202,10 +199,10 @@ DownloadResult download_batch(DeviceState &device,
   const node::accel::detail::AccelTransfer transfer =
       node::accel::detail::DownloadAccelBuffersMeasured(
           accel->context,
-          std::span<const node::accel::detail::DownloadEntry>{
-              transfers.data(), requests.size()},
-          std::span<node::accel::detail::DownloadRoute>{
-              routes.data(), requests.size()});
+          std::span<const node::accel::detail::DownloadEntry>{transfers.data(),
+                                                              requests.size()},
+          std::span<node::accel::detail::DownloadRoute>{routes.data(),
+                                                        requests.size()});
   return DownloadResult{
       .status = transfer.check.ok
                     ? Status::success()
@@ -221,6 +218,48 @@ DownloadResult download_batch(DeviceState &device,
       .readback_ns = transfer.readback_ns,
       .staging_reused = transfer.staging_reused,
       .payload_hash_valid = transfer.check.ok && transfer.payload_hash_valid,
+  };
+}
+
+CopyResult copy_batch(DeviceState &device,
+                      const std::span<const CopyRequest> requests) {
+  const AccelDeviceState *const accel = accel_device(device);
+  if (accel == nullptr || requests.empty()) {
+    return CopyResult{.status = Status::fail(Reason::TransferInvalid)};
+  }
+  if (requests.size() > TransferCapacity) {
+    return CopyResult{.status = Status::fail(Reason::PipelineCapacity)};
+  }
+  std::array<node::accel::detail::CopyEntry, TransferCapacity> transfers{};
+  std::array<node::accel::detail::CopyRoute, TransferCapacity> routes{};
+  for (std::size_t index = 0u; index < requests.size(); ++index) {
+    const CopyRequest request = requests[index];
+    const AccelBufferState *const source =
+        request.source == nullptr ? nullptr : accel_buffer(*request.source);
+    AccelBufferState *const target =
+        request.target == nullptr ? nullptr : accel_buffer(*request.target);
+    if (source == nullptr || target == nullptr) {
+      return CopyResult{.status = Status::fail(Reason::TransferInvalid)};
+    }
+    transfers[index] = node::accel::detail::CopyEntry{
+        .source = &source->buffer,
+        .target = &target->buffer,
+        .bytes = request.bytes,
+    };
+  }
+  const node::accel::detail::AccelCopy copied =
+      node::accel::detail::CopyAccelBuffers(
+          accel->context,
+          std::span<const node::accel::detail::CopyEntry>{transfers.data(),
+                                                          requests.size()},
+          std::span<node::accel::detail::CopyRoute>{routes.data(),
+                                                    requests.size()});
+  return CopyResult{
+      .status = copied.check.ok
+                    ? Status::success()
+                    : Status::fail(project_reason(copied.check.reason,
+                                                  Reason::TransferInvalid)),
+      .command_submits = copied.command_submits,
   };
 }
 
@@ -248,10 +287,9 @@ node::accel::detail::KernelScratchPlan
 plan_scratch(const DeviceState &device, const rund::AccelKernel &kernel,
              const std::uint64_t alignment, const std::uint64_t page_bytes) {
   const AccelDeviceState *const accel = accel_device(device);
-  return accel == nullptr
-             ? node::accel::detail::KernelScratchPlan{}
-             : node::accel::detail::PlanKernelScratch(
-                   accel->context, kernel, alignment, page_bytes);
+  return accel == nullptr ? node::accel::detail::KernelScratchPlan{}
+                          : node::accel::detail::PlanKernelScratch(
+                                accel->context, kernel, alignment, page_bytes);
 }
 
 MemoryCounter device_staging(const DeviceState &device) noexcept {
@@ -361,6 +399,7 @@ const DeviceOps Operations{
     .upload_batch = upload_batch,
     .download = download,
     .download_batch = download_batch,
+    .copy_batch = copy_batch,
     .compile = compile,
     .plan_scratch = plan_scratch,
     .resolve_buffer = resolve_buffer,

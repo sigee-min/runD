@@ -49,13 +49,16 @@ struct BackendOps final {
                              const std::shared_ptr<void> &, const void *,
                              std::uint64_t, std::uint64_t) = nullptr;
   BackendUpload (*upload_batch)(const rund::AccelDevice &,
-                                std::span<const UploadRoute>) = nullptr;
+                                std::span<const UploadRoute>,
+                                TransferCompletion) = nullptr;
   BackendDownload (*download)(const rund::AccelDevice &,
                               const rund::kernel::ResidentBufferRef &,
                               const std::shared_ptr<void> &, void *,
                               std::uint64_t, std::uint64_t, bool) = nullptr;
   BackendDownload (*download_batch)(const rund::AccelDevice &,
                                     std::span<const DownloadRoute>) = nullptr;
+  BackendCopy (*copy_batch)(const rund::AccelDevice &,
+                            std::span<const CopyRoute>) = nullptr;
   BackendLookup (*lookup)(const rund::AccelDevice &,
                           const rund::kernel::ResidentBufferRef &,
                           const std::shared_ptr<void> &) = nullptr;

@@ -110,13 +110,19 @@ struct MetalPublishParams final {
   std::uint32_t state{};
   std::uint32_t final{};
   std::uint32_t stop{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t outer{};
+  std::uint32_t kind{};
+  std::uint64_t count_offset_words{};
 };
 
-static_assert(sizeof(MetalPublishParams) == 96u);
+static_assert(sizeof(MetalPublishParams) == 120u);
 
 struct MetalPublish final {
   std::array<std::shared_ptr<void>, 3u> sources;
   std::shared_ptr<void> target;
+  std::shared_ptr<void> count;
   MetalPublishParams params{};
 };
 

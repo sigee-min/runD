@@ -34,7 +34,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
     pipeline->control_command_count =
         2u + import_count + static_cast<std::uint32_t>(needs_reset) +
         static_cast<std::uint32_t>(pipeline->telemetry.size()) + fold_count +
-        advance_count + canonicalize_count;
+        advance_count + canonicalize_count + window_publish_count;
     [encoder setComputePipelineState:complete];
     [encoder setBuffer:pipeline->control offset:0u atIndex:0u];
     [encoder setBytes:&status_params length:sizeof(status_params) atIndex:1u];
@@ -49,7 +49,9 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
     if (!native_publications.empty()) {
       [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
       for (const MetalPublish &publication : native_publications) {
-        if (publication.params.count == 0u) {
+        if (publication.params.kind !=
+                static_cast<std::uint32_t>(BackendPublishKind::Terminal) ||
+            publication.params.count == 0u) {
           continue;
         }
         id<MTLBuffer> const target =
@@ -74,6 +76,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
         [encoder setBytes:&publication.params
                    length:sizeof(publication.params)
                   atIndex:6u];
+        [encoder setBuffer:pipeline->control offset:0u atIndex:7u];
         const NSUInteger count =
             static_cast<NSUInteger>(publication.params.count);
         const NSUInteger width =

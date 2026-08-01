@@ -16,9 +16,10 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
-BackendUpload UploadVulkanResidentBuffers(
-    const rund::AccelDevice &pick,
-    const std::span<const UploadRoute> requests) {
+BackendUpload
+UploadVulkanResidentBuffers(const rund::AccelDevice &pick,
+                            const std::span<const UploadRoute> requests,
+                            const TransferCompletion completion) {
   if (!VulkanPickOwnsAdapter(pick) || requests.empty()) {
     return {};
   }
@@ -34,8 +35,7 @@ BackendUpload UploadVulkanResidentBuffers(
       std::lock_guard resident_lock{resident.mutex};
       for (const UploadRoute &request : requests) {
         if (request.bytes != 0u && request.data == nullptr) {
-          return BackendUpload{
-              .check = {false, "accel_buffer_unavailable"}};
+          return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
         }
         VulkanResidentBufferResult resolved = ResolveVulkanResidentBuffer(
             resident, request.resident, request.handle,
@@ -58,18 +58,17 @@ BackendUpload UploadVulkanResidentBuffers(
           VulkanUploadPreservation preservation{};
           if (!next_slice(request.offset, request.bytes, consumed,
                           staging_budget, slice) ||
-              !ResolveVulkanTransferRange(
-                  slice.offset, slice.bytes, resolved.device_buffer->bytes,
-                  range) ||
+              !ResolveVulkanTransferRange(slice.offset, slice.bytes,
+                                          resolved.device_buffer->bytes,
+                                          range) ||
               range.bytes > staging_budget ||
-              !ResolveVulkanUploadPreservation(
-                  range, slice.offset, slice.bytes, resolved.ref.bytes,
-                  preservation) ||
+              !ResolveVulkanUploadPreservation(range, slice.offset, slice.bytes,
+                                               resolved.ref.bytes,
+                                               preservation) ||
               slice.bytes > std::numeric_limits<std::size_t>::max() ||
               consumed > std::numeric_limits<std::size_t>::max() -
                              static_cast<std::size_t>(slice.bytes)) {
-            return BackendUpload{
-                .check = {false, "accel_buffer_unavailable"}};
+            return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
           }
           plans.push_back(UploadPlan{
               .resident = resolved.device_buffer,
@@ -90,7 +89,8 @@ BackendUpload UploadVulkanResidentBuffers(
     const bool overlapping = overlaps(plans);
     const std::vector<BatchChunk> chunks =
         batch_chunks(plans, staging_budget, overlapping);
-    const bool asynchronous = chunks.size() == 1u && !overlapping;
+    const bool asynchronous = completion == TransferCompletion::Queued &&
+                              chunks.size() == 1u && !overlapping;
     BackendUpload result{.check = {true, "ok"}};
     std::uint64_t uploaded_bytes = 0u;
     for (const BatchChunk &chunk : chunks) {

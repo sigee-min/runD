@@ -705,8 +705,13 @@ CaptureBindingIdentity(const rund::compute::Pipeline &pipeline,
     result.alternate_claims.push_back(claim.buffer);
     result.valid = result.valid && claim.buffer != nullptr;
   }
-  result.state_banks.reserve(state->state_pairs.size() * 2u);
-  for (const PipelineStatePair &pair : state->state_pairs) {
+  result.valid = result.valid && state->publication != nullptr;
+  const std::span<const PipelineStatePair> state_pairs =
+      state->publication == nullptr
+          ? std::span<const PipelineStatePair>{}
+          : std::span<const PipelineStatePair>{state->publication->state_pairs};
+  result.state_banks.reserve(state_pairs.size() * 2u);
+  for (const PipelineStatePair &pair : state_pairs) {
     result.state_banks.push_back(pair.first.get());
     result.state_banks.push_back(pair.second.get());
     result.valid =
@@ -998,8 +1003,7 @@ CheckTransactionalBindingIdentity(rund::compute::Device &device,
 
   auto builder = pipeline(device);
   builder.state(*first_bank, *second_bank)
-      .repeat<kInner>(*increment, read(*first_bank),
-                      write_final(*second_bank))
+      .repeat<kInner>(*increment, read(*first_bank), write_final(*second_bank))
       .commit();
   const auto plan = builder.plan();
   if (!plan) {

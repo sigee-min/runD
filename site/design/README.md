@@ -66,7 +66,7 @@ from mixing type personalities.
 
 - Landing, Docs home, every guide, and the error route share one header height,
   brand treatment, navigation order, and primary action.
-- The brand always reads `runD · 1.0.1 Alpha`; Docs is expressed by the active
+- The brand always reads `runD · 1.0.2 Alpha`; Docs is expressed by the active
   navigation state rather than by changing the brand badge.
 - The stable navigation order is `Overview`, `Docs`, `API`, `GitHub`, then the
   `Quick Start` primary action.

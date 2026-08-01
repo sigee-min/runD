@@ -20,6 +20,8 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                       PipelinePrepare &prepare) {
   auto state = std::make_shared<PipelineState>();
   state->device = build->device;
+  state->publication = std::make_shared<PipelinePublicationState>();
+  state->publication->device = build->device;
   state->sealed_repetitions = build->sealed_repetitions;
   if (build->memory == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
@@ -194,7 +196,6 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
       if (nested.begin >= nested.end || nested.end > build->steps.size() ||
           step_index < nested.begin || step_index >= nested.end ||
           nested.seed_first != nested.begin || nested.seed_count == 0u ||
-          nested.action_count == 0u ||
           nested.action_first != nested.seed_first + nested.seed_count ||
           nested.fold_first != nested.action_first + nested.action_count ||
           nested.end != nested.fold_first + 3u || nested.maximum == 0u ||
@@ -556,17 +557,40 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     const std::uint32_t source_ordinal = source->second;
     const Type source_type = state->resources[source_ordinal].type;
     const FixedFormat source_format = state->resources[source_ordinal].format;
-    auto target = admit(declared.target, source_type, declared.source.count,
-                        source_format);
+    const bool window_publish = declared.kind == PipelinePublishKind::Window;
+    const std::size_t target_slot_count =
+        window_publish ? declared.maximum : declared.source.count;
+    auto target =
+        admit(declared.target, source_type, target_slot_count, source_format);
     if (!target) {
       return Status::fail(target.reason());
     }
     if (source_ordinal == *target ||
         declared.source.type != declared.target.type ||
         declared.source.format != declared.target.format ||
-        declared.source.count != declared.target.count ||
         declared.source.stride != 1u || declared.source.offset != 0u ||
         declared.source.element_bytes != declared.target.element_bytes) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    const PipelineWindow &publication_window =
+        state->windows[state->steps[declared.step].window - 1u];
+    if (window_publish) {
+      if (declared.count.buffer == nullptr ||
+          declared.count.buffer != publication_window.count ||
+          declared.count.offset != publication_window.count_offset ||
+          declared.count.type != Type::U32 || declared.count.count != 1u ||
+          declared.count.stride != 1u ||
+          declared.count.element_bytes != sizeof(std::uint32_t) ||
+          declared.maximum != publication_window.maximum ||
+          declared.tile != publication_window.tile ||
+          declared.source.count != declared.tile ||
+          declared.target.count != declared.maximum ||
+          declared.target.stride != 1u) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+    } else if (declared.source.count != declared.target.count ||
+               declared.count.buffer != nullptr || declared.maximum != 0u ||
+               declared.tile != 0u) {
       return Status::fail(Reason::PipelineInvalid);
     }
     PipelineResource &target_resource = state->resources[*target];
@@ -574,13 +598,16 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
       return Status::fail(Reason::BindingDuplicate);
     }
     target_resource.output = 0u;
-    target_resource.terminal_publish = true;
+    target_resource.terminal_publish = !window_publish;
     target_resource.first_write = static_cast<std::uint32_t>(
-        build->steps.empty() ? 0u : build->steps.size() - 1u);
+        window_publish
+            ? publication_window.begin
+            : (build->steps.empty() ? 0u : build->steps.size() - 1u));
     ++output_count;
     state->publications.push_back(PipelinePublish{
         .source = declared.source.buffer,
         .target = declared.target.buffer,
+        .resident_count = declared.count.buffer,
         .type = declared.source.type,
         .format = source_format,
         .source_offset = declared.source.offset,
@@ -590,6 +617,10 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         .element_bytes = declared.source.element_bytes,
         .window = state->steps[declared.step].window,
         .output = static_cast<std::uint16_t>(physical),
+        .kind = declared.kind,
+        .resident_count_offset = declared.count.offset,
+        .maximum = static_cast<std::uint32_t>(declared.maximum),
+        .tile = static_cast<std::uint32_t>(declared.tile),
     });
     hash.number(source_ordinal);
     hash.number(*target);
@@ -601,9 +632,13 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     hash.number(declared.source.element_bytes);
     hash.number(state->steps[declared.step].window);
     hash.number(physical);
+    hash.byte(static_cast<std::uint8_t>(declared.kind));
+    hash.number(declared.count.offset);
+    hash.number(declared.maximum);
+    hash.number(declared.tile);
   }
   state->transactional = build->commit;
-  state->state_pairs.reserve(build->state_pairs.size());
+  state->publication->state_pairs.reserve(build->state_pairs.size());
   hash.number(build->state_pairs.size());
   for (const PipelineBuildStatePair &declared_pair : build->state_pairs) {
     const auto published = ordinals.find(declared_pair.published.buffer.get());
@@ -654,7 +689,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     }
     published_admission.partner = pending->second;
     pending_admission.partner = published->second;
-    state->state_pairs.push_back(PipelineStatePair{
+    state->publication->state_pairs.push_back(PipelineStatePair{
         .first = declared_pair.published.buffer,
         .second = declared_pair.pending.buffer,
         .type = published_resource.type,

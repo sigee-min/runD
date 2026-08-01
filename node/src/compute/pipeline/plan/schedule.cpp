@@ -252,8 +252,13 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
   for (const PipelineBuildPublish &publication : build.publications) {
     auto source = admit(publication.source);
     auto target = admit(publication.target);
-    if (!source || !target) {
-      return Status::fail(source ? target.reason() : source.reason());
+    auto count = publication.kind == PipelinePublishKind::Window
+                     ? admit(publication.count)
+                     : Result<std::uint32_t>::success(0u);
+    if (!source || !target || !count) {
+      return Status::fail(!source   ? source.reason()
+                          : !target ? target.reason()
+                                    : count.reason());
     }
     if (!append_access(publication_accesses, publication.source, 0u, *source,
                        resource::AccessMode::Read) ||
@@ -261,7 +266,39 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
                        resource::AccessMode::Write)) {
       return Status::fail(Reason::PipelineCapacity);
     }
+    if (publication.kind == PipelinePublishKind::Window) {
+      if (!append_access(publication_accesses, publication.count, 0u, *count,
+                         resource::AccessMode::Read)) {
+        return Status::fail(Reason::PipelineCapacity);
+      }
+      if (publication.step >= build.steps.size() ||
+          build.steps[publication.step].route != PipelineRoute::NestedFold ||
+          build.steps.size() - publication.step < 3u) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      for (std::size_t route = 0u; route < 3u; ++route) {
+        if (build.steps[publication.step + route].route !=
+                PipelineRoute::NestedFold ||
+            !append_access(resource_accesses, publication.count,
+                           static_cast<std::uint32_t>(publication.step + route),
+                           *count, resource::AccessMode::Read) ||
+            !append_access(resource_accesses, publication.target,
+                           static_cast<std::uint32_t>(publication.step + route),
+                           *target, resource::AccessMode::Write)) {
+          return Status::fail(Reason::PipelineInvalid);
+        }
+      }
+    }
   }
+  // Device-side window publication is part of each frozen Fold route even
+  // though publication descriptors are admitted after the authored steps.
+  // Restore the analyzer's required nondecreasing node order while retaining
+  // the original order of accesses within a route.
+  std::stable_sort(
+      resource_accesses.begin(), resource_accesses.end(),
+      [](const resource::Access &left, const resource::Access &right) {
+        return left.node < right.node;
+      });
   for (const PipelineBuildStatePair &pair : build.state_pairs) {
     auto published = admit(pair.published);
     auto pending = admit(pair.pending);
@@ -472,9 +509,9 @@ Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
               return std::less<const BufferState *>{}(left_buffer,
                                                       right_buffer);
             });
-  state->fingerprint = hash.finish();
+  state->publication->fingerprint = hash.finish();
   state->stats.backend = state->device->backend;
-  state->stats.graph_hash = state->fingerprint.lo;
+  state->stats.graph_hash = state->publication->fingerprint.lo;
   state->logical_step_count = build->logical_step_count;
   state->stats.pipeline.step_count = state->logical_step_count;
   state->stats.pipeline.resource_count = state->resources.size();

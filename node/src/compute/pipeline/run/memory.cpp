@@ -4,6 +4,7 @@
 #include "../../backend.hpp"
 #include "../../memory/cpu.hpp"
 #include "../../memory/local.hpp"
+#include "../claim.hpp"
 #include "../local.hpp"
 #include "../state.hpp"
 #include "clock.hpp"
@@ -22,6 +23,12 @@ namespace {
 [[nodiscard]] std::uint64_t
 base_host_bytes(const PipelineState &state) noexcept {
   std::uint64_t bytes = sizeof(PipelineState);
+  if (state.publication != nullptr) {
+    bytes = ::rund::detail::counter::SaturatingAdd(
+        bytes, sizeof(PipelinePublicationState));
+    bytes = ::rund::detail::counter::SaturatingAdd(
+        bytes, vector_memory(state.publication->state_pairs));
+  }
   bytes =
       ::rund::detail::counter::SaturatingAdd(bytes, vector_memory(state.steps));
   bytes = ::rund::detail::counter::SaturatingAdd(
@@ -38,8 +45,6 @@ base_host_bytes(const PipelineState &state) noexcept {
                                                  vector_memory(state.claims));
   bytes = ::rund::detail::counter::SaturatingAdd(
       bytes, vector_memory(state.alternate_claims));
-  bytes = ::rund::detail::counter::SaturatingAdd(
-      bytes, vector_memory(state.state_pairs));
   bytes = ::rund::detail::counter::SaturatingAdd(
       bytes, vector_memory(state.publications));
   bytes = ::rund::detail::counter::SaturatingAdd(bytes,
@@ -86,11 +91,11 @@ struct MemoryView final {
   node::accel::detail::PreparedPipelineMemory prepared{};
 };
 
-[[nodiscard]] MemoryCounter
-without(const MemoryCounter total, const MemoryCounter part) noexcept {
+[[nodiscard]] MemoryCounter without(const MemoryCounter total,
+                                    const MemoryCounter part) noexcept {
   return MemoryCounter{
-      .current = total.current >= part.current ? total.current - part.current
-                                               : 0u,
+      .current =
+          total.current >= part.current ? total.current - part.current : 0u,
       .peak = total.peak >= part.peak ? total.peak - part.peak : 0u,
       .cumulative = total.cumulative >= part.cumulative
                         ? total.cumulative - part.cumulative
@@ -398,6 +403,11 @@ pipeline_profile(const std::shared_ptr<PipelineState> &state,
   }
   if (state->profile == nullptr) {
     return Result<PipelineProfileSnapshot>::fail(Reason::ProfileUnavailable);
+  }
+  if (state->publication != nullptr) {
+    std::lock_guard publication_lock{state->publication->gate};
+    synchronize_pipeline_observation_epoch(*state, *state->publication);
+    state->stats.publication.generation = state->publication->generation;
   }
   const std::uint64_t started = pipeline_clock();
   const std::span<PipelineStepProfile> canonical{state->profile->steps.data(),

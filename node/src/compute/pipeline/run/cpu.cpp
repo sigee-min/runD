@@ -67,7 +67,8 @@ namespace {
   }
   const PipelineStep &step = state.steps[step_index];
   const std::shared_ptr<JobState> &job =
-      state.transactional && state.parity != 0u ? step.alternate_job : step.job;
+      state.transactional && state.attempt_parity != 0u ? step.alternate_job
+                                                        : step.job;
   if (job == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -100,8 +101,8 @@ namespace {
   }
   const PipelineStep &first = state.steps[window.first_step];
   const std::shared_ptr<JobState> &job =
-      state.transactional && state.parity != 0u ? first.alternate_job
-                                                : first.job;
+      state.transactional && state.attempt_parity != 0u ? first.alternate_job
+                                                        : first.job;
   if (job == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -262,7 +263,8 @@ Status consume_cpu_pipeline_step(PipelineState &state, const std::size_t index,
   }
   const PipelineStep &step = state.steps[index];
   const std::shared_ptr<JobState> &job =
-      state.transactional && state.parity != 0u ? step.alternate_job : step.job;
+      state.transactional && state.attempt_parity != 0u ? step.alternate_job
+                                                        : step.job;
   if (step.program == nullptr || job == nullptr) {
     return Status::fail(Reason::RunInvalid);
   }
@@ -286,8 +288,7 @@ Status consume_cpu_pipeline_step(PipelineState &state, const std::size_t index,
   const Status resolved = window_status(state, step, primary);
   accumulate(state.stats, job->cpu->stats, graph.conflict_count,
              graph.overflow_ordinal, !resident_overflow);
-  if (resolved && step.window != 0u &&
-      step.route == PipelineRoute::Ordinary) {
+  if (resolved && step.window != 0u && step.route == PipelineRoute::Ordinary) {
     PipelineWindow *const descriptor = step.window <= state.windows.size()
                                            ? &state.windows[step.window - 1u]
                                            : nullptr;

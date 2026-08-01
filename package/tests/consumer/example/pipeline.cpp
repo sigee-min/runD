@@ -16,8 +16,10 @@ struct Value final {};
 struct Doubled final {};
 
 using rund::compute::Buffer;
+using rund::compute::LatestDeviceState;
 using rund::compute::Pipeline;
 using rund::compute::PipelineBuilder;
+using rund::compute::SnapshotStorage;
 using rund::compute::StateSnapshot;
 
 static_assert(!std::copy_constructible<Pipeline>);
@@ -25,6 +27,9 @@ static_assert(std::is_nothrow_move_constructible_v<Pipeline>);
 static_assert(!std::copy_constructible<PipelineBuilder>);
 static_assert(std::is_nothrow_move_constructible_v<PipelineBuilder>);
 static_assert(std::copy_constructible<StateSnapshot>);
+static_assert(std::copy_constructible<LatestDeviceState>);
+static_assert(!std::copy_constructible<SnapshotStorage>);
+static_assert(std::is_nothrow_move_constructible_v<SnapshotStorage>);
 static_assert(std::same_as<decltype(std::declval<rund::Session &>().compute(
                                std::declval<Pipeline &>())),
                            rund::compute::Request>);
@@ -462,6 +467,175 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   return status && observed == std::array<std::int32_t, 2u>{4, 7} ? 0 : 3;
 }
 
+[[nodiscard]] int ActionFreeWindowOutput(rund::compute::Device &device) {
+  constexpr std::size_t maximum = 6u;
+  constexpr std::size_t tile = 2u;
+  constexpr std::uint32_t sentinel = 0xA5A55A5Au;
+  constexpr std::array<std::uint32_t, maximum> values{3u, 5u, 7u,
+                                                       11u, 13u, 17u};
+  constexpr std::array<std::uint32_t, tile> lanes{0u, 1u};
+  constexpr std::array<std::uint32_t, 1u> outer_seed{19u};
+  constexpr std::array<std::uint32_t, 1u> count_value{5u};
+  constexpr std::array<std::uint32_t, maximum> empty{
+      sentinel, sentinel, sentinel, sentinel, sentinel, sentinel};
+
+  auto seed = rund::compute::on(device)
+                  .input<std::uint32_t>(maximum)
+                  .zip_input<std::uint32_t>(tile)
+                  .zip_input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto source, auto lane, auto total, auto ordinal) {
+                    auto current =
+                        rund::compute::resident<maximum, tile>(total, ordinal);
+                    auto indices = lane.combine(
+                        "pipeline-installed-window-index", current.base(),
+                        [](auto local, auto base) { return local + base; });
+                    auto selected = source.gather(indices);
+                    auto active = current.count().map(
+                        "pipeline-installed-window-count",
+                        [](auto value) { return value; });
+                    return rund::compute::outputs(selected, active);
+                  })
+                  .compile();
+  auto fold = rund::compute::on(device)
+                  .input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(tile)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto outer, auto selected, auto count) {
+                    auto enabled = selected.indices().combine(
+                        "pipeline-installed-window-active", count.scalar(),
+                        [](auto lane, auto active) {
+                          return rund::compute::select(lane < active, 1u, 0u);
+                        });
+                    auto masked = selected.combine(
+                        "pipeline-installed-window-mask", enabled,
+                        [](auto value, auto active) {
+                          return rund::compute::select(active != 0u, value,
+                                                       0u);
+                        });
+                    auto sum = masked.reduce(rund::compute::Reduce::Sum);
+                    auto next = outer.combine(
+                        "pipeline-installed-window-fold", sum,
+                        [](auto state, auto value) { return state + value; });
+                    return rund::compute::outputs(next, selected);
+                  })
+                  .compile();
+  auto source = device.upload<std::uint32_t>(values);
+  auto lane = device.upload<std::uint32_t>(lanes);
+  auto outer = device.upload<std::uint32_t>(outer_seed);
+  auto count = device.upload<std::uint32_t>(count_value);
+  auto final = device.buffer<std::uint32_t>(1u);
+  auto windows = device.upload<std::uint32_t>(empty);
+  if (!seed || !fold || !source || !lane || !outer || !count || !final ||
+      !windows) {
+    return 1;
+  }
+
+  const auto body = rund::compute::tile_repeat<0u>(*seed, *fold);
+  auto builder = rund::compute::pipeline(device);
+  builder.windows<maximum, tile>(
+      body, rund::compute::window(*count),
+      rund::compute::read(*outer, *source, *lane),
+      rund::compute::write_final(*final),
+      rund::compute::write_window(*windows));
+  const auto plan = builder.plan();
+  if (!plan || plan->outer_window_count != 3u ||
+      plan->inner_iteration_count != 0u ||
+      plan->prepared_template_count != 6u ||
+      plan->prepared_command_count != 6u) {
+    return 2;
+  }
+  auto prepared = std::move(builder).prepare();
+  if (!prepared || !prepared->run()) {
+    return 3;
+  }
+  std::array<std::uint32_t, 1u> observed_final{};
+  std::array<std::uint32_t, maximum> observed_windows{};
+  if (!prepared->read(*final, observed_final) ||
+      !prepared->read(*windows, observed_windows)) {
+    return 4;
+  }
+  return observed_final[0] == 58u &&
+                 observed_windows ==
+                     std::array<std::uint32_t, maximum>{3u, 5u, 7u, 11u,
+                                                        13u, sentinel} &&
+                 prepared->stats().pipeline.executed_outer_window_count == 3u &&
+                 prepared->stats().pipeline.executed_inner_iteration_count == 0u
+             ? 0
+             : 5;
+}
+
+[[nodiscard]] int ReusableCheckpoint(rund::compute::Device &device) {
+  constexpr std::array<std::int32_t, 2u> initial{4, 9};
+  auto advance =
+      rund::compute::on(device)
+          .map<std::int32_t>("pipeline-installed-checkpoint", initial.size(),
+                             [](auto value) { return value + 1; })
+          .compile();
+  auto published = device.upload<std::int32_t>(initial);
+  auto pending = device.buffer<std::int32_t>(initial.size());
+  if (!advance || !published || !pending) {
+    return 1;
+  }
+  auto prepared = rund::compute::pipeline(device)
+                      .state(*published, *pending)
+                      .then(*advance, rund::compute::read(*published),
+                            rund::compute::write(*pending))
+                      .commit()
+                      .prepare();
+  if (!prepared) {
+    return 2;
+  }
+  auto latest_result = prepared->latest_device_state();
+  auto storage_result = prepared->snapshot_storage();
+  if (!latest_result || !storage_result) {
+    return 3;
+  }
+  LatestDeviceState latest = *latest_result;
+  SnapshotStorage storage = std::move(storage_result).value();
+  if (!prepared->snapshot_into(storage) || !storage.has_snapshot() ||
+      storage.generation() != 0u || storage.capacity() != sizeof(initial) ||
+      prepared->checkpoint_stats().device_state_acquire_count != 1u) {
+    return 4;
+  }
+  if (!prepared->run() || latest.generation() != 1u) {
+    return 5;
+  }
+
+  auto resumed = rund::compute::pipeline(device)
+                     .state(*published, *pending)
+                     .then(*advance, rund::compute::read(*published),
+                           rund::compute::write(*pending))
+                     .restore(latest)
+                     .commit()
+                     .prepare();
+  if (!resumed || resumed->generation() != 1u ||
+      resumed->checkpoint_stats().device_state_rebase_count != 1u ||
+      resumed->checkpoint_stats().device_state_copy_byte_count != 0u ||
+      !resumed->snapshot_into(storage) || storage.generation() != 1u) {
+    return 6;
+  }
+
+  auto restored_first = device.buffer<std::int32_t>(initial.size());
+  auto restored_second = device.buffer<std::int32_t>(initial.size());
+  if (!restored_first || !restored_second) {
+    return 7;
+  }
+  auto restored = rund::compute::pipeline(device)
+                      .state(*restored_first, *restored_second)
+                      .then(*advance, rund::compute::read(*restored_first),
+                            rund::compute::write(*restored_second))
+                      .restore(storage)
+                      .commit()
+                      .prepare();
+  if (!restored || restored->generation() != 1u || !restored->run()) {
+    return 8;
+  }
+  std::array<std::int32_t, initial.size()> observed{};
+  const auto read = restored->read(*restored_second, observed);
+  return read && observed == std::array<std::int32_t, 2u>{6, 11} ? 0 : 9;
+}
+
 [[nodiscard]] int NestedResidentRecurrence(rund::compute::Device &device) {
   constexpr std::size_t maximum = 5u;
   constexpr std::size_t tile = 2u;
@@ -550,6 +724,12 @@ int main() {
     return result;
   }
   if (const int result = HostFeedback(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = ActionFreeWindowOutput(*opened); result != 0) {
+    return result;
+  }
+  if (const int result = ReusableCheckpoint(*opened); result != 0) {
     return result;
   }
   if (const int result = NestedResidentRecurrence(*opened); result != 0) {

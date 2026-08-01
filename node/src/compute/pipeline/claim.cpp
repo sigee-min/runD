@@ -126,16 +126,64 @@ Status acquire_pipeline_claims(PipelineState &state) noexcept {
     return Status::fail(Reason::DeviceInvalid);
   }
   const std::span<const BufferClaim> claims =
-      state.transactional && state.parity != 0u
+      state.transactional && state.attempt_parity != 0u
           ? std::span<const BufferClaim>{state.alternate_claims}
           : std::span<const BufferClaim>{state.claims};
   return acquire_claims(*state.device, claims);
 }
 
+void close_pipeline_observation_epoch(PipelineState &state) noexcept {
+  state.unobserved_outputs = 0u;
+  state.observation_identity_valid = false;
+  state.stats.output_hash = 0u;
+  for (PipelineOutputState &output : state.outputs) {
+    output.observed = false;
+    output.hash = 0u;
+  }
+}
+
+void synchronize_pipeline_observation_epoch(
+    PipelineState &state,
+    const PipelinePublicationState &publication) noexcept {
+  if (state.observation_identity_valid &&
+      (state.observation_generation != publication.generation ||
+       state.observation_parity != publication.parity ||
+       state.observation_payload_epoch != publication.payload_epoch)) {
+    close_pipeline_observation_epoch(state);
+  }
+}
+
 void publish_pipeline_terminal(PipelineState &state,
                                const PipelineTerminal terminal) noexcept {
-  const bool succeeded = terminal.reason == Reason::Ok;
-  state.failure = terminal.reason;
+  if (state.device == nullptr || state.device->claims == nullptr ||
+      state.publication == nullptr) {
+    if (state.publication != nullptr) {
+      std::lock_guard publication_lock{state.publication->gate};
+      if (state.publication->attempt_active &&
+          state.publication->generation == state.attempt_generation &&
+          state.publication->parity == state.attempt_parity) {
+        state.publication->attempt_active = false;
+      }
+    }
+    state.failure = Reason::DeviceInvalid;
+    state.failure_step_known = false;
+    state.stats.pipeline.failed_step_index = PipelineStats::no_failed_step;
+    state.phase = terminal.writes_possible ? PipelinePhase::Poisoned
+                                           : PipelinePhase::Ready;
+    return;
+  }
+
+  // Pipeline callers already own state.gate. Publication is the second lock
+  // in the global order; the Device claim gate below is always third.
+  std::lock_guard publication_lock{state.publication->gate};
+  const bool publication_matches =
+      state.publication->attempt_active &&
+      state.publication->generation == state.attempt_generation &&
+      state.publication->parity == state.attempt_parity;
+  const bool succeeded = terminal.reason == Reason::Ok && publication_matches;
+  const Reason reason =
+      publication_matches ? terminal.reason : Reason::CompletionInvalid;
+  state.failure = reason;
   state.failure_step_known = !succeeded && terminal.failure_step_known;
   state.stats.pipeline.verified_step_count =
       succeeded ? state.logical_step_count
@@ -151,18 +199,12 @@ void publish_pipeline_terminal(PipelineState &state,
           : 0u;
 
   const bool writes_may_have_changed = !succeeded && terminal.writes_possible;
-  if (state.device == nullptr || state.device->claims == nullptr) {
-    state.failure = Reason::DeviceInvalid;
-    state.failure_step_known = false;
-    state.stats.pipeline.failed_step_index = PipelineStats::no_failed_step;
-    state.phase = writes_may_have_changed ? PipelinePhase::Poisoned
-                                          : PipelinePhase::Ready;
-    return;
-  }
 
   if (succeeded) {
-    ++state.generation;
-    state.stats.publication.generation = state.generation;
+    ++state.publication->generation;
+    ++state.publication->payload_epoch;
+    state.native_generation = state.publication->generation;
+    state.stats.publication.generation = state.publication->generation;
     if (state.transactional) {
       ++state.stats.publication.commit_count;
     }
@@ -171,7 +213,7 @@ void publish_pipeline_terminal(PipelineState &state,
   }
 
   const std::span<const BufferClaim> claims =
-      state.transactional && state.parity != 0u
+      state.transactional && state.attempt_parity != 0u
           ? std::span<const BufferClaim>{state.alternate_claims}
           : std::span<const BufferClaim>{state.claims};
   bool poison_non_state = false;
@@ -180,8 +222,8 @@ void publish_pipeline_terminal(PipelineState &state,
        (!state.publications.empty() && terminal.publication_suppressed))) {
     ++state.stats.publication.discard_count;
   }
-  if (!succeeded && terminal.reason == Reason::DeviceLost) {
-    state.device_lost = true;
+  if (!succeeded && reason == Reason::DeviceLost) {
+    state.publication->device_lost = true;
     ++state.stats.publication.device_loss_count;
   }
 
@@ -220,8 +262,16 @@ void publish_pipeline_terminal(PipelineState &state,
     }
   }
   if (succeeded && state.transactional) {
-    state.parity ^= 1u;
+    state.publication->parity ^= 1u;
   }
+  if (succeeded) {
+    state.native_parity = state.publication->parity;
+    state.observation_generation = state.publication->generation;
+    state.observation_payload_epoch = state.publication->payload_epoch;
+    state.observation_parity = state.publication->parity;
+    state.observation_identity_valid = true;
+  }
+  state.publication->attempt_active = false;
   state.phase = state.control_poisoned           ? PipelinePhase::Poisoned
                 : succeeded || !poison_non_state ? PipelinePhase::Ready
                                                  : PipelinePhase::Poisoned;

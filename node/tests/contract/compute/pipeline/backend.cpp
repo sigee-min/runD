@@ -32,8 +32,7 @@ CheckBackend(const Backend backend,
       history != 0) {
     return 75 + history;
   }
-  if (const int feedback = CheckHostFeedback(*device, backend);
-      feedback != 0) {
+  if (const int feedback = CheckHostFeedback(*device, backend); feedback != 0) {
     return 90 + feedback;
   }
   if (const int fixed =
@@ -89,6 +88,10 @@ CheckBackend(const Backend backend,
         validation != 0) {
       return 700 + validation;
     }
+  }
+  if (const int checkpoints = CheckReusableCheckpoints(*device, backend);
+      checkpoints != 0) {
+    return 800 + checkpoints;
   }
   return 0;
 }

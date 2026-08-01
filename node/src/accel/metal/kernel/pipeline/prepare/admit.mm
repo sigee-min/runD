@@ -142,13 +142,24 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     MetalResidentState &resident = MetalResidents(*context.adapter);
     std::lock_guard resident_lock{resident.mutex};
     for (const BackendPublish &publication : publications) {
+      const bool window = publication.kind == BackendPublishKind::Window;
       const MetalResidentBufferResult target = ResolveMetalResidentBuffer(
           resident, publication.target, publication.target_handle,
           "accel_metal_resident_id_unavailable", true);
       std::array<MetalResidentBufferResult, 3u> sources{};
+      MetalResidentBufferResult count{};
+      if (window) {
+        count = ResolveMetalResidentBuffer(
+            resident, publication.count.source, publication.count.handle,
+            "accel_metal_resident_id_unavailable", true);
+      }
       if (!target.check.ok || target.device_buffer == nullptr ||
           publication.state == std::numeric_limits<std::uint32_t>::max() ||
-          publication.final >= publication.sources.size()) {
+          (!window && publication.final >= publication.sources.size()) ||
+          (window &&
+           (!count.check.ok || count.device_buffer == nullptr ||
+            publication.count.source.count != 1u ||
+            publication.count.source.element_bytes != sizeof(std::uint32_t)))) {
         return target.check.ok
                    ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
                    : target.check;
@@ -161,7 +172,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
         const bool source_valid =
             sources[bank].check.ok && sources[bank].device_buffer != nullptr &&
             sources[bank].device_buffer != target.device_buffer &&
-            source.source.count == publication.target.count &&
+            source.source.count ==
+                (window ? publication.tile : publication.target.count) &&
             source.source.element_bytes == publication.target.element_bytes &&
             (source.source.element_bytes == 4u ||
              source.source.element_bytes == 8u) &&
@@ -180,6 +192,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           .sources = {sources[0].device_buffer, sources[1].device_buffer,
                       sources[2].device_buffer},
           .target = target.device_buffer,
+          .count = window ? count.device_buffer : nullptr,
           .params =
               MetalPublishParams{
                   .count = publication.target.count,
@@ -206,6 +219,13 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                   .declared_step_count = status.declared_step_count,
                   .state = publication.state,
                   .final = publication.final,
+                  .maximum = publication.maximum,
+                  .tile = publication.tile,
+                  .kind = static_cast<std::uint32_t>(publication.kind),
+                  .count_offset_words =
+                      window ? publication.count.source.offset_bytes /
+                                   sizeof(std::uint32_t)
+                             : 0u,
               },
       });
     }
@@ -229,10 +249,10 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           !nested ||
           (window->outer_bound != 0u &&
            window->outer_iteration < window->outer_bound &&
-           window->inner_bound != 0u &&
            ((window->phase == BackendWindowPhase::NestedSeed &&
              window->route == 0u && window->inner_advance == 0u) ||
             (window->phase == BackendWindowPhase::NestedAction &&
+             window->inner_bound != 0u &&
              window->inner_iteration < window->inner_bound &&
              window->route == 0u &&
              window->inner_advance ==
@@ -373,8 +393,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     if (!ready.ok) {
       return ready;
     }
-    auto *const prepared = static_cast<MetalMapEncodeResources *>(
-        pipeline->recurrence.get());
+    auto *const prepared =
+        static_cast<MetalMapEncodeResources *>(pipeline->recurrence.get());
     if (prepared == nullptr) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }

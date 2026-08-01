@@ -480,7 +480,17 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
   }
   std::uint64_t seed_preflight_count = 0u;
   std::uint64_t canonicalize_count = 0u;
+  std::uint64_t terminal_publish_count = 0u;
+  std::uint64_t window_publish_count = 0u;
   std::uint64_t window_transition_count = 0u;
+  for (const VulkanPipelinePublishRoute &publication :
+       pipeline->publish.routes) {
+    terminal_publish_count = ::rund::detail::counter::SaturatingAdd(
+        terminal_publish_count,
+        static_cast<std::uint64_t>(
+            publication.params.kind ==
+            static_cast<std::uint32_t>(BackendPublishKind::Terminal)));
+  }
   for (const VulkanWindowRoute &window : pipeline->window.routes) {
     const auto phase = static_cast<BackendWindowPhase>(window.params.phase);
     window_transition_count = ::rund::detail::counter::SaturatingAdd(
@@ -493,6 +503,17 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
   }
   for (const BackendBatchEntry &entry : entries) {
     const BackendWindow *const window = entry.recurrence.window;
+    if (window != nullptr && window->phase == BackendWindowPhase::NestedFold) {
+      for (const VulkanPipelinePublishRoute &publication :
+           pipeline->publish.routes) {
+        window_publish_count = ::rund::detail::counter::SaturatingAdd(
+            window_publish_count,
+            static_cast<std::uint64_t>(
+                publication.params.kind ==
+                    static_cast<std::uint32_t>(BackendPublishKind::Window) &&
+                publication.params.state == window->state));
+      }
+    }
     if (window == nullptr || !window->advances_outer_state() ||
         window->outer_iteration + 1u != window->outer_bound) {
       continue;
@@ -500,16 +521,23 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     for (const VulkanPipelinePublishRoute &publication :
          pipeline->publish.routes) {
       canonicalize_count = ::rund::detail::counter::SaturatingAdd(
-          canonicalize_count, static_cast<std::uint64_t>(
-                                  publication.params.state == window->state));
+          canonicalize_count,
+          static_cast<std::uint64_t>(
+              publication.params.kind ==
+                  static_cast<std::uint32_t>(BackendPublishKind::Terminal) &&
+              publication.params.state == window->state));
     }
   }
+  const std::uint64_t publication_dispatches =
+      ::rund::detail::counter::SaturatingAdd(
+          terminal_publish_count,
+          ::rund::detail::counter::SaturatingAdd(window_publish_count,
+                                                 canonicalize_count));
   const std::uint64_t control_dispatches =
       ::rund::detail::counter::SaturatingAdd(
           ::rund::detail::counter::SaturatingAdd(window_transition_count,
                                                  seed_preflight_count),
-          ::rund::detail::counter::SaturatingAdd(
-              pipeline->publish.routes.size(), canonicalize_count));
+          publication_dispatches);
   if (control_dispatches == std::numeric_limits<std::uint64_t>::max() ||
       control_dispatches > std::numeric_limits<std::uint64_t>::max() -
                                pipeline->dispatch_count) {
@@ -817,6 +845,13 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
     }
     if (!EncodeVulkanWindow(recording, pipeline->window,
                             static_cast<std::uint32_t>(index))) {
+      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
+    }
+    if (resident_window != nullptr &&
+        resident_window->phase == BackendWindowPhase::NestedFold &&
+        !EncodeVulkanPipelineWindowPublish(recording, pipeline->publish,
+                                           resident_window->state,
+                                           resident_window->outer_iteration)) {
       return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
     }
     if (resident_window != nullptr && resident_window->advances_outer_state() &&

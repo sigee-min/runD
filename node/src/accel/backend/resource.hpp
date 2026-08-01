@@ -32,7 +32,8 @@ UploadBackendBuffer(const std::shared_ptr<PickToken> &token,
 
 [[nodiscard]] BackendUpload
 UploadBackendBuffers(const std::shared_ptr<PickToken> &token,
-                     std::span<const UploadRoute> requests);
+                     std::span<const UploadRoute> requests,
+                     TransferCompletion completion);
 
 [[nodiscard]] BackendDownload
 DownloadBackendBuffer(const std::shared_ptr<PickToken> &token,
@@ -50,6 +51,10 @@ DownloadBackendBuffer(const std::shared_ptr<PickToken> &token,
 [[nodiscard]] BackendDownload
 DownloadBackendBuffers(const std::shared_ptr<PickToken> &token,
                        std::span<const DownloadRoute> requests);
+
+[[nodiscard]] BackendCopy
+CopyBackendBuffers(const std::shared_ptr<PickToken> &token,
+                   std::span<const CopyRoute> requests);
 
 [[nodiscard]] BackendLookup
 LookupBackendBuffer(const std::shared_ptr<PickToken> &token,

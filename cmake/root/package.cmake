@@ -1,5 +1,5 @@
 # Root-owned package install and export targets.
-set(RUND_PACKAGE_VERSION "1.0.1")
+set(RUND_PACKAGE_VERSION "1.0.2")
 
 set(RUND_SDK_INSTALL_SCRIPT
     "${CMAKE_CURRENT_BINARY_DIR}/package/sdk/install.cmake")

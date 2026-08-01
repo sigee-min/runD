@@ -18,7 +18,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header"><div class="container header-inner">
-      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.2 Alpha</span></a>
       <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
       <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
     </div></header>
@@ -46,6 +46,8 @@
           <a href="#program">Reuse a Program</a>
           <a href="#async">Compile asynchronously</a>
           <a href="#resident">Resident, Batch, Pipeline</a>
+          <a href="#window-output">Tile window output</a>
+          <a href="#checkpoint-choice">Checkpoint choice</a>
           <a href="#session-submit">Submit through Session</a>
           <a href="#target">Targets</a>
         </nav>
@@ -273,6 +275,50 @@ rund::compute::Pipeline pipeline = std::move(prepared).value();
 if (auto ran = pipeline.run(); !ran) return ran.exit_code();
 if (auto read = pipeline.read(*output, observed); !read) {
   return read.exit_code();
+}</code></pre>
+          </div>
+          <h3 id="window-output">Publish tile output without making it state</h3>
+          <p>
+            Use the two-Program <code>tile_repeat&lt;0&gt;(seed, fold)</code> form when a window needs no
+            inner Action. A Fold may return recurrent final values followed by tile-sized append-only
+            values. Bind the first group with <code>write_final(...)</code> and the second with
+            <code>write_window(...)</code>. runD keeps only a private tile bank and publishes the exact
+            active slice after that Fold succeeds; a partial tail never exposes padding or turns the
+            appended values into next-window state.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">action-free tile output · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">auto body = rund::compute::tile_repeat&lt;0u&gt;(*seed, *fold);
+auto prepared =
+    rund::compute::pipeline(device)
+        .windows&lt;Maximum, Tile&gt;(
+            body, rund::compute::window(*active_count),
+            rund::compute::read(*outer_state, *source, *lanes),
+            rund::compute::write_final(*final_state),
+            rund::compute::write_window(*per_item_output))
+        .prepare();</code></pre>
+          </div>
+          <h3 id="checkpoint-choice">Choose a checkpoint at the ownership boundary</h3>
+          <p>
+            <code>LatestDeviceState</code> is the copyable live hand-off for the same exact Device. It
+            follows successful generations without copying or hashing payload bytes. For recovery on a
+            different Device or backend, allocate one move-only <code>SnapshotStorage</code>, reuse
+            <code>snapshot_into(storage)</code> at deliberate export points, and restore from its
+            portable host payload. Neither path runs implicitly during <code>run()</code>, so code that
+            requests no host feedback or checkpoint keeps the resident warm path.
+          </p>
+          <div class="doc-code">
+            <div class="code-toolbar"><span class="code-file">checkpoint boundary · contextual fragment</span></div>
+            <pre class="code"><code data-kind="fragment">rund::compute::LatestDeviceState latest =
+    pipeline.latest_device_state().value();
+if (auto restored = peer.restore(latest); !restored) {
+  return restored.exit_code();
+}
+
+rund::compute::SnapshotStorage storage =
+    pipeline.snapshot_storage().value();
+if (auto saved = pipeline.snapshot_into(storage); !saved) {
+  return saved.exit_code();
 }</code></pre>
           </div>
           <p>

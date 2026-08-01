@@ -1,17 +1,19 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include <rund/counter.hpp>
 #include "../../../backend/result.hpp"
 #include "../../resident/access.hpp"
 #include "find.hpp"
+#include <rund/counter.hpp>
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #import <Metal/Metal.h>
 #endif
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <span>
@@ -61,9 +63,11 @@ rund::AccelCheck UploadMetalResidentBuffer(
   return rund::AccelCheck{true, "ok"};
 }
 
-BackendUpload UploadMetalResidentBuffers(
-    const rund::AccelDevice &pick,
-    const std::span<const UploadRoute> requests) {
+BackendUpload
+UploadMetalResidentBuffers(const rund::AccelDevice &pick,
+                           const std::span<const UploadRoute> requests,
+                           const TransferCompletion completion) {
+  (void)completion;
   MetalAdapter *const adapter = MetalAdapterFromPick(pick);
   if (adapter == nullptr || requests.empty()) {
     return {};
@@ -85,8 +89,7 @@ BackendUpload UploadMetalResidentBuffers(
       for (const UploadRoute &request : requests) {
         if (request.handle == nullptr ||
             (request.bytes != 0u && request.data == nullptr)) {
-          return BackendUpload{
-              .check = {false, "accel_buffer_unavailable"}};
+          return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
         }
         MetalResidentBufferResult resolved = ResolveMetalResidentBuffer(
             resident, request.resident, request.handle,
@@ -106,8 +109,7 @@ BackendUpload UploadMetalResidentBuffers(
             (__bridge id<MTLBuffer>)resolved.device_buffer.get();
         void *const contents = [metal_buffer contents];
         if (contents == nullptr) {
-          return BackendUpload{
-              .check = {false, "accel_buffer_unavailable"}};
+          return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
         }
         plans.push_back(UploadPlan{
             .owner = std::move(resolved.device_buffer),
@@ -128,10 +130,10 @@ BackendUpload UploadMetalResidentBuffers(
                                         uploaded_bytes);
     return BackendUpload{.check = {true, "ok"}};
   } catch (const std::bad_alloc &) {
-    return BackendUpload{
-        .check = {false, "accel_buffer_unavailable"}};
+    return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
   }
 }
+
 #else
 rund::AccelCheck
 UploadMetalResidentBuffer(const rund::AccelDevice &,
@@ -141,11 +143,12 @@ UploadMetalResidentBuffer(const rund::AccelDevice &,
   return rund::AccelCheck{false, "accel_buffer_backend_unavailable"};
 }
 
-BackendUpload UploadMetalResidentBuffers(
-    const rund::AccelDevice &,
-    const std::span<const UploadRoute>) {
+BackendUpload UploadMetalResidentBuffers(const rund::AccelDevice &,
+                                         const std::span<const UploadRoute>,
+                                         const TransferCompletion) {
   return {};
 }
+
 #endif
 
 } // namespace rund::node::accel::detail

@@ -102,8 +102,11 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
     return Result<std::shared_ptr<PipelineState>>::fail(
         Reason::PipelineCapacity);
   }
+  const bool seeded = build->seed != nullptr ||
+                      build->storage_seed != nullptr ||
+                      build->device_seed != nullptr;
   if (build->commit != !build->state_pairs.empty() ||
-      (build->seed != nullptr && !build->commit)) {
+      (seeded && !build->commit)) {
     return Result<std::shared_ptr<PipelineState>>::fail(
         Reason::PipelineInvalid);
   }
@@ -143,7 +146,19 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
       if (!restored) {
         return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
       }
+    } else if (build->storage_seed != nullptr) {
+      const Status restored =
+          restore_pipeline_state(state, build->storage_seed);
+      if (!restored) {
+        return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
+      }
+    } else if (build->device_seed != nullptr) {
+      const Status restored = restore_pipeline_state(state, build->device_seed);
+      if (!restored) {
+        return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
+      }
     }
+    state->preparing = false;
     return Result<std::shared_ptr<PipelineState>>::success(std::move(state));
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<PipelineState>>::fail(

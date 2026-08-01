@@ -46,6 +46,20 @@ struct PublicationStats final {
   std::uint64_t device_loss_count{};
 };
 
+// Pipeline-only checkpoint telemetry is intentionally separate from Stats so
+// every Job/Run result does not pay for resident checkpoint state it cannot
+// produce.
+struct CheckpointStats final {
+  std::uint64_t device_state_acquire_count{};
+  std::uint64_t device_state_rebase_count{};
+  std::uint64_t device_state_copy_byte_count{};
+  std::uint64_t device_state_copy_command_count{};
+  std::uint64_t reusable_snapshot_count{};
+  std::uint64_t reusable_snapshot_byte_count{};
+  std::uint64_t reusable_snapshot_hash{};
+  std::uint64_t reusable_snapshot_transfer_count{};
+};
+
 struct PipelineStats final {
   static constexpr std::uint64_t no_failed_step =
       std::numeric_limits<std::uint64_t>::max();

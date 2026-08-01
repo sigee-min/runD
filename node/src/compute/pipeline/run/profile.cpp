@@ -21,8 +21,7 @@ void accumulate(PipelineStepStats &target,
     target = source;
     return;
   }
-  ::rund::detail::counter::Accumulate(target.sample_count,
-                                      source.sample_count);
+  ::rund::detail::counter::Accumulate(target.sample_count, source.sample_count);
   ::rund::detail::counter::Accumulate(target.original_dispatches,
                                       source.original_dispatches);
   ::rund::detail::counter::Accumulate(target.final_dispatches,
@@ -41,27 +40,22 @@ void accumulate(PipelineStepStats &target,
                                       source.workgroup_count);
   ::rund::detail::counter::Accumulate(target.work_item_count,
                                       source.work_item_count);
-  ::rund::detail::counter::Accumulate(
-      target.control.generated_item_count,
-      source.control.generated_item_count);
+  ::rund::detail::counter::Accumulate(target.control.generated_item_count,
+                                      source.control.generated_item_count);
   ::rund::detail::counter::Accumulate(target.control.generated_capacity,
                                       source.control.generated_capacity);
-  ::rund::detail::counter::Accumulate(
-      target.control.indirect_dispatch_count,
-      source.control.indirect_dispatch_count);
-  ::rund::detail::counter::Accumulate(
-      target.control.indirect_work_item_count,
-      source.control.indirect_work_item_count);
+  ::rund::detail::counter::Accumulate(target.control.indirect_dispatch_count,
+                                      source.control.indirect_dispatch_count);
+  ::rund::detail::counter::Accumulate(target.control.indirect_work_item_count,
+                                      source.control.indirect_work_item_count);
   ::rund::detail::counter::Accumulate(target.control.iteration_count,
                                       source.control.iteration_count);
-  ::rund::detail::counter::Accumulate(
-      target.control.skipped_iteration_count,
-      source.control.skipped_iteration_count);
+  ::rund::detail::counter::Accumulate(target.control.skipped_iteration_count,
+                                      source.control.skipped_iteration_count);
   ::rund::detail::counter::Accumulate(target.control.conflict_count,
                                       source.control.conflict_count);
-  target.control.overflow_ordinal =
-      std::min(target.control.overflow_ordinal,
-               source.control.overflow_ordinal);
+  target.control.overflow_ordinal = std::min(target.control.overflow_ordinal,
+                                             source.control.overflow_ordinal);
 }
 
 } // namespace
@@ -87,8 +81,7 @@ void reset_pipeline_profile(PipelineState &state) noexcept {
             ? &state.windows[step.window - 1u]
             : nullptr;
     if (nested != nullptr) {
-      row.outer_window_bound =
-          static_cast<std::uint32_t>(nested->seed_count);
+      row.outer_window_bound = static_cast<std::uint32_t>(nested->seed_count);
       row.inner_iteration_bound =
           static_cast<std::uint32_t>(nested->action_count);
     }
@@ -148,8 +141,8 @@ void capture_cpu_pipeline_step(PipelineState &state, const std::size_t index,
   const PipelineStep &step = state.steps[index];
   if (step.program != nullptr && !step.program->empty()) {
     const std::shared_ptr<JobState> &job =
-        state.transactional && state.parity != 0u ? step.alternate_job
-                                                  : step.job;
+        state.transactional && state.attempt_parity != 0u ? step.alternate_job
+                                                          : step.job;
     if (job == nullptr || job->cpu == nullptr || job->cpu->graph == nullptr) {
       return;
     }

@@ -75,6 +75,7 @@ struct MetalPipelineBuild final {
   std::uint32_t fold_count{};
   std::uint32_t advance_count{};
   std::uint32_t canonicalize_count{};
+  std::uint32_t window_publish_count{};
   bool finished{};
 
   [[nodiscard]] rund::AccelCheck Admit();

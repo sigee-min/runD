@@ -45,6 +45,44 @@ struct Join<TypeList<L...>, TypeList<R...>, Rest...> final {
   using type = typename Join<TypeList<L..., R...>, Rest...>::type;
 };
 
+template <class List> struct Reverse;
+template <> struct Reverse<TypeList<>> final {
+  using type = TypeList<>;
+};
+template <class Head, class... Tail>
+struct Reverse<TypeList<Head, Tail...>> final {
+  using type = typename Join<typename Reverse<TypeList<Tail...>>::type,
+                             TypeList<Head>>::type;
+};
+
+template <class Suffix, class List>
+struct EndsWith final
+    : std::bool_constant<StartsWith<typename Reverse<Suffix>::type,
+                                    typename Reverse<List>::type>::value> {};
+
+template <class Prefix, class List> struct DropPrefix;
+template <class... T> struct DropPrefix<TypeList<>, TypeList<T...>> final {
+  using type = TypeList<T...>;
+};
+template <class Head, class... Prefix, class... Tail>
+struct DropPrefix<TypeList<Head, Prefix...>, TypeList<Head, Tail...>> final {
+  using type =
+      typename DropPrefix<TypeList<Prefix...>, TypeList<Tail...>>::type;
+};
+
+template <class Suffix, class List, bool Valid = EndsWith<Suffix, List>::value>
+struct StripSuffix final {
+  using type = TypeList<>;
+  static constexpr bool valid = false;
+};
+template <class Suffix, class List>
+struct StripSuffix<Suffix, List, true> final {
+  using reversed = typename DropPrefix<typename Reverse<Suffix>::type,
+                                       typename Reverse<List>::type>::type;
+  using type = typename Reverse<reversed>::type;
+  static constexpr bool valid = true;
+};
+
 template <class List> struct WindowCoordinateSplit final {
   using Prefix = TypeList<>;
   static constexpr bool valid = false;
@@ -157,7 +195,7 @@ struct BufferAccess final {
   }
 };
 
-enum class BindingRole { Read, StepWrite, FinalWrite, EachWrite };
+enum class BindingRole { Read, StepWrite, FinalWrite, WindowWrite, EachWrite };
 
 template <BindingRole Role, class... T> class BindingPack final {
 public:
@@ -186,6 +224,8 @@ using WritePack = BindingPack<BindingRole::StepWrite, T...>;
 template <class... T>
 using WriteFinalPack = BindingPack<BindingRole::FinalWrite, T...>;
 template <class... T>
+using WriteWindowPack = BindingPack<BindingRole::WindowWrite, T...>;
+template <class... T>
 using WriteEachPack = BindingPack<BindingRole::EachWrite, T...>;
 
 } // namespace rund::compute::detail
@@ -212,6 +252,14 @@ template <class... B>
   requires(sizeof...(B) != 0u && (detail::IsWritableBuffer<B> && ...))
 [[nodiscard]] auto write_final(B &&...buffers) noexcept {
   return detail::WriteFinalPack<
+      typename detail::BufferElement<std::remove_cvref_t<B>>::type...>{
+      buffers...};
+}
+
+template <class... B>
+  requires(sizeof...(B) != 0u && (detail::IsWritableBuffer<B> && ...))
+[[nodiscard]] auto write_window(B &&...buffers) noexcept {
+  return detail::WriteWindowPack<
       typename detail::BufferElement<std::remove_cvref_t<B>>::type...>{
       buffers...};
 }

@@ -257,7 +257,7 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.1` is the current
+The CMake version file uses exact-version matching. `1.0.2` is the current
 artifact identity; a major-only version range is not a supported consumption
 contract.
 
@@ -266,10 +266,16 @@ for nested Pipeline evidence. It deliberately uses a new exact SDK identity
 because those headers and libraries are not binary-compatible with the
 published `1.0.0` tuple. Consumers must build and consume headers and libraries
 from one matched exact artifact; `1.0.0` remains a historical identity and may
-not be mixed with `1.0.1`. The current checked 64-bit tuple has a 184-byte
+not be mixed with `1.0.1`. That checked 64-bit tuple has a 184-byte
 `PipelineStats`, 632-byte `Stats`, and 1,152-byte inline `Run`; the sealed
 repetition fields are part of that `1.0.1` by-value ABI rather than an extension
 that an older header may safely ignore.
+
+The `1.0.2` Alpha is another exact identity. It adds append-only window output,
+action-free tile folding, live same-device state hand-off, reusable portable
+snapshot storage, and Pipeline-only checkpoint telemetry. Those declarations,
+method sets, and linked implementations must come from one matched `1.0.2`
+artifact; a `1.0.1` header or library may not be mixed into the tuple.
 
 ## Compute Contract
 
@@ -277,6 +283,7 @@ that an older header may safely ignore.
 `Device`, `DeviceInfo`, `Buffer`, typed `View`,
 `Program`, `Job`, `Batch`, `ProgramCache`, `Bounded<T, Count>`,
 `graph::Fingerprint`, `graph::MemoryPlan`, `graph::Info`, `Stats`,
+`CheckpointStats`,
 `Status`, `Result<T>`, `Reason`, derived `Code`, the explicit `Compile`
 resource envelope, the `input::{Bound,Deferred}` Flow identity markers, and the
 nested `compute::telemetry` values.
@@ -292,9 +299,11 @@ parse the future/task construction templates.
 functions and matrix, transform, factor, solve, and spectrum stages. It owns
 no second graph, target, compilation, or execution authority.
 `<rund/compute/pipeline.hpp>` is the opt-in focused direct owner of `pipeline`,
-`read`, `write`, `tile_repeat`, `PipelineBuilder`, `Pipeline`,
+`read`, `write`, `write_final`, `write_window`, `write_each`, `tile_repeat`,
+`PipelineBuilder`, `Pipeline`,
 `PipelineSealedRepetitionCapacity`, copyable
-`StateSnapshot`, and the bounded profile vocabulary `PipelineProfile`, `StepClock`,
+`StateSnapshot`, copyable `LatestDeviceState`, move-only `SnapshotStorage`,
+and the bounded profile vocabulary `PipelineProfile`, `StepClock`,
 `StepTimingRelation`, `StepTiming`, `PipelineStepStats`,
 `PipelineStepProfile`, and `PipelineProfileSnapshot`; the basic
 `<rund/compute.hpp>` entry deliberately excludes it, while `<rund/rund.hpp>`
@@ -369,23 +378,32 @@ next run. Successful prefixes remain committed on a later callback or run
 failure. Callback identity and host values are not Pipeline fingerprint
 inputs, and GPU execution pays one submit/completion per requested host
 iteration.
-`windows<Max, Tile>(...)` is the bounded resident-stream recurrence spelling
-and accepts terminal-only `write_final(...)`; it does not infer a history
-shape from a runtime count.
+`windows<Max, Tile>(...)` is the bounded resident-stream recurrence spelling.
+Ordinary window bodies accept terminal-only `write_final(...)`; a nested
+`tile_repeat` body may additionally bind append-only `write_window(...)`
+destinations. Neither spelling infers a history shape from a runtime count.
 The body derives its canonical `base`, active `count`, and ordinal through
 `resident<Max, Tile>` and therefore authors tile-sized intermediates while
 keeping the full input Buffer resident. It is not a request to resize an
 already authored full-capacity Program.
 `tile_repeat<N>(seed_program, action_program, fold_program)` is the
 hierarchical body spelling for a fixed tile-local recurrence inside those
-windows. It is a declaration value with no independent `prepare`, `run`,
-binding, or observation surface. The enclosing Pipeline retains each compiled
-Program once. For flattened tuples `S`, `T`, `P`, and `O`, Seed has signature
+windows. `tile_repeat<0>(seed_program, fold_program)` is the action-free form;
+it does not fabricate or retain an Action Program. Both are declaration values
+with no independent `prepare`, `run`, binding, or observation surface. The
+enclosing Pipeline retains each supplied compiled Program once. For flattened
+tuples `S`, `T`, `P`, `O`, and `W`, Seed has signature
 `T(S..., U32 total_count, U32 outer_ordinal)`, Action has signature `P(T...)` with `P`
-an exact prefix of `T`, and Fold has signature `O(O..., T...)`.
-`windows` consequently reads `(O..., S...)` and writes `write_final(O...)`.
+an exact prefix of `T`, and Fold maps `(O..., T...) -> (O..., W...)`.
+`windows` consequently reads `(O..., S...)`, writes recurrent `O` through
+`write_final(O...)`, and writes each successful tile's non-recurrent `W`
+through `write_window(W...)` into the exact active destination slice.
+Every `W` leaf has `Tile` Program elements and an exact `Max`-element public
+destination. Its private publication bank is `O(Tile)`, not `O(Max)`, and a
+failed Fold publishes neither that tile slice nor final recurrent state.
 The `T` suffix after `P` is one invariant tile bank and Action alternates
-exactly two `P` banks for its positive compile-time bound `N`.
+exactly two `P` banks for its positive compile-time bound `N`; the `N == 0`
+form has no Action bank or phase.
 Preparation retains `O(ceil(Max / Tile) + N)` compact routes rather than the
 outer-times-inner product. It never duplicates the three Program graphs,
 Jobs, workspace/View/scratch envelope, or banks per outer/inner pair.
@@ -424,15 +442,24 @@ staging, and opaque native owners are observed after prepare through
 `state(published, pending)` declares an explicit
 double-buffered field. `profile(PipelineProfile::Steps)` is the sole explicit
 cold opt-in for bounded per-declared-step evidence; `PipelineProfile::None` is
-the default. Optional `restore(snapshot)` seeds a replacement owner and
-freezes further step and state declarations. The orthogonal profile mode may
+the default. Optional `restore(snapshot)`, `restore(latest)`, or
+`restore(storage)` seeds a replacement owner and freezes further step and
+state declarations. The orthogonal profile mode may
 still be selected in either fluent order until `commit()` requests one
 all-fields publication point and seals the builder. `prepare() &&` returns the
 move-only durable `Pipeline`. `Pipeline` exposes `valid`, bool conversion,
-`poisoned`, `run`, `read`, `stats`, `memory`, `memory_snapshot`, caller-storage
-`profile`, `fingerprint`, `generation`, `snapshot`, and `restore`.
+`poisoned`, `run`, `read`, `stats`, `checkpoint_stats`, `memory`,
+`memory_snapshot`, caller-storage `profile`, `fingerprint`, `generation`,
+`snapshot`, `latest_device_state`, `snapshot_storage`, `snapshot_into`, and
+the three corresponding `restore` overloads.
 `StateSnapshot` exposes `valid`, bool conversion, `generation`, `fingerprint`,
 and `hash`.
+`LatestDeviceState` exposes `valid`, bool conversion, `generation`, and
+`fingerprint`; it is a live copyable same-Device publication handle and carries
+no portable host payload. `SnapshotStorage` is move-only reusable host storage
+and exposes `valid`, bool conversion, `has_snapshot`, `generation`,
+`fingerprint`, `hash`, `capacity`, and `field_capacity`. Checkpoint work is
+explicit: ordinary `run()` performs neither acquisition nor host export.
 Buffer and typed View use the same `read`/`write` vocabulary; a View adds only
 element-unit `offset`, `size`, `stride`, `alignment`, and byte diagnostics.
 Declaration order plus exact range hazards is the dependency authority, so a
@@ -513,7 +540,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.1 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.2 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

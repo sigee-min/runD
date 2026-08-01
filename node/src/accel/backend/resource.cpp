@@ -104,14 +104,14 @@ UploadBackendBuffer(const std::shared_ptr<PickToken> &token,
   return token->ops->upload(token->raw, resident, handle, data, bytes, offset);
 }
 
-BackendUpload
-UploadBackendBuffers(const std::shared_ptr<PickToken> &token,
-                     const std::span<const UploadRoute> requests) {
+BackendUpload UploadBackendBuffers(const std::shared_ptr<PickToken> &token,
+                                   const std::span<const UploadRoute> requests,
+                                   const TransferCompletion completion) {
   if (!ValidRoute(token) || requests.empty()) {
     return {};
   }
   if (token->ops->upload_batch != nullptr) {
-    return token->ops->upload_batch(token->raw, requests);
+    return token->ops->upload_batch(token->raw, requests, completion);
   }
   if (token->ops->upload == nullptr) {
     return {};
@@ -206,6 +206,15 @@ DownloadBackendBuffers(const std::shared_ptr<PickToken> &token,
                            total.staging_bytes != 0u;
   }
   return total;
+}
+
+BackendCopy CopyBackendBuffers(const std::shared_ptr<PickToken> &token,
+                               const std::span<const CopyRoute> requests) {
+  if (!ValidRoute(token) || requests.empty() ||
+      token->ops->copy_batch == nullptr) {
+    return {};
+  }
+  return token->ops->copy_batch(token->raw, requests);
 }
 
 BackendLookup

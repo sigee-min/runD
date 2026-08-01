@@ -27,7 +27,7 @@ void reset_pipeline_stats(PipelineState &state) noexcept {
   const std::uint64_t barriers = state.stats.pipeline.barrier_count;
   const PublicationStats publication = state.stats.publication;
   state.stats = Stats{.backend = state.device->backend,
-                      .graph_hash = state.fingerprint.lo};
+                      .graph_hash = state.publication->fingerprint.lo};
   state.stats.pipeline = PipelineStats{
       .step_count = state.logical_step_count,
       .resource_count = state.resources.size(),
@@ -62,7 +62,7 @@ PipelineOutcome finish_accel_pipeline(
   PipelineOutcome result{};
   Stats stats = stats_from_evidence(state.device->backend, evidence.shared, 0u);
   stats.publication = state.stats.publication;
-  stats.graph_hash = state.fingerprint.lo;
+  stats.graph_hash = state.publication->fingerprint.lo;
   stats.pipeline = state.stats.pipeline;
   stats.pipeline.status_entry_count = evidence.status_entry_count;
   stats.pipeline.control_byte_count = evidence.control_byte_count;
@@ -92,7 +92,7 @@ PipelineOutcome finish_accel_pipeline(
       evidence.control_byte_count ==
           node::accel::detail::PreparedPipelineControlBytes &&
       node::accel::detail::PreparedPipelineGenerationMatches(
-          evidence.control, state.generation + 1u);
+          evidence.control, state.attempt_generation + 1u);
   if (evidence.control_observed && !control_valid) {
     result.status = Status::fail(Reason::CompletionInvalid);
   } else if (control_valid) {

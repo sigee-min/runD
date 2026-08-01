@@ -4,10 +4,14 @@
 
 #include <node/runtime/compute/access.hpp>
 
+#include "src/accel/context/transfer.hpp"
 #include "src/accel/kernel/fault.hpp"
 #include "src/compute/device/state.hpp"
 
+#include <cstdint>
 #include <memory>
+#include <string_view>
+#include <utility>
 
 namespace rund_node_test_pipeline {
 
@@ -69,6 +73,140 @@ namespace rund_node_test_pipeline {
     return 5;
   }
 
+  if (backend == Backend::Vulkan) {
+    // Generic one-slice upload retains the queued command-slot contract, while
+    // checkpoint restore explicitly requires completion before publication.
+    // The test fault is consumed only by the latter synchronous boundary.
+    auto policy_buffer = Upload(device, initial);
+    const std::shared_ptr<detail::BufferState> policy_state =
+        policy_buffer ? detail::BufferAccess::state(*policy_buffer) : nullptr;
+    detail::AccelBufferState *const policy_native =
+        policy_state == nullptr ? nullptr : detail::accel_buffer(*policy_state);
+    const rund::node::accel::detail::UploadEntry policy_request{
+        .buffer = policy_native == nullptr ? nullptr : &policy_native->buffer,
+        .data = initial.data(),
+        .bytes = sizeof(initial),
+    };
+    rund::node::accel::detail::UploadRoute policy_route{};
+    if (policy_native == nullptr ||
+        !rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+      return 24;
+    }
+    const auto queued = rund::node::accel::detail::UploadAccelBuffers(
+        native->context, std::span{&policy_request, 1u},
+        std::span{&policy_route, 1u},
+        rund::node::accel::detail::TransferCompletion::Queued);
+    const auto completed =
+        queued.check.ok
+            ? rund::node::accel::detail::UploadAccelBuffers(
+                  native->context, std::span{&policy_request, 1u},
+                  std::span{&policy_route, 1u},
+                  rund::node::accel::detail::TransferCompletion::Complete)
+            : rund::node::accel::detail::AccelTransfer{};
+    if (!queued.check.ok || completed.check.ok ||
+        std::string_view{completed.check.reason} != "compute_device_lost") {
+      return 25;
+    }
+
+    auto export_first = Upload(device, initial);
+    auto export_second = device.buffer<std::int32_t>(initial.size());
+    auto export_pipeline =
+        export_first && export_second
+            ? pipeline(device)
+                  .state(*export_first, *export_second)
+                  .then(*advance, read(*export_first), write(*export_second))
+                  .commit()
+                  .prepare()
+            : Result<Pipeline>::fail(Reason::PipelineInvalid);
+    auto export_storage_result =
+        export_pipeline
+            ? export_pipeline->snapshot_storage()
+            : Result<SnapshotStorage>::fail(Reason::PipelineInvalid);
+    auto export_latest =
+        export_pipeline
+            ? export_pipeline->latest_device_state()
+            : Result<LatestDeviceState>::fail(Reason::PipelineInvalid);
+    if (!export_pipeline || !export_storage_result || !export_latest) {
+      return 15;
+    }
+    SnapshotStorage export_storage = std::move(export_storage_result).value();
+    if (!export_pipeline->run() ||
+        !export_pipeline->snapshot_into(export_storage)) {
+      return 15;
+    }
+    const std::uint64_t retained_generation = export_storage.generation();
+    const std::uint64_t retained_hash = export_storage.hash();
+    const CheckpointStats retained_stats = export_pipeline->checkpoint_stats();
+    if (!rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+      return 16;
+    }
+    const Status export_lost = export_pipeline->snapshot_into(export_storage);
+    const CheckpointStats lost_export_stats =
+        export_pipeline->checkpoint_stats();
+    const auto export_resnapshot = export_pipeline->snapshot();
+    const Status export_restore = export_pipeline->restore(export_storage);
+    const Status export_rerun = export_pipeline->run();
+    if (export_lost || export_lost.reason() != Reason::DeviceLost ||
+        export_storage.generation() != retained_generation ||
+        export_storage.hash() != retained_hash || export_latest->valid() ||
+        export_latest->generation() != retained_generation ||
+        lost_export_stats.reusable_snapshot_count !=
+            retained_stats.reusable_snapshot_count ||
+        lost_export_stats.reusable_snapshot_byte_count !=
+            retained_stats.reusable_snapshot_byte_count ||
+        lost_export_stats.reusable_snapshot_hash !=
+            retained_stats.reusable_snapshot_hash ||
+        export_resnapshot || export_resnapshot.reason() != Reason::DeviceLost ||
+        export_restore || export_restore.reason() != Reason::DeviceLost ||
+        export_rerun || export_rerun.reason() != Reason::DeviceLost ||
+        export_pipeline->poisoned()) {
+      return 16;
+    }
+
+    auto restore_first = device.buffer<std::int32_t>(initial.size());
+    auto restore_second = device.buffer<std::int32_t>(initial.size());
+    auto restore_pipeline =
+        restore_first && restore_second
+            ? pipeline(device)
+                  .state(*restore_first, *restore_second)
+                  .then(*advance, read(*restore_first), write(*restore_second))
+                  .commit()
+                  .prepare()
+            : Result<Pipeline>::fail(Reason::PipelineInvalid);
+    auto restore_latest =
+        restore_pipeline
+            ? restore_pipeline->latest_device_state()
+            : Result<LatestDeviceState>::fail(Reason::PipelineInvalid);
+    if (!restore_pipeline || !restore_latest ||
+        !rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+      return 17;
+    }
+    const Status restore_lost = restore_pipeline->restore(saved);
+    const Status restore_read =
+        restore_pipeline->read(*restore_first, observed);
+    const auto restore_snapshot = restore_pipeline->snapshot();
+    const Status restore_again = restore_pipeline->restore(saved);
+    const Status restore_run = restore_pipeline->run();
+    if (restore_lost || restore_lost.reason() != Reason::DeviceLost) {
+      return 18;
+    }
+    if (restore_latest->valid() || restore_latest->generation() != 0u) {
+      return 19;
+    }
+    if (restore_read || restore_read.reason() != Reason::DeviceLost) {
+      return 20;
+    }
+    if (restore_snapshot || restore_snapshot.reason() != Reason::DeviceLost) {
+      return 21;
+    }
+    if (restore_again || restore_again.reason() != Reason::DeviceLost) {
+      return 22;
+    }
+    if (restore_run || restore_run.reason() != Reason::DeviceLost) {
+      return 23;
+    }
+  }
+
   auto sealed_input = Upload(device, initial);
   auto sealed_output = device.buffer<std::int32_t>(initial.size());
   auto sealed =
@@ -96,15 +234,6 @@ namespace rund_node_test_pipeline {
     return 14;
   }
 
-  if (backend == Backend::Vulkan) {
-    if (!rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
-      return 5;
-    }
-    const auto lost_snapshot = prepared->snapshot();
-    if (lost_snapshot || lost_snapshot.reason() != Reason::DeviceLost) {
-      return 5;
-    }
-  }
   if (!rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
     return 5;
   }

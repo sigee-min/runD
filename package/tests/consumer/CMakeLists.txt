@@ -6,12 +6,16 @@ if(NOT DEFINED RUND_EXPECTED_PACKAGE_DIR OR
   message(FATAL_ERROR
     "package consumer requires the freshly installed package directory")
 endif()
+if(NOT DEFINED RUND_EXPECTED_SDK_VERSION OR
+   RUND_EXPECTED_SDK_VERSION STREQUAL "")
+  message(FATAL_ERROR "package consumer requires the expected SDK version")
+endif()
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   message(FATAL_ERROR
     "positive installed package consumer must use the producer Release build type")
 endif()
-find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
+find_package(runD ${RUND_EXPECTED_SDK_VERSION} EXACT CONFIG REQUIRED)
 
 file(REAL_PATH "${RUND_EXPECTED_PACKAGE_DIR}" expected_runD_dir)
 file(REAL_PATH "${runD_DIR}" resolved_runD_dir)
@@ -25,7 +29,8 @@ endif()
 get_filename_component(runD_install_prefix "${resolved_runD_dir}/../../.."
                        ABSOLUTE)
 
-if(NOT DEFINED runD_VERSION OR NOT runD_VERSION STREQUAL "1.0.1")
+if(NOT DEFINED runD_VERSION OR
+   NOT runD_VERSION STREQUAL RUND_EXPECTED_SDK_VERSION)
   message(FATAL_ERROR
     "installed package resolved a non-current SDK version: ${runD_VERSION}")
 endif()

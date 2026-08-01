@@ -18,7 +18,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header"><div class="container header-inner">
-      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.1 Alpha</span></a>
+      <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.2 Alpha</span></a>
       <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
       <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false"><a class="nav-link" href="/runD/">Overview</a><a class="nav-link" href="/runD/docs/" aria-current="page">Docs</a><a class="nav-link" href="/runD/docs/api/">API</a><a class="nav-link" href="https://github.com/sigee-min/runD">GitHub</a><a class="nav-link nav-cta" href="/runD/docs/start/">Quick Start</a></nav>
     </div></header>
@@ -36,12 +36,12 @@
           A backend-neutral Flow model is not permission to overstate release coverage. Support belongs to
           exact platform, producer, artifact, dependency, and verification tuples.
         </p>
-        <div class="doc-meta"><span class="meta-chip">1.0.1 Alpha</span><span class="meta-chip">Tuple policy</span><span class="meta-chip">Fail closed</span></div>
+        <div class="doc-meta"><span class="meta-chip">1.0.2 Alpha</span><span class="meta-chip">Tuple policy</span><span class="meta-chip">Fail closed</span></div>
 
         <nav class="doc-toc" aria-label="On this page">
           <strong>On this page</strong>
           <a href="#matrix">Current matrix</a>
-          <a href="#darwin-1-0-1-host-tuple">Darwin 1.0.1 tuple</a>
+          <a href="#darwin-1-0-2-host-tuple">Darwin 1.0.2 tuple</a>
           <a href="#artifact">Artifact and verifier</a>
           <a href="#backends">Additional backends</a>
           <a href="#status">Status terms</a>
@@ -61,8 +61,8 @@
           </div>
         </section>
 
-        <section id="darwin-1-0-1-host-tuple">
-          <h2>Exact Darwin 1.0.1 host tuple</h2>
+        <section id="darwin-1-0-2-host-tuple">
+          <h2>Exact Darwin 1.0.2 host tuple</h2>
           <p>
             The supported binary is not “any recent Apple Silicon Mac.” Every row below must match.
             These values come from the sealed <code>artifact-identity.tsv</code> carried by the
@@ -71,7 +71,7 @@
           </p>
           <div class="table-wrap">
             <table class="docs-table">
-              <thead><tr><th scope="col">Tuple field</th><th scope="col">Exact 1.0.1 value</th></tr></thead>
+              <thead><tr><th scope="col">Tuple field</th><th scope="col">Exact 1.0.2 value</th></tr></thead>
               <tbody>
                 <tr><td>Host</td><td>Darwin on <code>arm64</code></td></tr>
                 <tr><td>CMake compiler identity</td><td><code>AppleClang 21.0.0.21000101</code></td></tr>
@@ -151,7 +151,7 @@ vulkan-loader 1.4.341.0</code></pre></div>
             checks resolved native-library identity.
           </p>
           <div class="callout callout-warning">
-            <strong>A mismatch has no supported bypass in 1.0.1</strong>
+            <strong>A mismatch has no supported bypass in 1.0.2</strong>
             There is no force-extraction flag, compatibility override, verifier bypass, dependency
             bottle set, versioned Homebrew tap, or other fresh binary route. Use a host and toolchain
             that match every row above, or use a newer SDK rebuilt for your tuple.
@@ -165,8 +165,8 @@ vulkan-loader 1.4.341.0</code></pre></div>
             Its adjacent checksum binds the archive bytes. <code>rund-verify</code> validates both and
             executes the installed package boundary before publishing the versioned prefix.
           </p>
-          <div class="doc-code"><pre class="code"><code>rund-sdk-1.0.1-darwin-arm64.tar.gz
-rund-sdk-1.0.1-darwin-arm64.sha256
+          <div class="doc-code"><pre class="code"><code>rund-sdk-1.0.2-darwin-arm64.tar.gz
+rund-sdk-1.0.2-darwin-arm64.sha256
 rund-verify</code></pre></div>
           <ul>
             <li>Download all three from the same release.</li>
@@ -185,7 +185,7 @@ rund-verify</code></pre></div>
             graph, ordering, resource, failure, output, and evidence contracts.
           </p>
           <p>
-            The 1.0.1 Alpha makes no CUDA or other additional-backend support claim. Future intent is not a
+            The 1.0.2 Alpha makes no CUDA or other additional-backend support claim. Future intent is not a
             shipped product tuple.
           </p>
         </section>

@@ -461,23 +461,22 @@ rund::AccelCheck PrepareVulkanWindow(
       }
       const bool nested = window->nested();
       const bool nested_shape_valid =
-          !nested || (window->outer_bound != 0u &&
-                      window->outer_iteration < window->outer_bound &&
-                      window->inner_bound != 0u &&
-                      ((window->phase == BackendWindowPhase::NestedSeed &&
-                        window->route == 0u) ||
-                       (window->phase == BackendWindowPhase::NestedAction &&
-                        window->inner_iteration < window->inner_bound &&
-                        window->route == 0u &&
-                        window->inner_advance ==
-                            (entries[entry_index].transducer ==
-                                     NoTileTransducer
-                                 ? 1u
-                                 : 0u)) ||
-                       (window->phase == BackendWindowPhase::NestedFold &&
-                        window->route < 3u &&
-                        (window->inner_advance == 0u ||
-                         window->inner_advance == window->inner_bound))));
+          !nested ||
+          (window->outer_bound != 0u &&
+           window->outer_iteration < window->outer_bound &&
+           ((window->phase == BackendWindowPhase::NestedSeed &&
+             window->route == 0u) ||
+            (window->phase == BackendWindowPhase::NestedAction &&
+             window->inner_bound != 0u &&
+             window->inner_iteration < window->inner_bound &&
+             window->route == 0u &&
+             window->inner_advance ==
+                 (entries[entry_index].transducer == NoTileTransducer ? 1u
+                                                                      : 0u)) ||
+            (window->phase == BackendWindowPhase::NestedFold &&
+             window->route < 3u &&
+             (window->inner_advance == 0u ||
+              window->inner_advance == window->inner_bound))));
       const std::uint32_t template_index = entries[entry_index].template_index;
       VulkanResidentBufferResult count = ResolveVulkanResidentBuffer(
           resident, window->count.source, window->count.handle,

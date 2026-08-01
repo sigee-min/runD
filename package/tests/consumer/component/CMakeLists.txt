@@ -6,8 +6,13 @@ if(NOT DEFINED RUND_EXPECTED_PACKAGE_DIR OR
   message(FATAL_ERROR
     "component probe requires the freshly installed package directory")
 endif()
+if(NOT DEFINED RUND_EXPECTED_SDK_VERSION OR
+   RUND_EXPECTED_SDK_VERSION STREQUAL "")
+  message(FATAL_ERROR "component probe requires the expected SDK version")
+endif()
 
-find_package(runD 1.0.1 EXACT CONFIG QUIET COMPONENTS unsupported)
+find_package(runD ${RUND_EXPECTED_SDK_VERSION} EXACT CONFIG QUIET
+             COMPONENTS unsupported)
 if(runD_FOUND)
   message(FATAL_ERROR "runD unexpectedly accepted an unsupported component")
 endif()

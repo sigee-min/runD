@@ -88,6 +88,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/backend.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/binding.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/chunk.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/completion.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/empty.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/sealed.cpp|compute.pipeline"
@@ -111,6 +112,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/freeze.cpp|compute.window"
   "tests/contract/compute/window/matrix.cpp|compute.window"
   "tests/contract/compute/window/nested.cpp|compute.window"
+  "tests/contract/compute/window/output.cpp|compute.window"
   "tests/contract/compute/window/parity.cpp|compute.window"
   "tests/contract/compute/window/plan.cpp|compute.window"
   "tests/contract/compute/window/terminal.cpp|compute.window"
@@ -204,6 +206,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/backend.cpp
   tests/contract/compute/pipeline/binding.cpp
   tests/contract/compute/pipeline/chunk.cpp
+  tests/contract/compute/pipeline/checkpoint.cpp
   tests/contract/compute/pipeline/completion.cpp
   tests/contract/compute/pipeline/empty.cpp
   tests/contract/compute/pipeline/sealed.cpp
@@ -228,6 +231,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/freeze.cpp
   tests/contract/compute/window/matrix.cpp
   tests/contract/compute/window/nested.cpp
+  tests/contract/compute/window/output.cpp
   tests/contract/compute/window/parity.cpp
   tests/contract/compute/window/plan.cpp
   tests/contract/compute/window/terminal.cpp

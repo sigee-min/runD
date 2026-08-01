@@ -4,6 +4,7 @@ list(APPEND NODE_SOURCES
   src/accel/metal/buffer/ownership.cpp
   src/accel/metal/buffer/pool.mm
   src/accel/metal/buffer/resident/batch.cpp
+  src/accel/metal/buffer/resident/copy.mm
   src/accel/metal/buffer/resident/create.mm
   src/accel/metal/buffer/resident/download.mm
   src/accel/metal/buffer/resident/lookup.mm

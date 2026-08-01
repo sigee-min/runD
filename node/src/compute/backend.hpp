@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../accel/backend/result.hpp"
 #include "../accel/kernel/prepared.hpp"
 #include "device/state.hpp"
 
@@ -46,6 +47,11 @@ struct UploadResult final {
   std::uint64_t command_submits{};
 };
 
+struct CopyResult final {
+  Status status{Status::success()};
+  std::uint64_t command_submits{};
+};
+
 struct UploadRequest final {
   BufferState *buffer = nullptr;
   const void *data = nullptr;
@@ -59,17 +65,26 @@ struct DownloadRequest final {
   std::uint64_t *payload_hash = nullptr;
 };
 
+struct CopyRequest final {
+  const BufferState *source = nullptr;
+  BufferState *target = nullptr;
+  std::size_t bytes = 0u;
+};
+
 struct DeviceOps final {
   Status (*allocate)(DeviceState &, BufferState &, std::size_t, std::size_t,
                      bool) = nullptr;
   Status (*upload)(DeviceState &, BufferState &, const void *,
                    std::size_t) = nullptr;
-  UploadResult (*upload_batch)(DeviceState &,
-                               std::span<const UploadRequest>) = nullptr;
+  UploadResult (*upload_batch)(DeviceState &, std::span<const UploadRequest>,
+                               node::accel::detail::TransferCompletion) =
+      nullptr;
   DownloadResult (*download)(DeviceState &, const BufferState &, void *,
                              std::size_t) = nullptr;
   DownloadResult (*download_batch)(DeviceState &,
                                    std::span<const DownloadRequest>) = nullptr;
+  CopyResult (*copy_batch)(DeviceState &,
+                           std::span<const CopyRequest>) = nullptr;
   Status (*compile)(DeviceState &, AccelProgram &,
                     const rund::AccelGraph &) = nullptr;
   node::accel::detail::KernelScratchPlan (*plan_scratch)(

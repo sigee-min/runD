@@ -155,16 +155,16 @@ The versioned
 [Quick Start](https://sigee-min.github.io/runD/docs/start/) is the public
 integration authority. The compact path below previews its verified Darwin
 ARM64 installation. Download these three adjacent files from
-[Releases](https://github.com/sigee-min/runD/releases/tag/1.0.1):
+[Releases](https://github.com/sigee-min/runD/releases/tag/1.0.2):
 
 Before continuing, check the exact native dependency tuple in the Quick Start.
-The 1.0.1 release does not bundle MoltenVK or publish a versioned Homebrew tap,
+The 1.0.2 release does not bundle MoltenVK or publish a versioned Homebrew tap,
 so current unversioned formulas are not a substitute when their versions have
 moved past the sealed artifact identity.
 
 ```text
-rund-sdk-1.0.1-darwin-arm64.tar.gz
-rund-sdk-1.0.1-darwin-arm64.sha256
+rund-sdk-1.0.2-darwin-arm64.tar.gz
+rund-sdk-1.0.2-darwin-arm64.sha256
 rund-verify
 ```
 
@@ -173,8 +173,8 @@ Verify the sealed producer tuple and install the SDK:
 ```sh
 chmod +x ./rund-verify
 sh ./rund-verify \
-  ./rund-sdk-1.0.1-darwin-arm64.tar.gz \
-  ./rund-sdk-1.0.1-darwin-arm64.sha256 \
+  ./rund-sdk-1.0.2-darwin-arm64.tar.gz \
+  ./rund-sdk-1.0.2-darwin-arm64.sha256 \
   "$PWD"
 ```
 
@@ -184,7 +184,7 @@ Link the single public target:
 cmake_minimum_required(VERSION 3.20)
 project(example LANGUAGES CXX)
 
-find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.2 EXACT CONFIG REQUIRED)
 
 add_executable(example main.cpp)
 target_link_libraries(example PRIVATE runD::sdk)
@@ -192,7 +192,7 @@ target_link_libraries(example PRIVATE runD::sdk)
 
 ```sh
 cmake -S . -B build \
-  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.1-darwin-arm64"
+  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.2-darwin-arm64"
 cmake --build build
 ./build/example
 ```
@@ -215,7 +215,7 @@ or presentation floating point cannot feed authoritative state.
 
 ## Alpha platform status
 
-`1.0.1` is the current public alpha; `1.0.0` was the first. The SDK surface and
+`1.0.2` is the current public alpha; `1.0.0` was the first. The SDK surface and
 deterministic contracts are tested, but compatibility may change before a
 stable release.
 

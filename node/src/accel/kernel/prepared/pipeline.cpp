@@ -48,7 +48,7 @@ nested_shape(const std::span<const BackendBatchEntry> templates,
   const BackendWindow *const first_window = templates[first].recurrence.window;
   if (first_window == nullptr ||
       first_window->phase != BackendWindowPhase::NestedSeed ||
-      first_window->outer_bound == 0u || first_window->inner_bound == 0u) {
+      first_window->outer_bound == 0u) {
     return false;
   }
   outer_bound = first_window->outer_bound;
@@ -348,16 +348,29 @@ PrepareKernelPipeline(const rund::AccelContext &context,
   }
   for (const BackendPublish &publication : publications) {
     const auto &target = publication.target;
+    const bool window = publication.kind == BackendPublishKind::Window;
     if (publication.target_handle == nullptr ||
         publication.state >= state_count ||
-        publication.final >= publication.sources.size() ||
+        (!window && publication.final >= publication.sources.size()) ||
+        (window &&
+         (publication.maximum == 0u || publication.tile == 0u ||
+          publication.tile > publication.maximum ||
+          target.count != publication.maximum ||
+          publication.count.handle == nullptr ||
+          publication.count.source.count != 1u ||
+          publication.count.source.element_bytes != sizeof(std::uint32_t) ||
+          publication.count.source.stride_bytes < sizeof(std::uint32_t) ||
+          publication.count.source.usage !=
+              rund::kernel::kResidentUsageRead)) ||
+        (!window && (publication.maximum != 0u || publication.tile != 0u)) ||
         target.stride_bytes < target.element_bytes ||
         target.usage != rund::kernel::kResidentUsageWrite) {
       return PreparedKernelPipeline{.reason = invalid.reason};
     }
     for (const BackendRead &read : publication.sources) {
       const auto &source = read.source;
-      if (read.handle == nullptr || source.count != target.count ||
+      if (read.handle == nullptr ||
+          source.count != (window ? publication.tile : target.count) ||
           source.element_bytes != target.element_bytes ||
           (source.element_bytes != 4u && source.element_bytes != 8u) ||
           source.stride_bytes < source.element_bytes ||

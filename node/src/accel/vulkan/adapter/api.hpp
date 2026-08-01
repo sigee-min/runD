@@ -240,11 +240,16 @@ LookupVulkanResidentBuffer(const rund::AccelDevice &pick,
 
 [[nodiscard]] BackendUpload
 UploadVulkanResidentBuffers(const rund::AccelDevice &pick,
-                            std::span<const UploadRoute> requests);
+                            std::span<const UploadRoute> requests,
+                            TransferCompletion completion);
 
 [[nodiscard]] BackendDownload
 DownloadVulkanResidentBuffers(const rund::AccelDevice &pick,
                               std::span<const DownloadRoute> requests);
+
+[[nodiscard]] BackendCopy
+CopyVulkanResidentBuffers(const rund::AccelDevice &pick,
+                          std::span<const CopyRoute> requests);
 
 [[nodiscard]] rund::RuntimeStats
 ReadVulkanRuntimeStats(const rund::AccelDevice &pick);

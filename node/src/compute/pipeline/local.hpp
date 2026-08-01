@@ -67,6 +67,10 @@ consume_cpu_pipeline_step(PipelineState &state, std::size_t index,
                                        CpuView &view) noexcept;
 void reset_cpu_resident(PipelineState &state) noexcept;
 [[nodiscard]] Status publish_cpu_pipeline(PipelineState &state) noexcept;
+[[nodiscard]] Status publish_cpu_pipeline_window(PipelineState &state,
+                                                 std::uint16_t window,
+                                                 std::size_t outer,
+                                                 bool &wrote) noexcept;
 [[nodiscard]] std::uint64_t
 cpu_program_status_entries(const ProgramState &program) noexcept;
 void reset_pipeline_profile(PipelineState &state) noexcept;
@@ -105,15 +109,16 @@ begin_pipeline_step(const std::shared_ptr<PipelineState> &state,
 [[nodiscard]] Status
 complete_pipeline_step(const std::shared_ptr<PipelineState> &state,
                        std::size_t index, Status result) noexcept;
-[[nodiscard]] Status initialize_cpu_pipeline_schedule(
-    const std::shared_ptr<PipelineState> &state,
-    CpuPipelineSchedule &schedule) noexcept;
-[[nodiscard]] CpuPipelineSelection select_cpu_pipeline_step(
-    const std::shared_ptr<PipelineState> &state,
-    CpuPipelineSchedule &schedule) noexcept;
-[[nodiscard]] Status complete_cpu_pipeline_schedule_step(
-    const std::shared_ptr<PipelineState> &state,
-    CpuPipelineSchedule &schedule, Status result) noexcept;
+[[nodiscard]] Status
+initialize_cpu_pipeline_schedule(const std::shared_ptr<PipelineState> &state,
+                                 CpuPipelineSchedule &schedule) noexcept;
+[[nodiscard]] CpuPipelineSelection
+select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
+                         CpuPipelineSchedule &schedule) noexcept;
+[[nodiscard]] Status
+complete_cpu_pipeline_schedule_step(const std::shared_ptr<PipelineState> &state,
+                                    CpuPipelineSchedule &schedule,
+                                    Status result) noexcept;
 [[nodiscard]] Status
 complete_cpu_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
@@ -123,9 +128,9 @@ submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
 [[nodiscard]] Status finish_pipeline_on(
     const std::shared_ptr<PipelineState> &state,
     node::accel::detail::PreparedPipelineEvidence &&evidence) noexcept;
-[[nodiscard]] Status
-seed_pipeline_generations(PipelineState &state,
-                          std::uint64_t generation) noexcept;
+[[nodiscard]] Status seed_pipeline_generations(PipelineState &state,
+                                               std::uint64_t generation,
+                                               std::uint8_t parity) noexcept;
 [[nodiscard]] bool rebase_failed_pipeline_generation(PipelineState &state,
                                                      bool submitted,
                                                      Reason failure) noexcept;

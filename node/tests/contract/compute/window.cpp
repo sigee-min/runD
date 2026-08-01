@@ -19,6 +19,7 @@ using rund::node::test_contract::window::CheckResidentWorkset;
 using rund::node::test_contract::window::CheckWindowChain;
 using rund::node::test_contract::window::CheckWindowFreeze;
 using rund::node::test_contract::window::CheckWindowMatrix;
+using rund::node::test_contract::window::CheckWindowOutput;
 using rund::node::test_contract::window::CheckWindowTerminal;
 using rund::node::test_contract::window::Identity;
 
@@ -62,6 +63,11 @@ using rund::node::test_contract::window::Identity;
       terminal != 0) {
     return 180 + terminal;
   }
+  if (const int output =
+          CheckWindowOutput(*opened, backend, identity.window_output);
+      output != 0) {
+    return 200 + output;
+  }
   if (const int workset = CheckResidentWorkset(*opened, backend);
       workset != 0) {
     return 220 + workset;
@@ -90,7 +96,17 @@ int RunComputeWindowContract() {
                  identity.output64 != 0u && identity.matrix.body &&
                  identity.matrix.pipeline && identity.matrix.output != 0u &&
                  identity.terminal.body && identity.terminal.pipeline &&
-                 identity.terminal.output != 0u
+                 identity.terminal.output != 0u &&
+                 identity.window_output.seed && identity.window_output.fold &&
+                 identity.window_output.pipeline &&
+                 identity.window_output.output != 0u &&
+                 identity.window_output.high_index_fold &&
+                 identity.window_output.high_index_pipeline &&
+                 identity.window_output.high_index_output != 0u &&
+                 identity.window_output.scatter_seed &&
+                 identity.window_output.scatter_fold &&
+                 identity.window_output.scatter_pipeline &&
+                 identity.window_output.scatter_output != 0u
              ? 0
              : 1;
 }

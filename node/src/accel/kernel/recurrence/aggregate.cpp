@@ -657,7 +657,8 @@ PublicationFor(const std::span<const BackendPublish> publications,
                std::uint32_t &index) noexcept {
   std::uint32_t found = NoNode;
   for (std::size_t current = 0u; current < publications.size(); ++current) {
-    if (publications[current].state != window.state) {
+    if (publications[current].state != window.state ||
+        publications[current].kind != BackendPublishKind::Terminal) {
       continue;
     }
     if (found != NoNode || current >= NoNode) {

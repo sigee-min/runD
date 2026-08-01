@@ -7,6 +7,16 @@ const root = resolve(import.meta.dirname, "..");
 const failures = [];
 const sourceByPage = new Map();
 const repositoryRoot = resolve(root, "..");
+const packageVersionAuthority = await readFile(
+  resolve(repositoryRoot, "cmake/root/package.cmake"),
+  "utf8",
+);
+const packageVersion = packageVersionAuthority.match(
+  /set\(RUND_PACKAGE_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)/,
+)?.[1];
+if (!packageVersion) {
+  failures.push("cmake/root/package.cmake: package version authority is invalid");
+}
 const stylePath = resolve(root, "public/assets/styles.css");
 const styles = await readFile(stylePath, "utf8");
 const siteScriptPath = resolve(root, "public/assets/site.js");
@@ -67,8 +77,7 @@ if (!syntax) {
     {
       language: "cmake",
       label: "CMakeLists.txt",
-      source:
-        "find_package(runD 1.0.1 EXACT CONFIG REQUIRED)\ntarget_link_libraries(app PRIVATE runD::sdk)",
+      source: `find_package(runD ${packageVersion} EXACT CONFIG REQUIRED)\ntarget_link_libraries(app PRIVATE runD::sdk)`,
       types: ["function", "number", "keyword", "namespace"],
     },
     {
@@ -140,7 +149,7 @@ for (const page of requiredPages) {
   if (!header) {
     failures.push(`${page}: missing global header`);
   } else {
-    if (!header.includes('<span class="brand-version">1.0.1 Alpha</span>')) {
+    if (!header.includes(`<span class="brand-version">${packageVersion} Alpha</span>`)) {
       failures.push(`${page}: global header has a divergent brand version`);
     }
     if (!header.includes('class="brand" href="/runD/" aria-label="runD home"')) {
@@ -291,6 +300,21 @@ for (const [page, header, example] of [
   }
   if (!html.includes(`data-source="package/tests/consumer/example/${example}"`)) {
     failures.push(`${page}: missing checked source for <${header}>`);
+  }
+}
+
+const computePage = sourceByPage.get("docs/compute/index.html");
+for (const checkpointOrWindowApi of [
+  "tile_repeat&lt;0u&gt;",
+  "write_window",
+  "LatestDeviceState",
+  "SnapshotStorage",
+  "snapshot_into",
+]) {
+  if (!computePage.includes(checkpointOrWindowApi)) {
+    failures.push(
+      `docs/compute/index.html: missing Pipeline boundary API ${checkpointOrWindowApi}`,
+    );
   }
 }
 

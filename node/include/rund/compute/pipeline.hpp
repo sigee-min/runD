@@ -28,11 +28,15 @@ namespace rund::compute {
 
 class Pipeline;
 class PipelineBuilder;
+class LatestDeviceState;
+class SnapshotStorage;
 class StateSnapshot;
 
 namespace detail {
 
 struct HostFeedbackAccess;
+struct PipelinePublicationState;
+struct SnapshotStorageState;
 struct PipelineStateAccess;
 
 struct DeviceAccess final {
@@ -48,6 +52,63 @@ struct ProgramAccess final {
   state(const Program<Signature> &program) noexcept {
     return program.state_;
   }
+};
+
+template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+          std::size_t N, class SeedSignature, class ActionSignature,
+          class FoldSignature, class Inputs, class Finals, class Windows>
+struct TileRepeatWindowBindingContract : std::false_type {
+  static constexpr bool valid = false;
+};
+
+template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+          std::size_t N, class SeedSignature, class ActionSignature,
+          class FoldSignature, class... I, class... O, class... W>
+  requires(N != 0u && !std::is_void_v<ActionSignature>)
+struct TileRepeatWindowBindingContract<
+    Max, Tile, Terminal, N, SeedSignature, ActionSignature, FoldSignature,
+    TypeList<I...>, TypeList<O...>, TypeList<W...>>
+    final {
+  static constexpr bool valid =
+      Max != 0u && Tile != 0u && Tile <= Max &&
+      Max / Tile + (Max % Tile == 0u ? 0u : 1u) <= PipelineIterationCapacity &&
+      N != 0u && N <= PipelineInnerIterationCapacity &&
+      TileWindowContract<SeedSignature, ActionSignature, FoldSignature,
+                         TypeList<O...>, TypeList<W...>>::valid &&
+      std::is_same_v<
+          TypeList<I...>,
+          typename Join<TypeList<O...>,
+                        typename TileRepeatContract<
+                            SeedSignature, ActionSignature,
+                            FoldSignature>::SeedExternalInputs>::type> &&
+      (Terminal == NoWindowTerminal ||
+       (Terminal < sizeof...(O) && U32At<Terminal, TypeList<O...>>::value));
+};
+
+template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+          class SeedSignature, class FoldSignature, class Inputs, class Finals,
+          class Windows>
+struct TileFoldWindowBindingContract : std::false_type {};
+
+template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+          class SeedSignature, class FoldSignature, class... I, class... O,
+          class... W>
+struct TileFoldWindowBindingContract<Max, Tile, Terminal, SeedSignature,
+                                     FoldSignature, TypeList<I...>,
+                                     TypeList<O...>, TypeList<W...>>
+    final {
+  static constexpr bool valid =
+      Max != 0u && Tile != 0u && Tile <= Max &&
+      Max / Tile + (Max % Tile == 0u ? 0u : 1u) <= PipelineIterationCapacity &&
+      TileWindowFoldContract<SeedSignature, FoldSignature, TypeList<O...>,
+                             TypeList<W...>>::valid &&
+      std::is_same_v<
+          TypeList<I...>,
+          typename Join<TypeList<O...>, typename TileFoldContract<
+                                            SeedSignature, FoldSignature>::
+                                            SeedExternalInputs>::type> &&
+      (Terminal == NoWindowTerminal ||
+       (Terminal < sizeof...(O) && U32At<Terminal, TypeList<O...>>::value));
 };
 
 [[nodiscard]] std::shared_ptr<PipelineBuildState>
@@ -79,9 +140,11 @@ void append_pipeline_window_repeat(
     const std::shared_ptr<ProgramState> &seed,
     const std::shared_ptr<ProgramState> &action,
     const std::shared_ptr<ProgramState> &fold, const ResourceView &resident,
-    std::span<const ResourceView> inputs, std::span<const ResourceView> outputs,
-    std::size_t maximum, std::size_t tile, std::size_t inner,
-    std::size_t terminal, std::uint32_t expected) noexcept;
+    std::span<const ResourceView> inputs,
+    std::span<const ResourceView> final_outputs,
+    std::span<const ResourceView> window_outputs, std::size_t maximum,
+    std::size_t tile, std::size_t inner, std::size_t terminal,
+    std::uint32_t expected) noexcept;
 void append_pipeline_state(const std::shared_ptr<PipelineBuildState> &build,
                            const std::shared_ptr<BufferState> &published,
                            const std::shared_ptr<BufferState> &pending,
@@ -96,6 +159,12 @@ void commit_pipeline(const std::shared_ptr<PipelineBuildState> &build) noexcept;
 void seed_pipeline(
     const std::shared_ptr<PipelineBuildState> &build,
     const std::shared_ptr<StateSnapshotState> &snapshot) noexcept;
+void seed_pipeline(
+    const std::shared_ptr<PipelineBuildState> &build,
+    const std::shared_ptr<PipelinePublicationState> &publication) noexcept;
+void seed_pipeline(
+    const std::shared_ptr<PipelineBuildState> &build,
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
 [[nodiscard]] Result<std::shared_ptr<PipelineState>>
 prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept;
 [[nodiscard]] Result<PipelinePlan>
@@ -112,6 +181,8 @@ poisoned_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Stats
 pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] CheckpointStats
+pipeline_checkpoint_stats(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] MemoryStats
 pipeline_memory(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] MemorySnapshot
@@ -126,9 +197,23 @@ pipeline_fingerprint(const std::shared_ptr<PipelineState> &state) noexcept;
 pipeline_generation(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Result<std::shared_ptr<StateSnapshotState>>
 snapshot_pipeline_state(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Result<std::shared_ptr<PipelinePublicationState>>
+latest_pipeline_state(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Result<std::shared_ptr<SnapshotStorageState>>
+make_snapshot_storage(const std::shared_ptr<PipelineState> &state,
+                      std::size_t byte_capacity, bool exact) noexcept;
+[[nodiscard]] Status snapshot_pipeline_into(
+    const std::shared_ptr<PipelineState> &state,
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
 [[nodiscard]] Status restore_pipeline_state(
     const std::shared_ptr<PipelineState> &state,
     const std::shared_ptr<StateSnapshotState> &snapshot) noexcept;
+[[nodiscard]] Status restore_pipeline_state(
+    const std::shared_ptr<PipelineState> &state,
+    const std::shared_ptr<PipelinePublicationState> &publication) noexcept;
+[[nodiscard]] Status restore_pipeline_state(
+    const std::shared_ptr<PipelineState> &state,
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
 [[nodiscard]] bool
 snapshot_valid(const std::shared_ptr<StateSnapshotState> &snapshot) noexcept;
 [[nodiscard]] std::uint64_t snapshot_generation(
@@ -137,6 +222,26 @@ snapshot_valid(const std::shared_ptr<StateSnapshotState> &snapshot) noexcept;
     const std::shared_ptr<StateSnapshotState> &snapshot) noexcept;
 [[nodiscard]] std::uint64_t
 snapshot_hash(const std::shared_ptr<StateSnapshotState> &snapshot) noexcept;
+[[nodiscard]] bool latest_state_valid(
+    const std::shared_ptr<PipelinePublicationState> &publication) noexcept;
+[[nodiscard]] std::uint64_t latest_state_generation(
+    const std::shared_ptr<PipelinePublicationState> &publication) noexcept;
+[[nodiscard]] graph::Fingerprint latest_state_fingerprint(
+    const std::shared_ptr<PipelinePublicationState> &publication) noexcept;
+[[nodiscard]] bool snapshot_storage_valid(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
+[[nodiscard]] bool snapshot_storage_has_snapshot(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
+[[nodiscard]] std::uint64_t snapshot_storage_generation(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
+[[nodiscard]] graph::Fingerprint snapshot_storage_fingerprint(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
+[[nodiscard]] std::uint64_t snapshot_storage_hash(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
+[[nodiscard]] std::size_t snapshot_storage_capacity(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
+[[nodiscard]] std::size_t snapshot_storage_field_capacity(
+    const std::shared_ptr<SnapshotStorageState> &storage) noexcept;
 [[nodiscard]] Status
 read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
                   const std::shared_ptr<BufferState> &buffer, Type type,
@@ -175,6 +280,72 @@ private:
   std::shared_ptr<detail::StateSnapshotState> state_;
 };
 
+class LatestDeviceState final {
+public:
+  LatestDeviceState(const LatestDeviceState &) noexcept = default;
+  LatestDeviceState &operator=(const LatestDeviceState &) noexcept = default;
+  LatestDeviceState(LatestDeviceState &&) noexcept = default;
+  LatestDeviceState &operator=(LatestDeviceState &&) noexcept = default;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return detail::latest_state_valid(state_);
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
+  [[nodiscard]] std::uint64_t generation() const noexcept {
+    return detail::latest_state_generation(state_);
+  }
+  [[nodiscard]] graph::Fingerprint fingerprint() const noexcept {
+    return detail::latest_state_fingerprint(state_);
+  }
+
+private:
+  friend class Pipeline;
+  friend class PipelineBuilder;
+  explicit LatestDeviceState(
+      std::shared_ptr<detail::PipelinePublicationState> state) noexcept
+      : state_(std::move(state)) {}
+  std::shared_ptr<detail::PipelinePublicationState> state_;
+};
+
+class SnapshotStorage final {
+public:
+  SnapshotStorage(const SnapshotStorage &) = delete;
+  SnapshotStorage &operator=(const SnapshotStorage &) = delete;
+  SnapshotStorage(SnapshotStorage &&) noexcept = default;
+  SnapshotStorage &operator=(SnapshotStorage &&) noexcept = default;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return detail::snapshot_storage_valid(state_);
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
+  [[nodiscard]] bool has_snapshot() const noexcept {
+    return detail::snapshot_storage_has_snapshot(state_);
+  }
+  [[nodiscard]] std::uint64_t generation() const noexcept {
+    return detail::snapshot_storage_generation(state_);
+  }
+  [[nodiscard]] graph::Fingerprint fingerprint() const noexcept {
+    return detail::snapshot_storage_fingerprint(state_);
+  }
+  [[nodiscard]] std::uint64_t hash() const noexcept {
+    return detail::snapshot_storage_hash(state_);
+  }
+  [[nodiscard]] std::size_t capacity() const noexcept {
+    return detail::snapshot_storage_capacity(state_);
+  }
+  [[nodiscard]] std::size_t field_capacity() const noexcept {
+    return detail::snapshot_storage_field_capacity(state_);
+  }
+
+private:
+  friend class Pipeline;
+  friend class PipelineBuilder;
+  explicit SnapshotStorage(
+      std::shared_ptr<detail::SnapshotStorageState> state) noexcept
+      : state_(std::move(state)) {}
+  std::shared_ptr<detail::SnapshotStorageState> state_;
+};
+
 class Pipeline final {
 public:
   Pipeline(const Pipeline &) = delete;
@@ -192,6 +363,9 @@ public:
   [[nodiscard]] Status run() noexcept { return detail::run_pipeline(state_); }
   [[nodiscard]] Stats stats() const noexcept {
     return detail::pipeline_stats(state_);
+  }
+  [[nodiscard]] CheckpointStats checkpoint_stats() const noexcept {
+    return detail::pipeline_checkpoint_stats(state_);
   }
   [[nodiscard]] MemoryStats memory() const noexcept {
     return detail::pipeline_memory(state_);
@@ -223,6 +397,40 @@ public:
   }
   [[nodiscard]] Status restore(const StateSnapshot &snapshot) noexcept {
     return detail::restore_pipeline_state(state_, snapshot.state_);
+  }
+  [[nodiscard]] Result<LatestDeviceState> latest_device_state() const noexcept {
+    auto latest = detail::latest_pipeline_state(state_);
+    if (!latest) {
+      return Result<LatestDeviceState>::fail(latest.reason());
+    }
+    return Result<LatestDeviceState>::success(
+        LatestDeviceState{std::move(latest).value()});
+  }
+  [[nodiscard]] Result<SnapshotStorage> snapshot_storage() const noexcept {
+    auto storage = detail::make_snapshot_storage(state_, 0u, true);
+    if (!storage) {
+      return Result<SnapshotStorage>::fail(storage.reason());
+    }
+    return Result<SnapshotStorage>::success(
+        SnapshotStorage{std::move(storage).value()});
+  }
+  [[nodiscard]] Result<SnapshotStorage>
+  snapshot_storage(const std::size_t byte_capacity) const noexcept {
+    auto storage = detail::make_snapshot_storage(state_, byte_capacity, false);
+    if (!storage) {
+      return Result<SnapshotStorage>::fail(storage.reason());
+    }
+    return Result<SnapshotStorage>::success(
+        SnapshotStorage{std::move(storage).value()});
+  }
+  [[nodiscard]] Status snapshot_into(SnapshotStorage &storage) const noexcept {
+    return detail::snapshot_pipeline_into(state_, storage.state_);
+  }
+  [[nodiscard]] Status restore(const LatestDeviceState &latest) noexcept {
+    return detail::restore_pipeline_state(state_, latest.state_);
+  }
+  [[nodiscard]] Status restore(const SnapshotStorage &storage) noexcept {
+    return detail::restore_pipeline_state(state_, storage.state_);
   }
 
   template <class T>
@@ -508,27 +716,10 @@ public:
   template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
             std::size_t N, class SeedSignature, class ActionSignature,
             class FoldSignature, class... I, class... O>
-    requires(
-        Max != 0u && Tile != 0u && Tile <= Max &&
-        (Max + Tile - 1u) / Tile <= PipelineIterationCapacity && N != 0u &&
-        N <= PipelineInnerIterationCapacity &&
-        detail::TileRepeatContract<SeedSignature, ActionSignature,
-                                   FoldSignature>::valid &&
-        std::is_same_v<
-            detail::TypeList<I...>,
-            typename detail::Join<
-                typename detail::TileRepeatContract<
-                    SeedSignature, ActionSignature, FoldSignature>::FoldOutputs,
-                typename detail::TileRepeatContract<
-                    SeedSignature, ActionSignature,
-                    FoldSignature>::SeedExternalInputs>::type> &&
-        std::is_same_v<
-            detail::TypeList<O...>,
-            typename detail::TileRepeatContract<SeedSignature, ActionSignature,
-                                                FoldSignature>::FoldOutputs> &&
-        (Terminal == NoWindowTerminal ||
-         (Terminal < sizeof...(O) &&
-          detail::U32At<Terminal, detail::TypeList<O...>>::value)))
+    requires detail::TileRepeatWindowBindingContract<
+        Max, Tile, Terminal, N, SeedSignature, ActionSignature, FoldSignature,
+        detail::TypeList<I...>, detail::TypeList<O...>,
+        detail::TypeList<>>::valid
   PipelineBuilder &windows(
       const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
       const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
@@ -537,41 +728,138 @@ public:
         state_, detail::ProgramAccess::state(body.seed_),
         detail::ProgramAccess::state(body.action_),
         detail::ProgramAccess::state(body.fold_), resident.count_,
-        inputs.views_, outputs.views_, Max, Tile, N, Terminal,
-        resident.expected_);
+        inputs.views_, outputs.views_, std::span<const detail::ResourceView>{},
+        Max, Tile, N, Terminal, resident.expected_);
+    return *this;
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            std::size_t N, class SeedSignature, class ActionSignature,
+            class FoldSignature, class... I, class... O, class... W>
+    requires(sizeof...(W) != 0u &&
+             detail::TileRepeatWindowBindingContract<
+                 Max, Tile, Terminal, N, SeedSignature, ActionSignature,
+                 FoldSignature, detail::TypeList<I...>, detail::TypeList<O...>,
+                 detail::TypeList<W...>>::valid)
+  PipelineBuilder &windows(
+      const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
+      const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+      detail::WriteFinalPack<O...> outputs,
+      detail::WriteWindowPack<W...> window_outputs) & noexcept {
+    detail::append_pipeline_window_repeat(
+        state_, detail::ProgramAccess::state(body.seed_),
+        detail::ProgramAccess::state(body.action_),
+        detail::ProgramAccess::state(body.fold_), resident.count_,
+        inputs.views_, outputs.views_, window_outputs.views_, Max, Tile, N,
+        Terminal, resident.expected_);
     return *this;
   }
 
   template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
             std::size_t N, class SeedSignature, class ActionSignature,
             class FoldSignature, class... I, class... O>
-    requires(
-        Max != 0u && Tile != 0u && Tile <= Max &&
-        (Max + Tile - 1u) / Tile <= PipelineIterationCapacity && N != 0u &&
-        N <= PipelineInnerIterationCapacity &&
-        detail::TileRepeatContract<SeedSignature, ActionSignature,
-                                   FoldSignature>::valid &&
-        std::is_same_v<
-            detail::TypeList<I...>,
-            typename detail::Join<
-                typename detail::TileRepeatContract<
-                    SeedSignature, ActionSignature, FoldSignature>::FoldOutputs,
-                typename detail::TileRepeatContract<
-                    SeedSignature, ActionSignature,
-                    FoldSignature>::SeedExternalInputs>::type> &&
-        std::is_same_v<
-            detail::TypeList<O...>,
-            typename detail::TileRepeatContract<SeedSignature, ActionSignature,
-                                                FoldSignature>::FoldOutputs> &&
-        (Terminal == NoWindowTerminal ||
-         (Terminal < sizeof...(O) &&
-          detail::U32At<Terminal, detail::TypeList<O...>>::value)))
+    requires detail::TileRepeatWindowBindingContract<
+        Max, Tile, Terminal, N, SeedSignature, ActionSignature, FoldSignature,
+        detail::TypeList<I...>, detail::TypeList<O...>,
+        detail::TypeList<>>::valid
   PipelineBuilder &&windows(
       const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
       const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
       detail::WriteFinalPack<O...> outputs) && noexcept {
     static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
         body, resident, std::move(inputs), std::move(outputs));
+    return std::move(*this);
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            std::size_t N, class SeedSignature, class ActionSignature,
+            class FoldSignature, class... I, class... O, class... W>
+    requires(sizeof...(W) != 0u &&
+             detail::TileRepeatWindowBindingContract<
+                 Max, Tile, Terminal, N, SeedSignature, ActionSignature,
+                 FoldSignature, detail::TypeList<I...>, detail::TypeList<O...>,
+                 detail::TypeList<W...>>::valid)
+  PipelineBuilder &&windows(
+      const TileRepeat<N, SeedSignature, ActionSignature, FoldSignature> &body,
+      const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+      detail::WriteFinalPack<O...> outputs,
+      detail::WriteWindowPack<W...> window_outputs) && noexcept {
+    static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
+        body, resident, std::move(inputs), std::move(outputs),
+        std::move(window_outputs));
+    return std::move(*this);
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            class SeedSignature, class FoldSignature, class... I, class... O>
+    requires detail::TileFoldWindowBindingContract<
+        Max, Tile, Terminal, SeedSignature, FoldSignature,
+        detail::TypeList<I...>, detail::TypeList<O...>,
+        detail::TypeList<>>::valid
+  PipelineBuilder &
+  windows(const TileRepeat<0u, SeedSignature, void, FoldSignature> &body,
+          const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+          detail::WriteFinalPack<O...> outputs) & noexcept {
+    detail::append_pipeline_window_repeat(
+        state_, detail::ProgramAccess::state(body.seed_), {},
+        detail::ProgramAccess::state(body.fold_), resident.count_,
+        inputs.views_, outputs.views_, std::span<const detail::ResourceView>{},
+        Max, Tile, 0u, Terminal, resident.expected_);
+    return *this;
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            class SeedSignature, class FoldSignature, class... I, class... O,
+            class... W>
+    requires(sizeof...(W) != 0u &&
+             detail::TileFoldWindowBindingContract<
+                 Max, Tile, Terminal, SeedSignature, FoldSignature,
+                 detail::TypeList<I...>, detail::TypeList<O...>,
+                 detail::TypeList<W...>>::valid)
+  PipelineBuilder &
+  windows(const TileRepeat<0u, SeedSignature, void, FoldSignature> &body,
+          const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+          detail::WriteFinalPack<O...> outputs,
+          detail::WriteWindowPack<W...> window_outputs) & noexcept {
+    detail::append_pipeline_window_repeat(
+        state_, detail::ProgramAccess::state(body.seed_), {},
+        detail::ProgramAccess::state(body.fold_), resident.count_,
+        inputs.views_, outputs.views_, window_outputs.views_, Max, Tile, 0u,
+        Terminal, resident.expected_);
+    return *this;
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            class SeedSignature, class FoldSignature, class... I, class... O>
+    requires detail::TileFoldWindowBindingContract<
+        Max, Tile, Terminal, SeedSignature, FoldSignature,
+        detail::TypeList<I...>, detail::TypeList<O...>,
+        detail::TypeList<>>::valid
+  PipelineBuilder &&
+  windows(const TileRepeat<0u, SeedSignature, void, FoldSignature> &body,
+          const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+          detail::WriteFinalPack<O...> outputs) && noexcept {
+    static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
+        body, resident, std::move(inputs), std::move(outputs));
+    return std::move(*this);
+  }
+
+  template <std::size_t Max, std::size_t Tile, std::size_t Terminal,
+            class SeedSignature, class FoldSignature, class... I, class... O,
+            class... W>
+    requires(sizeof...(W) != 0u &&
+             detail::TileFoldWindowBindingContract<
+                 Max, Tile, Terminal, SeedSignature, FoldSignature,
+                 detail::TypeList<I...>, detail::TypeList<O...>,
+                 detail::TypeList<W...>>::valid)
+  PipelineBuilder &&
+  windows(const TileRepeat<0u, SeedSignature, void, FoldSignature> &body,
+          const WindowInput<Terminal> &resident, detail::ReadPack<I...> inputs,
+          detail::WriteFinalPack<O...> outputs,
+          detail::WriteWindowPack<W...> window_outputs) && noexcept {
+    static_cast<PipelineBuilder &>(*this).template windows<Max, Tile>(
+        body, resident, std::move(inputs), std::move(outputs),
+        std::move(window_outputs));
     return std::move(*this);
   }
 
@@ -582,6 +870,26 @@ public:
 
   PipelineBuilder &&restore(const StateSnapshot &snapshot) && noexcept {
     static_cast<PipelineBuilder &>(*this).restore(snapshot);
+    return std::move(*this);
+  }
+
+  PipelineBuilder &restore(const LatestDeviceState &latest) & noexcept {
+    detail::seed_pipeline(state_, latest.state_);
+    return *this;
+  }
+
+  PipelineBuilder &&restore(const LatestDeviceState &latest) && noexcept {
+    static_cast<PipelineBuilder &>(*this).restore(latest);
+    return std::move(*this);
+  }
+
+  PipelineBuilder &restore(const SnapshotStorage &storage) & noexcept {
+    detail::seed_pipeline(state_, storage.state_);
+    return *this;
+  }
+
+  PipelineBuilder &&restore(const SnapshotStorage &storage) && noexcept {
+    static_cast<PipelineBuilder &>(*this).restore(storage);
     return std::move(*this);
   }
 

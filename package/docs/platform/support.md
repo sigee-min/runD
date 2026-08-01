@@ -36,7 +36,7 @@ runs the archive's exact `rund-verify`, and reruns the installed consumer from
 the verified prefix before publishing the local archive, checksum, and
 verifier. The current `supported/release` row authorizes the archive, checksum,
 and verifier hosted together in the
-[1.0.1 release](https://github.com/sigee-min/runD/releases/tag/1.0.1) as one
+[1.0.2 release](https://github.com/sigee-min/runD/releases/tag/1.0.2) as one
 consumer release.
 
 A `supported/release` row requires its hosted archive, checksum, and
@@ -114,5 +114,5 @@ Configuration does not reject other host tuples. Successful configuration,
 source compilation, or candidate workflow execution does not create a
 supported product tuple; only a deliberately published `supported` row and its
 release evidence own that claim. The current table classifies the published
-Darwin ARM64 1.0.1 artifact as `supported/release`; Linux remains a validated
+Darwin ARM64 1.0.2 artifact as `supported/release`; Linux remains a validated
 candidate.

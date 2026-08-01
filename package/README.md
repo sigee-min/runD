@@ -7,7 +7,7 @@ are private.
 ## Consume
 
 ```cmake
-find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.2 EXACT CONFIG REQUIRED)
 target_link_libraries(app PRIVATE runD::sdk)
 ```
 

@@ -1,4 +1,4 @@
-foreach(required_var IN ITEMS ROOT BUILD_DIR PREFIX)
+foreach(required_var IN ITEMS ROOT BUILD_DIR PREFIX EXPECTED_SDK_VERSION)
   if(NOT DEFINED ${required_var} OR "${${required_var}}" STREQUAL "")
     message(FATAL_ERROR "consumer validation requires ${required_var}")
   endif()
@@ -64,11 +64,6 @@ if(DEFINED EXPECTED_RELEASE_MANIFEST)
        NOT EXISTS "${EXPECTED_ARTIFACT_IDENTITY}")
       message(FATAL_ERROR
         "expected artifact identity is unavailable: ${EXPECTED_ARTIFACT_IDENTITY}")
-    endif()
-    if(NOT DEFINED EXPECTED_SDK_VERSION OR
-       "${EXPECTED_SDK_VERSION}" STREQUAL "")
-      message(FATAL_ERROR
-        "artifact identity validation requires the package-version result")
     endif()
     set(installed_artifact_identity
         "${installed_release_dir}/artifact-identity.tsv")
@@ -176,6 +171,7 @@ execute_process(
     "-DCMAKE_PREFIX_PATH=${PREFIX}"
     "-DrunD_DIR:PATH=${PREFIX}/lib/cmake/runD"
     "-DRUND_EXPECTED_PACKAGE_DIR:PATH=${PREFIX}/lib/cmake/runD"
+    "-DRUND_EXPECTED_SDK_VERSION:STRING=${EXPECTED_SDK_VERSION}"
   RESULT_VARIABLE component_configure_result
   OUTPUT_VARIABLE component_configure_stdout
   ERROR_VARIABLE component_configure_stderr
@@ -203,6 +199,7 @@ execute_process(
     ${consumer_generator_arguments}
     "-DCMAKE_PREFIX_PATH=${PREFIX}"
     "-DrunD_DIR:PATH=${PREFIX}/lib/cmake/runD"
+    "-DRUND_EXPECTED_SDK_VERSION:STRING=${EXPECTED_SDK_VERSION}"
   RESULT_VARIABLE collision_configure_result
   OUTPUT_VARIABLE collision_configure_stdout
   ERROR_VARIABLE collision_configure_stderr
@@ -232,6 +229,7 @@ execute_process(
     "-DCMAKE_PREFIX_PATH=${PREFIX}"
     "-DrunD_DIR:PATH=${PREFIX}/lib/cmake/runD"
     "-DRUND_EXPECTED_PACKAGE_DIR:PATH=${PREFIX}/lib/cmake/runD"
+    "-DRUND_EXPECTED_SDK_VERSION:STRING=${EXPECTED_SDK_VERSION}"
     "-DRUND_DOC_SNIPPET_TARGETS:FILEPATH=${doc_snippet_targets}"
   RESULT_VARIABLE configure_result
   TIMEOUT 300)

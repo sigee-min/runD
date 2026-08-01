@@ -38,14 +38,12 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
     bool scratch_seen = false;
     for (std::size_t entry_index = 0u; entry_index < entries.size();
          ++entry_index) {
-      const std::uint32_t template_index =
-          entries[entry_index].template_index;
+      const std::uint32_t template_index = entries[entry_index].template_index;
       if (template_index >= templates.size() ||
           entries[entry_index].occurrence_index != entry_index ||
           (entries[entry_index].transducer != NoTileTransducer &&
            (entries[entry_index].transducer >= transducers.size() ||
-            entries[entry_index].transducer >=
-                pipeline->transducers.size()))) {
+            entries[entry_index].transducer >= pipeline->transducers.size()))) {
         return rund::AccelCheck{false, "accel_kernel_run_invalid"};
       }
       auto *const resources = static_cast<MetalKernelResources *>(
@@ -156,9 +154,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
           [encoder setBuffer:pipeline->states offset:0u atIndex:4u];
           [encoder setBuffer:pipeline->control offset:0u atIndex:5u];
           MetalWindowParams params = route->params;
-          [encoder setBytes:&params
-                     length:sizeof(params)
-                    atIndex:6u];
+          [encoder setBytes:&params length:sizeof(params) atIndex:6u];
           [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
               threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
           captured.commands.back().control = true;
@@ -187,70 +183,68 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         if (!transducer->recurrence.ready() || transducer_resource == nullptr ||
             *transducer_resource == nullptr || resident_window == nullptr ||
             resident_window->phase != BackendWindowPhase::NestedAction ||
-            resident_window->inner_advance != 0u ||
-            binding_slice.count != 0u || status_slice.count != 0u ||
-            resources->size() != 1u || !telemetry_empty) {
+            resident_window->inner_advance != 0u || binding_slice.count != 0u ||
+            status_slice.count != 0u || resources->size() != 1u ||
+            !telemetry_empty) {
           return rund::AccelCheck{false, "accel_kernel_run_invalid"};
         }
         captured.owner = resident_window->state;
         const rund::AccelCheck encoded = EncodeMetalMap(
-            *pipeline->adapter, *transducer_resource,
-            (__bridge void *)encoder);
+            *pipeline->adapter, *transducer_resource, (__bridge void *)encoder);
         captured.owner = std::numeric_limits<std::uint32_t>::max();
         if (!encoded.ok) {
           return encoded;
         }
       } else {
         for (std::size_t index = 0u; index < resources->size(); ++index) {
-        MetalKernelEntry *const step = resources->entry(index);
-        if (step == nullptr) {
-          return rund::AccelCheck{false, "accel_kernel_run_invalid"};
-        }
-        captured.owner = resident_window == nullptr
-                             ? std::numeric_limits<std::uint32_t>::max()
-                             : resident_window->state;
-        const rund::AccelCheck reset = EncodeMetalResets(
-            *resources, index, (id<MTLComputeCommandEncoder>)encoder);
-        if (!reset.ok) {
-          return reset;
-        }
-        if (step->barrier_before && step->resets.empty()) {
-          [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-        }
-        const std::size_t step_command_begin = captured.commands.size();
-        try {
-          const rund::AccelCheck gathered = EncodeMetalViewInputs(
-              step->view, (id<MTLComputeCommandEncoder>)encoder);
-          if (!gathered.ok) {
-            return gathered;
+          MetalKernelEntry *const step = resources->entry(index);
+          if (step == nullptr) {
+            return rund::AccelCheck{false, "accel_kernel_run_invalid"};
           }
-          const rund::AccelCheck encoded =
-              EncodeMetalStep(*pipeline->adapter, step->ops, step->resource,
-                              (id<MTLComputeCommandEncoder>)encoder);
-          if (!encoded.ok) {
-            return encoded;
+          captured.owner = resident_window == nullptr
+                               ? std::numeric_limits<std::uint32_t>::max()
+                               : resident_window->state;
+          const rund::AccelCheck reset = EncodeMetalResets(
+              *resources, index, (id<MTLComputeCommandEncoder>)encoder);
+          if (!reset.ok) {
+            return reset;
           }
-          const rund::AccelCheck published = EncodeMetalViewOutputs(
-              step->view, (id<MTLComputeCommandEncoder>)encoder);
-          if (!published.ok) {
-            return published;
+          if (step->barrier_before && step->resets.empty()) {
+            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
           }
-        } catch (const std::bad_alloc &) {
-          return rund::AccelCheck{false, "compute_pipeline_capacity"};
-        }
-        const std::size_t step_command_end = captured.commands.size();
-        for (std::size_t command_index = step_command_begin;
-             command_index + 1u < step_command_end; ++command_index) {
-          captured.commands[command_index].barrier = true;
-        }
-        const rund::AccelCheck telemetry_encoded =
-            EncodeTelemetry(telemetry_steps[telemetry_range.first + index],
-                            binding_slice,
-                            status.declared_steps[template_index]);
-        if (!telemetry_encoded.ok) {
-          return telemetry_encoded;
-        }
-        captured.owner = std::numeric_limits<std::uint32_t>::max();
+          const std::size_t step_command_begin = captured.commands.size();
+          try {
+            const rund::AccelCheck gathered = EncodeMetalViewInputs(
+                step->view, (id<MTLComputeCommandEncoder>)encoder);
+            if (!gathered.ok) {
+              return gathered;
+            }
+            const rund::AccelCheck encoded =
+                EncodeMetalStep(*pipeline->adapter, step->ops, step->resource,
+                                (id<MTLComputeCommandEncoder>)encoder);
+            if (!encoded.ok) {
+              return encoded;
+            }
+            const rund::AccelCheck published = EncodeMetalViewOutputs(
+                step->view, (id<MTLComputeCommandEncoder>)encoder);
+            if (!published.ok) {
+              return published;
+            }
+          } catch (const std::bad_alloc &) {
+            return rund::AccelCheck{false, "compute_pipeline_capacity"};
+          }
+          const std::size_t step_command_end = captured.commands.size();
+          for (std::size_t command_index = step_command_begin;
+               command_index + 1u < step_command_end; ++command_index) {
+            captured.commands[command_index].barrier = true;
+          }
+          const rund::AccelCheck telemetry_encoded = EncodeTelemetry(
+              telemetry_steps[telemetry_range.first + index], binding_slice,
+              status.declared_steps[template_index]);
+          if (!telemetry_encoded.ok) {
+            return telemetry_encoded;
+          }
+          captured.owner = std::numeric_limits<std::uint32_t>::max();
         }
       }
       const rund::AccelCheck advanced = encode_window_control(1u);
@@ -268,12 +262,10 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         if (work.exact) {
           PreparedPipelineStepEvidence &row =
               pipeline->step_evidence[status.declared_steps[template_index]];
-          if (work.workgroup_count >
-                  std::numeric_limits<std::uint64_t>::max() -
-                      row.workgroup_count ||
-              work.work_item_count >
-                  std::numeric_limits<std::uint64_t>::max() -
-                      row.work_item_count) {
+          if (work.workgroup_count > std::numeric_limits<std::uint64_t>::max() -
+                                         row.workgroup_count ||
+              work.work_item_count > std::numeric_limits<std::uint64_t>::max() -
+                                         row.work_item_count) {
             return rund::AccelCheck{false, "compute_pipeline_capacity"};
           }
           row.workgroup_count += work.workgroup_count;
@@ -289,10 +281,9 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
       // Ordinary windows perform their transition before status reduction;
       // retaining their established unowned status path avoids suppressing
       // the terminating occurrence's status when that transition closes it.
-      captured.owner =
-          resident_window != nullptr && resident_window->nested()
-              ? resident_window->state
-              : std::numeric_limits<std::uint32_t>::max();
+      captured.owner = resident_window != nullptr && resident_window->nested()
+                           ? resident_window->state
+                           : std::numeric_limits<std::uint32_t>::max();
       captured.replacements.clear();
       bool imported = false;
       for (std::uint32_t ordinal = binding_slice.first;
@@ -336,9 +327,9 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
           return rund::AccelCheck{false, "accel_kernel_run_invalid"};
         }
         try {
-          occurrence_status_sources.assign(
-              status_sources.begin() + binding_slice.first,
-              status_sources.begin() + source_end);
+          occurrence_status_sources.assign(status_sources.begin() +
+                                               binding_slice.first,
+                                           status_sources.begin() + source_end);
         } catch (const std::bad_alloc &) {
           return rund::AccelCheck{false, "compute_pipeline_capacity"};
         }
@@ -403,13 +394,58 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         return folded;
       }
       if (resident_window != nullptr &&
+          resident_window->phase == BackendWindowPhase::NestedFold) {
+        for (const MetalPublish &publication : native_publications) {
+          if (publication.params.kind !=
+                  static_cast<std::uint32_t>(BackendPublishKind::Window) ||
+              publication.params.state != resident_window->state ||
+              publication.params.tile == 0u) {
+            continue;
+          }
+          id<MTLBuffer> const source =
+              (__bridge id<MTLBuffer>)publication.sources[0].get();
+          id<MTLBuffer> const target =
+              (__bridge id<MTLBuffer>)publication.target.get();
+          id<MTLBuffer> const count =
+              (__bridge id<MTLBuffer>)publication.count.get();
+          if (source == nil || target == nil || count == nil ||
+              pipeline->states == nil) {
+            return rund::AccelCheck{false, "accel_metal_buffer_failed"};
+          }
+          MetalPublishParams params = publication.params;
+          params.outer = resident_window->outer_iteration;
+          [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+          [encoder setComputePipelineState:publish];
+          [encoder setBuffer:source offset:0u atIndex:0u];
+          [encoder setBuffer:source offset:0u atIndex:1u];
+          [encoder setBuffer:source offset:0u atIndex:2u];
+          [encoder setBuffer:target offset:0u atIndex:3u];
+          [encoder setBuffer:pipeline->control offset:0u atIndex:4u];
+          [encoder setBuffer:pipeline->states offset:0u atIndex:5u];
+          [encoder setBytes:&params length:sizeof(params) atIndex:6u];
+          [encoder setBuffer:count offset:0u atIndex:7u];
+          const NSUInteger count_threads =
+              static_cast<NSUInteger>(publication.params.tile);
+          const NSUInteger width =
+              std::min(count_threads, [publish maxTotalThreadsPerThreadgroup]);
+          captured.owner = std::numeric_limits<std::uint32_t>::max();
+          [encoder dispatchThreads:MTLSizeMake(count_threads, 1u, 1u)
+              threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+          captured.commands.back().control = true;
+          ++pipeline->dispatch_count;
+          ++window_publish_count;
+          [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+        }
+      }
+      if (resident_window != nullptr &&
           resident_window->advances_outer_state() &&
           resident_window->outer_iteration + 1u ==
               resident_window->outer_bound) {
         for (const MetalPublish &publication : native_publications) {
-          if (publication.params.state != resident_window->state ||
-              publication.params.final > 2u ||
-              publication.params.count == 0u) {
+          if (publication.params.kind !=
+                  static_cast<std::uint32_t>(BackendPublishKind::Terminal) ||
+              publication.params.state != resident_window->state ||
+              publication.params.final > 2u || publication.params.count == 0u) {
             continue;
           }
           const std::uint32_t final = publication.params.final;
@@ -438,6 +474,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
           [encoder setBuffer:pipeline->control offset:0u atIndex:4u];
           [encoder setBuffer:pipeline->states offset:0u atIndex:5u];
           [encoder setBytes:&params length:sizeof(params) atIndex:6u];
+          [encoder setBuffer:pipeline->control offset:0u atIndex:7u];
           const NSUInteger count =
               static_cast<NSUInteger>(publication.params.count);
           const NSUInteger width =

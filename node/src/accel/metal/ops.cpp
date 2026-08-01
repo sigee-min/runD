@@ -55,13 +55,19 @@ BackendDownload Download(const rund::AccelDevice &pick,
 }
 
 BackendUpload UploadBatch(const rund::AccelDevice &pick,
-                          const std::span<const UploadRoute> requests) {
-  return UploadMetalResidentBuffers(pick, requests);
+                          const std::span<const UploadRoute> requests,
+                          const TransferCompletion completion) {
+  return UploadMetalResidentBuffers(pick, requests, completion);
 }
 
 BackendDownload DownloadBatch(const rund::AccelDevice &pick,
                               const std::span<const DownloadRoute> requests) {
   return DownloadMetalResidentBuffers(pick, requests);
+}
+
+BackendCopy CopyBatch(const rund::AccelDevice &pick,
+                      const std::span<const CopyRoute> requests) {
+  return CopyMetalResidentBuffers(pick, requests);
 }
 
 BackendLookup Lookup(const rund::AccelDevice &pick,
@@ -131,6 +137,7 @@ const BackendOps Operations{
     .upload_batch = UploadBatch,
     .download = Download,
     .download_batch = DownloadBatch,
+    .copy_batch = CopyBatch,
     .lookup = Lookup,
     .stats = Stats,
     .reset = ResetMetalRuntimeStats,

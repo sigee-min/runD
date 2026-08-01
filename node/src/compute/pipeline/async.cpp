@@ -27,7 +27,7 @@ pipeline_window(PipelineState &state, const PipelineStep &step) noexcept {
 [[nodiscard]] bool valid_nested_window(const PipelineState &state,
                                        const PipelineWindow &window) noexcept {
   return window.nested && window.seed_count != 0u &&
-         window.action_count != 0u && window.begin == window.seed_first &&
+         window.begin == window.seed_first &&
          window.action_first == window.seed_first + window.seed_count &&
          window.fold_first == window.action_first + window.action_count &&
          window.end == window.fold_first + 3u &&
@@ -35,10 +35,9 @@ pipeline_window(PipelineState &state, const PipelineStep &step) noexcept {
 }
 
 [[nodiscard]] std::shared_ptr<JobState>
-selected_pipeline_job(PipelineState &state,
-                      const PipelineStep &step) noexcept {
-  return state.transactional && state.parity != 0u ? step.alternate_job
-                                                   : step.job;
+selected_pipeline_job(PipelineState &state, const PipelineStep &step) noexcept {
+  return state.transactional && state.attempt_parity != 0u ? step.alternate_job
+                                                           : step.job;
 }
 
 void record_pipeline_failure(PipelineState &state, const std::size_t index,
@@ -49,8 +48,7 @@ void record_pipeline_failure(PipelineState &state, const std::size_t index,
   state.failure_step_known = index < state.steps.size();
   state.stats.pipeline.verified_step_count =
       logical_verified_steps(state, state.verified);
-  state.stats.pipeline.failed_step_index =
-      logical_step_index(state, index);
+  state.stats.pipeline.failed_step_index = logical_step_index(state, index);
   if (index < state.steps.size()) {
     switch (state.steps[index].route) {
     case PipelineRoute::NestedSeed:
@@ -75,9 +73,10 @@ void record_pipeline_failure(PipelineState &state, const std::size_t index,
   }
 }
 
-[[nodiscard]] Status complete_pipeline_step_locked(
-    PipelineState &state, const std::size_t index, const Status result,
-    CpuPipelineSchedule *const schedule) noexcept {
+[[nodiscard]] Status
+complete_pipeline_step_locked(PipelineState &state, const std::size_t index,
+                              const Status result,
+                              CpuPipelineSchedule *const schedule) noexcept {
   if (state.phase != PipelinePhase::Running || index >= state.steps.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -99,15 +98,13 @@ void record_pipeline_failure(PipelineState &state, const std::size_t index,
     }
     const std::size_t expected_fold =
         descriptor->fold_first +
-        (schedule->outer == 0u ? 0u
-                               : ((schedule->outer & 1u) != 0u ? 1u : 2u));
+        (schedule->outer == 0u ? 0u : ((schedule->outer & 1u) != 0u ? 1u : 2u));
     if ((step.route == PipelineRoute::NestedSeed &&
          index != descriptor->seed_first + schedule->outer) ||
         (step.route == PipelineRoute::NestedAction &&
          (index < descriptor->action_first ||
           index >= descriptor->fold_first)) ||
-        (step.route == PipelineRoute::NestedFold &&
-         index != expected_fold)) {
+        (step.route == PipelineRoute::NestedFold && index != expected_fold)) {
       return Status::fail(Reason::PipelineInvalid);
     }
   }
@@ -123,6 +120,14 @@ void record_pipeline_failure(PipelineState &state, const std::size_t index,
     } else {
       semantic = published.reason();
     }
+  }
+  if (semantic == Reason::Ok && descriptor != nullptr &&
+      step.route == PipelineRoute::NestedFold) {
+    bool window_wrote = false;
+    const Status published = publish_cpu_pipeline_window(
+        state, step.window, schedule->outer, window_wrote);
+    state.writes_possible = state.writes_possible || window_wrote;
+    semantic = published.reason();
   }
   const Status outcome =
       semantic == Reason::Ok ? Status::success() : Status::fail(semantic);
@@ -158,21 +163,19 @@ void record_pipeline_failure(PipelineState &state, const std::size_t index,
     break;
   case PipelineRoute::NestedAction:
     ++state.stats.pipeline.executed_inner_iteration_count;
-    schedule->step =
-        index + 1u < descriptor->fold_first
-            ? index + 1u
-            : descriptor->fold_first +
-                  (schedule->outer == 0u
-                       ? 0u
-                       : ((schedule->outer & 1u) != 0u ? 1u : 2u));
+    schedule->step = index + 1u < descriptor->fold_first
+                         ? index + 1u
+                         : descriptor->fold_first +
+                               (schedule->outer == 0u
+                                    ? 0u
+                                    : ((schedule->outer & 1u) != 0u ? 1u : 2u));
     break;
   case PipelineRoute::NestedFold:
-    descriptor->current =
-        PipelineWindow::first +
-        static_cast<std::uint32_t>(schedule->outer & 1u);
+    descriptor->current = PipelineWindow::first +
+                          static_cast<std::uint32_t>(schedule->outer & 1u);
     ++state.stats.pipeline.executed_outer_window_count;
-    ::rund::detail::counter::Accumulate(
-        state.stats.control.iteration_count, 1u);
+    ::rund::detail::counter::Accumulate(state.stats.control.iteration_count,
+                                        1u);
     ++schedule->outer;
     schedule->step = descriptor->seed_first;
     break;
@@ -264,7 +267,7 @@ pipeline_job(const std::shared_ptr<PipelineState> &state,
              const std::size_t index) noexcept {
   return state == nullptr || index >= state->steps.size()
              ? std::shared_ptr<JobState>{}
-         : state->transactional && state->parity != 0u
+         : state->transactional && state->attempt_parity != 0u
              ? state->steps[index].alternate_job
              : state->steps[index].job;
 }
@@ -284,8 +287,7 @@ Status begin_pipeline_step(const std::shared_ptr<PipelineState> &state,
       return Status::fail(Reason::PipelineInvalid);
     }
   } else {
-    const PipelineWindow *const descriptor =
-        pipeline_window(*state, step);
+    const PipelineWindow *const descriptor = pipeline_window(*state, step);
     if (descriptor == nullptr || !valid_nested_window(*state, *descriptor) ||
         state->verified != descriptor->begin) {
       return Status::fail(Reason::PipelineInvalid);
@@ -308,9 +310,9 @@ Status complete_pipeline_step(const std::shared_ptr<PipelineState> &state,
   return complete_pipeline_step_locked(*state, index, result, nullptr);
 }
 
-Status initialize_cpu_pipeline_schedule(
-    const std::shared_ptr<PipelineState> &state,
-    CpuPipelineSchedule &schedule) noexcept {
+Status
+initialize_cpu_pipeline_schedule(const std::shared_ptr<PipelineState> &state,
+                                 CpuPipelineSchedule &schedule) noexcept {
   if (!valid_pipeline(state)) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -324,9 +326,9 @@ Status initialize_cpu_pipeline_schedule(
   return Status::success();
 }
 
-CpuPipelineSelection select_cpu_pipeline_step(
-    const std::shared_ptr<PipelineState> &state,
-    CpuPipelineSchedule &schedule) noexcept {
+CpuPipelineSelection
+select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
+                         CpuPipelineSchedule &schedule) noexcept {
   if (!valid_pipeline(state)) {
     return {.status = Status::fail(Reason::PipelineInvalid)};
   }
@@ -339,8 +341,7 @@ CpuPipelineSelection select_cpu_pipeline_step(
   for (;;) {
     if (schedule.step == state->steps.size()) {
       return state->verified == state->steps.size()
-                 ? CpuPipelineSelection{.step = schedule.step,
-                                        .complete = true}
+                 ? CpuPipelineSelection{.step = schedule.step, .complete = true}
                  : CpuPipelineSelection{
                        .status = Status::fail(Reason::PipelineInvalid)};
     }
@@ -359,8 +360,8 @@ CpuPipelineSelection select_cpu_pipeline_step(
           prepare_cpu_pipeline_window(*state, schedule.step, active);
       if (!ready) {
         record_pipeline_failure(*state, schedule.step);
-        return {.status = pipeline_window_status(*state, step, ready,
-                                                  state->stats)};
+        return {.status =
+                    pipeline_window_status(*state, step, ready, state->stats)};
       }
       if (!active) {
         ++state->verified;
@@ -369,8 +370,7 @@ CpuPipelineSelection select_cpu_pipeline_step(
         ++schedule.step;
         continue;
       }
-      const std::shared_ptr<JobState> job =
-          selected_pipeline_job(*state, step);
+      const std::shared_ptr<JobState> job = selected_pipeline_job(*state, step);
       if (job == nullptr) {
         record_pipeline_failure(*state, schedule.step);
         return {.status = Status::fail(Reason::PipelineInvalid)};
@@ -380,15 +380,13 @@ CpuPipelineSelection select_cpu_pipeline_step(
 
     if (step.route != PipelineRoute::NestedSeed) {
       PipelineWindow *const descriptor = pipeline_window(*state, step);
-      if (descriptor == nullptr ||
-          !valid_nested_window(*state, *descriptor) ||
+      if (descriptor == nullptr || !valid_nested_window(*state, *descriptor) ||
           state->verified != descriptor->begin ||
           schedule.outer >= descriptor->seed_count) {
         record_pipeline_failure(*state, schedule.step);
         return {.status = Status::fail(Reason::PipelineInvalid)};
       }
-      const std::shared_ptr<JobState> job =
-          selected_pipeline_job(*state, step);
+      const std::shared_ptr<JobState> job = selected_pipeline_job(*state, step);
       if (job == nullptr) {
         record_pipeline_failure(*state, schedule.step, true, schedule.outer);
         return {.status = Status::fail(Reason::PipelineInvalid)};
@@ -427,7 +425,7 @@ CpuPipelineSelection select_cpu_pipeline_step(
       record_pipeline_failure(*state, schedule.step, true, schedule.outer);
       descriptor->stopped = true;
       return {.status = pipeline_window_status(*state, occurrence, ready,
-                                                state->stats)};
+                                               state->stats)};
     }
     if (!active) {
       ::rund::detail::counter::Accumulate(
@@ -454,9 +452,10 @@ CpuPipelineSelection select_cpu_pipeline_step(
   }
 }
 
-Status complete_cpu_pipeline_schedule_step(
-    const std::shared_ptr<PipelineState> &state,
-    CpuPipelineSchedule &schedule, const Status result) noexcept {
+Status
+complete_cpu_pipeline_schedule_step(const std::shared_ptr<PipelineState> &state,
+                                    CpuPipelineSchedule &schedule,
+                                    const Status result) noexcept {
   if (!valid_pipeline(state) || schedule.step >= state->steps.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -523,7 +522,7 @@ Status submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
       completion(user, std::move(empty));
       return Status::success();
     }
-    prepared = state->transactional && state->parity != 0u
+    prepared = state->transactional && state->attempt_parity != 0u
                    ? &state->alternate_prepared
                    : &state->prepared;
     if (!prepared->ok) {

@@ -70,8 +70,16 @@ Metal and Vulkan then perform the distinct native-registry resolution under
 their one resident lock. For `N` requests, transfer admission is one
 `Theta(N)` pass and uses no transient routing-vector allocation. Public
 capability validation and native lifetime validation remain mandatory. The
-native backend's resolved transfer plan is the sole workload-sized temporary
-owner.
+native backend's resolved transfer plan is the sole temporary routing owner.
+Node Compute bounds its largest transfer batch to 64 routes: Metal and Vulkan
+download keep that complete common path in fixed inline storage, including
+Vulkan chunk/barrier rows and incremental hashes, so reusable checkpoint
+export adds no runD-owned C++ heap allocation after warm-up. A Vulkan export
+still performs a native queue submission; any allocation inside the loader,
+driver, or translation layer is implementation-dependent and remains visible
+to process-wide instrumentation but is not route-plan allocation. Generic
+callers above 64 routes use the backend-owned overflow plan and do not redefine
+the bounded Compute contract.
 
 CPU, Metal, and Vulkan resident buffers share one `ResidentEntry` identity,
 shape, capability, and owner state prefix and one compiled view validator.
@@ -462,6 +470,14 @@ overwrites. Downloads expose only the requested semantic bytes. Hashing, when
 requested, consumes those bytes in the same increasing order across slice
 boundaries. Transfer telemetry counts `n`, never padding or the internal
 boundary preservation copy, and reports `staging_peak_bytes <= S`.
+
+The internal batch route carries one explicit completion policy. General
+resident upload requests `Queued`, preserving the one-slice ownership-transfer
+rule above. A caller that cannot publish state before observing execution may
+request `Complete`; Vulkan then waits for every batch command and reports a
+completion failure synchronously. Pipeline checkpoint restore is that caller.
+Metal shared-memory upload is complete when its copy returns under either
+policy, so the policy adds no second Metal transfer implementation.
 
 Vulkan cold buffer reuse has two independent memory-class pools: temporary
 execution buffers and public resident storage. Each uses the same deterministic

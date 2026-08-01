@@ -64,7 +64,6 @@ plan_memory(const PipelineBuildState &build) {
           seed_range ? nested.seed_first + nested.seed_count : step_count;
       const bool action_range =
           seed_range && nested.action_first == expected_action_first &&
-          nested.action_first < step_count && nested.action_count != 0u &&
           nested.action_count <= step_count - nested.action_first;
       const std::size_t expected_fold_first =
           action_range ? nested.action_first + nested.action_count : step_count;
@@ -90,6 +89,9 @@ plan_memory(const PipelineBuildState &build) {
       const auto valid_phase = [&](const std::size_t first,
                                    const std::size_t count,
                                    const PipelineRoute route) {
+        if (count == 0u) {
+          return true;
+        }
         const ProgramState *const program = build.steps[first].program.get();
         for (std::size_t offset = 0u; offset < count; ++offset) {
           const PipelineBuildStep &step = build.steps[first + offset];
@@ -140,14 +142,17 @@ plan_memory(const PipelineBuildState &build) {
       }
       const graph::MemoryPlan &seed_memory =
           build.steps[nested.seed_first].program->graph_info.memory;
-      const graph::MemoryPlan &action_memory =
-          build.steps[nested.action_first].program->graph_info.memory;
       const graph::MemoryPlan &fold_memory =
           build.steps[nested.fold_first].program->graph_info.memory;
+      const std::uint64_t action_logical =
+          nested.action_count == 0u
+              ? 0u
+              : build.steps[nested.action_first]
+                    .program->graph_info.memory.logical_bytes;
       std::uint64_t per_window = 0u;
       std::uint64_t action_total = 0u;
       std::uint64_t all_windows = 0u;
-      if (!kernel::checked::mul(action_memory.logical_bytes,
+      if (!kernel::checked::mul(action_logical,
                                 static_cast<std::uint64_t>(nested.action_count),
                                 action_total) ||
           !kernel::checked::add(seed_memory.logical_bytes, action_total,
@@ -225,18 +230,28 @@ plan_memory(const PipelineBuildState &build) {
       }
     }
     for (const PipelineBuildPublish &publication : build.publications) {
-      if (!admit(publication.source) || !admit(publication.target)) {
+      if (!admit(publication.source) || !admit(publication.target) ||
+          (publication.kind == PipelinePublishKind::Window &&
+           !admit(publication.count))) {
         return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
             Reason::PipelineCapacity);
       }
       std::uint64_t bytes = 0u;
+      const std::uint64_t elements =
+          publication.kind == PipelinePublishKind::Window
+              ? publication.maximum
+              : publication.source.count;
+      const std::uint64_t occurrences =
+          publication.kind == PipelinePublishKind::Window
+              ? (publication.maximum / publication.tile +
+                 (publication.maximum % publication.tile == 0u ? 0u : 1u))
+              : 1u;
       if (publication.source.element_bytes == 0u ||
-          !kernel::checked::mul(
-              static_cast<std::uint64_t>(publication.source.count),
-              publication.source.element_bytes, bytes) ||
+          !kernel::checked::mul(elements, publication.source.element_bytes,
+                                bytes) ||
           !kernel::checked::add(summary.publish_bytes, bytes,
                                 summary.publish_bytes) ||
-          !kernel::checked::add(summary.publish_count, 1u,
+          !kernel::checked::add(summary.publish_count, occurrences,
                                 summary.publish_count)) {
         return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
             Reason::PipelineCapacity);
@@ -388,7 +403,9 @@ plan_memory(const PipelineBuildState &build) {
       }
     }
     for (PipelineBuildPublish &publication : build.publications) {
-      if (!resolve(publication.source) || !resolve(publication.target)) {
+      if (!resolve(publication.source) || !resolve(publication.target) ||
+          (publication.kind == PipelinePublishKind::Window &&
+           !resolve(publication.count))) {
         return Status::fail(Reason::PipelineInvalid);
       }
     }

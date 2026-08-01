@@ -27,6 +27,9 @@ int main(const int argc, char **const argv) {
   const bool pipeline = argc == 3 &&
                         std::string_view{argv[1]} == "--pipeline" &&
                         ParseBackend(argv[2], focus) && focus != Backend::Cpu;
+  const bool checkpoint = argc == 3 &&
+                          std::string_view{argv[1]} == "--checkpoint" &&
+                          ParseBackend(argv[2], focus);
   const bool recurrence = argc == 3 &&
                           std::string_view{argv[1]} == "--recurrence" &&
                           ParseBackend(argv[2], focus) && focus != Backend::Cpu;
@@ -37,7 +40,7 @@ int main(const int argc, char **const argv) {
       argc == 3 && std::string_view{argv[1]} == "--pipeline-profile" &&
       ParseBackend(argv[2], focus) && focus != Backend::Cpu;
   const bool focused = collective || sort || bulk || resident || batch ||
-                       pipeline || recurrence || window_repeat ||
+                       pipeline || checkpoint || recurrence || window_repeat ||
                        pipeline_profile;
   if (!focused) {
 #else
@@ -46,7 +49,7 @@ int main(const int argc, char **const argv) {
 #endif
     std::fputs("usage: runD-compute-measure "
                "[--resident|--collective|--sort|--bulk|--batch|--pipeline|"
-               "--recurrence|--window-repeat|--pipeline-profile "
+               "--checkpoint|--recurrence|--window-repeat|--pipeline-profile "
                "cpu|metal|vulkan]\n",
                stderr);
     return 2;
@@ -64,7 +67,11 @@ int main(const int argc, char **const argv) {
     if (focus != Backend::Cpu) {
       ok = ReportEnvironment(focus) && ok;
     }
-    if (pipeline_profile) {
+    if (checkpoint) {
+      rund::measure::compute::PrintCheckpointColumns();
+      ok = rund::measure::compute::MeasureCheckpoints(focus, 1u << 20u, 12u) &&
+           ok;
+    } else if (pipeline_profile) {
       rund::measure::compute::PrintPipelineProfileColumns();
       ok = rund::measure::compute::MeasurePipelineProfile(focus, 4096u, 12u) &&
            ok;

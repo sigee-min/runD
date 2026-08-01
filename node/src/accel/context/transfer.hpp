@@ -27,6 +27,14 @@ struct DownloadEntry final {
   std::uint64_t *payload_hash = nullptr;
 };
 
+struct CopyEntry final {
+  const rund::AccelBuffer *source = nullptr;
+  const rund::AccelBuffer *target = nullptr;
+  std::uint64_t bytes = 0u;
+  std::uint64_t source_offset = 0u;
+  std::uint64_t target_offset = 0u;
+};
+
 struct AccelTransfer final {
   rund::AccelCheck check{};
   std::uint64_t payload_hash{};
@@ -42,6 +50,11 @@ struct AccelTransfer final {
   bool payload_hash_valid{};
 };
 
+struct AccelCopy final {
+  rund::AccelCheck check{};
+  std::uint64_t command_submits{};
+};
+
 [[nodiscard]] AccelTransfer
 DownloadAccelBufferMeasured(const rund::AccelContext &context,
                             const rund::AccelBuffer &buffer, void *data,
@@ -51,11 +64,16 @@ DownloadAccelBufferMeasured(const rund::AccelContext &context,
 [[nodiscard]] AccelTransfer
 UploadAccelBuffers(const rund::AccelContext &context,
                    std::span<const UploadEntry> requests,
-                   std::span<UploadRoute> routes);
+                   std::span<UploadRoute> routes,
+                   TransferCompletion completion = TransferCompletion::Queued);
 
 [[nodiscard]] AccelTransfer
 DownloadAccelBuffersMeasured(const rund::AccelContext &context,
                              std::span<const DownloadEntry> requests,
                              std::span<DownloadRoute> routes);
+
+[[nodiscard]] AccelCopy CopyAccelBuffers(const rund::AccelContext &context,
+                                         std::span<const CopyEntry> requests,
+                                         std::span<CopyRoute> routes);
 
 } // namespace rund::node::accel::detail

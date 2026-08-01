@@ -225,12 +225,21 @@ struct BackendWindow final {
 // Terminal publication is deliberately outside the authored Program graph.
 // Backends select exactly one immutable seed/first/second route from the
 // recurrence's ResidentState after canonical Pipeline status has been reduced.
+enum class BackendPublishKind : std::uint8_t {
+  Terminal,
+  Window,
+};
+
 struct BackendPublish final {
   std::array<BackendRead, 3u> sources{};
+  BackendRead count{};
   rund::kernel::ResidentBufferRef target{};
   std::shared_ptr<void> target_handle{};
   std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t final{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  BackendPublishKind kind{BackendPublishKind::Terminal};
 };
 
 // Rebuild one already-planned step against an alternate resident binding set.

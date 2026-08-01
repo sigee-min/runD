@@ -27,6 +27,8 @@ else()
   add_executable(
     runD-compute-focus EXCLUDE_FROM_ALL
     main.cpp
+    "${CMAKE_SOURCE_DIR}/node/tests/contract/compute/allocation.cpp"
+    pipeline/checkpoint.cpp
     pipeline/nested.cpp
     pipeline/profile.cpp
     pipeline/recurrence.cpp
@@ -36,6 +38,8 @@ else()
     suite/resident.cpp
     suite/sparse.cpp)
   target_compile_definitions(runD-compute-focus PRIVATE RUND_COMPUTE_FOCUS=1)
+  target_include_directories(runD-compute-focus PRIVATE
+    "${CMAKE_SOURCE_DIR}/node/tests/contract/compute")
   target_link_libraries(runD-compute-focus PRIVATE
     node-closure-compute-execution)
   target_compile_features(runD-compute-focus PRIVATE cxx_std_20)

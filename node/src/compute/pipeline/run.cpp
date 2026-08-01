@@ -41,8 +41,8 @@ namespace {
     };
     outcome.writes_possible = outcome.writes_possible || step.writes;
     const std::shared_ptr<JobState> &job =
-        state.transactional && state.parity != 0u ? step.alternate_job
-                                                  : step.job;
+        state.transactional && state.attempt_parity != 0u ? step.alternate_job
+                                                          : step.job;
     const Status gathered = gather_cpu_pipeline_views(job);
     if (!gathered) {
       finish_step(false);
@@ -76,7 +76,6 @@ namespace {
       PipelineWindow &nested = state.windows[step.window - 1u];
       if (!nested.nested || index != nested.begin ||
           nested.seed_first != nested.begin || nested.seed_count == 0u ||
-          nested.action_count == 0u ||
           nested.action_first != nested.seed_first + nested.seed_count ||
           nested.fold_first != nested.action_first + nested.action_count ||
           nested.end != nested.fold_first + 3u ||
@@ -102,8 +101,7 @@ namespace {
           outcome.failed_step = nested.begin;
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase =
-              PipelineNestedPhase::Seed;
+          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Seed;
           nested.stopped = true;
           return outcome;
         }
@@ -118,8 +116,7 @@ namespace {
           outcome.failed_step = seed_index;
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase =
-              PipelineNestedPhase::Seed;
+          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Seed;
           nested.stopped = true;
           return outcome;
         }
@@ -148,17 +145,29 @@ namespace {
           outcome.failed_step = fold_index;
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase =
-              PipelineNestedPhase::Fold;
+          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Fold;
           nested.stopped = true;
           return outcome;
         }
-        nested.current = PipelineWindow::first +
-                         static_cast<std::uint32_t>(outer & 1u);
+        bool window_wrote = false;
+        status = publish_cpu_pipeline_window(state, step.window, outer,
+                                             window_wrote);
+        outcome.writes_possible = outcome.writes_possible || window_wrote;
+        if (!status) {
+          outcome.status = status;
+          outcome.failed_step = fold_index;
+          outcome.failure_step_known = true;
+          state.stats.pipeline.failed_outer_window = outer;
+          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Fold;
+          nested.stopped = true;
+          return outcome;
+        }
+        nested.current =
+            PipelineWindow::first + static_cast<std::uint32_t>(outer & 1u);
         ++executed_outer;
         ++state.stats.pipeline.executed_outer_window_count;
-        ::rund::detail::counter::Accumulate(
-            state.stats.control.iteration_count, 1u);
+        ::rund::detail::counter::Accumulate(state.stats.control.iteration_count,
+                                            1u);
       }
       const std::size_t skipped = nested.seed_count - executed_outer;
       ::rund::detail::counter::Accumulate(
@@ -238,8 +247,9 @@ namespace {
     return finish_accel_pipeline(state, empty);
   }
   const node::accel::detail::PreparedKernelPipeline &prepared =
-      state.transactional && state.parity != 0u ? state.alternate_prepared
-                                                : state.prepared;
+      state.transactional && state.attempt_parity != 0u
+          ? state.alternate_prepared
+          : state.prepared;
   if (!prepared.ok) {
     outcome.status = Status::fail(Reason::PipelineInvalid);
     return outcome;
@@ -299,12 +309,28 @@ Stats pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept {
     return {};
   }
   std::lock_guard lock{state->gate};
+  if (state->publication != nullptr) {
+    std::lock_guard publication_lock{state->publication->gate};
+    synchronize_pipeline_observation_epoch(*state, *state->publication);
+    state->stats.publication.generation = state->publication->generation;
+  }
   return state->stats;
+}
+
+CheckpointStats pipeline_checkpoint_stats(
+    const std::shared_ptr<PipelineState> &state) noexcept {
+  if (state == nullptr) {
+    return {};
+  }
+  std::lock_guard lock{state->gate};
+  return state->checkpoint_stats;
 }
 
 graph::Fingerprint
 pipeline_fingerprint(const std::shared_ptr<PipelineState> &state) noexcept {
-  return state == nullptr ? graph::Fingerprint{} : state->fingerprint;
+  return state == nullptr || state->publication == nullptr
+             ? graph::Fingerprint{}
+             : state->publication->fingerprint;
 }
 
 std::uint64_t
@@ -313,7 +339,11 @@ pipeline_generation(const std::shared_ptr<PipelineState> &state) noexcept {
     return 0u;
   }
   std::lock_guard lock{state->gate};
-  return state->generation;
+  if (state->publication == nullptr) {
+    return 0u;
+  }
+  std::lock_guard publication_lock{state->publication->gate};
+  return state->publication->generation;
 }
 
 } // namespace rund::compute::detail

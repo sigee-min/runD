@@ -11,6 +11,7 @@ usage() {
     "       tools/measure/compute/run --bulk <cpu|metal|vulkan>" \
     "       tools/measure/compute/run --batch <metal|vulkan>" \
     "       tools/measure/compute/run --pipeline <metal|vulkan>" \
+    "       tools/measure/compute/run --checkpoint <cpu|metal|vulkan>" \
     "       tools/measure/compute/run --pipeline-profile <metal|vulkan>" \
     "       tools/measure/compute/run --recurrence <metal|vulkan>" \
     "       tools/measure/compute/run --window-repeat <metal|vulkan>" \
@@ -28,6 +29,7 @@ if [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--sort" ] || [ "$1" = "--bulk" ] ||
   [ "$1" = "--batch" ] ||
   [ "$1" = "--pipeline" ] ||
+  [ "$1" = "--checkpoint" ] ||
   [ "$1" = "--pipeline-profile" ] ||
   [ "$1" = "--recurrence" ] ||
   [ "$1" = "--window-repeat" ]; }; then

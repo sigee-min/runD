@@ -36,11 +36,14 @@ escape.
 ## Product Surface
 
 The product surface has one durable owner type. `read(...)`, `write(...)`,
-`write_final(...)`, and `write_each(...)` are transient typed binding packs;
+`write_final(...)`, `write_window(...)`, and `write_each(...)` are transient
+typed binding packs;
 they own no execution state and are consumed immediately by their matching
 declaration operation. `then(...)` accepts `write`, fixed `repeat<N>(...)`
 accepts `write_final` or `write_each`, and bounded `windows<Max, Tile>(...)`
-accepts `write_final`.
+accepts `write_final`. A nested `tile_repeat` window may additionally accept
+`write_window`; this pack names append-only, tile-addressed Fold outputs and is
+not recurrent state.
 
 ```cpp fragment
 using Real = rund::compute::Fixed<32, 32>;
@@ -633,7 +636,9 @@ the backend ABI. Pointer identity and the runtime selector value are not.
 
 `tile_repeat<N>(seed_program, action_program, fold_program)` composes a fixed
 inner recurrence inside each bounded resident window without materializing
-maximum-domain recurrent state. It is a declaration value accepted only as the
+maximum-domain recurrent state. `tile_repeat<0>(seed_program, fold_program)` is
+the canonical Seed-to-Fold form and owns no fabricated Action Program, route,
+Job, binding, or workspace. Both are declaration values accepted only as the
 body of `windows<Max, Tile>(...)`:
 
 ```cpp fragment
@@ -648,15 +653,16 @@ auto prepared =
             body,
             rund::compute::window(active),
             rund::compute::read(outer_seed, seed_external),
-            rund::compute::write_final(outer_result))
+            rund::compute::write_final(outer_result),
+            rund::compute::write_window(tile_results))
         .prepare();
 ```
 
 The declaration has no independent `prepare`, `run`, binding, memory, or
 readback authority. It retains each of the three already compiled immutable
 Programs exactly once and becomes executable only when the enclosing
-Pipeline is prepared. `N` is a positive compile-time inner bound. Let the
-flattened type tuples be:
+Pipeline is prepared. The two-Program `N == 0` declaration retains Seed and
+Fold exactly once. Let the flattened type tuples be:
 
 ```text
 S = seed-external inputs
@@ -664,23 +670,81 @@ T = complete tile-local state
 P = inner carried state
 Q = invariant tail of T, so T = P || Q
 O = outer recurrent state
+W = append-only per-window result
 
 Seed  : (S..., U32 count, U32 ordinal) -> (T...)
 Action: (T...)                         -> (P...)
-Fold  : (O..., T...)                   -> (O...)
+Fold  : (O..., T...)                   -> (O..., W...)
 
 windows read pack        = (O..., S...)
 windows final-write pack = (O...)
+windows window-write pack = (W...)
 ```
 
 `P` must be an exact type prefix of `T`; `Q` is the remaining suffix. The
 Action updates only `P`, while `Q` is invariant across all `N` inner
-iterations. Fold outputs must exactly match the prefix `O` of its inputs.
+iterations. Fold inputs contain only recurrent `O` followed by final tile state
+`T`; Fold outputs contain recurrent `O` followed by append-only `W`. `W` is
+never a Fold input and therefore can never become an outer state bank.
 These equalities include scalar type, Fixed format, flattened leaf order, and
 leaf count and are enforced at template admission. The count and ordinal are
 runtime-owned trailing Seed inputs and never appear in the caller read pack.
 If Action needs either value, Seed must place it in `Q`; there is no hidden
 Action input.
+
+Every `W` Program leaf has compile-time element count `Tile`, while its
+corresponding `write_window` destination has exact logical element count
+`Max`. Fold writes `W` into one private `O(Tile)` bank. Only after Fold status
+has been reduced successfully does the canonical window-publication route copy
+
+```text
+b_k = k * Tile
+c_k = min(Tile, max(C - b_k, 0), Max - b_k)
+destination[b_k, b_k + c_k) = W_k[0, c_k)
+```
+
+on the device. The route proves multiplication and addition overflow, logical
+bounds, element width, format, and dense stride during cold admission. It never
+relies on physical allocation padding, exposes `[b_k + c_k, b_k + Tile)`, or
+dynamically shortens a Program output View. Destination bytes outside the
+union of successful slices remain byte-identical. Distinct outer windows are
+disjoint by construction; duplicate destination Buffer leaves or overlapping
+`write_final`/`write_window` ownership are rejected rather than given
+schedule-dependent last-writer semantics.
+
+Targets used inside Fold to construct a `W_k` tile remain ordinary Program
+semantics, not a second publication scheduler. Sparse or duplicate placement
+uses an explicit operation such as `scatter_reduce`; its selected reducer owns
+equal-target and conflicting-value resolution in the Program's deterministic
+node and reduction order. Contract vectors cover both equal duplicate values
+and conflicting duplicate values at the final tile's highest local target.
+The resulting dense `W_k` tile is then copied once by the disjoint outer-slice
+rule above. A second `write_window` leaf cannot create last-writer-wins behavior
+for either equal or conflicting public destinations: same-Buffer ownership is
+rejected during cold admission.
+
+Failure priority remains the Program status authority, including when Fold
+also produces `W`. The direct publication vector first completes and publishes
+one valid Fold tile, then gives the next Fold Scatter targets
+`{0, Tile, 0, 2}`: source ordinal 1 is out of range and source ordinal 2 is a
+duplicate. The canonical lower failure key selects
+`ScatterIndexOutOfRange` even if a concurrent GPU lane records duplicate
+evidence first. That later Fold publishes neither its `W` slice nor final `O`;
+the earlier W prefix becomes semantically unpublished through destination
+poisoning, generation remains zero, and the exact Fold/outer coordinate is
+retained on CPU, Metal, and Vulkan.
+
+The private tile bank and guarded publication are the single semantic
+authority on CPU, Metal, and Vulkan. CPU preparation freezes every required
+window-publication descriptor and Job owner. Accelerator preparation lowers
+the same descriptors to count-gated device commands in the retained stream.
+Accelerator warm execution performs no count readback, host descriptor walk,
+rebinding, allocation, transfer, fallback, or construction of another
+Pipeline. CPU warm execution retains its allocation-free canonical traversal
+of the frozen schedule and publication descriptors. The fixed destination
+contributes `O(Max)` persistent caller backing; Fold state, live workspace,
+and per-window publication are `O(Tile)`, and total window publication traffic
+is `O(Max)`.
 
 For `K = ceil(Max / Tile)`, valid resident count `C`, outer state `O_k`, and
 window-local count `c_k`, the canonical order is:
@@ -691,8 +755,13 @@ c_k       = min(Tile, C - k * Tile)
 T(k, 0)   = Seed(S, C, k)
 P(k, j+1) = Action(P(k, j), Q(k)) for j = 0 .. N-1
 T(k, j)   = P(k, j) || Q(k)
-O(k+1)    = Fold(O_k, T(k, N))
+(O(k+1), W_k) = Fold(O_k, T(k, N))
 ```
+
+For `N == 0`, `T(k, N) = T(k, 0)` and the Action equation and Action phase are
+absent. Its compact route shape is `K` Seed templates plus the three outer-bank
+Fold transitions; its authored command count is `2K`. Positive `N` retains
+`K + N + 3` templates and `K * (N + 2)` authored commands.
 
 Seed receives the canonical total count `C`, just like the ordinary
 `windows` body, and derives `c_k` through `resident<Max, Tile>(C, k)`. If
@@ -704,8 +773,9 @@ preserve their compiled Program node order, Fixed policy, reductions, resets,
 and status priority. No cross-Program fusion, reassociation, or approximate
 termination is implied.
 
-A count of zero executes no Seed, Action, or Fold and publishes the initial
-`O` through the ordinary final route. A partial final window receives its
+A count of zero executes no Seed, Action, Fold, or window publication,
+publishes the initial `O` through the ordinary final route, and leaves every
+`W` destination byte-identical. A partial final window receives its
 exact `c_k` and ordinal. Seed must place that count in `Q` whenever Action or
 Fold needs bounded tail access; the Pipeline preserves the value exactly but
 does not infer a new count lineage across the three already compiled Program
@@ -726,7 +796,17 @@ the first failure. Telemetry for an inactive occurrence observes the same
 resident stopped state before reading mutable route counters, so it cannot
 re-accumulate values left by an earlier active occurrence. Diagnostics,
 profiles, and memory-plan locations retain the logical Pipeline step plus
-separate outer-window and inner-iteration coordinates. Seed and Fold identify
+separate outer-window and inner-iteration coordinates. Window publication is
+not another semantic phase: it is permitted only after that window's Fold
+status is canonicalized, cannot replace Fold failure evidence, and cannot run
+for a failed or inactive window. A late failure rejects the one enclosing
+transaction: gated final `O` publication is suppressed and its target stays
+byte-identical, while a non-rollback `W` destination that may already contain
+completed slices is poisoned and cannot be read through the failed generation.
+The ordinary non-state write law applies: poisoning `W` also poisons the
+prepared Pipeline, so a later attempt requires a replacement destination owner
+and a newly prepared Pipeline. The failed attempt publishes no generation.
+Seed and Fold identify
 their phase and have no fabricated inner iteration. The product `k * N + j`
 is never a storage, capacity, ordering, or failure authority.
 
@@ -735,14 +815,19 @@ nested logical Pipeline step. Entering a later nested step, including one with
 different `K` or `N`, never resets or replaces work already attributed to an
 earlier step.
 
-Preparation freezes `O(K + N)` route templates plus fixed control routes. It
+Preparation freezes `O(K + N)` route templates plus fixed control and
+window-publication routes. It
 does not freeze `K * N` Program graphs, Jobs, workspaces, bindings, or state
 banks. In particular, the retained owner graph contains one Seed Program, one
 Action Program, one Fold Program, one tile-local invariant `Q` bank, exactly
-two alternating carried `P` banks, the required outer-state banks, and one
+two alternating carried `P` banks for positive `N`, the required outer-state
+banks, and one
 maximum workspace/View/scratch envelope shared serially by all three Programs
-and every outer window. `prepared_command_count` retains the checked authored
-occurrence capacity `K * (N + 2)` even when a backend proves a smaller physical
+and every outer window. Each `W` leaf adds one `Tile`-element private bank and
+one guarded publication descriptor, never a `Max`-element private bank.
+`prepared_command_count` retains the checked authored Program-occurrence
+capacity `K * (N + 2)` for positive `N` and `2K` for `N == 0`, even when a
+backend proves a smaller physical
 stream. Route-template count, authored occurrence count, physically encoded
 Program occurrence count, and backend-reported dispatch count are distinct
 report coordinates; none may be inferred from another or used to justify
@@ -758,7 +843,8 @@ pure nested body has at most `K + N + 2` compact boundaries even though
 after the nested body contribute their own exact route boundaries; no
 `prepared_command_count - 1` proxy is valid.
 
-The Action compiled artifact is retained once. Its alternating views require
+For positive `N`, the Action compiled artifact is retained once. Its
+alternating views require
 at most two parity Job/prepared-resource owners, which all outer windows
 reuse. The common accelerator compiler classifies the complete Action template
 subrange once. It admits a tile transducer only when all `N` occurrences are
@@ -1573,6 +1659,13 @@ step order must contain a whole-buffer overwrite of it. This admission rule is
 the proof that a discarded partial generation can be reused on the next tick
 without copying the published generation into it.
 
+An absent state-pair list and a zero-byte state pair are not interchangeable.
+A Pipeline with no declared state has no resident checkpoint authority, so
+`latest_device_state()` and `snapshot_storage()` reject it as
+`PipelineInvalid`. A declared pair of distinct zero-count Buffers remains one
+typed field: it may commit generations and publish nonzero metadata hashes,
+while snapshot bytes, transfer counts, and backend copy commands remain zero.
+
 `commit()` is required exactly once when state pairs exist and seals the
 builder. Preparation creates both immutable parity projections: parity zero
 reads each first Buffer and writes its second; parity one swaps those owners
@@ -1609,14 +1702,121 @@ native-handle owner. `restore(saved)` overwrites both physical parity Buffers of
 a compatible ready Pipeline. The builder route
 `.restore(saved).commit().prepare()` performs that same validation and restore
 after cold preparation, so a checkpoint from a lost Device can seed new
-Buffers on a newly opened Device. `restore` is the final declaration before
-`commit`: it freezes further `state`/`then` additions, and `commit` remains the
-single sealing terminal. Calling `restore` after `commit`, or adding work after
-`restore`, is `compute_pipeline_invalid`; no alternative declaration order is
-valid. A
+Buffers on a newly opened Device. `restore` is the final semantic declaration
+before `commit`: it freezes further `state`/`then` additions, and `commit`
+remains the single sealing terminal. The non-semantic `profile(...)` selector
+may still follow `restore`, preserving the existing builder order without
+changing checkpoint compatibility. Calling `restore` after `commit`, or adding
+work after `restore`, is `compute_pipeline_invalid`. A
 partial restore poisons the destination Pipeline; a complete restore publishes
 the saved generation at parity zero.
 No failed pending generation becomes readable as published state.
+
+Two explicit checkpoint paths close the gap between a portable archival copy
+and a warm resident hand-off. Neither path is implicit in `run()`, so ordinary
+ticks add no checkpoint descriptor walk, allocation, payload hash, host
+transfer, or readback. The paths themselves have different costs:
+`LatestDeviceState` observes only the shared resident selector and performs no
+payload transfer or hash, while `snapshot_into()` is an explicit synchronous
+export that copies and hashes exactly `B` published payload bytes.
+
+`latest_device_state()` returns a live `LatestDeviceState` owner. Pipeline and
+handle share one publication object containing the Device, declared state-pair
+Buffer owners, frozen field schema and fingerprint, and the published
+parity/generation selector. The handle does not retain Programs, prepared
+commands, steps, or the Pipeline execution object. It is acquired once; later
+successful commits advance its selector in the same Device-claim critical
+section that publishes all state-pair writes. Rejected, pending, failed, and
+discarded generations are never selected. A lost source Device makes resident
+observation and restore fail with `DeviceLost`.
+
+Each Pipeline wrapper tracks the generation and parity represented by its two
+native prepared controls. A wrapper sharing the publication authority reseeds
+when either selector component differs. This matters when another wrapper
+restores the same generation from odd parity to parity zero: generation-only
+matching would select a stale stride-two control stream and could publish
+`g + 2` instead of exactly `g + 1`.
+
+Publication also owns an internal payload epoch. Every successful execution
+and every payload-changing host or disjoint-device restore advances it; an
+exact same-authority resident rebase does not. A wrapper binds output
+observation to the triple `(generation, parity, payload epoch)`. Before
+`read()`, `stats()`, or `profile()` exposes observation state, a mismatch
+closes the stale epoch, clears all per-output hashes, and resets the aggregate
+output hash to zero. This prevents one wrapper from completing an unobserved
+hash against bytes restored or published by a sibling wrapper, including a
+same-generation restore for which generation alone cannot identify payload.
+The epoch never wraps: at `UINT64_MAX`, a run, host restore, or disjoint
+device-copy restore rejects with `PipelineCapacity` before claims, mutation,
+or submission. An exact same-authority resident rebase changes no payload or
+epoch and remains valid at that boundary.
+
+`restore(latest)` is same-Device only; a different Device is rejected even
+when it exposes the same backend, and a different backend necessarily has a
+different Device authority. A cold builder whose every ordered pair
+aliases the same first/second resident owners adopts the source publication
+authority and seeds its prepared generation controls in `O(1)`, with zero
+payload bytes. An already exposed Pipeline may take that zero-byte path only
+when it already shares the same publication authority; replacing its authority
+could strand an earlier `LatestDeviceState` handle and is rejected. Otherwise
+a compatible destination whose owners are all disjoint on that exact Device
+performs one explicit backend device-to-device copy of each selected published
+field into the destination's parity-zero published owner: exactly `B` payload
+bytes total. A partial owner overlap or reversed pair orientation is rejected
+before claims or copies, so copy order can never silently resolve a cycle or
+create two selectors over one owner. Copying the other destination owner is unnecessary because the
+state-pair admission proof requires the pending owner to be wholly overwritten
+before any read. CPU uses direct resident copies; Metal uses native blit copy
+commands; Vulkan uses `vkCmdCopyBuffer`. A host download/upload round trip or a
+shared-storage host `memcpy` is not a conforming implementation of this path.
+Different Devices and backends are rejected rather than silently falling back
+to host I/O; cross-Device recovery uses a host-owned snapshot.
+
+`snapshot_storage()` creates a move-only `SnapshotStorage` with two host-owned
+payload banks and field-metadata capacity allocated up front. The no-argument
+form is exact for the creating Pipeline. The byte-capacity overload provides a
+public bounded-storage construction path; the creating Pipeline's field
+capacity is retained. Storage is a reusable container, not a borrowed
+`StateSnapshot`, and no bank view escapes it. `snapshot_into(storage)` writes
+only the inactive bank, completing the field schema, per-field payload hashes,
+root hash, fingerprint, and generation before one active-bank flip. A
+successful export may therefore replace the active schema when it fits the
+frozen byte and field capacities. Busy source or storage, `DeviceLost`, copy
+failure, insufficient byte/field capacity, and metadata failure return before
+the flip and preserve the previously valid active bank byte-for-byte.
+`restore(storage)` consumes the active bank directly while holding the storage
+gate; it never allocates an immutable snapshot wrapper. `PipelineBuilder`
+accepts both `LatestDeviceState` and `SnapshotStorage` through the same final
+restore-before-commit ordering as `StateSnapshot`. There is deliberately no
+asynchronous checkpoint API: completion, hashing, bank publication, and error
+reporting close within the existing synchronous Pipeline call contract.
+Its schema, payload, generation, and hash contain no backend-native identity,
+so a cold compatible Pipeline on a newly opened Device may restore it across
+CPU, Metal, and Vulkan. Compatibility remains fingerprint- and field-exact;
+backend independence is not permission to reshape or reinterpret bytes.
+
+`SnapshotStorage::valid()` and its boolean conversion report that the owner and
+capacity are usable, so they are true immediately after successful
+construction. `has_snapshot()` reports whether an active checkpoint has been
+published. Before the first successful export, generation, hash, and
+fingerprint are zero and restore rejects the storage as `PipelineInvalid`.
+
+The publication generation is externally 64-bit but the prepared accelerator
+control word is 32-bit. `PipelineGenerationCapacity == 2^32 - 1` is therefore
+the uniform CPU/Metal/Vulkan maximum. Restoring a larger generation or trying
+to run generation `PipelineGenerationCapacity + 1` fails with
+`PipelineCapacity` before claims, writes, submission, or publication; the
+current generation remains visible. This fail-closed boundary prevents a
+truncating `uint64_t` to `uint32_t` seed.
+
+`checkpoint_stats()` keeps the paths distinguishable without expanding the
+generic Job/Run `Stats` ABI. Device-latest handle
+acquisitions, zero-byte owner rebases, and device-copy bytes/commands are counted
+separately. Reusable exports report successful export count, payload bytes,
+the last published reusable hash, and backend transfer count separately from
+ordinary execution, archival `snapshot()` bytes/hash, restore bytes, and the
+generic upload/download counters. Failed operations do not update successful
+checkpoint counters.
 
 CPU copies and hashes each published field directly into its final snapshot
 offset. Metal resolves every shared resident owner under one registry critical
@@ -1634,14 +1834,31 @@ required host allocations.
 The CPU contract oracle therefore observes exactly three allocations for a
 nonempty snapshot (shared snapshot owner, retained field vector, payload) and
 zero allocations for an in-place restore of an already prepared Pipeline.
+For reusable export, the public `P <= PipelineLeafCapacity` download batch is
+also inside the accelerator layer's fixed 64-route inline envelope. Metal
+stores resolved readback owners in a fixed array; Vulkan stores resolved
+routes, chunk rows, barriers, and incremental hashes in fixed arrays and
+streams fields larger than the staging budget. Consequently an already-warmed
+`snapshot_into()` performs zero runD-owned C++ heap allocations on CPU, Metal,
+and Vulkan. CPU and Metal also make no native submission in this path. Vulkan
+must submit its explicit copy; allocation performed internally by the Vulkan
+loader, driver, or translation layer is backend-dependent and is reported by
+the process-wide test probe rather than attributed to runD route planning. The
+generic accelerator transfer API retains an explicit overflow path for
+non-Pipeline callers with more than 64 routes; it is outside this bounded
+Pipeline contract.
 Vulkan resolves all resident owners once and greedily packs adjacent requests
 into host-visible staging chunks bounded by the frozen Device staging budget
 `L`. A field larger than `L` is the sole member of its chunk. Each snapshot
 chunk records all device-to-staging copies and barriers in one command Buffer,
 submits synchronously, and copies and hashes directly into the final snapshot
-offsets. Restore packs both parity destinations by the same law. Its one-chunk
-case remains an ordered asynchronous transfer; a multi-chunk restore completes
-each chunk synchronously before reusing staging capacity. Generic overlapping
+offsets. Restore packs both parity destinations by the same law. Every restore
+chunk completes synchronously before publication or staging reuse, so a
+`DeviceLost` completion closes the publication authority instead of escaping
+through an asynchronous transfer after `restore()` reports success. This
+completion requirement is an explicit checkpoint-only batch policy. Generic
+one-slice nonoverlapping Vulkan uploads retain their queued command-slot
+contract and do not acquire this host completion fence. Generic overlapping
 subranges of the same aligned resident word fall back to one request per
 synchronous chunk in declaration order, so preservation bytes from a later
 subrange cannot undo an earlier write.
@@ -2365,6 +2582,7 @@ The exact common Pipeline coordinator metadata extent is:
 
 ```text
 HostMetadata(Pipeline) = sizeof(PipelineState)
+                       + sizeof(PipelinePublicationState)
                        + V(steps)
                        + sum_step(M(primary private Job)
                                   + M(optional alternate private Job))
@@ -2392,6 +2610,12 @@ Output generation, leaf hash, resource ordinal, and observed state share one
 exact output-state vector; a pointer-sorted ordinal permutation is the only
 additional read lookup. The cached status-entry count and remaining unobserved
 count are scalars already included in `sizeof(PipelineState)`.
+The publication authority is a separately allocated retained object, so its
+object extent is not hidden inside `sizeof(PipelineState)`. One Pipeline memory
+observation charges exactly one `sizeof(PipelinePublicationState)` and its one
+state-pair vector, including when that authority is shared by sibling Pipeline
+wrappers. Separate self-contained sibling observations each describe their
+retained authority; they are not an additive global-owner inventory.
 Each distinct private Job and its vectors are included once in the coordinator
 metadata group. A transactional route owns two Jobs because native bindings
 are frozen; both are counted, while a nontransactional route retains only the
@@ -2858,7 +3082,8 @@ can claim the Pipeline contract:
     Pipeline, fixing the `N == 1` proof bypass boundary.
 32. recurrence output role is a compile-time hard cut: `then` accepts only
     `write`, fixed `repeat` accepts only `write_final` or `write_each`, and
-    bounded `windows` accepts only `write_final`. `write_each` proves exact
+    bounded `windows` accepts `write_final`, with `tile_repeat` additionally
+    accepting the disjoint append-only `write_window` role. `write_each` proves exact
     leaf-local `N * E` shape, contiguous and strided iteration-major layout,
     no carried scratch bank, complete-history publication/poisoning, distinct
     `N > 1` identity, and `N == 1` fingerprint/lowering equivalence with
@@ -2875,6 +3100,39 @@ can claim the Pipeline contract:
     values, callback coordinates, final-write rejection, and one GPU
     submission per requested host iteration; compile contracts reject throwing
     or non-Status callbacks.
+34. tile-local window publication proves the exact
+    `(O..., T...) -> (O..., W...)` Fold law and the two-Program
+    `tile_repeat<0>(Seed, Fold)` surface. Counts `0, 1, 3, 4, 5, Max`, a partial
+    tail, duplicate values, and a high-index-only raw result whose first
+    `Max - 1` values equal the destination's initial sentinel prove that each
+    successful Fold copies only `W_k[0, c_k)` from its private `Tile` bank to
+    `[k * Tile, k * Tile + c_k)`, leaving every other destination byte
+    unchanged. The high-index vector proves semantic bytes, not sparse physical
+    stores inside an active dense slice. CPU, Metal, and Vulkan prove identical
+    final `O`/window bytes,
+    deterministic warm reruns, one accelerator submission, no warm allocation,
+    rebinding, upload, or readback, exact publication traffic, and frozen
+    template/command counts. Late Seed and Action failures after the first
+    window, plus a mixed Scatter priority failure in a later Fold, prove
+    canonical higher-priority reason selection, unchanged gated final output,
+    zero generation, poisoned `W` and Pipeline, and exact outer/phase/inner
+    coordinates. Same-Buffer window destinations and overlap with
+    resident/input/final ownership prove the fail-closed alias law.
+35. reusable checkpoint acceptance covers one, multiple, and zero-byte state
+    fields; generation zero, one, 65 alternating commits, the native U32
+    generation ceiling, and the non-wrapping payload-epoch ceiling. Exact and
+    undersized storage, empty storage, busy source/storage, injected transfer
+    failure, and `DeviceLost` preserve the prior valid bank or fail with the
+    exact typed reason. Same-owner `LatestDeviceState` restore is an `O(1)`
+    selector rebase, disjoint same-Device restore is exact device-to-device
+    traffic, and partial/reversed aliases reject before mutation. Host storage
+    restores on a newly opened same or different backend Device, while live
+    state rejects every different Device/backend; fingerprint/schema mismatch
+    remains atomic. CPU, Metal, and Vulkan prove payload/hash parity, sibling
+    generation/parity/payload-epoch observation invalidation, warm reusable
+    route-plan allocation bounds, exact transfer/command/staging/checkpoint
+    counters, and process-wide allocation count/byte evidence with
+    driver-owned Vulkan submission allocation reported separately.
 
 An unavailable backend capability, typed rejection, partial implementation,
 direct-encode fallback, skipped native Vulkan run, or documentation-only API is

@@ -86,12 +86,14 @@ BackendDownload Download(const rund::AccelDevice &pick,
 }
 
 BackendUpload UploadBatch(const rund::AccelDevice &pick,
-                          const std::span<const UploadRoute> requests) {
+                          const std::span<const UploadRoute> requests,
+                          const TransferCompletion completion) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return UploadVulkanResidentBuffers(pick, requests);
+  return UploadVulkanResidentBuffers(pick, requests, completion);
 #else
   (void)pick;
   (void)requests;
+  (void)completion;
   return {};
 #endif
 }
@@ -100,6 +102,17 @@ BackendDownload DownloadBatch(const rund::AccelDevice &pick,
                               const std::span<const DownloadRoute> requests) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return DownloadVulkanResidentBuffers(pick, requests);
+#else
+  (void)pick;
+  (void)requests;
+  return {};
+#endif
+}
+
+BackendCopy CopyBatch(const rund::AccelDevice &pick,
+                      const std::span<const CopyRoute> requests) {
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  return CopyVulkanResidentBuffers(pick, requests);
 #else
   (void)pick;
   (void)requests;
@@ -153,13 +166,11 @@ Memory(const rund::AccelDevice &pick) noexcept {
   const VulkanMemoryStats &memory = adapter->staging_memory;
   const std::uint64_t physical = VulkanPhysicalStaging(*adapter);
   return rund::node::accel::AccelMemoryStats{
-      .staging =
-          rund::node::accel::AccelMemoryCounter{.current = physical,
-                                                .peak =
-                                                    std::max(physical,
-                                                             memory.peak),
-                                                .cumulative = memory.cumulative,
-                                                .reused = memory.reused}};
+      .staging = rund::node::accel::AccelMemoryCounter{
+          .current = physical,
+          .peak = std::max(physical, memory.peak),
+          .cumulative = memory.cumulative,
+          .reused = memory.reused}};
 #else
   (void)pick;
   return {};
@@ -188,6 +199,7 @@ const BackendOps Operations{
     .upload_batch = UploadBatch,
     .download = Download,
     .download_batch = DownloadBatch,
+    .copy_batch = CopyBatch,
     .lookup = Lookup,
     .stats = Stats,
     .reset = Reset,

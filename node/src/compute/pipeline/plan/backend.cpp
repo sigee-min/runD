@@ -241,8 +241,7 @@ Status prepare_backend(PipelineState &value) noexcept {
               .inner_iteration = inner_iteration,
               .inner_bound = inner_bound,
               .inner_advance =
-                  phase ==
-                          node::accel::detail::BackendWindowPhase::NestedAction
+                  phase == node::accel::detail::BackendWindowPhase::NestedAction
                       ? 1u
                       : 0u,
               .route = route,
@@ -256,8 +255,7 @@ Status prepare_backend(PipelineState &value) noexcept {
             .iteration = state->steps[index].iteration,
             .bound = state->steps[index].iteration_bound,
             .window = window,
-            .writes_each_iteration =
-                state->steps[index].writes_each_iteration,
+            .writes_each_iteration = state->steps[index].writes_each_iteration,
         });
         barriers.push_back(
             active == 0u ? 0u : static_cast<std::uint8_t>(pending_barrier));
@@ -274,23 +272,41 @@ Status prepare_backend(PipelineState &value) noexcept {
         }
         const PipelineWindow &published_window =
             state->windows[publication.window - 1u];
+        const bool window_publish =
+            publication.kind == PipelinePublishKind::Window;
         if (published_window.first_step >= state->steps.size() ||
             state->steps[published_window.first_step].iteration_bound == 0u) {
           return Result<node::accel::detail::PreparedKernelPipeline>::fail(
               Reason::PipelineInvalid);
         }
         std::array<node::accel::detail::BackendRead, 3u> sources{};
-        for (std::uint32_t bank = PipelineWindow::seed;
-             bank <= PipelineWindow::second; ++bank) {
-          if (!resolve_bank(state->windows[publication.window - 1u],
-                            publication.output, bank, sources[bank]) ||
-              sources[bank].source.count != publication.count ||
-              sources[bank].source.element_bytes != publication.element_bytes) {
+        if (window_publish) {
+          node::accel::detail::BackendRead source;
+          if (!resolve_view(*state, publication.source,
+                            publication.source_offset, publication.count, 1u,
+                            publication.element_bytes,
+                            kernel::kResidentUsageRead, source) ||
+              source.source.count != publication.count ||
+              source.source.element_bytes != publication.element_bytes) {
             return Result<node::accel::detail::PreparedKernelPipeline>::fail(
                 Reason::BindingInvalid);
           }
+          sources.fill(source);
+        } else {
+          for (std::uint32_t bank = PipelineWindow::seed;
+               bank <= PipelineWindow::second; ++bank) {
+            if (!resolve_bank(state->windows[publication.window - 1u],
+                              publication.output, bank, sources[bank]) ||
+                sources[bank].source.count != publication.count ||
+                sources[bank].source.element_bytes !=
+                    publication.element_bytes) {
+              return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                  Reason::BindingInvalid);
+            }
+          }
         }
         node::accel::detail::BackendRead target;
+        node::accel::detail::BackendRead resident_count;
         const std::shared_ptr<BufferState> *target_owner = &publication.target;
         if (alternate) {
           const auto canonical =
@@ -319,26 +335,44 @@ Status prepare_backend(PipelineState &value) noexcept {
           }
           target_owner = &owner->buffer;
         }
+        const std::size_t target_count =
+            window_publish ? publication.maximum : publication.count;
         if (!resolve_view(*state, *target_owner, publication.target_offset,
-                          publication.count, publication.target_stride,
+                          target_count, publication.target_stride,
                           publication.element_bytes,
                           kernel::kResidentUsageWrite, target)) {
           return Result<node::accel::detail::PreparedKernelPipeline>::fail(
               Reason::BindingDeviceMismatch);
         }
+        if (window_publish &&
+            !resolve_view(*state, publication.resident_count,
+                          publication.resident_count_offset, 1u, 1u,
+                          sizeof(std::uint32_t), kernel::kResidentUsageRead,
+                          resident_count)) {
+          return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+              Reason::BindingDeviceMismatch);
+        }
         publications[index] = node::accel::detail::BackendPublish{
             .sources = std::move(sources),
+            .count = std::move(resident_count),
             .target = target.source,
             .target_handle = std::move(target.handle),
             .state = static_cast<std::uint32_t>(publication.window - 1u),
             .final =
-                1u +
-                (((published_window.nested
-                       ? static_cast<std::uint32_t>(published_window.seed_count)
-                       : state->steps[published_window.first_step]
-                             .iteration_bound) -
-                  1u) &
-                 1u),
+                window_publish
+                    ? 0u
+                    : 1u + (((published_window.nested
+                                  ? static_cast<std::uint32_t>(
+                                        published_window.seed_count)
+                                  : state->steps[published_window.first_step]
+                                        .iteration_bound) -
+                             1u) &
+                            1u),
+            .maximum = publication.maximum,
+            .tile = publication.tile,
+            .kind = window_publish
+                        ? node::accel::detail::BackendPublishKind::Window
+                        : node::accel::detail::BackendPublishKind::Terminal,
         };
       }
       if (active == 0u) {
@@ -377,7 +411,7 @@ Status prepare_backend(PipelineState &value) noexcept {
       }
       state->alternate_prepared = std::move(alternate).value();
     }
-    return seed_pipeline_generations(*state, 0u);
+    return seed_pipeline_generations(*state, 0u, 0u);
   } catch (const std::bad_alloc &) {
     return Status::fail(Reason::PipelineCapacity);
   }

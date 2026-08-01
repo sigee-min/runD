@@ -71,7 +71,7 @@ CheckUnknownCompletionProfileIdentity(rund::compute::Device &device,
                  .reason = "compute_backend_failed"},
       .check = {false, "compute_backend_failed"},
       .control = {.generation =
-                      static_cast<std::uint32_t>(state->generation + 1u),
+                      static_cast<std::uint32_t>(state->attempt_generation),
                   .reason = static_cast<std::uint32_t>(Reason::Ok),
                   .failed_step =
                       rund::node::accel::detail::PreparedPipelineNoStep,

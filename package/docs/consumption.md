@@ -7,7 +7,7 @@ artifact through CMake package discovery.
 Choose link visibility from the application's C++ boundary:
 
 ```cmake
-find_package(runD 1.0.1 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.2 EXACT CONFIG REQUIRED)
 
 # runD appears only in this target's implementation.
 target_link_libraries(engine PRIVATE runD::sdk)

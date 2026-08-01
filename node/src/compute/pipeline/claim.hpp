@@ -20,6 +20,9 @@ void publish_claims(DeviceState &device, std::span<const BufferClaim> claims,
 [[nodiscard]] Status
 validate_pipeline_resources(const PipelineState &state) noexcept;
 [[nodiscard]] Status acquire_pipeline_claims(PipelineState &state) noexcept;
+void close_pipeline_observation_epoch(PipelineState &state) noexcept;
+void synchronize_pipeline_observation_epoch(
+    PipelineState &state, const PipelinePublicationState &publication) noexcept;
 
 struct PipelineTerminal final {
   Reason reason{Reason::Ok};

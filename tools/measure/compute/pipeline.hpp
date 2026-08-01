@@ -7,12 +7,15 @@
 namespace rund::measure::compute {
 
 void PrintPipelineColumns();
+void PrintCheckpointColumns();
 void PrintRecurrenceColumns();
 void PrintNestedRepeatColumns();
 void PrintPipelineProfileColumns();
 
 [[nodiscard]] bool MeasurePipeline(::rund::compute::Backend backend,
                                    std::size_t count, std::size_t samples);
+[[nodiscard]] bool MeasureCheckpoints(::rund::compute::Backend backend,
+                                      std::size_t count, std::size_t samples);
 [[nodiscard]] bool MeasureRecurrence(::rund::compute::Backend backend,
                                      std::size_t count, std::size_t samples);
 [[nodiscard]] bool MeasureNestedRepeat(::rund::compute::Backend backend,

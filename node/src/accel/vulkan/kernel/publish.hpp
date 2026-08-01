@@ -26,15 +26,22 @@ struct VulkanPipelinePublishParams final {
   std::uint32_t state{};
   std::uint32_t final{};
   std::uint32_t stop{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t outer{};
+  std::uint32_t kind{};
+  std::uint64_t count_offset_words{};
 };
 
-static_assert(sizeof(VulkanPipelinePublishParams) == 96u);
+static_assert(sizeof(VulkanPipelinePublishParams) == 120u);
 
 struct VulkanPipelinePublishRoute final {
   std::array<VulkanResidentBufferResult, 3u> sources{};
   VulkanResidentBufferResult target{};
+  VulkanResidentBufferResult count{};
   std::array<VulkanStorageBinding, 3u> source_bindings{};
   VulkanStorageBinding target_binding{};
+  VulkanStorageBinding count_binding{};
   VulkanPipelinePublishParams params{};
   VkDescriptorSet descriptor{VK_NULL_HANDLE};
   VkDescriptorSet canonical_descriptor{VK_NULL_HANDLE};
@@ -66,9 +73,11 @@ void DestroyVulkanPipelinePublish(
     VkCommandBuffer command,
     const VulkanPipelinePublishResources &resources) noexcept;
 [[nodiscard]] bool EncodeVulkanPipelineCanonicalize(
-    VkCommandBuffer command,
-    const VulkanPipelinePublishResources &resources,
+    VkCommandBuffer command, const VulkanPipelinePublishResources &resources,
     std::uint32_t state) noexcept;
+[[nodiscard]] bool EncodeVulkanPipelineWindowPublish(
+    VkCommandBuffer command, const VulkanPipelinePublishResources &resources,
+    std::uint32_t state, std::uint32_t outer) noexcept;
 [[nodiscard]] std::uint64_t VulkanPipelinePublishHostBytes(
     const VulkanPipelinePublishResources &resources) noexcept;
 

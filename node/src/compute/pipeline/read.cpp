@@ -30,12 +30,17 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
     return Status::fail(Reason::PipelineInvalid);
   }
   std::lock_guard pipeline_lock{state->gate};
-  if (state->device_lost) {
+  if (state->publication == nullptr) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  std::lock_guard publication_lock{state->publication->gate};
+  if (state->publication->device_lost) {
     return Status::fail(Reason::DeviceLost);
   }
+  synchronize_pipeline_observation_epoch(*state, *state->publication);
   const bool running = state->phase == PipelinePhase::Running;
   const bool poisoned = state->phase == PipelinePhase::Poisoned;
-  if (!running && !poisoned && state->generation == 0u &&
+  if (!running && !poisoned && state->publication->generation == 0u &&
       !state->transactional) {
     return Status::fail(Reason::ResidentNotRun);
   }
@@ -48,10 +53,11 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
   std::shared_ptr<BufferState> observed_buffer = buffer;
   bool transactional_state_read = false;
   if (state->transactional) {
-    for (const PipelineStatePair &pair : state->state_pairs) {
+    for (const PipelineStatePair &pair : state->publication->state_pairs) {
       if (requested == pair.first.get() || requested == pair.second.get()) {
         requested = pair.second.get();
-        observed_buffer = state->parity == 0u ? pair.first : pair.second;
+        observed_buffer =
+            state->publication->parity == 0u ? pair.first : pair.second;
         transactional_state_read = true;
         break;
       }
