@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/gather/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -33,11 +34,13 @@ AcquireGatherPipeline(VulkanAdapter &adapter,
                       const bool control) {
   const rund::kernel::ComputePlan pseudo =
       PseudoGatherPlan(desc, rund::kernel::ComputeApi::Vulkan, control);
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = VulkanGatherSource(desc.element, control);
-  artifact.ok = true;
-  artifact.reason = "ok";
+  std::string source = VulkanGatherSource(desc.element, control);
+  const std::uint64_t source_bytes = source.size();
+  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
+      pseudo, std::move(source), source_bytes);
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(adapter, kGatherDescriptorCount, 0u,
                                          pseudo, artifact);
 }

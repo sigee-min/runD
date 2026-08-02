@@ -6,6 +6,13 @@
 #include <cstdio>
 
 int RunComputePipelineContract() {
+  if (const int admission =
+          rund_node_test_pipeline::CheckDevicePipelineMemoryAdmission();
+      admission != 0) {
+    std::fprintf(stderr, "pipeline Device memory admission result=%d\n",
+                 admission);
+    return 9000 + admission;
+  }
   if (const int guard = rund_node_test_pipeline::CheckMetalGuardTransform();
       guard != 0) {
     std::fprintf(stderr, "pipeline Metal guard contract result=%d\n", guard);

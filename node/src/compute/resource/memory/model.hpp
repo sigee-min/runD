@@ -35,13 +35,7 @@ struct Layout final {
 [[nodiscard]] inline bool aligned(const std::uint64_t value,
                                   const std::uint64_t alignment,
                                   std::uint64_t &result) noexcept {
-  std::uint64_t padded = 0u;
-  if (alignment == 0u || (alignment & (alignment - 1u)) != 0u ||
-      !kernel::checked::add(value, alignment - 1u, padded)) {
-    return false;
-  }
-  result = padded & ~(alignment - 1u);
-  return true;
+  return kernel::checked::align_up(value, alignment, result);
 }
 
 [[nodiscard]] bool pack(std::span<const graph::Resource> resources,

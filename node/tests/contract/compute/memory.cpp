@@ -21,6 +21,10 @@ int RunComputeMemoryContract() {
       arena != 0) {
     return 400 + arena;
   }
+  if (const int arena = rund_node_memory_contract::CheckCpuSealedArena();
+      arena != 0) {
+    return 410 + arena;
+  }
 
   auto device = rund::compute::open(rund::compute::Target::cpu(2u));
   if (!device) {

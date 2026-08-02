@@ -18,15 +18,33 @@ namespace {
 } // namespace
 
 [[nodiscard]] bool MetalNumericSourcesUseParallelTopology() {
+  namespace source_recipe =
+      rund::node::accel::detail::backend_source_recipe;
   using rund::node::accel::detail::kMetalAlgebraLanes;
-  using rund::node::accel::detail::MetalNumericFixedLane32Source;
-  using rund::node::accel::detail::MetalNumericFixedLane64Source;
-  using rund::node::accel::detail::MetalNumericProgramSource;
+  using rund::node::accel::detail::EmitMetalNumericFixedLane32Source;
+  using rund::node::accel::detail::EmitMetalNumericFixedLane64Source;
+  using rund::node::accel::detail::MetalNumericSource;
+  using rund::node::accel::detail::MetalNumericSourceUpperBytes;
 
-  const std::string_view program = MetalNumericProgramSource();
-  const std::string lane32 = MetalNumericFixedLane32Source();
-  const std::string lane64 = MetalNumericFixedLane64Source();
-  return rund::kernel::transform_stage::Lanes == 256u &&
+  const std::string lane32 = source_recipe::materialize(
+      [](auto &sink) noexcept(
+          noexcept(EmitMetalNumericFixedLane32Source(sink))) {
+        return EmitMetalNumericFixedLane32Source(sink);
+      });
+  const std::string lane64 = source_recipe::materialize(
+      [](auto &sink) noexcept(
+          noexcept(EmitMetalNumericFixedLane64Source(sink))) {
+        return EmitMetalNumericFixedLane64Source(sink);
+      });
+  const std::string combined = MetalNumericSource();
+  std::uint64_t exact_bytes = 0u;
+  const std::string_view program = lane32;
+  return !lane32.empty() && !lane64.empty() && !combined.empty() &&
+         MetalNumericSourceUpperBytes(exact_bytes) &&
+         exact_bytes == combined.size() &&
+         combined.size() == lane32.size() + lane64.size() &&
+         combined.starts_with(lane32) && combined.ends_with(lane64) &&
+         rund::kernel::transform_stage::Lanes == 256u &&
          rund::kernel::transform_stage::LocalStages == 8u &&
          kMetalAlgebraLanes == 32u && rund::kernel::matrix_tile::Side == 32u &&
          rund::kernel::matrix_tile::Cells == 1024u &&
@@ -65,7 +83,11 @@ namespace {
          !Contains(program, "ulong batch = ulong(gid)") &&
          Contains(lane32, "#define RUND_SUFFIX i32") &&
          Contains(lane64, "#define RUND_SUFFIX i64") &&
-         Contains(lane32, program) && Contains(lane64, program);
+         Contains(lane64, "RUND_KERNEL(rund_numeric_matrix_)") &&
+         Contains(lane64, "RUND_KERNEL(rund_numeric_transform_)") &&
+         Contains(lane64, "RUND_KERNEL(rund_numeric_factor_)") &&
+         Contains(lane64, "RUND_KERNEL(rund_numeric_solve_)") &&
+         Contains(lane64, "RUND_KERNEL(rund_numeric_spectrum_)");
 }
 
 } // namespace node_accel_contract

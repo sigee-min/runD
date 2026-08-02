@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace rund::node::accel::detail {
 
@@ -32,10 +33,10 @@ rund::AccelCheck PrepareMetalNestedAggregate(MetalAdapter &adapter,
   aggregate.finalize_pipeline = LookupMetalNamedPipeline(adapter, finalize_key);
   if (aggregate.reduce_pipeline == nullptr ||
       aggregate.finalize_pipeline == nullptr) {
-    const std::string source{MetalNestedAggregateSource()};
+    std::string source{MetalNestedAggregateSource()};
     const std::uint64_t begin = MonotonicNanoseconds();
     const std::shared_ptr<void> library_owner =
-        AcquireMetalLibrary(adapter, source);
+        AcquireMetalLibrary(adapter, std::move(source));
     id<MTLLibrary> const library = (__bridge id<MTLLibrary>)library_owner.get();
     if (library == nil) {
       return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};

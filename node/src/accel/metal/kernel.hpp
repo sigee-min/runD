@@ -21,6 +21,8 @@ PrepareMetalResources(const rund::AccelDevice &pick, const BoundStep *steps,
                       KernelPreparationMode mode, const BoundResets *resets,
                       const KernelViewLayout *views, const RunBinds *view_binds,
                       const KernelScratchLayout *scratch,
+                      const BackendRun *template_probe,
+                      PreparedKernelTemplateRegistry *templates,
                       std::uint32_t *failed_node,
                       std::shared_ptr<void> &prepared, PreparedMemory &memory);
 [[nodiscard]] std::uint64_t

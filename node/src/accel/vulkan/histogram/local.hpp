@@ -37,6 +37,8 @@ struct VulkanHistogramEncodeResources {
 
 void DestroyVulkanHistogramEncodeResources(void *raw);
 [[nodiscard]] std::string VulkanHistogramSource(bool clear);
+[[nodiscard]] bool VulkanHistogramSourceBytes(bool clear,
+                                              std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireHistogramPipeline(VulkanAdapter &adapter,
                          const rund::kernel::HistogramDesc &desc, bool clear);

@@ -1,19 +1,22 @@
 #pragma once
 
 #include <kernel/program/compute/matrix/tile.hpp>
-#include <string>
+#include "../kernel/source_recipe.hpp"
 #include <string_view>
 
 namespace rund::node::accel::detail {
 
-[[nodiscard]] inline std::string
-MatrixProgramSource(std::string base, const std::string_view dialect) {
+template <typename Sink>
+[[nodiscard]] bool AppendMatrixProgramSource(
+    Sink &sink, const std::string_view dialect)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink base{sink};
   const auto define = [&base](const std::string_view name,
                               const kernel::u64 value) {
     base += "#define ";
     base += name;
-    base += ' ';
-    base += std::to_string(value);
+    base += " ";
+    base.decimal(value);
     base += "u\n";
   };
   define("RUND_MATRIX_TILE_SIDE", kernel::matrix_tile::Side);
@@ -166,7 +169,7 @@ void main() {
 #undef RUND_STORE_MATRIX
 }
 )GLSL");
-  return base;
+  return base.ok();
 }
 
 } // namespace rund::node::accel::detail

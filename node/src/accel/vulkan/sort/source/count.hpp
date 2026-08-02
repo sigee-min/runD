@@ -1,10 +1,9 @@
 #pragma once
 
-#include <string>
-
 namespace rund::node::accel::detail {
 
-inline void AppendVulkanSortCount(std::string &source) {
+template <typename Source>
+inline void AppendVulkanSortCount(Source &source) {
   source += "layout(set = 0, binding = 8, std430) readonly buffer "
             "LogicalCount { uint logical_count[]; };\n";
   source += "struct SortRange { uint64_t logical; bool invalid; };\n";

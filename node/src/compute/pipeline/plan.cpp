@@ -28,7 +28,77 @@
 #include <vector>
 
 namespace rund::compute::detail {
-namespace {} // namespace
+namespace {
+
+struct PipelinePrepareOwner final {
+  // Declaration order is lifetime order: every preparation/build owner is
+  // destroyed before a failed admission is refunded.
+  storage::Reservation device_memory;
+  std::shared_ptr<PipelineBuildState> build;
+  PipelinePrepare preparation;
+};
+
+[[nodiscard]] bool exact_publication_ticket(
+    const storage::Reservation &ticket,
+    const std::uint64_t expected_bytes) noexcept {
+  const storage::Usage usage = ticket.usage();
+  return ticket.committed() &&
+         ticket.max_allocated_bytes() == expected_bytes &&
+         usage.physical_bytes == 0u && usage.allocated_bytes == expected_bytes;
+}
+
+[[nodiscard]] Status attach_pipeline_memory(
+    PipelineState &state, storage::Reservation &total,
+    const std::uint64_t publication_bytes,
+    const PipelinePublicationState *const prepared_publication) noexcept {
+  if (state.publication == nullptr || !total || total.committed() ||
+      publication_bytes > total.max_allocated_bytes()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  const bool adopted = state.publication.get() != prepared_publication;
+  if (adopted) {
+    if (!exact_publication_ticket(state.publication->publication_memory,
+                                  publication_bytes)) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+  } else if (state.publication->publication_memory) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+
+  storage::Reservation publication = total.partition(publication_bytes);
+  if (!publication) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  if (adopted) {
+    // The adopted authority already owns this exact charge. Drop only the
+    // duplicate share from the new conservative admission.
+    if (!publication.refund()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+  } else {
+    const storage::Status committed = publication.commit(storage::Usage{
+        .physical_bytes = 0u,
+        .allocated_bytes = publication_bytes,
+    });
+    if (!committed) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    state.publication->publication_memory = std::move(publication);
+  }
+
+  const std::uint64_t private_bytes = total.max_allocated_bytes();
+  const storage::Status committed = total.commit(storage::Usage{
+      .physical_bytes = 0u,
+      .allocated_bytes = private_bytes,
+  });
+  if (!committed) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  state.private_memory = std::move(total);
+  return Status::success();
+}
+
+} // namespace
 
 Result<PipelinePlan>
 plan_pipeline(const std::shared_ptr<PipelineBuildState> &build) noexcept {
@@ -120,43 +190,73 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
     return Result<std::shared_ptr<PipelineState>>::fail(
         Reason::PipelineMemoryBudget);
   }
-  const Status materialized = materialize_pipeline(*build);
+  const std::uint64_t committed_bytes =
+      pipeline_committed_charge(*planned_memory);
+  if (build->memory == nullptr ||
+      build->memory->publication_committed_bytes > committed_bytes) {
+    return Result<std::shared_ptr<PipelineState>>::fail(
+        Reason::PipelineInvalid);
+  }
+  const std::uint64_t publication_bytes =
+      build->memory->publication_committed_bytes;
+  storage::Reservation admission =
+      build->device->pipeline_memory_budget.reserve(committed_bytes);
+  if (!admission) {
+    return Result<std::shared_ptr<PipelineState>>::fail(
+        Reason::DevicePipelineMemoryCapacity);
+  }
+  PipelinePrepareOwner owner{
+      .device_memory = std::move(admission),
+      .build = std::move(build),
+      .preparation = {},
+  };
+  const Status materialized = materialize_pipeline(*owner.build);
   if (!materialized) {
     return Result<std::shared_ptr<PipelineState>>::fail(materialized.reason());
   }
 
   try {
-    PipelinePrepare preparation{};
-    const Status admitted = admit_pipeline(build, preparation);
+    PipelinePrepare &preparation = owner.preparation;
+    const Status admitted = admit_pipeline(owner.build, preparation);
     if (!admitted) {
       return Result<std::shared_ptr<PipelineState>>::fail(admitted.reason());
     }
-    const Status scheduled = schedule_pipeline(build, preparation);
+    const Status scheduled = schedule_pipeline(owner.build, preparation);
     if (!scheduled) {
       return Result<std::shared_ptr<PipelineState>>::fail(scheduled.reason());
     }
-    const Status bound = bind_pipeline(build, preparation);
+    const Status bound = bind_pipeline(owner.build, preparation);
     if (!bound) {
       return Result<std::shared_ptr<PipelineState>>::fail(bound.reason(),
                                                           preparation.failure);
     }
     std::shared_ptr<PipelineState> &state = preparation.state;
-    if (build->seed != nullptr) {
-      const Status restored = restore_pipeline_state(state, build->seed);
-      if (!restored) {
-        return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
-      }
-    } else if (build->storage_seed != nullptr) {
+    const PipelinePublicationState *const prepared_publication =
+        state->publication.get();
+    if (owner.build->seed != nullptr) {
       const Status restored =
-          restore_pipeline_state(state, build->storage_seed);
+          restore_pipeline_state(state, owner.build->seed);
       if (!restored) {
         return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
       }
-    } else if (build->device_seed != nullptr) {
-      const Status restored = restore_pipeline_state(state, build->device_seed);
+    } else if (owner.build->storage_seed != nullptr) {
+      const Status restored =
+          restore_pipeline_state(state, owner.build->storage_seed);
       if (!restored) {
         return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
       }
+    } else if (owner.build->device_seed != nullptr) {
+      const Status restored =
+          restore_pipeline_state(state, owner.build->device_seed);
+      if (!restored) {
+        return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
+      }
+    }
+    const Status attached =
+        attach_pipeline_memory(*state, owner.device_memory, publication_bytes,
+                               prepared_publication);
+    if (!attached) {
+      return Result<std::shared_ptr<PipelineState>>::fail(attached.reason());
     }
     state->preparing = false;
     return Result<std::shared_ptr<PipelineState>>::success(std::move(state));

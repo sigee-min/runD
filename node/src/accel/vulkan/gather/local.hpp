@@ -39,6 +39,9 @@ struct VulkanGatherEncodeResources {
 void DestroyVulkanGatherEncodeResources(void *raw);
 [[nodiscard]] std::string
 VulkanGatherSource(rund::kernel::GatherElement element, bool control);
+[[nodiscard]] bool VulkanGatherSourceBytes(rund::kernel::GatherElement element,
+                                           bool control,
+                                           std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireGatherPipeline(VulkanAdapter &adapter,
                       const rund::kernel::GatherDesc &desc, bool control);

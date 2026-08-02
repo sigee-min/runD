@@ -17,7 +17,9 @@ EncodeMetalCompactElementPath(MetalAdapter &adapter,
       (__bridge void *)state.offsets, state.compact->offsets.offset,
       state.compact->scan_totals.buffer.get(),
       state.compact->scan_totals.offset,
-      state.compact->scan_status.buffer.get(), command_encoder, false);
+      state.compact->scan_status.buffer.get(), command_encoder,
+      state.compact->scan_block, state.compact->scan_prefix,
+      state.compact->scan_offset, false);
   if (!scan.ok) {
     return scan;
   }

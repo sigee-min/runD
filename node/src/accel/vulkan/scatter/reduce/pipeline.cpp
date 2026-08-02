@@ -1,4 +1,5 @@
 #include "model.hpp"
+#include "../../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/scatter/reduce/identity.hpp>
 
@@ -16,9 +17,8 @@ PseudoPlan(const rund::kernel::ScatterReducePlan &plan,
       rund::kernel::ScatterReduceDesc{.op = plan.op,
                                       .domain = plan.domain,
                                       .fixed_format = plan.fixed_format,
-                                      .element_count = plan.element_count,
-                                      .output_count = plan.output_count,
-                                      .count_source = plan.count_source});
+                                      .element_count = 0u,
+                                      .output_count = 0u});
   const std::uint64_t salt = static_cast<std::uint64_t>(stage);
   return rund::kernel::ComputePlan{
       .op_hash_hi = hash.hi ^ (0x5343524455434500ull + salt),
@@ -26,6 +26,8 @@ PseudoPlan(const rund::kernel::ScatterReducePlan &plan,
       .api = rund::kernel::ComputeApi::Vulkan,
       .scalar = plan.element_bytes == 8u ? rund::kernel::ComputeScalar::Lane64
                                          : rund::kernel::ComputeScalar::Lane32,
+      .domain = plan.domain,
+      .fixed_format = plan.fixed_format,
       .ok = true,
       .reason = "ok"};
 }
@@ -36,13 +38,16 @@ VulkanCollectivePipeline *
 AcquireVulkanScatterReducePipeline(VulkanAdapter &adapter,
                                    const rund::kernel::ScatterReducePlan &plan,
                                    const VulkanScatterReduceStage stage) {
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = VulkanScatterReduceSource(plan, stage);
-  artifact.ok = true;
-  artifact.reason = "ok";
+  const rund::kernel::ComputePlan pseudo = PseudoPlan(plan, stage);
+  std::string source = VulkanScatterReduceSource(plan, stage);
+  const std::uint64_t source_bytes = source.size();
+  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
+      pseudo, std::move(source), source_bytes);
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(adapter, kVulkanScatterReduceBindings,
-                                         0u, PseudoPlan(plan, stage), artifact);
+                                         0u, pseudo, artifact);
 }
 
 #endif

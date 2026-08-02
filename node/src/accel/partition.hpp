@@ -13,7 +13,9 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
 ExecuteMetalPartition(const rund::AccelDevice &pick,
@@ -25,7 +27,9 @@ PrepareMetalPartition(const rund::AccelDevice &pick,
                       const rund::kernel::PartitionDesc &desc,
                       const rund::kernel::PartitionPlan &plan,
                       const PartitionBinds &bindings,
-                      std::shared_ptr<void> &resources);
+                      std::shared_ptr<void> &resources,
+                      const MetalKernelImmutablePipelines *pipelines =
+                          nullptr);
 [[nodiscard]] rund::AccelCheck EncodeMetalPartition(MetalAdapter &adapter,
                                          const std::shared_ptr<void> &resources,
                                          void *command_encoder);
@@ -43,7 +47,9 @@ PrepareVulkanPartition(const rund::AccelDevice &pick,
                        const rund::kernel::PartitionDesc &desc,
                        const rund::kernel::PartitionPlan &plan,
                        const PartitionBinds &bindings,
-                       std::shared_ptr<void> &resources);
+                       std::shared_ptr<void> &resources,
+                       const VulkanKernelImmutablePipelines *pipelines =
+                           nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanPartition(VulkanAdapter &adapter,
                       const std::shared_ptr<void> &resources,

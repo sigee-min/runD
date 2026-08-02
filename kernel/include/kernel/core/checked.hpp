@@ -55,4 +55,17 @@ namespace rund::kernel::checked {
              : value / divisor + static_cast<u64>(value % divisor != 0u);
 }
 
+[[nodiscard]] constexpr bool align_up(const u64 value, const u64 alignment,
+                                      u64 &result) noexcept {
+  if (alignment == 0u || (alignment & (alignment - 1u)) != 0u) {
+    return false;
+  }
+  u64 padded = 0u;
+  if (!add(value, alignment - 1u, padded)) {
+    return false;
+  }
+  result = padded & ~(alignment - 1u);
+  return true;
+}
+
 } // namespace rund::kernel::checked

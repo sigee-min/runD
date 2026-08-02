@@ -4,6 +4,7 @@
 #include "../../compact/shape.hpp"
 #include "../collective/execute.hpp"
 #include "../status.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "encode/scatter.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
@@ -34,7 +35,9 @@ rund::AccelCheck PrepareVulkanCompact(const rund::AccelDevice &pick,
                                       const rund::kernel::CompactDesc &desc,
                                       const rund::kernel::CompactPlan &plan,
                                       const CompactBinds &bindings,
-                                      std::shared_ptr<void> &resources) {
+                                      std::shared_ptr<void> &resources,
+                                      const VulkanKernelImmutablePipelines
+                                          *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -61,11 +64,20 @@ rund::AccelCheck PrepareVulkanCompact(const rund::AccelDevice &pick,
   raw->block_count = static_cast<rund::kernel::u32>(
       (plan.element_count - 1u) / block::VulkanCompact + 1u);
   raw->classify_pipeline =
-      AcquireCompactPipeline(*adapter, desc, CompactStage::Classify);
+      pipelines == nullptr
+          ? AcquireCompactPipeline(*adapter, desc, CompactStage::Classify)
+          : pipelines->borrow(rund::kernel::NodeKind::Compact, 3u, 0u,
+                              kCompactDescriptorCount, 1u);
   raw->prefix_pipeline =
-      AcquireCompactPipeline(*adapter, desc, CompactStage::Prefix);
+      pipelines == nullptr
+          ? AcquireCompactPipeline(*adapter, desc, CompactStage::Prefix)
+          : pipelines->borrow(rund::kernel::NodeKind::Compact, 3u, 1u,
+                              kCompactDescriptorCount, 1u);
   raw->scatter_pipeline =
-      AcquireCompactPipeline(*adapter, desc, CompactStage::Scatter);
+      pipelines == nullptr
+          ? AcquireCompactPipeline(*adapter, desc, CompactStage::Scatter)
+          : pipelines->borrow(rund::kernel::NodeKind::Compact, 3u, 2u,
+                              kCompactDescriptorCount, 1u);
   const CompactParams params_value{plan.element_count, plan.output_capacity};
   if (raw->classify_pipeline == nullptr || raw->prefix_pipeline == nullptr ||
       raw->scatter_pipeline == nullptr ||
@@ -82,6 +94,7 @@ rund::AccelCheck PrepareVulkanCompact(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }
@@ -120,7 +133,16 @@ rund::AccelCheck ExecuteVulkanCompact(const rund::AccelDevice &pick,
                                       const CompactBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanCollective(pick, desc, plan, bindings,
-                                 PrepareVulkanCompact, EncodeVulkanCompact,
+                                 [](const rund::AccelDevice &device,
+                                    const rund::kernel::CompactDesc &operation,
+                                    const rund::kernel::CompactPlan &prepared,
+                                    const CompactBinds &resident,
+                                    std::shared_ptr<void> &resources) {
+                                   return PrepareVulkanCompact(
+                                       device, operation, prepared, resident,
+                                       resources, nullptr);
+                                 },
+                                 EncodeVulkanCompact,
                                  FinishVulkanCompact);
 #else
   return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);

@@ -1,5 +1,6 @@
 #include "../resource.hpp"
 #include "../source.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include "../../../transform/shape.hpp"
 
@@ -16,7 +17,9 @@ rund::AccelCheck PrepareVulkanTransform(const rund::AccelDevice &pick,
                                         const rund::kernel::TransformPlan &plan,
                                         const TransformBinds &bindings,
                                         const KernelPreparationMode mode,
-                                        std::shared_ptr<void> &out) {
+                                        std::shared_ptr<void> &out,
+                                        const VulkanKernelImmutablePipelines
+                                            *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   out.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -71,17 +74,25 @@ rund::AccelCheck PrepareVulkanTransform(const rund::AccelDevice &pick,
                        0u,
                        static_cast<rund::kernel::u32>(plan.direction),
                        static_cast<rund::kernel::u32>(plan.normalization)};
-  const auto hash = rund::kernel::HashTransform(desc);
+  const auto hash =
+      rund::kernel::HashTransform(rund::kernel::TransformDesc{});
   if (!PrepareTwiddle(*raw, plan)) {
     return rund::AccelCheck{false, VulkanLastError(adapter)};
   }
-  check = FinalizePrepared(
-      *raw, params, 6u,
-      NumericPseudoPlan(hash, wide ? rund::kernel::ComputeScalar::Lane64
-                                   : rund::kernel::ComputeScalar::Lane32),
-      wide ? TransformSource64() : TransformSource(),
-      FixedPolicy(plan.fixed_format), mode,
-      sizeof(rund::kernel::transform_stage::Batch));
+  VulkanCollectivePipeline *const pipeline =
+      pipelines == nullptr
+          ? AcquireNumericPipeline(
+                *adapter, 6u, sizeof(rund::kernel::transform_stage::Batch),
+                NumericPseudoPlan(
+                    hash,
+                    wide ? rund::kernel::ComputeScalar::Lane64
+                         : rund::kernel::ComputeScalar::Lane32,
+                    rund::kernel::ComputeDomain::Fixed, plan.fixed_format),
+                wide ? TransformSource64() : TransformSource(),
+                FixedPolicy(plan.fixed_format))
+          : pipelines->borrow(rund::kernel::NodeKind::Transform, 1u, 0u, 6u,
+                              1u);
+  check = FinalizePrepared(*raw, params, 6u, pipeline, mode);
   if (!check.ok) {
     return check;
   }
@@ -94,6 +105,7 @@ rund::AccelCheck PrepareVulkanTransform(const rund::AccelDevice &pick,
   (void)bindings;
   (void)mode;
   (void)out;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

@@ -344,19 +344,19 @@ namespace {
     const auto result =
         plan.element == kernel::ScatterElement::U32
             ? node::accel::detail::ExecuteLinearScatter(
-                  scratch->values,
+                  *scratch,
                   reinterpret_cast<const kernel::u32 *>(port(0u).data),
                   reinterpret_cast<const kernel::u32 *>(port(1u).data),
                   reinterpret_cast<kernel::u32 *>(port(2u).data),
                   plan.element_count, plan.output_count,
-                  scratch->values.keys.size())
+                  scratch->keys.size())
             : node::accel::detail::ExecuteLinearScatter(
-                  scratch->values,
+                  *scratch,
                   reinterpret_cast<const kernel::u64 *>(port(0u).data),
                   reinterpret_cast<const kernel::u32 *>(port(1u).data),
                   reinterpret_cast<kernel::u64 *>(port(2u).data),
                   plan.element_count, plan.output_count,
-                  scratch->values.keys.size());
+                  scratch->keys.size());
     check = rund::AccelCheck{result.ok, result.reason};
     break;
   }
@@ -494,7 +494,8 @@ namespace {
 
 Status execute_cpu_primitive(JobState &job, const std::size_t step) {
   if (job.program == nullptr || job.program->cpu_graph == nullptr ||
-      job.cpu == nullptr || job.cpu->graph == nullptr || job.inputs.empty() ||
+      job.cpu == nullptr || job.cpu->graph == nullptr ||
+      job.cpu->graph->storage == nullptr || job.inputs.empty() ||
       job.outputs.empty()) {
     return Status::fail(Reason::RunInvalid);
   }

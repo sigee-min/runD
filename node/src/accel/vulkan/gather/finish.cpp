@@ -14,8 +14,8 @@ bool ObserveVulkanGatherFailure(const std::shared_ptr<void> &resources,
       static_cast<const VulkanGatherEncodeResources *>(resources.get());
   const std::uint32_t *const status =
       gather == nullptr ? nullptr : VulkanStatusValue(gather->status);
-  if (status == nullptr ||
-      gather->status.read_bytes < 2u * sizeof(*status) || status[0] != 2u) {
+  if (status == nullptr || gather->status.read_bytes < 2u * sizeof(*status) ||
+      status[0] != 2u) {
     return false;
   }
   ordinal = status[1];
@@ -72,6 +72,24 @@ DescribeVulkanGatherPipelineTelemetry(const std::shared_ptr<void> &resources,
 #else
   (void)resources;
   (void)source;
+  return {false, "accel_vulkan_loader_unavailable"};
+#endif
+}
+
+rund::AccelCheck DescribeVulkanGatherPipelineCaptureDemand(
+    const std::shared_ptr<void> &resources,
+    std::uint64_t &indirect_dispatch_count) noexcept {
+  indirect_dispatch_count = 0u;
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  const auto *const gather =
+      static_cast<const VulkanGatherEncodeResources *>(resources.get());
+  if (gather == nullptr) {
+    return {false, "compute_gather_invalid"};
+  }
+  indirect_dispatch_count = 1u;
+  return {true, "ok"};
+#else
+  (void)resources;
   return {false, "accel_vulkan_loader_unavailable"};
 #endif
 }

@@ -3,6 +3,7 @@
 
 #include "../buffer/resident/batch.hpp"
 #include "encode/pass.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "local.hpp"
 #include "pipeline.hpp"
 #include "resources/validation.hpp"
@@ -38,7 +39,9 @@ rund::AccelCheck PrepareVulkanScanBuffers(
     const std::uint64_t input_range, const std::uint64_t output_offset,
     const std::uint64_t output_range,
     const std::uint64_t logical_count_offset,
-    const std::uint64_t logical_count_range) {
+    const std::uint64_t logical_count_range,
+    const VulkanKernelImmutablePipelines *const pipelines,
+    const std::uint32_t pipeline_offset) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   SetVulkanLastError(adapter, "ok");
@@ -74,16 +77,34 @@ rund::AccelCheck PrepareVulkanScanBuffers(
           rund::kernel::ComputeCountBytes(plan.count_source) /
           sizeof(rund::kernel::u32)),
       desc.op == rund::kernel::ScanOp::InclusiveSum ? 1u : 0u};
-  raw->block =
-      AcquireVulkanScanPipeline(adapter, desc, domain, VulkanScanStage::Block);
-  raw->prefix = plan.pass_count == 2u
-                    ? AcquireVulkanScanPipeline(adapter, desc, domain,
-                                                VulkanScanStage::Prefix)
-                    : nullptr;
-  raw->offset = plan.pass_count == 2u
-                    ? AcquireVulkanScanPipeline(adapter, desc, domain,
-                                                VulkanScanStage::Offset)
-                    : nullptr;
+  const std::uint32_t scan_stage_count = plan.pass_count == 1u ? 1u : 3u;
+  const std::uint32_t tuple_count = pipeline_offset + scan_stage_count;
+  const rund::kernel::NodeKind tuple_kind =
+      pipeline_offset == 0u ? rund::kernel::NodeKind::Scan
+                            : rund::kernel::NodeKind::Partition;
+  raw->block = pipelines == nullptr
+                   ? AcquireVulkanScanPipeline(adapter, desc, domain,
+                                               VulkanScanStage::Block)
+                   : pipelines->borrow(tuple_kind, tuple_count, pipeline_offset,
+                                       kScanDescriptorCount, 1u);
+  raw->prefix =
+      plan.pass_count == 2u
+          ? (pipelines == nullptr
+                 ? AcquireVulkanScanPipeline(adapter, desc, domain,
+                                             VulkanScanStage::Prefix)
+                 : pipelines->borrow(tuple_kind, tuple_count,
+                                     pipeline_offset + 1u,
+                                     kScanDescriptorCount, 1u))
+          : nullptr;
+  raw->offset =
+      plan.pass_count == 2u
+          ? (pipelines == nullptr
+                 ? AcquireVulkanScanPipeline(adapter, desc, domain,
+                                             VulkanScanStage::Offset)
+                 : pipelines->borrow(tuple_kind, tuple_count,
+                                     pipeline_offset + 2u,
+                                     kScanDescriptorCount, 1u))
+          : nullptr;
   if (raw->dispatch_count == 0u || raw->block == nullptr ||
       (plan.pass_count == 2u &&
        (raw->prefix == nullptr || raw->offset == nullptr)) ||
@@ -113,6 +134,8 @@ rund::AccelCheck PrepareVulkanScanBuffers(
   (void)output_range;
   (void)logical_count_offset;
   (void)logical_count_range;
+  (void)pipelines;
+  (void)pipeline_offset;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

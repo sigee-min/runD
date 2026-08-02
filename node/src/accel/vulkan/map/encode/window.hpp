@@ -57,11 +57,11 @@ namespace {
       return rund::AccelCheck{false, "compute_plan_invalid"};
     }
     EncodeVulkanMapIndirect(
-        command_buffer, *map.pipeline, descriptor_set, window_index,
+        command_buffer, *map.prepared->pipeline, descriptor_set, window_index,
         map.iterations, map.control_args.buffer.buffer,
         static_cast<VkDeviceSize>(window_index) * 4u * sizeof(std::uint32_t));
   } else {
-    EncodeVulkanMap(command_buffer, *map.pipeline, descriptor_set,
+    EncodeVulkanMap(command_buffer, *map.prepared->pipeline, descriptor_set,
                     static_cast<std::uint32_t>(window.tile_count),
                     map.iterations);
   }

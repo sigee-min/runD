@@ -2,26 +2,29 @@
 
 #include "../local/api.hpp"
 #include "../../../sort/block/vulkan.hpp"
+#include "../../kernel/source_recipe.hpp"
 #include "count.hpp"
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-[[nodiscard]] inline std::string
-VulkanSortKeyType(const rund::kernel::SortKey key) {
+[[nodiscard]] inline const char *
+VulkanSortKeyType(const rund::kernel::SortKey key) noexcept {
   return key == rund::kernel::SortKey::U64 ? "uint64_t" : "uint";
 }
 
-[[nodiscard]] inline std::string
-VulkanSortBaseSource(const rund::kernel::SortKey key,
-                     const rund::kernel::u32 local_size, const bool chunked) {
+template <typename Sink>
+[[nodiscard]] bool AppendVulkanSortBaseSource(
+    Sink &sink, const rund::kernel::SortKey key,
+    const rund::kernel::u32 local_size, const bool chunked)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
   const bool key64 = key == rund::kernel::SortKey::U64;
-  const std::string key_type = VulkanSortKeyType(key);
-  std::string source;
+  const char *const key_type = VulkanSortKeyType(key);
+  VulkanSourceTextSink source{sink};
   source += "#version 450\n";
   source += "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : ";
   source += "require\n";
   source += "layout(local_size_x = ";
-  source += std::to_string(local_size);
+  source.decimal(local_size);
   source += ") in;\n";
   if (chunked) {
     source += "layout(push_constant) uniform SortDispatch {\n";
@@ -29,14 +32,14 @@ VulkanSortBaseSource(const rund::kernel::SortKey key,
     source += "} sort_dispatch;\n";
   }
   source += "const uint kSortThreadCount = ";
-  source += std::to_string(kVulkanSortThreadCount);
+  source.decimal(kVulkanSortThreadCount);
   source += "u;\nconst uint kSortItemsPerThread = ";
-  source += std::to_string(kVulkanSortItemsPerThread);
+  source.decimal(kVulkanSortItemsPerThread);
   source += "u;\n";
   source += "const uint kSortBlockSize = ";
-  source += std::to_string(kVulkanSortBlockSize);
+  source.decimal(kVulkanSortBlockSize);
   source += "u;\nconst uint kSortBucketCount = ";
-  source += std::to_string(kSortBucketCount);
+  source.decimal(kSortBucketCount);
   source += "u;\nuint rund_sort_bucket(";
   source += key_type;
   source += " key, uint shift) {\n";
@@ -63,7 +66,7 @@ VulkanSortBaseSource(const rund::kernel::SortKey key,
   source += "params.pass_index + 1u == params.pass_count) { ";
   source += "bucket ^= 128u; }\n";
   source += "  return bucket;\n}\n";
-  return source;
+  return source.ok();
 }
 #endif
 } // namespace rund::node::accel::detail

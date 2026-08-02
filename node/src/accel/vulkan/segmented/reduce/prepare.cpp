@@ -4,6 +4,7 @@
 #include "../../../segmented/reduce/vulkan.hpp"
 
 #include "../../buffer/resident/batch.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include <array>
 #include <limits>
@@ -38,7 +39,9 @@ PrepareVulkanSegmentedReduce(const rund::AccelDevice &pick,
                              const rund::kernel::SegmentedReducePlan &plan,
                              const rund::kernel::ComputeDomain domain,
                              const SegmentedReduceBinds &bindings,
-                             std::shared_ptr<void> &resources) {
+                             std::shared_ptr<void> &resources,
+                             const VulkanKernelImmutablePipelines
+                                 *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -67,16 +70,34 @@ PrepareVulkanSegmentedReduce(const rund::AccelDevice &pick,
   raw->heads_binding = VulkanStorageBindingFor(heads.device_buffer, heads.ref);
   raw->output_binding =
       VulkanStorageBindingFor(output.device_buffer, output.ref);
-  const std::string classify = VulkanSegmentedClassifySource();
-  const std::string prefix = VulkanSegmentedPrefixSource();
-  const std::string scatter = VulkanSegmentedScatterSource();
   raw->classify =
-      AcquireVulkanSegmentedIndex(*adapter, desc, domain, classify.c_str());
+      pipelines == nullptr
+          ? AcquireVulkanSegmentedReducePipeline(
+                *adapter, desc, plan, domain,
+                VulkanSegmentedReduceStage::Classify)
+          : pipelines->borrow(rund::kernel::NodeKind::SegmentedReduce, 4u, 0u,
+                              kVulkanSegmentedReduceBindings, 1u);
   raw->prefix =
-      AcquireVulkanSegmentedIndex(*adapter, desc, domain, prefix.c_str());
+      pipelines == nullptr
+          ? AcquireVulkanSegmentedReducePipeline(
+                *adapter, desc, plan, domain,
+                VulkanSegmentedReduceStage::Prefix)
+          : pipelines->borrow(rund::kernel::NodeKind::SegmentedReduce, 4u, 1u,
+                              kVulkanSegmentedReduceBindings, 1u);
   raw->scatter =
-      AcquireVulkanSegmentedIndex(*adapter, desc, domain, scatter.c_str());
-  raw->reduce = AcquireVulkanSegmentedReduce(*adapter, desc, plan, domain);
+      pipelines == nullptr
+          ? AcquireVulkanSegmentedReducePipeline(
+                *adapter, desc, plan, domain,
+                VulkanSegmentedReduceStage::Scatter)
+          : pipelines->borrow(rund::kernel::NodeKind::SegmentedReduce, 4u, 2u,
+                              kVulkanSegmentedReduceBindings, 1u);
+  raw->reduce =
+      pipelines == nullptr
+          ? AcquireVulkanSegmentedReducePipeline(
+                *adapter, desc, plan, domain,
+                VulkanSegmentedReduceStage::Reduce)
+          : pipelines->borrow(rund::kernel::NodeKind::SegmentedReduce, 4u, 3u,
+                              kVulkanSegmentedReduceBindings, 1u);
   const SegmentedReduceLayout layout =
       SegmentedReduceLayoutFor(plan.element_count);
   const VulkanSegmentedReduceParams params{plan.element_count,
@@ -167,6 +188,7 @@ PrepareVulkanSegmentedReduce(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return {false, "accel_vulkan_loader_unavailable"};
 #endif
 }

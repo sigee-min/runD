@@ -26,6 +26,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -119,6 +120,7 @@ template <typename Handle>
   using namespace rund::node::accel::detail;
   rund::kernel::LoweringArtifact artifact{};
   artifact.key.api = rund::kernel::ComputeApi::Vulkan;
+  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
   artifact.metadata.binding_accesses = {
       rund::kernel::ComputeBindingAccess::Read,
       rund::kernel::ComputeBindingAccess::Read,
@@ -126,6 +128,10 @@ template <typename Handle>
   artifact.metadata.binding_names = {"input1", "input10", "out"};
   artifact.metadata.input_element_bytes = {4u, 4u};
   artifact.metadata.output_element_bytes = {4u};
+  artifact.metadata.read_count = 2u;
+  artifact.metadata.write_count = 1u;
+  artifact.metadata.ok = true;
+  artifact.metadata.reason = "ok";
   artifact.source_text = "const uint RundBase_read_696e70757431 = 0u;\n"
                          "const uint RundStride_read_696e70757431 = 4u;\n"
                          "const uint RundBase_read_696e7075743130 = 0u;\n"
@@ -140,6 +146,7 @@ template <typename Handle>
                          "RundStride_write_6f7574);\n";
   artifact.ok = true;
   artifact.reason = "ok";
+  artifact.source_text_upper_bytes = artifact.source_text.size();
 
   const rund::kernel::ComputePlan plan{.api = rund::kernel::ComputeApi::Vulkan,
                                        .input_buffer_count = 2u,
@@ -349,19 +356,27 @@ int RunComputeVulkanCacheContract() {
   static_assert(std::is_nothrow_move_constructible_v<VulkanCollectivePipeline>);
   static_assert(std::is_nothrow_move_assignable_v<VulkanCollectivePipeline>);
 
+  constexpr std::uint64_t telemetry_hash_hi = 0x706970652e74656cull;
+  constexpr std::uint64_t telemetry_hash_lo = 0x656d657472792e31ull;
+  constexpr std::uint64_t profile_hash_hi = 0x706970652e70726full;
+  constexpr std::uint64_t profile_hash_lo = 0x66696c652e763100ull;
+  const std::string_view telemetry_source =
+      rund::node::accel::detail::VulkanTelemetrySourceText();
+  const std::string profile_source =
+      rund::node::accel::detail::VulkanProfileSource();
   const auto telemetry_plan = rund::node::accel::detail::VulkanTelemetryPlan();
   const auto profile_plan = rund::node::accel::detail::VulkanProfilePlan();
-  if (telemetry_plan.op_hash_hi !=
-          rund::node::accel::detail::SourceHash(
-              rund::node::accel::detail::VulkanTelemetrySource()) ||
-      profile_plan.op_hash_hi !=
-          rund::node::accel::detail::SourceHash(
-              rund::node::accel::detail::VulkanProfileSource()) ||
-      telemetry_plan.op_hash_hi == profile_plan.op_hash_hi ||
-      telemetry_plan.op_hash_lo !=
-          (telemetry_plan.op_hash_hi ^ 0x9e3779b97f4a7c15ull) ||
-      profile_plan.op_hash_lo !=
-          (profile_plan.op_hash_hi ^ 0x9e3779b97f4a7c15ull)) {
+  if (telemetry_source.empty() || profile_source.empty() ||
+      telemetry_source == profile_source ||
+      rund::node::accel::detail::VulkanProfileSourceBytes() !=
+          profile_source.size() ||
+      telemetry_plan.op_hash_hi != telemetry_hash_hi ||
+      telemetry_plan.op_hash_lo != telemetry_hash_lo ||
+      profile_plan.op_hash_hi != profile_hash_hi ||
+      profile_plan.op_hash_lo != profile_hash_lo ||
+      telemetry_plan.api != rund::kernel::ComputeApi::Vulkan ||
+      profile_plan.api != rund::kernel::ComputeApi::Vulkan ||
+      !telemetry_plan.ok || !profile_plan.ok) {
     return 40;
   }
 

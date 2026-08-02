@@ -32,6 +32,9 @@ struct MetalScatterReduceResources final {
 MetalScatterReduceKey(const rund::kernel::ScatterReducePlan &plan);
 [[nodiscard]] std::string
 MetalScatterReduceSource(const rund::kernel::ScatterReducePlan &plan);
+[[nodiscard]] bool MetalScatterReduceSourceUpperBytes(
+    const rund::kernel::ScatterReducePlan &plan,
+    std::uint64_t &upper) noexcept;
 
 [[nodiscard]] bool AcquireMetalScatterReducePipelines(
     MetalAdapter &adapter, const rund::kernel::ScatterReducePlan &plan,

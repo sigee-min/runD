@@ -49,6 +49,9 @@ void DestroyMetalSegmentedReduce(void *raw);
 [[nodiscard]] std::string
 MetalSegmentedReduceSource(rund::kernel::ReduceOp op,
                            rund::kernel::ComputeDomain domain);
+[[nodiscard]] bool MetalSegmentedReduceSourceUpperBytes(
+    rund::kernel::ReduceOp op, rund::kernel::ComputeDomain domain,
+    std::uint64_t &upper) noexcept;
 [[nodiscard]] std::string
 MetalSegmentedReduceKey(const rund::kernel::SegmentedReducePlan &plan,
                         rund::kernel::ComputeDomain domain);

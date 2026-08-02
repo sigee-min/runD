@@ -11,6 +11,7 @@ void PrintCheckpointColumns();
 void PrintRecurrenceColumns();
 void PrintNestedRepeatColumns();
 void PrintPipelineProfileColumns();
+void PrintPreparationMemoryColumns();
 
 [[nodiscard]] bool MeasurePipeline(::rund::compute::Backend backend,
                                    std::size_t count, std::size_t samples);
@@ -23,5 +24,7 @@ void PrintPipelineProfileColumns();
 [[nodiscard]] bool MeasurePipelineProfile(::rund::compute::Backend backend,
                                           std::size_t count,
                                           std::size_t samples);
+[[nodiscard]] bool MeasurePreparationMemory(::rund::compute::Backend backend,
+                                            bool materialize);
 
 } // namespace rund::measure::compute

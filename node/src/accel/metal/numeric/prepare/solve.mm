@@ -10,7 +10,9 @@ rund::AccelCheck PrepareMetalSolve(const rund::AccelDevice &pick,
                                    const rund::kernel::SolveDesc &desc,
                                    const rund::kernel::SolvePlan &plan,
                                    const SolveBinds &bindings,
-                                   std::shared_ptr<void> &out) {
+                                   std::shared_ptr<void> &out,
+                                   const MetalKernelImmutablePipelines *const
+                                       pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   out.reset();
   auto *const adapter = MetalAdapterFromPick(pick);
@@ -39,7 +41,7 @@ rund::AccelCheck PrepareMetalSolve(const rund::AccelDevice &pick,
   check = PreparedPipeline(*state,
                            plan.element_bytes == 8u ? "rund_numeric_solve_i64"
                                                     : "rund_numeric_solve_i32",
-                           FixedPolicy(plan.fixed_format));
+                           FixedPolicy(plan.fixed_format), pipelines);
   if (!check.ok) {
     return check;
   }
@@ -66,6 +68,7 @@ rund::AccelCheck PrepareMetalSolve(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)out;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

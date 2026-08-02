@@ -59,6 +59,7 @@ list(APPEND NODE_SOURCES
   src/accel/metal/kernel/finish.mm
   src/accel/metal/kernel/prepare.mm
   src/accel/metal/kernel/run.mm
+  src/accel/metal/kernel/template_memory.mm
   src/accel/metal/kernel/view.mm
   src/accel/metal/numeric/source.cpp
   src/accel/metal/numeric/32/source.cpp

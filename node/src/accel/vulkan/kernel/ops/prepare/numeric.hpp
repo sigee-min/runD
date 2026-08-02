@@ -6,6 +6,7 @@
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanTransformStep(const rund::AccelDevice &pick, const BoundStep &step,
                            const KernelPreparationMode mode,
+                           const VulkanKernelImmutablePipelines *const pipelines,
                            std::shared_ptr<void> &resources) {
   const TransformBinds *const bindings =
       BindingsFor<TransformBinds>(step, rund::kernel::NodeKind::Transform);
@@ -13,11 +14,12 @@ PrepareVulkanTransformStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanTransform(pick, active->desc, active->plan,
-                                      *bindings, mode, resources);
+                                      *bindings, mode, resources, pipelines);
 }
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanMatrixStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const KernelPreparationMode mode,
+                        const VulkanKernelImmutablePipelines *const pipelines,
                         std::shared_ptr<void> &resources) {
   const MatrixBinds *const bindings =
       BindingsFor<MatrixBinds>(step, rund::kernel::NodeKind::Matrix);
@@ -25,12 +27,13 @@ PrepareVulkanMatrixStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanMatrix(pick, active->desc, active->plan, *bindings,
-                                   mode, resources);
+                                   mode, resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanFactorStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const KernelPreparationMode mode,
+                        const VulkanKernelImmutablePipelines *const pipelines,
                         std::shared_ptr<void> &resources) {
   const FactorBinds *const bindings =
       BindingsFor<FactorBinds>(step, rund::kernel::NodeKind::Factor);
@@ -38,12 +41,13 @@ PrepareVulkanFactorStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanFactor(pick, active->desc, active->plan, *bindings,
-                                   mode, resources);
+                                   mode, resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanSolveStep(const rund::AccelDevice &pick, const BoundStep &step,
                        const KernelPreparationMode mode,
+                       const VulkanKernelImmutablePipelines *const pipelines,
                        std::shared_ptr<void> &resources) {
   const SolveBinds *const bindings =
       BindingsFor<SolveBinds>(step, rund::kernel::NodeKind::Solve);
@@ -51,12 +55,13 @@ PrepareVulkanSolveStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanSolve(pick, active->desc, active->plan, *bindings,
-                                  mode, resources);
+                                  mode, resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanSpectrumStep(const rund::AccelDevice &pick, const BoundStep &step,
                           const KernelPreparationMode mode,
+                          const VulkanKernelImmutablePipelines *const pipelines,
                           std::shared_ptr<void> &resources) {
   const SpectrumBinds *const bindings =
       BindingsFor<SpectrumBinds>(step, rund::kernel::NodeKind::Spectrum);
@@ -64,5 +69,5 @@ PrepareVulkanSpectrumStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanSpectrum(pick, active->desc, active->plan,
-                                     *bindings, mode, resources);
+                                     *bindings, mode, resources, pipelines);
 }

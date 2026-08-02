@@ -10,7 +10,7 @@ this mechanism for spill generations in [Replay](./replay.md) and
 lifetime, not a second budget state machine.
 
 Public authority is `<rund/storage.hpp>`. Implementation authority is
-`/node/src/runtime/storage.cpp`, and focused contract verification is
+`/node/src/storage.cpp`, and focused contract verification is
 `/node/tests/contract/runtime/storage.cpp`. SDK consumers link the same
 `runD::sdk` target as every other focused runD domain.
 
@@ -33,6 +33,9 @@ The complete public vocabulary is:
 conservative allocated bytes. `child(capacity_bytes)` creates a node in the
 same hierarchy, `reserve(max_allocated_bytes)` attempts one capacity
 reservation, and `report()` returns one synchronized snapshot.
+`Reservation::partition(max_allocated_bytes)` divides one uncommitted ticket
+without performing another capacity admission: the returned ticket owns the
+requested maximum and the source retains the exact remainder.
 `Reservation::commit(usage)` replaces the maximum reservation with measured
 committed usage. `refund()` releases either an uncommitted reservation or a
 committed usage. Destruction performs the same release when an owner has not
@@ -109,6 +112,24 @@ Reservations.
 An accepted reservation for maximum allocated size `X` adds `X` to
 `reserved_bytes` at its node and every ancestor. The Reservation is the sole
 move-only lifetime owner of that charge.
+
+An uncommitted Reservation may partition `Y` bytes when `0 <= Y <= X`:
+
+```text
+source maximum   := X - Y
+returned maximum := Y
+aggregate reserved_bytes remains X
+```
+
+Partition is allocation-free and executes under the hierarchy gate. It does
+not perform a second admission, change any current or peak byte counter, or
+increment `reservation_count`; the resulting tickets divide the original
+release obligation exactly. Zero is a valid partition. An invalid, committed,
+or undersized source fails closed, and an oversized request increments the
+hierarchy rejection count without changing either ticket or any byte state.
+Each resulting ticket commits or refunds independently, so `commit_count` and
+`refund_count` count successful ticket operations rather than original
+reservation calls.
 
 Commit accepts:
 
@@ -218,6 +239,9 @@ Closure requires contracts that prove:
 - `A + R <= C` at every ancestor;
 - concurrent sibling reservation never over-admits the shared root;
 - exact reserve-to-commit conversion and immediate slack recovery;
+- allocation-free partition preserves the aggregate charge exactly, supports
+  a zero share, rejects an oversized or committed source, and leaves one
+  independent exactly-once release obligation per resulting ticket;
 - explicit, destructor, move-construction, and move-assignment refund exactly
   once;
 - zero-size reserve/commit remains valid, including `physical > allocated`,

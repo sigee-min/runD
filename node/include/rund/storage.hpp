@@ -127,6 +127,11 @@ public:
   [[nodiscard]] std::uint64_t max_allocated_bytes() const noexcept;
   [[nodiscard]] Usage usage() const noexcept;
 
+  // Splits one uncommitted reservation without performing another capacity
+  // admission. The returned Reservation owns `max_allocated_bytes`; this
+  // Reservation retains the exact remainder.
+  [[nodiscard]] Reservation
+  partition(std::uint64_t max_allocated_bytes) noexcept;
   [[nodiscard]] Status commit(Usage usage) noexcept;
   [[nodiscard]] Status refund() noexcept;
 

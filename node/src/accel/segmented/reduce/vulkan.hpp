@@ -11,6 +11,7 @@
 namespace rund::node::accel::detail {
 
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
 ExecuteVulkanSegmentedReduce(const rund::AccelDevice &pick,
@@ -24,7 +25,9 @@ PrepareVulkanSegmentedReduce(const rund::AccelDevice &pick,
                              const rund::kernel::SegmentedReducePlan &plan,
                              rund::kernel::ComputeDomain domain,
                              const SegmentedReduceBinds &bindings,
-                             std::shared_ptr<void> &resources);
+                             std::shared_ptr<void> &resources,
+                             const VulkanKernelImmutablePipelines *pipelines =
+                                 nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanSegmentedReduce(VulkanAdapter &adapter,
                             const std::shared_ptr<void> &resources,

@@ -4,6 +4,7 @@
 #include "../../gather/shape.hpp"
 #include "../collective/execute.hpp"
 #include "../status.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "encode/dispatch.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
@@ -33,7 +34,9 @@ rund::AccelCheck PrepareVulkanGather(const rund::AccelDevice &pick,
                                      const rund::kernel::GatherDesc &desc,
                                      const rund::kernel::GatherPlan &plan,
                                      const GatherBinds &bindings,
-                                     std::shared_ptr<void> &resources) {
+                                     std::shared_ptr<void> &resources,
+                                     const VulkanKernelImmutablePipelines
+                                         *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -61,8 +64,16 @@ rund::AccelCheck PrepareVulkanGather(const rund::AccelDevice &pick,
   raw->indices = std::move(lookup.indices);
   raw->logical_count = std::move(lookup.logical_count);
   raw->output = std::move(lookup.output);
-  raw->control_pipeline = AcquireGatherPipeline(*adapter, desc, true);
-  raw->gather_pipeline = AcquireGatherPipeline(*adapter, desc, false);
+  raw->control_pipeline =
+      pipelines == nullptr
+          ? AcquireGatherPipeline(*adapter, desc, true)
+          : pipelines->borrow(rund::kernel::NodeKind::Gather, 2u, 0u,
+                              kGatherDescriptorCount, 1u);
+  raw->gather_pipeline =
+      pipelines == nullptr
+          ? AcquireGatherPipeline(*adapter, desc, false)
+          : pipelines->borrow(rund::kernel::NodeKind::Gather, 2u, 1u,
+                              kGatherDescriptorCount, 1u);
   const GatherParams params_value{
       plan.element_count, plan.source_count,
       static_cast<rund::kernel::u32>(plan.count_source), 0u};
@@ -86,6 +97,7 @@ rund::AccelCheck PrepareVulkanGather(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }
@@ -125,7 +137,16 @@ rund::AccelCheck ExecuteVulkanGather(const rund::AccelDevice &pick,
                                      const GatherBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanCollective(pick, desc, plan, bindings,
-                                 PrepareVulkanGather, EncodeVulkanGather,
+                                 [](const rund::AccelDevice &device,
+                                    const rund::kernel::GatherDesc &operation,
+                                    const rund::kernel::GatherPlan &prepared,
+                                    const GatherBinds &resident,
+                                    std::shared_ptr<void> &resources) {
+                                   return PrepareVulkanGather(
+                                       device, operation, prepared, resident,
+                                       resources, nullptr);
+                                 },
+                                 EncodeVulkanGather,
                                  FinishVulkanGather);
 #else
   return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);

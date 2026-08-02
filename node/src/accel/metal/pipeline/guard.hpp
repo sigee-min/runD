@@ -1,13 +1,21 @@
 #pragma once
 
+#include "../../kernel/backend/source_recipe.hpp"
 #include "../../kernel/preparation.hpp"
 
+#include <kernel/core/checked.hpp>
+
+#include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace rund::node::accel::detail {
 
@@ -58,14 +66,19 @@ struct Entry final {
   std::size_t body{};
 };
 
+inline constexpr std::size_t kMaxPipelineSourceEntryCount = 10u;
+using EntryList = std::array<Entry, kMaxPipelineSourceEntryCount>;
+
 [[nodiscard]] inline bool Entries(const std::string_view source,
-                                  std::vector<Entry> &entries) {
+                                  EntryList &entries,
+                                  std::size_t &entry_count) noexcept {
+  entry_count = 0u;
   constexpr std::string_view marker = "kernel void";
   std::size_t search = 0u;
   while (true) {
     const std::size_t at = source.find(marker, search);
     if (at == std::string_view::npos) {
-      return !entries.empty();
+      return entry_count != 0u;
     }
     const std::size_t after = at + marker.size();
     if ((at != 0u && Identifier(source[at - 1u])) ||
@@ -99,23 +112,59 @@ struct Entry final {
         (next_kernel != std::string_view::npos && next_kernel < body)) {
       return false;
     }
-    entries.push_back(Entry{
+    if (entry_count == entries.size()) {
+      return false;
+    }
+    entries[entry_count++] = Entry{
         .arguments_begin = open + 1u,
         .arguments = close,
         .body = body,
-    });
+    };
     search = body + 1u;
   }
 }
 
 } // namespace metal_pipeline_guard_detail
 
+// Allocation-free source-capacity authority for the Pipeline-private ABI.
+// The public planner applies it to canonical Map text; runtime applies it to
+// the specialized/controlled text. Specialization never changes the number of
+// kernel entries, so both paths reserve the same final source envelope.
+[[nodiscard]] inline bool PipelinePrivateMetalSourceUpperBytes(
+    const std::uint64_t source_upper, const std::uint64_t entry_count,
+    const bool pipeline_private, std::uint64_t &upper) noexcept {
+  upper = source_upper;
+  if (!pipeline_private) {
+    return true;
+  }
+  constexpr std::string_view argument =
+      ", device const uint *rund_pipeline_guard [[buffer(30)]]";
+  constexpr std::string_view check =
+      " if (rund_pipeline_guard[0] != 0u) { return; }";
+  std::uint64_t growth = 0u;
+  return entry_count != 0u &&
+         rund::kernel::checked::mul(
+             entry_count,
+             static_cast<std::uint64_t>(argument.size() + check.size()),
+             growth) &&
+         rund::kernel::checked::add(upper, growth, upper);
+}
+
 // Pipeline-private Metal functions carry one uniform pointer to a uint guard.
 // Unowned/control commands bind a frozen zero word. A recurrence-owned command
 // binds directly to ResidentState::stopped, so every retained payload command
 // can remain in one immutable ICB and self-suppress on the device.
 [[nodiscard]] inline std::string
-PipelinePrivateMetalSource(std::string source) {
+PipelinePrivateMetalSource(std::string source,
+                           const std::uint64_t reserved_upper = 0u) {
+  std::uint64_t input_storage_upper = 0u;
+  if (!backend_source_recipe::string_external_storage_upper_bytes(
+          std::max<std::uint64_t>(source.size(), reserved_upper),
+          input_storage_upper) ||
+      !backend_source_recipe::string_external_storage_within(
+          source, input_storage_upper)) {
+    return {};
+  }
   if (!IsPipelinePrivatePreparation(CurrentKernelPreparationMode())) {
     return source;
   }
@@ -123,25 +172,54 @@ PipelinePrivateMetalSource(std::string source) {
   if (source.find(reserved) != std::string::npos) {
     return {};
   }
-  std::vector<metal_pipeline_guard_detail::Entry> entries;
+  metal_pipeline_guard_detail::EntryList entries{};
+  std::size_t entry_count = 0u;
   try {
-    if (!metal_pipeline_guard_detail::Entries(source, entries)) {
+    if (!metal_pipeline_guard_detail::Entries(source, entries, entry_count)) {
       return {};
     }
+    std::uint64_t required_upper = 0u;
+    if (!PipelinePrivateMetalSourceUpperBytes(source.size(), entry_count, true,
+                                              required_upper)) {
+      return {};
+    }
+    const std::uint64_t final_upper = std::max(required_upper, reserved_upper);
+    if (final_upper > std::numeric_limits<std::size_t>::max()) {
+      return {};
+    }
+    if (!backend_source_recipe::reserve_string(source, final_upper)) {
+      return {};
+    }
+    std::uint64_t final_storage_upper = 0u;
+    if (!backend_source_recipe::string_external_storage_upper_bytes(
+            final_upper, final_storage_upper) ||
+        !backend_source_recipe::string_external_storage_within(
+            source, final_storage_upper)) {
+      return {};
+    }
+    const std::size_t frozen_capacity = source.capacity();
     constexpr std::string_view first_argument =
         "device const uint *rund_pipeline_guard [[buffer(30)]]";
     constexpr std::string_view next_argument =
         ", device const uint *rund_pipeline_guard [[buffer(30)]]";
     constexpr std::string_view check =
         " if (rund_pipeline_guard[0] != 0u) { return; }";
-    for (auto entry = entries.rbegin(); entry != entries.rend(); ++entry) {
-      source.insert(entry->body + 1u, check);
-      const std::size_t first = metal_pipeline_guard_detail::SkipSpace(
-          source, entry->arguments_begin);
-      source.insert(entry->arguments,
-                    first == entry->arguments ? first_argument : next_argument);
+    for (std::size_t reverse = entry_count; reverse != 0u; --reverse) {
+      const metal_pipeline_guard_detail::Entry &entry = entries[reverse - 1u];
+      source.insert(entry.body + 1u, check);
+      const std::size_t first =
+          metal_pipeline_guard_detail::SkipSpace(source, entry.arguments_begin);
+      source.insert(entry.arguments,
+                    first == entry.arguments ? first_argument : next_argument);
     }
-  } catch (...) {
+    if (source.size() > final_upper || source.capacity() != frozen_capacity ||
+        !backend_source_recipe::string_external_storage_within(
+            source, final_storage_upper)) {
+      return {};
+    }
+  } catch (const std::bad_alloc &) {
+    return {};
+  } catch (const std::length_error &) {
     return {};
   }
   return source;

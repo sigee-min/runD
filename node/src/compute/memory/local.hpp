@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../array.hpp"
 #include "../../accel/kernel/memory.hpp"
 #include "../device/state.hpp"
 
@@ -63,6 +64,12 @@ template <class T>
 [[nodiscard]] inline std::uint64_t
 vector_memory(const std::vector<T> &values) noexcept {
   return kernel::compute_retained_detail::VectorCapacityBytes(values);
+}
+
+template <class T>
+[[nodiscard]] inline std::uint64_t vector_memory(
+    const ::rund::node::detail::PreparedArray<T> &values) noexcept {
+  return values.owned_bytes();
 }
 
 struct BufferMemory final {

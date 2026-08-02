@@ -50,11 +50,15 @@ struct MetalCompactEncodeResources {
   MetalRuntimeBuffer scan_totals{};
   MetalRuntimeBuffer scan_status{};
   MetalRuntimeBuffer status{};
+  std::shared_ptr<void> scan_block{};
+  std::shared_ptr<void> scan_prefix{};
+  std::shared_ptr<void> scan_offset{};
   MetalCompactPipelines pipelines{};
 };
 
 void DestroyMetalCompactEncodeResources(void *raw);
 [[nodiscard]] std::string MetalCompactSource();
+[[nodiscard]] bool MetalCompactSourceUpperBytes(std::uint64_t &upper) noexcept;
 [[nodiscard]] bool
 CompileMetalCompactPipelines(MetalAdapter &adapter,
                              MetalCompactPipelines &pipelines,

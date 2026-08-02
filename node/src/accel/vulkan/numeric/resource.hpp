@@ -20,12 +20,17 @@ namespace rund::node::accel::detail {
 template <typename Hash>
 [[nodiscard]] rund::kernel::ComputePlan
 NumericPseudoPlan(const Hash hash,
-                  const rund::kernel::ComputeScalar scalar) noexcept {
+                  const rund::kernel::ComputeScalar scalar,
+                  const rund::kernel::ComputeDomain domain,
+                  const rund::kernel::ComputeFixedFormat fixed_format = {})
+    noexcept {
   return rund::kernel::ComputePlan{
       .op_hash_hi = hash.hi,
       .op_hash_lo = hash.lo,
       .api = rund::kernel::ComputeApi::Vulkan,
       .scalar = scalar,
+      .domain = domain,
+      .fixed_format = fixed_format,
       .ok = true,
       .reason = "ok",
   };
@@ -33,6 +38,10 @@ NumericPseudoPlan(const Hash hash,
 
 [[nodiscard]] rund::AccelCheck RejectElement(VulkanAdapter &adapter,
                                              const char *reason);
+[[nodiscard]] VulkanCollectivePipeline *AcquireNumericPipeline(
+    VulkanAdapter &adapter, std::uint32_t descriptor_count,
+    std::uint32_t push_bytes, const rund::kernel::ComputePlan &pseudo,
+    std::string source, NumericPolicy policy);
 [[nodiscard]] rund::AccelCheck StatusCheck(VulkanAdapter &adapter,
                                            const VulkanBuffer &status,
                                            rund::kernel::u64 count);
@@ -47,9 +56,8 @@ LookupPrepared(const rund::AccelDevice &pick, VulkanNumericPrepared &state,
 [[nodiscard]] rund::AccelCheck
 FinalizePrepared(VulkanNumericPrepared &state, const NumericParams &params,
                  std::uint32_t descriptor_count,
-                 const rund::kernel::ComputePlan &pseudo,
-                 const std::string &source, NumericPolicy policy,
-                 KernelPreparationMode mode, std::uint32_t push_bytes = 0u);
+                 VulkanCollectivePipeline *pipeline,
+                 KernelPreparationMode mode);
 #endif
 
 } // namespace rund::node::accel::detail

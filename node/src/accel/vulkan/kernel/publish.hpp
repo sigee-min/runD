@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -57,6 +58,8 @@ struct VulkanPipelinePublishResources final {
 };
 
 struct VulkanWindowResources;
+
+[[nodiscard]] std::string_view VulkanPublishSourceText() noexcept;
 
 [[nodiscard]] rund::AccelCheck
 PrepareVulkanPipelinePublish(VulkanAdapter &adapter,

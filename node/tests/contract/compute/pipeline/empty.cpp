@@ -1,5 +1,10 @@
 #include "local.hpp"
 
+#include <node/runtime/compute/access.hpp>
+
+#include "src/compute/job/local.hpp"
+#include "src/compute/pipeline/state.hpp"
+
 namespace rund_node_test_pipeline {
 
 [[nodiscard]] int CheckZeroWork(rund::compute::Device &device,
@@ -17,7 +22,15 @@ namespace rund_node_test_pipeline {
   }
   auto prepared =
       pipeline(device).then(*program, read(*input), write(*output)).prepare();
-  if (!prepared || !prepared->run()) {
+  const auto prepared_state =
+      prepared ? detail::PipelineStateAccess::state(*prepared)
+               : std::shared_ptr<detail::PipelineState>{};
+  if (!prepared || prepared_state == nullptr ||
+      prepared_state->steps.size() != 1u ||
+      prepared_state->steps.front().job == nullptr ||
+      prepared_state->steps.front().job->workspace != nullptr ||
+      (backend == Backend::Cpu && !prepared_state->cpu_storage.empty()) ||
+      !prepared->run()) {
     return 2;
   }
   std::array<std::int32_t, 0u> observed{};
@@ -26,6 +39,26 @@ namespace rund_node_test_pipeline {
       stats.command_submits != 0u || stats.pipeline.verified_step_count != 1u ||
       stats.backend != backend) {
     return 3;
+  }
+
+  auto repeated = pipeline(device)
+                      .repeat<3u>(*program, read(*input), write_final(*output))
+                      .prepare();
+  const auto repeated_state =
+      repeated ? detail::PipelineStateAccess::state(*repeated)
+               : std::shared_ptr<detail::PipelineState>{};
+  if (!repeated || repeated_state == nullptr ||
+      repeated_state->steps.size() != 3u ||
+      (backend == Backend::Cpu && !repeated_state->cpu_storage.empty())) {
+    return 8;
+  }
+  for (const detail::PipelineStep &step : repeated_state->steps) {
+    if (step.job == nullptr || step.job->workspace != nullptr) {
+      return 8;
+    }
+  }
+  if (!repeated->run()) {
+    return 8;
   }
 
   // A Pipeline with no state declaration has no checkpoint authority, but a

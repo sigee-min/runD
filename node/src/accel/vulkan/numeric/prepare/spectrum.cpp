@@ -1,5 +1,6 @@
 #include "../resource.hpp"
 #include "../source.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include "../../../spectrum/shape.hpp"
 
@@ -15,7 +16,9 @@ rund::AccelCheck PrepareVulkanSpectrum(const rund::AccelDevice &pick,
                                        const rund::kernel::SpectrumPlan &plan,
                                        const SpectrumBinds &bindings,
                                        const KernelPreparationMode mode,
-                                       std::shared_ptr<void> &out) {
+                                       std::shared_ptr<void> &out,
+                                       const VulkanKernelImmutablePipelines
+                                           *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   out.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -71,13 +74,22 @@ rund::AccelCheck PrepareVulkanSpectrum(const rund::AccelDevice &pick,
       static_cast<rund::kernel::u32>(plan.vectors),
       static_cast<rund::kernel::u32>(plan.domain),
       plan.max_iterations};
-  const auto hash = rund::kernel::HashSpectrum(desc);
-  check = FinalizePrepared(
-      *raw, params, 5u,
-      NumericPseudoPlan(hash, wide ? rund::kernel::ComputeScalar::Lane64
-                                   : rund::kernel::ComputeScalar::Lane32),
-      wide ? SpectrumSource64() : SpectrumSource(),
-      FixedPolicy(plan.fixed_format), mode);
+  const auto hash = rund::kernel::HashSpectrum(
+      rund::kernel::SpectrumDesc{.element_bytes = desc.element_bytes});
+  VulkanCollectivePipeline *const pipeline =
+      pipelines == nullptr
+          ? AcquireNumericPipeline(
+                *adapter, 5u, 0u,
+                NumericPseudoPlan(
+                    hash,
+                    wide ? rund::kernel::ComputeScalar::Lane64
+                         : rund::kernel::ComputeScalar::Lane32,
+                    rund::kernel::ComputeDomain::Fixed, plan.fixed_format),
+                wide ? SpectrumSource64() : SpectrumSource(),
+                FixedPolicy(plan.fixed_format))
+          : pipelines->borrow(rund::kernel::NodeKind::Spectrum, 1u, 0u, 5u,
+                              1u);
+  check = FinalizePrepared(*raw, params, 5u, pipeline, mode);
   if (!check.ok) {
     return check;
   }
@@ -90,6 +102,7 @@ rund::AccelCheck PrepareVulkanSpectrum(const rund::AccelDevice &pick,
   (void)bindings;
   (void)mode;
   (void)out;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

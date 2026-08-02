@@ -40,6 +40,10 @@ VulkanReduceIndexRangeOk(const rund::kernel::ReducePlan &plan) noexcept;
 [[nodiscard]] std::string VulkanReduceSource(
     rund::kernel::ReduceOp op, rund::kernel::ReduceElement element,
     rund::kernel::u64 block_size, rund::kernel::ComputeDomain domain);
+[[nodiscard]] bool VulkanReduceSourceBytes(
+    rund::kernel::ReduceOp op, rund::kernel::ReduceElement element,
+    rund::kernel::u64 block_size, rund::kernel::ComputeDomain domain,
+    std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireReducePipeline(VulkanAdapter &adapter,
                       const rund::kernel::ReduceDesc &desc,

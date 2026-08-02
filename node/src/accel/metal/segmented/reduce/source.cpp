@@ -1,6 +1,7 @@
 #include "model.hpp"
 
 #include "../../../domain.hpp"
+#include "../../../kernel/backend/source_recipe.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -57,7 +58,8 @@ inline bool rund_wide_fits_u64(RundWide value) {
 )MSL";
 }
 
-void AppendReduce(std::string &source, const rund::kernel::ReduceOp op,
+template <typename Sink>
+void AppendReduce(Sink &source, const rund::kernel::ReduceOp op,
                   const char *const type, const char *const suffix,
                   const bool wide, const bool signed_domain) {
   source += "kernel void rund_compute_segmented_reduce_";
@@ -183,13 +185,17 @@ void AppendReduce(std::string &source, const rund::kernel::ReduceOp op,
 
 } // namespace
 
-std::string
-MetalSegmentedReduceSource(const rund::kernel::ReduceOp op,
-                           const rund::kernel::ComputeDomain domain) {
+template <typename Sink>
+[[nodiscard]] bool EmitMetalSegmentedReduceSource(
+    Sink &source, const rund::kernel::ReduceOp op,
+    const rund::kernel::ComputeDomain domain) noexcept(
+    noexcept(source += std::string_view{})) {
   const bool signed_domain = IsSignedDomain(domain);
-  std::string source = "#include <metal_stdlib>\n"
-                       "using namespace metal;\n";
-  AppendSegmentedReduceShaderModel(source);
+  source += "#include <metal_stdlib>\n"
+            "using namespace metal;\n";
+  if (!AppendSegmentedReduceShaderModel(source)) {
+    return false;
+  }
   source += R"MSL(
 struct RundSegmentedReduceParams {
   ulong count;
@@ -325,7 +331,28 @@ kernel void rund_compute_segmented_reduce_scatter(
                signed_domain ? "i32" : "u32", false, signed_domain);
   AppendReduce(source, op, signed_domain ? "long" : "ulong",
                signed_domain ? "i64" : "u64", true, signed_domain);
-  return source;
+  return source.valid();
+}
+
+std::string
+MetalSegmentedReduceSource(const rund::kernel::ReduceOp op,
+                           const rund::kernel::ComputeDomain domain) {
+  const auto emit = [op, domain](auto &sink) noexcept(noexcept(
+      EmitMetalSegmentedReduceSource(sink, op, domain))) {
+    return EmitMetalSegmentedReduceSource(sink, op, domain);
+  };
+  return backend_source_recipe::materialize(emit);
+}
+
+bool MetalSegmentedReduceSourceUpperBytes(
+    const rund::kernel::ReduceOp op,
+    const rund::kernel::ComputeDomain domain,
+    std::uint64_t &upper) noexcept {
+  const auto emit = [op, domain](
+                        backend_source_recipe::CountSink &sink) noexcept {
+    return EmitMetalSegmentedReduceSource(sink, op, domain);
+  };
+  return backend_source_recipe::bytes(emit, upper);
 }
 
 std::string

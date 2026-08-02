@@ -6,7 +6,8 @@
 
 namespace rund::node::accel::detail {
 
-inline void AppendMetalReduceU64(std::string &source,
+template <typename Sink>
+inline void AppendMetalReduceU64(Sink &source,
                                  const rund::kernel::ReduceOp op,
                                  const bool signed_domain,
                                  const char *const op_name) {

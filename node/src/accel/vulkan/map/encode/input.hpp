@@ -13,11 +13,14 @@ namespace {
 BindVulkanMapInputs(VulkanAdapter &adapter, const VulkanMapEncodeResources &map,
                     const rund::kernel::ComputeDispatchWindow &window,
                     VkDescriptorBufferInfo *const infos) {
-  if (map.input_plans.size() != map.plan.input_buffer_count) {
+  if (map.prepared == nullptr ||
+      map.prepared->input_plans.size() !=
+          map.prepared->plan.input_buffer_count) {
     SetVulkanLastError(adapter, "compute_plan_invalid");
     return false;
   }
-  for (rund::kernel::u64 index = 0u; index < map.plan.input_buffer_count;
+  for (rund::kernel::u64 index = 0u;
+       index < map.prepared->plan.input_buffer_count;
        ++index) {
     VkDeviceSize byte_offset = 0u;
     VkDeviceSize byte_range = 0u;
@@ -25,7 +28,8 @@ BindVulkanMapInputs(VulkanAdapter &adapter, const VulkanMapEncodeResources &map,
     const rund::kernel::ResidentBufferRef *const ref =
         map.bindings.resident_inputs.ref(index);
     const rund::kernel::ComputeDispatchWindow span =
-        InputWindow(map.input_plans[static_cast<std::size_t>(index)], window);
+        InputWindow(map.prepared->input_plans[static_cast<std::size_t>(index)],
+                    window);
     if (ref == nullptr ||
         !VulkanMapResidentWindowSpan(adapter, *ref, span, byte_offset,
                                      byte_range, reason)) {

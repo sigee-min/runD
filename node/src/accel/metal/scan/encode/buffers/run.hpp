@@ -88,13 +88,15 @@ rund::AccelCheck EncodeMetalScanDeferredOffsetBuffers(
     const rund::kernel::ScanPlan &plan, void *const input_buffer,
     void *const output_buffer, void *const totals_buffer,
     void *const status_buffer, void *const command_encoder,
+    const std::shared_ptr<void> &block, const std::shared_ptr<void> &prefix,
+    const std::shared_ptr<void> &offset,
     const rund::kernel::u64 input_offset,
     const rund::kernel::u64 output_offset,
     const rund::kernel::u64 totals_offset) {
   return EncodeMetalScanBuffersImpl(
       adapter, desc, plan, rund::kernel::ComputeDomain::U32, input_buffer,
       output_buffer, totals_buffer, status_buffer, command_encoder, false,
-      nullptr, nullptr, nullptr, nullptr, 0u, input_offset, output_offset, 0u,
+      &block, &prefix, &offset, nullptr, 0u, input_offset, output_offset, 0u,
       totals_offset);
 }
 

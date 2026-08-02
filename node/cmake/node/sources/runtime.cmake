@@ -6,7 +6,6 @@ list(APPEND NODE_SOURCES
   src/runtime/session/result.cpp
   src/runtime/session/run.cpp
   src/runtime/session.cpp
-  src/runtime/storage.cpp
   src/runtime/replay/accel.cpp
   src/runtime/replay/binding.cpp
   src/runtime/replay/checkpoint.cpp

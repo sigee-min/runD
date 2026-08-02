@@ -94,6 +94,12 @@ foreach(command IN LISTS commands)
       message(FATAL_ERROR
         "tools/measure/compute/run help lacks focused Pipeline mode")
     endif()
+    string(FIND "${short_output}"
+      "--metal-icb-boundary" token_index)
+    if(token_index EQUAL -1)
+      message(FATAL_ERROR
+        "tools/measure/compute/run help lacks native Metal ICB boundary mode")
+    endif()
   endif()
 
   if(command STREQUAL "test/run")

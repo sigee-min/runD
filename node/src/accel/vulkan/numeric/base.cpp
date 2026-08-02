@@ -1,4 +1,5 @@
 #include "source.hpp"
+#include "../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/lowering/vulkan/fixed.hpp>
 
@@ -6,8 +7,10 @@ namespace rund::node::accel::detail {
 
 namespace {
 
-[[nodiscard]] std::string ParamsSource() {
-  return R"GLSL(
+template <typename Sink>
+[[nodiscard]] bool EmitParamsSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return sink.append(R"GLSL(
 #version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
@@ -31,13 +34,16 @@ layout(constant_id = 0) const uint RundMatrixArithmetic = 1u;
 layout(constant_id = 1) const uint RundFixedFraction = 1u;
 layout(constant_id = 2) const uint RundFixedRounding = 1u;
 layout(constant_id = 3) const uint RundFixedOverflow = 1u;
-)GLSL";
+)GLSL");
 }
 
-} // namespace
-
-std::string NumericBaseSource() {
-  std::string out = ParamsSource();
+template <typename Sink>
+[[nodiscard]] bool EmitNumericBaseSource32(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  if (!EmitParamsSource(sink)) {
+    return false;
+  }
+  VulkanSourceTextSink out{sink};
   rund::kernel::compute_lowering_detail::AppendVulkanFixedLane32Helpers(out);
   out += R"GLSL(
 
@@ -132,11 +138,16 @@ uint64_t midx(uint64_t r, uint64_t c, uint64_t rows, uint64_t cols,
 }
 uint ix(uint64_t value) { return uint(value); }
 )GLSL";
-  return out;
+  return out.ok();
 }
 
-std::string NumericBaseSource64() {
-  std::string out = ParamsSource();
+template <typename Sink>
+[[nodiscard]] bool EmitNumericBaseSource64(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  if (!EmitParamsSource(sink)) {
+    return false;
+  }
+  VulkanSourceTextSink out{sink};
   rund::kernel::compute_lowering_detail::AppendVulkanFixedLane64Helpers(out);
   out += R"GLSL(
 uint64_t as_u64(int64_t value) { return uint64_t(value); }
@@ -242,7 +253,44 @@ uint64_t midx64(uint64_t r, uint64_t c, uint64_t rows, uint64_t cols,
 }
 uint ix64(uint64_t value) { return uint(value); }
 )GLSL";
-  return out;
+  return out.ok();
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitNumericBase(Sink &sink, const bool wide)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return wide ? EmitNumericBaseSource64(sink)
+              : EmitNumericBaseSource32(sink);
+}
+
+} // namespace
+
+bool EmitNumericBaseSource(backend_source_recipe::CountSink &sink,
+                           const bool wide) noexcept {
+  return EmitNumericBase(sink, wide);
+}
+
+bool EmitNumericBaseSource(backend_source_recipe::StringSink &sink,
+                           const bool wide) {
+  return EmitNumericBase(sink, wide);
+}
+
+bool NumericBaseSourceBytes(const bool wide, std::uint64_t &bytes) noexcept {
+  return backend_source_recipe::bytes(
+      [wide](backend_source_recipe::CountSink &sink) noexcept {
+        return EmitNumericBaseSource(sink, wide);
+      },
+      bytes);
+}
+
+std::string NumericBaseSource() {
+  return backend_source_recipe::materialize(
+      [](auto &sink) { return EmitNumericBaseSource(sink, false); });
+}
+
+std::string NumericBaseSource64() {
+  return backend_source_recipe::materialize(
+      [](auto &sink) { return EmitNumericBaseSource(sink, true); });
 }
 
 } // namespace rund::node::accel::detail

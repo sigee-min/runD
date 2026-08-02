@@ -2,8 +2,11 @@
 
 #include <kernel/program/compute/model.hpp>
 
+#include "../../kernel/backend/source_recipe.hpp"
+
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
@@ -35,5 +38,22 @@ SegmentedReduceLayoutFor(const rund::kernel::u64 count) noexcept {
 }
 
 void AppendSegmentedReduceShaderModel(std::string &source);
+
+template <typename Sink>
+[[nodiscard]] bool AppendSegmentedReduceShaderModel(Sink &sink) noexcept {
+  const auto append = [&sink](const std::string_view name,
+                              const rund::kernel::u64 value) noexcept {
+    return sink.append("#define ") && sink.append(name) && sink.append(" ") &&
+           backend_source_recipe::append_decimal(sink, value) &&
+           sink.append("u\n");
+  };
+  return append("RUND_SEGMENT_INDEX_WIDTH", kSegmentedIndexWidth) &&
+         append("RUND_SEGMENT_TEAM_WIDTH", kSegmentedTeamWidth) &&
+         append("RUND_SEGMENT_TEAMS_PER_GROUP", kSegmentedTeamsPerGroup) &&
+         append("RUND_SEGMENT_MAX_GROUPS", kSegmentedMaxGroups) &&
+         append("RUND_SEGMENT_INVALID", kSegmentInvalid) &&
+         append("RUND_SEGMENT_SUM_OVERFLOW", kSegmentSumOverflow) &&
+         append("RUND_SEGMENT_COUNT_OVERFLOW", kSegmentCountOverflow);
+}
 
 } // namespace rund::node::accel::detail

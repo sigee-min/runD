@@ -4,7 +4,8 @@
 
 namespace rund::node::accel::detail {
 
-inline void AppendVulkanScanOffset(std::string &source,
+template <typename Source>
+inline void AppendVulkanScanOffset(Source &source,
                                    const rund::kernel::ScanElement element) {
   const char *const type = VulkanScanScalar(element);
   source += "void main() {\n";

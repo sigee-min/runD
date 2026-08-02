@@ -15,79 +15,75 @@ void PublishLowerFailure(std::atomic<u32> &first, const u32 tile) noexcept {
 
 } // namespace
 
-void Begin(Context &context, const void *const callback_context,
-           const ComputeTileCallback callback, const PreparedEach<1u> &prepared,
-           std::vector<const char *> &failures,
-           std::vector<u32> &worker_tiles) noexcept {
-  context.callback_context = callback_context;
-  context.callback = callback;
-  context.prepared = &prepared;
-  context.failures = failures.data();
-  context.failure_count = static_cast<u32>(failures.size());
-  context.worker_tiles = worker_tiles.data();
-  context.worker_count = static_cast<u32>(worker_tiles.size());
-  std::fill(worker_tiles.begin(), worker_tiles.end(), 0u);
-  context.first_failure.store(kNoComputeTileFailure, std::memory_order_release);
-  context.completed.store(0u, std::memory_order_release);
+void Begin(ComputeTileRunStorage &storage, const void *const callback_context,
+           const ComputeTileCallback callback) noexcept {
+  storage.callback_context_ = callback_context;
+  storage.callback_ = callback;
+  std::fill_n(storage.worker_tiles_, storage.worker_count_, 0u);
+  storage.first_failure_.store(kNoComputeTileFailure,
+                               std::memory_order_release);
+  storage.completed_.store(0u, std::memory_order_release);
 }
 
 void Invoke(void *const raw, const Partition &partition) noexcept {
-  auto *const context = static_cast<Context *>(raw);
-  if (context == nullptr || context->callback == nullptr ||
-      context->prepared == nullptr || context->failures == nullptr ||
-      context->worker_tiles == nullptr) {
+  auto *const storage = static_cast<ComputeTileRunStorage *>(raw);
+  if (storage == nullptr || storage->callback_ == nullptr ||
+      storage->failures_ == nullptr || storage->worker_tiles_ == nullptr ||
+      !storage->prepared_.valid) {
     return;
   }
-  const PreparedEach<1u> &prepared = *context->prepared;
+  const PreparedEach<1u> &prepared = storage->prepared_;
   const u32 tile =
       prepared.physical_tiling_enabled
           ? partition.begin / static_cast<u32>(prepared.physical_tile_units)
           : partition.worker_index;
-  if (tile >= context->failure_count ||
-      tile > context->first_failure.load(std::memory_order_acquire)) {
+  const u32 end = std::min(partition.end, storage->active_count_);
+  if (partition.begin >= end || tile >= storage->active_tile_count_ ||
+      tile >= storage->failure_count_ ||
+      tile > storage->first_failure_.load(std::memory_order_acquire)) {
     return;
   }
 
   ComputeTileCallbackResult result{};
   try {
-    result = context->callback(context->callback_context,
-                               ComputeTile{
-                                   .index = tile,
-                                   .worker_index = partition.worker_index,
-                                   .begin = partition.begin,
-                                   .end = partition.end,
-                               });
+    result = storage->callback_(storage->callback_context_,
+                                ComputeTile{
+                                    .index = tile,
+                                    .worker_index = partition.worker_index,
+                                    .begin = partition.begin,
+                                    .end = end,
+                                });
   } catch (...) {
     result = ComputeTileCallbackResult{
         .ok = false,
         .reason = "compute_tile_callback_failed",
     };
   }
-  context->completed.fetch_add(1u, std::memory_order_relaxed);
-  if (partition.worker_index < context->worker_count) {
-    ++context->worker_tiles[partition.worker_index];
+  storage->completed_.fetch_add(1u, std::memory_order_relaxed);
+  if (partition.worker_index < storage->worker_count_) {
+    ++storage->worker_tiles_[partition.worker_index];
   }
   if (result.ok) {
     return;
   }
 
-  context->failures[tile] =
+  storage->failures_[tile] =
       result.reason != nullptr ? result.reason : "compute_tile_callback_failed";
-  PublishLowerFailure(context->first_failure, tile);
+  PublishLowerFailure(storage->first_failure_, tile);
 }
 
 void InvokeWorker(void *const raw, const Partition &worker_partition) noexcept {
-  auto *const context = static_cast<Context *>(raw);
-  if (context == nullptr || context->prepared == nullptr) {
+  auto *const storage = static_cast<ComputeTileRunStorage *>(raw);
+  if (storage == nullptr || !storage->prepared_.valid) {
     return;
   }
-  const PreparedEach<1u> &prepared = *context->prepared;
+  const PreparedEach<1u> &prepared = storage->prepared_;
   if (!prepared.physical_tiling_enabled) {
     Invoke(raw, worker_partition);
     return;
   }
   const u32 units = static_cast<u32>(prepared.physical_tile_units);
-  const u32 tiles = static_cast<u32>(prepared.physical_tile_count);
+  const u32 tiles = storage->active_tile_count_;
   if (units == 0u || prepared.exec.workers == 0u) {
     return;
   }
@@ -96,7 +92,8 @@ void InvokeWorker(void *const raw, const Partition &worker_partition) noexcept {
     const u64 begin64 = static_cast<u64>(tile) * units;
     const u64 end64 = begin64 + units;
     const u32 begin = static_cast<u32>(std::min<u64>(begin64, prepared.units));
-    const u32 end = static_cast<u32>(std::min<u64>(end64, prepared.units));
+    const u32 end =
+        static_cast<u32>(std::min<u64>(end64, storage->active_count_));
     if (begin < end) {
       Invoke(raw, Partition{.worker_index = worker_partition.worker_index,
                             .begin = begin,

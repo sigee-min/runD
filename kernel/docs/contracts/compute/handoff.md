@@ -99,39 +99,87 @@ Public Compute CPU execution uses `ComputeTileExecutor`, which reuses
 the installed `WorkerBackend` queue. Actual worker participation remains
 under Kernel authority.
 
-### Retained executor memory
+### Immutable plan and borrowed run storage
 
-`ComputeTileExecutor::retained_memory()` is the sole byte-accounting authority
-for the executor's private PIMPL. It returns the fixed-size
-`ComputeTileRetainedMemory` value without allocation, locking, mutation, or
-backend work. A default or moved-from executor reports all zeroes. A live
-executor reports these disjoint logical extents:
+A successful `ComputeTileExecutor::prepare()` publishes one immutable
+`ComputeTileRunPlan`. The plan owns the compiled Workspace arrays and the
+frozen `KernelProgram`, schedule, fold graph, backend, physical-tile policy,
+and scalar tile facts. Re-preparing the source executor publishes a new plan;
+existing plan handles and bound runs keep the original plan alive and cannot
+observe the replacement. A plan-only executor is not executable and rejects
+`run` or `submit` with `compute_tile_run_storage_missing`.
+
+Mutable execution state has one independent owner. `ComputeTileRunStorage` is
+the fixed-address typed control object. `ComputeTileRunStorageView` supplies
+six caller-owned typed spans:
+
+- `T` failure-reason pointer slots
+- `W` worker tile counters
+- `W` worker partition counters
+- `W` worker start-offset values
+- `W` worker elapsed values
+- `W` worker tail-wait values
+
+Binding copies only POD program and prepared descriptors into the control
+object. Their schedule and fold pointers continue to reference the immutable
+plan owner. The mutable execution Workspace therefore does not clone the
+plan's seventeen vector capacities. Worker statistics are passed to
+`RunPreparedProgram` as the explicit typed sinks already present in its
+request. The storage control pins the immutable plan until a later successful
+idle rebind or its own destruction.
+
+`ComputeTileRunPlan::storage_plan()` is the checked reservation authority. For
+tile count `T` and worker count `W`, its disjoint logical extents are:
 
 | Component | Exact extent |
 | --- | --- |
-| `state_bytes` | `sizeof(ComputeTileExecutor::State)`, including its inline vector control blocks but not their allocations |
-| `workspace_bytes` | `capacity * sizeof(element)` for every vector owned by `Workspace` |
-| `failure_slot_bytes` | retained `failures` vector capacity |
-| `worker_tile_bytes` | retained `worker_tiles` vector capacity |
-| `async_context_bytes` | `sizeof(RunContext)` when `make_run()` installed the asynchronous run context, otherwise zero |
+| `state_bytes` | `sizeof(ComputeTileRunStorage)` |
+| `workspace_bytes` | `W * (sizeof(u32) + 3 * sizeof(u64))` for the explicit worker-stat sinks |
+| `failure_slot_bytes` | `T * sizeof(const char*)` |
+| `worker_tile_bytes` | `W * sizeof(u32)` |
+| `async_context_bytes` | zero; synchronous and asynchronous control is typed inline state |
 
-The Workspace term includes schedule partitions; fold slots, partition-fold
-slots, fold nodes, and reduction edges; packet work units,
-ordered packet indices, packet partition indices, and ordered packet scratch;
-partition loads, counts, offsets, and write offsets; and all four worker-stat
-vectors. It deliberately uses each vector's actual capacity. The normalized
-`WorkspaceCapacity` proof is not a byte oracle because its shared minima do not
-retain every individual allocation capacity.
+`total_bytes` is the checked unsigned 64-bit sum. A failed multiplication or
+addition closes as `compute_tile_run_memory_overflow` and is not admissible.
+`MergeComputeTileRunStoragePlans` forms a serial max-envelope by taking
+`max(T)` and `max(W)` and replanning from those components; it never sums
+serial plans.
 
-`total_bytes` is the saturating unsigned 64-bit sum of the five components.
-Each capacity multiplication and component addition saturates at `2^64 - 1`.
-Allocator bookkeeping and the externally owned `WorkerBackend` context are not
-part of the executor's logical retained extent. A prepared plan has no async
-context; each independent executor returned by `make_run()` owns and reports
-its own State, Workspace capacities, failure/worker arrays, and RunContext.
-Sync or async execution may change element values but cannot change this
-retained-memory value after successful preparation. The caller remains
-responsible for synchronizing executor lifetime or moves with observation.
+`ComputeTileRunPlan::bind(view)` validates every span component before
+publishing a generation and performs no allocation, locking, backend work, or
+Workspace reservation. A larger max-envelope view may be rebound to different
+plans serially. The returned executor borrows the control and spans; they must
+outlive synchronous return or asynchronous `finish()`. `make_run()` is the
+standalone convenience owner over this same bind path. It owns exact typed
+arrays and does not create a second Workspace representation or vector-backed
+run owner. For nonzero `T` and `W`, standalone materialization performs seven
+`operator new` calls: one wrapper plus the six typed arrays. External arena
+binding performs zero allocations.
+
+`bind(view, active_count)` is the bounded form for a frozen maximum plan.
+`active_count` must be no greater than the prepared count; the default
+`bind(view)` selects the full count. Binding does not recompile or repartition.
+It retains the maximum plan's static worker and tile identity, publishes the
+active tile prefix, clamps the final callback range to `active_count`, and
+skips every frozen tile whose begin lies outside that prefix. Physical worker
+loops use the active tile count, and result `count()`, `tile_count()`, completed
+tile count, worker tile count, and tail extent describe the active prefix.
+This bounded bind and its later sync or async execution allocate nothing.
+
+`planned_run_memory()` projects `storage_plan().retained` for compatibility.
+`MeasureComputeTileRunStorage(view)` measures an actual view, so an envelope
+larger than one plan is reported at its full supplied capacities. Allocator
+metadata and the optional standalone wrapper's pointer bookkeeping are outside
+this logical typed-storage extent. A default, moved-from, failed, or
+generation-stale executor reports no attached run-storage extent.
+
+The control owns an atomic phase and a monotonically increasing generation.
+Bind, synchronous execution, asynchronous submission, ready-state projection,
+and finish are mutually exclusive phase transitions. Binding while sync or
+async work is active, or after readiness but before `finish`, fails with
+`compute_tile_run_busy`. A successful later bind invalidates every older
+executor view; those views fail with `compute_tile_run_rebound`. Thus no plan
+can replace pointers observed by in-flight workers.
 
 ### Tile run state and completion
 

@@ -11,6 +11,7 @@
 #include "local.hpp"
 #include "pipeline/store.hpp"
 #include "resources/pipeline.hpp"
+#include "../pipeline/template.hpp"
 
 #include <utility>
 
@@ -64,7 +65,9 @@ rund::AccelCheck PrepareMetalGather(const rund::AccelDevice &pick,
                                     const rund::kernel::GatherDesc &desc,
                                     const rund::kernel::GatherPlan &plan,
                                     const GatherBinds &bindings,
-                                    std::shared_ptr<void> &resources) {
+                                    std::shared_ptr<void> &resources,
+                                    const MetalKernelImmutablePipelines *const
+                                        pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -92,7 +95,14 @@ rund::AccelCheck PrepareMetalGather(const rund::AccelDevice &pick,
   }
   check = PrepareMetalGatherStatusBuffer(*adapter, plan, *raw);
   if (check.ok) {
-    check = PrepareMetalGatherPipeline(*adapter, plan, *raw);
+    if (pipelines != nullptr && pipelines->ready(2u)) {
+      raw->control_pipeline = pipelines->stages[0u];
+      raw->gather_pipeline = pipelines->stages[1u];
+    } else if (pipelines != nullptr) {
+      check = {false, "accel_metal_pipeline_unavailable"};
+    } else {
+      check = PrepareMetalGatherPipeline(*adapter, plan, *raw);
+    }
   }
   if (!check.ok) {
     SetMetalLastError(*adapter, check.reason);
@@ -106,6 +116,7 @@ rund::AccelCheck PrepareMetalGather(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

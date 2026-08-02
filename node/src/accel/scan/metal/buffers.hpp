@@ -37,6 +37,8 @@ struct MetalAdapter;
     MetalAdapter &adapter, const rund::kernel::ScanDesc &desc,
     const rund::kernel::ScanPlan &plan, void *input_buffer, void *output_buffer,
     void *totals_buffer, void *status_buffer, void *command_encoder,
+    const std::shared_ptr<void> &block, const std::shared_ptr<void> &prefix,
+    const std::shared_ptr<void> &offset,
     rund::kernel::u64 input_offset = 0u,
     rund::kernel::u64 output_offset = 0u,
     rund::kernel::u64 totals_offset = 0u);
@@ -52,6 +54,8 @@ struct MetalAdapter;
     std::uint64_t flags_offset, void *output_buffer,
     std::uint64_t output_offset, void *totals_buffer,
     std::uint64_t totals_offset, void *status_buffer, void *command_encoder,
+    const std::shared_ptr<void> &block, const std::shared_ptr<void> &prefix,
+    const std::shared_ptr<void> &offset,
     bool materialize_offsets);
 
 } // namespace rund::node::accel::detail

@@ -6,6 +6,7 @@
 #include "buffers.hpp"
 #include "lifetime.hpp"
 #include "lookup.hpp"
+#include "../../pipeline/template.hpp"
 
 #include <utility>
 
@@ -16,7 +17,9 @@ rund::AccelCheck PrepareMetalScan(const rund::AccelDevice &pick,
                                   const rund::kernel::ScanPlan &plan,
                                   const rund::kernel::ComputeDomain domain,
                                   const ScanBinds &bindings,
-                                  std::shared_ptr<void> &resources) {
+                                  std::shared_ptr<void> &resources,
+                                  const MetalKernelImmutablePipelines *const
+                                      pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -47,8 +50,13 @@ rund::AccelCheck PrepareMetalScan(const rund::AccelDevice &pick,
   if (!buffers.ok) {
     return buffers;
   }
-  if (!CompileMetalScanPipelines(*adapter, plan.element, raw->block,
-                                 raw->prefix, raw->offset)) {
+  if (pipelines != nullptr && pipelines->ready(3u)) {
+    raw->block = pipelines->stages[0u];
+    raw->prefix = pipelines->stages[1u];
+    raw->offset = pipelines->stages[2u];
+  } else if (pipelines != nullptr ||
+             !CompileMetalScanPipelines(*adapter, plan.element, raw->block,
+                                        raw->prefix, raw->offset)) {
     SetMetalLastError(*adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
@@ -61,6 +69,7 @@ rund::AccelCheck PrepareMetalScan(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

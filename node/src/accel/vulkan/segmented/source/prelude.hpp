@@ -10,8 +10,9 @@ VulkanSegmentedType(const rund::kernel::SegmentedScanElement element) noexcept {
                                                             : "uint";
 }
 
+template <typename Source>
 inline void AppendSegmentedPrelude(
-    std::string &source, const rund::kernel::SegmentedScanElement element,
+    Source &source, const rund::kernel::SegmentedScanElement element,
     const rund::kernel::ComputeDomain domain, const bool chunked) {
   const char *const type = VulkanSegmentedType(element);
   source += "#version 450\n";

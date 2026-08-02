@@ -256,10 +256,102 @@ Map; terminal and each-iteration variants are distinct from one another. It is
 not a second graph or calculation authority. If an eligible source cannot
 be transformed with exact symbol and replacement cardinality, preparation
 fails closed rather than silently recording the slower recurrence.
+The recurrence transform is one ordered edit recipe over the canonical source.
+Its allocation-free counting sink and one-reserve materialization sink consume
+the same fragments and branches; a separate source-size formula is not an
+authority. The frozen recurrence upper is the recipe's exact emitted byte
+count plus the canonical artifact's already-proved constant-literal growth
+envelope, with checked addition. Only the final source, non-canonical variant
+key, and upper are committed, so a rejected edit, count, allocation, or
+materialization leaves the canonical artifact byte-for-byte unchanged. The
+materializer reserves the final backend-specialized upper on the first source
+allocation. Resident-stride, optional control, and Pipeline-private guard edits
+then consume that artifact by rvalue and mutate the same frozen storage before
+the source is moved into the executable cache. Dynamic Map metadata is a
+separate ephemeral bound and is discarded before compilation; the retained
+source is charged once to template storage and never duplicated as source
+transient memory. Backend planning and cache manifests consume those separate
+frozen bounds, while complete `ArtifactKey` and full source equality remain the
+final cache admission authority.
 The compiled recurrence owner is physically separated into `match`, `source`,
 and `build`: semantic and resident-view equivalence is proved once, exact
 source transformation consumes that proof, and final assembly alone publishes
 the immutable recurrence. None of those leaves owns another eligibility path.
+The backend template registry is shared by primary and transactional-alternate
+streams. A collision-safe semantic match reuses one immutable recurrence
+template for every equal group; terminal and history-writing source variants
+are the only distinct templates, so template cardinality is at most two and is
+independent of authored occurrence, outer-window, and inner-window counts.
+The common normalized recurrence plan is the sole equivalence law: Program
+authority, canonical artifact, complete compute plan, source recipe, binding
+stride/offset residue, and exact history pitch are compared there. Metal keeps
+no parallel source-plan, binding, or history-pitch identity copy in its
+registry wrapper.
+For one normalized terminal or history variant class `E`, the immutable
+template group capacity is
+
+`C(E) = sum(route_copies(r) * group_count(r), r in E)`.
+
+At materialization `route_copies` is the frozen generation stride: one for a
+single stream and two for transactional primary/alternate streams. Each
+route's public `group_count` describes exactly one authored stream; it is not a
+template count. Metal allocates one fixed retained group table of `C(E)`
+entries for the shared variant. Vulkan allocates the same group table and
+exactly `C(E) * dispatch_window_count` descriptor sets. Descriptor sets belong
+to that immutable template capacity and therefore are never multiplied again
+by route count, authored occurrence count, or outer/inner iteration count.
+Route resources alone scale with the actual proved recurrence-group count.
+The valid Pipeline materialization entry requires the frozen public registry
+reservation and matching fingerprint. There is no planless backend fallback:
+a missing reservation rejects at common accounting before registry binding or
+native preparation.
+Cold backend preparation also preserves two independent route coordinates.
+For route `r`, immutable step/status/telemetry descriptions scale with compact
+authored entries, `route_copies(r) * entry_count(r)`, while encoded
+status/telemetry commands and their occurrence-local parameter snapshots scale
+with physical occurrences,
+`route_copies(r) * occurrence_count(r)`. Every field is checked separately
+against the frozen public reservation before native command or descriptor
+allocation. Treating either coordinate as the other is a capacity-contract
+failure, not an authorization to grow a local backend owner.
+Backend `dispatch_count` means physical body/View commands: a multi-stage
+primitive contributes every captured stage and View normalization contributes
+its helper dispatch. Reset, status, telemetry, window-control, and publication
+families keep separate coordinates. In particular,
+`backend_window_dispatch_count` is the Vulkan resident-window arena extent: it
+is the subset of already-counted body/View and reset dispatches whose frozen
+arguments may be suppressed, and it is never added to the command total again.
+For one stream with `W` physical window occurrences and `I` captured indirect
+dispatches, Vulkan reserves the checked window-control upper `2W` (at most one
+transition and one NestedSeed preflight per occurrence) and exactly `I` extra
+gate dispatches. Publication command cardinality has one common arithmetic
+authority:
+
+```text
+publication_commands(Terminal, 0, 0) = 2
+publication_commands(Window, maximum, tile) = ceil(maximum / tile)
+```
+
+The two terminal commands are the last-window canonicalization and final
+publication; a window publication runs once after each nested Fold. Zero
+extent, zero tile, `tile > maximum`, or nonzero Terminal extent is invalid.
+Consequently the Vulkan command-capacity upper is
+`body + reset + status + telemetry + 2W + I + publication_commands + 3`.
+Its push-constant payload upper adds
+`80 * 2W + 12 * I + 120 * publication_commands` bytes to the exact status,
+telemetry, and two 40-byte Pipeline-control payloads. These constants are
+compile-time-checked against `VulkanWindowParams`, gate parameters, and
+`VulkanPipelinePublishParams`; arena slots, commands, and parameter bytes are
+therefore non-overlapping dimensions.
+
+Vulkan may safely expose a plan whose
+aggregate immutable Program-template steps exceed its 1,024 native compile
+ceiling; `prepare()` rejects that case before registry publication or any
+Vulkan API call, reports the first crossing template/node, preserves the stable
+native key `compute_pipeline_template_step_capacity`, and projects it to the
+public `PipelineCapacity` reason. Moving this
+check into plan-only inspection without carrying that location would erase
+required diagnostic evidence and is forbidden.
 Before that complete element-local proof is established, a multi-step,
 controlled, collective, aliased, or otherwise nonlocal body is outside
 register-recurrence eligibility and keeps its one canonical prepared command
@@ -272,6 +364,11 @@ canonical graph hashes unchanged; controlled and recurrence variants use the
 orthogonal variant field, while exact source equality distinguishes every
 layout specialization. Two different shader texts cannot alias even if every
 finite hash field collides.
+Built-in Vulkan Pipeline telemetry and profile Programs likewise keep fixed,
+distinct semantic operation identities. Their generated source bytes are
+materialization and executable-cache evidence, not a second plan-identity
+authority; the cache still requires exact source equality after its hash
+prefilter.
 
 Metal and Vulkan executable caches share this one cache law. A source or
 function-name hash selects the collision bucket in expected `O(1)` time, then
@@ -306,14 +403,16 @@ full walk is the exact `2^64` epoch-wrap maintenance boundary, which resets
 identity tags before reusing epoch one and cannot alter descriptor contents or
 execution order.
 
-On Metal, every planned RAW, WAR, or WAW frontier remains one explicit ICB
-command barrier. A frontier after command `i` is encoded as `setBarrier` on
-command `i + 1`, which makes all preceding indirect commands complete before
-that command begins. Controls and Pipeline-private fixed-grid lowerings live in
-the same ICB; the ordinary compute encoder owns only the trailing visibility
-barrier after the one full-range execution. Therefore a dependency path with
-`k` internal hazard frontiers has exactly `k` ICB visibility boundaries,
-independent of device scheduling or recurrence ownership.
+On Metal, every planned RAW, WAR, or WAW frontier remains one explicit Buffer
+visibility boundary. A frontier after command `i` is encoded as `setBarrier`
+on command `i + 1` when both commands occupy one native ICB chunk. If the
+frontier crosses a 65,536-command chunk boundary, the compact next-chunk record
+instead carries `barrier_before` and the ordinary warm encoder emits one direct
+Buffer-scope barrier before executing that chunk. Controls and
+Pipeline-private fixed-grid lowerings remain in the same global ordered stream.
+Therefore a dependency path with `k` internal hazard frontiers has exactly `k`
+visibility boundaries, independent of chunking, device scheduling, or
+recurrence ownership.
 
 The body graph has size `G`, Program-internal physical memory size `I`, carried state
 has size `S`, invariant input payload per element is `C`, output payload per
@@ -377,12 +476,15 @@ status priority, or publication. Transactional primary and alternate routes
 also share internal memory because the parity gate selects exactly one route
 set for an attempt.
 
-Memory observation charges Pipeline-shared arena payload to `shared_memory`
-exactly once. Step rows report only their JobWorkspace route metadata,
-Jobs, and tile/staging owners. The shared partition plus all rows therefore
-reconciles with complete Pipeline-owned memory without
-multiplying arena bytes by step count, recurrence `N`, or transactional route
-count.
+Memory observation charges the CPU `CpuPreparedArena` and every
+`PipelineState::cpu_storage` entry to `shared_memory` exactly once, before
+walking step rows. CPU `JobWorkspace`, binding, route, and scratch slices are
+borrowed from that shared arena and contribute no second per-step capacity.
+Step rows retain only their distinct `JobState` metadata and any genuinely
+step-owned accelerator workspace/tile/staging owner. The shared partition plus
+all rows therefore reconciles with complete Pipeline-owned memory without a
+traversal-order-dependent “first Job” owner or multiplication by step count,
+recurrence `N`, or transactional route count.
 
 ### Explicit Host Feedback
 
@@ -531,16 +633,18 @@ contract.
 
 Metal hard-cuts the command-table boundary during cold preparation. A warm run
 creates Metal's required single-use outer command buffer, performs one bulk
-residency declaration over the frozen unique-resource array, executes the
-entire reusable ICB with one range call, and commits once. The runD warm path
-visits zero command, range, binding, indirect-grid, or recurrence-state rows
-and restores zero bytes. This is not a claim of literally zero host work:
-command-buffer creation, the bulk Metal residency call, commit, completion,
-and the fixed control observation remain. If `D` is the frozen command count
-and `R` is the unique resource count, the host boundary is
-`T_outer + T_bulk_residency(R) + 0*D`; no term is proportional to the prepared
-descriptor schedule. Vulkan records its immutable primary command buffer
-during cold preparation and retains its existing one-submit boundary.
+residency declaration over the frozen unique-resource array, walks only the
+frozen 16-byte native-chunk records, executes each retained ICB range, and
+commits once. The runD warm path visits zero command, binding, indirect-grid,
+or recurrence-state rows and restores zero bytes. This is not a claim of
+literally zero host work: command-buffer creation, the bulk Metal residency
+call, the `C = ceil(D / 65,536)` fixed chunk records, commit, completion, and
+the fixed control observation remain. If `D` is the frozen command count and
+`R` is the unique resource count, the host boundary is
+`T_outer + T_bulk_residency(R) + C*T_execute_range + 0*D_descriptor`; no term
+walks the prepared descriptor schedule. Vulkan records its immutable primary
+command buffer during cold preparation and retains its existing one-submit
+boundary.
 
 Preparation also seals the rank of window entries in every physical-step
 prefix:
@@ -607,6 +711,23 @@ dynamically produced dimensions are copied into a private gated slot. Transfer
 fills are lowered through the same guarded compute reset dispatch while
 captured by a resident recurrence, so a transfer command cannot remain as an
 unguarded payload writer.
+
+Vulkan sizes that capture from encoder-owned facts rather than a generic
+Pipeline dispatch upper. Let `A` be the exact number of original reset, View,
+and primitive dispatches inside resident-window scopes, and let `G` be the
+exact number of those primitive dispatches whose dimensions are device-authored
+indirect arguments. Each primitive encoder exposes its `G` contribution beside
+the encoder; the window finalizer checks the captured cursor is exactly `A`
+and the gated-route count is exactly `G`. Cold preparation therefore retains
+`A` argument and owner rows, `G` gate rows, and one gate descriptor lease per
+row. It bulk-reserves the unique resident-state descriptors and all `G` gate
+descriptors before command capture. A missing or stale demand contract fails
+with a deterministic dispatch-count mismatch; capture never grows a vector or
+descriptor pool. Publication follows the same rule: one descriptor set per
+route plus one additional canonicalization set per terminal route is counted
+and bulk-reserved before the first route is materialized. These are cold
+construction rules only; the warm path submits the already immutable primary
+command buffer.
 
 This is bit-preserving by construction: a stopped transition is the state
 identity `current' = current`, not an arithmetic operation. It cannot
@@ -772,8 +893,22 @@ T(k, j)   = P(k, j) || Q(k)
 
 For `N == 0`, `T(k, N) = T(k, 0)` and the Action equation and Action phase are
 absent. Its compact route shape is `K` Seed templates plus the three outer-bank
-Fold transitions; its authored command count is `2K`. Positive `N` retains
-`K + N + 3` templates and `K * (N + 2)` authored commands.
+Fold transitions; its authored command count is `2K`. Positive `N` authors
+`K + N + 3` logical route rows but retains exactly
+`K + min(N, 2) + 3` prepared route templates: `K` ordinal-specific Seed
+routes, at most two alternating Action parity routes, and the three Fold bank
+transitions. Its authored command count remains `K * (N + 2)`.
+
+Historical counts produced before parity-route ownership was canonicalized are
+not a target shape for the current API. In particular, retaining all 64 Action
+rows instead of two adds 62 templates without adding authored commands. For
+the two fixed `(K, N) = (63, 64)` and `(63, 1)` nested groups, the current
+prepared-template/command core is `(135, 4347)`, so `commands - templates` is
+already 4212. Every additional public executable stage contributes at least as
+many commands as retained templates. The historical pair `(243, 4454)`, whose
+difference is 4211, therefore cannot represent that same semantic shape after
+deduplication; manufacturing it would require restoring a redundant Action
+template authority.
 
 Seed receives the canonical total count `C`, just like the ordinary
 `windows` body, and derives `c_k` through `resident<Max, Tile>(C, k)`. If
@@ -830,8 +965,9 @@ nested logical Pipeline step. Entering a later nested step, including one with
 different `K` or `N`, never resets or replaces work already attributed to an
 earlier step.
 
-Preparation freezes `O(K + N)` route templates plus fixed control and
-window-publication routes. It
+Preparation freezes `K + min(N, 2) + 3 = O(K)` prepared route templates plus
+fixed control and window-publication routes. The declaration and diagnostic
+schedule still retains `O(K + N)` logical route coordinates. Preparation
 does not freeze `K * N` Program graphs, Jobs, workspaces, bindings, or state
 banks. In particular, the retained owner graph contains one Seed Program, one
 Action Program, one Fold Program, one tile-local invariant `Q` bank, exactly
@@ -849,7 +985,7 @@ report coordinates; none may be inferred from another or used to justify
 allocating `K * N` Program/Job/workspace owners.
 
 `PipelinePlan::barrier_count` is the exact number of nonzero boundaries in
-that compact route-template schedule. The cold planner projects the canonical
+that authored logical-route schedule. The cold planner projects the canonical
 `resource::analyze` hazards to one bit per route boundary, adds the boundaries
 required when distinct Programs reuse the shared workspace, and freezes that
 same vector for `prepare()`. It is independent of authored occurrence count: a
@@ -907,12 +1043,14 @@ exists:
   on all three banks; and
 - declared-step and optional profile projection are exact.
 
-On that path cold common preparation retains only the `K + N + 3` compact
-templates and one fixed-width proof object. It does not allocate the
+On that path cold common preparation retains only the
+`K + min(N, 2) + 3` compact templates and one fixed-width proof object. It does
+not allocate the
 `K * (N + 2)` occurrence descriptors, copied windows, barriers, recurrence
 transducer, raw status arena, resident selector array, or guard Buffer. Metal
-records two commands in the one reusable ICB: a `K`-threadgroup tile stage and
-one ordered finalize stage. Common proof selects two dense, write-owned,
+records two commands in one two-command size-class ICB chunk: a
+`K`-threadgroup tile stage and one ordered finalize stage. Common proof selects
+two dense, write-owned,
 nonoverlapping U32 ranges from the Seed Program's already planned internal
 workspace. Each range has at least `K` elements, every Seed occurrence resolves
 the same owner/range identity, and the proof retains both owners. The aggregate
@@ -981,9 +1119,10 @@ publishes the final selected outer bank before any downstream step consumes
 it. Metal and Vulkan use one Pipeline submission with no warm count readback,
 allocation, compilation, descriptor growth, binding mutation, or fallback.
 CPU executes the identical logical order inside one Pipeline run and retains
-the same compact prepared ownership. Metal executes one full ICB range; its
-canonical stream's device guards suppress inactive payloads without a warm
-descriptor, range, binding, or recurrence-state traversal, while the exact
+the same compact prepared ownership. Metal executes its fixed retained ICB
+chunk slice; its canonical stream's device guards suppress inactive payloads
+without a warm descriptor, binding, indirect-grid, or recurrence-state
+traversal, while the exact
 aggregate stream has no guard commands and derives its active outer bound on
 device.
 
@@ -991,7 +1130,7 @@ device.
 Job, Buffer, View, or prepared-owner binding identity. It is zero by
 construction because warm execution has no such mutation path. Metal's and
 Vulkan's cold preparation, and Metal's one bulk residency declaration plus
-full-ICB execution from a fresh single-use command buffer, are execution
+fixed-chunk ICB execution from a fresh single-use command buffer, are execution
 operations, not binding mutations. The zero counter is diagnostic rather than standalone
 proof: `compute.window` snapshots every unique nested normal `JobState`; a
 transactional recurrence in the same binding oracle also captures each normal
@@ -1025,7 +1164,8 @@ The fixed product envelope is:
 steps <= 64
 flat prepared iterations <= 1024
 input-sealed repetitions <= 1024
-compact nested route templates <= 2051 (= 2 * 1024 + 3)
+authored nested logical routes <= 2051 (= 2 * 1024 + 3)
+nested prepared route templates <= 1029 (= 1024 + 2 + 3)
 nested contribution is O(outer windows + inner iterations), never their product
 combined logical input and output leaves per Program <= 32
 flat binding occurrences <= 32768 (= 1024 * 32)
@@ -1035,10 +1175,10 @@ authored commands <= the checked logical Pipeline command capacity
 physical native commands <= the selected Device's checked command capacity
 ```
 
-Preparation allocates exact retained storage inside that bound. It never
+Preparation allocates exact retained storage inside those bounds. It never
 spills, grows on demand, or switches execution strategy. Capacity failure is
 typed and occurs before backend preparation. The common prepared owner checks
-the sum of flat entries and compact nested route templates against
+the sum of flat entries and authored nested logical routes against
 `PipelineRouteCapacity`; it neither checks nor allocates from a flattened
 outer-times-inner cardinality. Flat-only schedules retain the narrower
 `PipelineIterationCapacity`. Each reported nested coordinate retains its own
@@ -1411,22 +1551,77 @@ fields that are structurally zero or Pipeline-owned.
 
 ### Metal
 
-Preparation records the immutable compute commands, buffer bindings, and
-conflict barriers in one reusable compute indirect command buffer. Warm
-execution creates one ordinary command buffer and compute encoder, declares
-the retained resources with one bulk call, executes the complete ICB with one
-range call, ends encoding, commits once, and observes one completion. There is
-no direct-command partition and no warm command/range table. The ICB begins
+Adapter opening calibrates the only Pipeline ICB descriptor on the selected
+device. It probes the 17 capacities `2^i`, `i = 0..16`, through the same
+allocation helper later used by materialization and freezes each nonzero,
+monotonic `allocatedSize` as device capability. The descriptor admits both
+concurrent thread and threadgroup dispatch command types, inherits neither
+pipeline state nor Buffers, exposes exactly 31 kernel Buffer bindings, exposes
+zero dynamic threadgroup-memory bindings where the SDK field exists, and uses
+Shared storage for CPU-authored commands. The SDK defines
+`maxKernelBufferBindCount` as the maximum bind index rather than a cardinality,
+but native A/B execution rejects Pipeline commands binding guard index 30 when
+the descriptor value is 30 and passes the same semantic suite at 31. The frozen
+descriptor therefore retains the empirically required value 31 for the
+admitted indices `0..30`; changing it requires equivalent native execution
+evidence, not header wording alone. A calibration failure leaves the
+standalone Metal adapter usable and rejects only Pipeline planning with
+`accel_metal_icb_calibration_failed`.
+
+For a frozen command upper `D`, the sole chunk planner defines
+
+```text
+F = floor(D / 65,536)
+T = D mod 65,536
+P = T == 0 ? 0 : bit_ceil(T)
+C = F + (T != 0)
+M = F * allocatedSize[65,536] +
+    (T == 0 ? 0 : allocatedSize[P])
+H = 16 * C
+```
+
+Cold planning adds the exact measured `M` to native bytes, `H` retained host
+bytes, and `C` native ICB objects; it exposes `C` and `M` as
+`backend_command_chunk_count` and `backend_command_native_bytes`. Cold
+materialization invokes the same decomposition and allocation helper for the
+actual command count, checks every native `size` and `allocatedSize` against
+the frozen adapter table, sums device telemetry over all chunks, and requires
+actual `C` and `M` to remain within the public upper. The two device-derived
+allocation fields deliberately do not enter the semantic Pipeline fingerprint:
+the same authored Pipeline has the same identity on devices with different
+physical ICB allocation sizes. They remain mandatory field-wise
+actual-less-than-or-equal-to-frozen admission gates under that identity.
+
+The Apple-only explicit contract
+`tools/measure/compute/run --metal-icb-boundary` executes the production chunk
+loop at the first physical boundary: 65,537 real commands are partitioned as a
+65,536-command full ICB plus a one-command tail ICB. The final full-chunk
+command writes `0x13579bdf`, the first tail command reads it, and the contract
+requires that value after one direct boundary barrier and exactly one outer
+native submission. Its target is `EXCLUDE_FROM_ALL` and is not a CTest, so this
+device-scale proof adds no command population or execution cost to default
+cross-platform verification.
+
+Preparation records immutable compute commands, Buffer bindings, and conflict
+barriers in global order across those chunks. Warm execution creates one
+ordinary command buffer and compute encoder, declares retained resources with
+one bulk call, walks only the exact-reserved array of 16-byte chunk records,
+executes each chunk's range, ends encoding, commits once, and observes one
+completion. There is no descriptor/step traversal, direct-command partition,
+per-command range table, or warm allocation. A frontier inside one chunk is an
+ICB command barrier; a frontier at a chunk boundary is the one direct
+Buffer-scope barrier encoded before the next chunk. The global stream begins
 with one open command that resets both the 128-byte control and the exact
 device-private `ResidentState[0..S)` prefix, then one raw-arena reset only when
 a private replacement status word exists, and ends with the canonical
 completion path. Resetting resident state is not a second attempt command.
 This open/status/state shape is the canonical stream and its transducer
 fallback; the exact aggregate specialization described above is a narrower
-complete-stream replacement. Its ICB contains only the parallel tile command,
-one Buffer barrier, and the ordered finalize command. Finalize performs the
-single logical control transition and publication, so that stream owns no
-separate open, raw-status reset, resident-state reset, or guard command.
+complete-stream replacement. Its one two-command size-class chunk contains the
+parallel tile command, one Buffer barrier, and the ordered finalize command.
+Finalize performs the single logical control transition and publication, so
+that stream owns no separate open, raw-status reset, resident-state reset, or
+guard command.
 
 Canonical nested-window state transitions use the following one-authority cut.
 The change removes physical controls only; authored Seed/Action/Fold order,
@@ -1445,6 +1640,9 @@ lineage. Every Fold for that state must agree on both `inner_bound` and
 exactly either zero for individually counted Action controls or `inner_bound`
 for a proved Action transducer. Any forged or inconsistent shape fails
 preparation rather than corrupting work evidence.
+Metal performs this proof in one fixed route-capacity stack table with an
+explicit used bit per state. A state id outside that frozen capacity is invalid;
+it cannot resize a backend heap table.
 
 For the canonical transduced window-repeat fallback with `K` outer windows, one
 private raw-status reset, one status-bearing Seed per window, one resident
@@ -1506,50 +1704,74 @@ Preparation therefore packs every immutable `setBytes`-style Program parameter
 block into one retained Metal parameter arena and binds stable offsets from the
 indirect commands. Dynamic values remain ordinary resident Program inputs; no
 parameter upload or command rewrite occurs in the warm tick.
-The cold capture keeps one 31-slot encoder-state table, but each dispatch
-snapshots only its active application Buffer bindings, its one guard binding,
-and its active threadgroup bindings into flat sparse arrays. For dispatch `d`
-with `b_d` application Buffer bindings and `t_d` active threadgroup bindings,
-capture storage and ICB construction visit `Theta(b_d + t_d + 1)` rows rather
-than copying and rescanning 31 rows of each kind.
-Each sparse array doubles from a fixed minimum only when its capacity is
-exhausted. For `Q_b` final sparse rows, total relocation is less than `2Q_b`;
-dispatch capture therefore remains linear in the complete command stream and never
-reserves the exact cumulative size per dispatch.
+The cold capture keeps one 31-slot encoder-state table, but the allocation
+authority is the active producers' maximum non-guard prefix `U`, not that ABI
+envelope. Operation manifests publish their highest authored argument index
+plus one; dynamic Map derives it from input/output/check cardinality, and View,
+status, telemetry, window, publication, and recurrence controls contribute
+only when active. Route and stream composition take `max`, since occurrence
+expansion repeats an index space rather than adding one. Index 30 remains the
+guard and every encoder callback rejects an application index `>= U`.
+
+For `D` frozen commands, capture reserves exactly `D` command rows and
+`B = D * (U + 1)` Buffer-binding rows before the first callback. Each dispatch
+`d` snapshots only its `b_d` active application bindings and, when guarded, one
+guard row, so actual construction visits `Theta(sum(b_d + 1))` rows while the
+preallocation proof is `sum(b_d + 1) <= B`. Appends cannot grow either vector;
+finalization repeats the actual-versus-frozen check. The parameter arena uses
+`backend_parameter_bytes` as its single payload and vector-capacity upper.
+Before each insertion it proves aligned offset plus length is within that
+upper, grows by checked doubling from 256 bytes capped at the upper, and rejects
+any reserve whose returned capacity differs from the requested capacity.
+
 On the 64-bit Apple ABI, checked layout assertions fix sparse capture storage
-at 96 bytes per command, 32 bytes per Buffer binding, and 16 bytes per active
-threadgroup binding. Excluding vector capacity slack, `D` commands use exactly
-`96D + 32 sum(b_d + 1) + 16 sum(t_d)` transient bytes; the `+1` is the guard.
-Because indirect commands do not inherit Buffers, every active binding is still
-materialized for every command. Parameter growth zero-initializes only the zero
-to fifteen alignment-gap bytes; payload bytes are inserted once and are not
-zero-filled before being overwritten.
+at 80 bytes per command and 32 bytes per Buffer binding. Actual rows therefore
+use `80D_actual + 32 sum(b_d + guard_d)` transient bytes within the frozen
+upper. Because indirect commands do not inherit Buffers, every active binding
+is still materialized for every command. No current Pipeline producer authors
+dynamic threadgroup memory, so there is no threadgroup capture table, sparse
+row, planner field, or ICB replay path. Adding such a producer requires a new
+producer-adjacent manifest and frozen capacity law. Parameter insertion
+zero-initializes only the zero to fifteen alignment-gap bytes; payload bytes are
+inserted once and are not zero-filled before being overwritten.
 
-The retained pipeline-state and resource lists use pointer-identity membership
-indexes while preserving first-command order in their vectors. The indexes are
-lookup-only and never iterated, so command identity stays deterministic while
-deduplication costs expected `Theta(sum(b_d) + D)` instead of comparing each
-binding with every previously retained resource.
+The retained pipeline-state and resource lists preserve first-command order in
+their vectors. Cold finalization uses one lookup-only, open-addressed
+pointer-identity index for membership: for `D` commands and `B = sum(b_d)`
+captured Buffer rows it allocates exactly
+`H = bit_ceil(2 * max(D, B))` pointer slots (`H = 0` only for an empty input),
+deduplicates pipeline states, clears the same slots, and reuses them to
+deduplicate resources. The index is never iterated, so command identity stays
+deterministic while deduplication costs expected `Theta(B + D)` instead of
+comparing each row with every previously retained identity. Its exact
+`H * sizeof(void*)` bytes are the backend `host_transient_bytes` cold
+high-water, separate from `source_transient_bytes`; overflow or allocation
+failure reports `compute_pipeline_capacity` before native parameter or ICB
+allocation. The index is destroyed before those native owners are allocated
+and no hash owner reaches warm execution.
 
-Normal Metal command buffers are single-use; the reusable indirect command
-buffer is the command cache. A selected Metal Device that cannot prepare the
-required compute indirect commands or barriers rejects Pipeline preparation.
-Internal dependency frontiers are fixed `MTLIndirectComputeCommand` barriers.
-The ordinary encoder performs one trailing Buffer-scope barrier after the full
-ICB range. For `D` prepared commands, `B` captured binding rows, and `S`
-recurrence states, warm runD execution visits exactly zero `D`, `B`, or `S`
-rows and restores zero bytes. It allocates no segment list, range table, gate
-buffer, proxy-dispatch table, or alternate direct-command stream. There is no
-fallback selection: every warm run consumes the same complete ICB. Batch's
-independent-Map packing and host pack/unpack path are never used by Pipeline.
+Normal Metal command buffers are single-use; the exact size-class ICB chunk
+slice is the command cache. A selected Metal Device whose calibration is
+invalid rejects only Pipeline planning. Internal dependency frontiers are
+fixed `MTLIndirectComputeCommand` barriers except at a native chunk boundary,
+where the next 16-byte record requests the equivalent direct encoder barrier.
+The ordinary encoder performs one trailing Buffer-scope barrier after the last
+chunk. For `D` prepared commands, `B` captured binding rows, and `S` recurrence
+states, warm runD execution visits exactly zero `D`, `B`, or `S` rows and
+restores zero bytes. It allocates no descriptor segment list, per-command range
+table, gate buffer, proxy-dispatch table, or alternate direct-command stream.
+There is no fallback selection: every warm run consumes the same `C` compact
+chunk records. Batch's independent-Map packing and host pack/unpack path are
+never used by Pipeline.
 
 The hard cut intentionally moves inactive-command selection to the device.
 Metal still schedules the frozen physical commands, whose uniform guards make
 inactive payload work non-accessing; it does not promise that inactive command
 issue is free. The minimum host envelope also remains explicit: one outer
 command-buffer/encoder lifecycle, one bulk residency declaration for the `R`
-unique retained resources, one ICB range call, one commit/completion, and one
-fixed control observation. This is zero runD schedule traversal, not zero CPU
+unique retained resources, `C = ceil(D / 65,536)` ICB range calls plus only
+their boundary-barrier flags, one commit/completion, and one fixed control
+observation. This is zero runD descriptor-schedule traversal, not zero CPU
 participation. Performance evidence must report the device issue tradeoff and
 must not relabel the Metal API boundary as eliminated host work.
 
@@ -1946,12 +2168,21 @@ Terminal reason remains the only failure authority. Pipeline evidence records:
 
 Cold preparation failure also retains a public `Location` when the rejecting
 owner is known. `step` is the authored logical Pipeline step, `iteration` is
-its canonical physical recurrence ordinal, and `node` is the source Program
-graph node before accelerator fusion. Unknown fields use `Location::none`.
-This is evidence attached to the failed `Result<Pipeline>`; it neither creates
-a second Reason nor enlarges the two-byte hot execution `Status`. A native
-failure that cannot identify a Program node may still identify step and
-iteration, and must never fabricate the missing node.
+its canonical route ordinal, and `node` is the source Program graph node before
+accelerator fusion. Accelerator preparation additionally preserves the compact
+`template_index`, expanded `occurrence_index`, independent
+`outer_iteration`/`inner_iteration`, and `nested_phase`. Coordinates are never
+flattened, and unknown U32 fields use `Location::none`.
+
+`native_reason_key` is the backend's canonical process-lifetime static reason
+key. It preserves whether the failure was capacity, descriptor admission,
+shader/pipeline compilation, command capture, or another native boundary after
+the public typed Reason has been projected. It is not a second terminal Reason,
+does not borrow driver text, and null means no native preparation diagnostic.
+All fields are evidence attached to the failed `Result<Pipeline>`; none enlarges
+the two-byte hot execution `Status`. A native failure that cannot identify a
+Program node may still identify its template/occurrence and nested route, and
+must never fabricate a missing coordinate.
 Public, resident, and Pipeline-private Jobs share one `finish_prepare`
 projection, so every failed `Result` preserves an available Program node.
 
@@ -2036,7 +2267,8 @@ profiles; Vulkan's recorded profile fill resets the same rows. One terminal
 close advances generation and derives verified prefix from the already folded
 failure state. Both commands live in the immutable command stream, so sync,
 async, first, warm and restored submissions have the same state transition
-without a warm-path host seed.
+without a warm-path host row pass. Metal's explicit generation seed writes only
+the fixed control envelope; it never traverses or clears declared-step rows.
 
 For occurrence values `t_i` and first failing Program occurrence boundary
 `j*`, the reported control is the fixed fold
@@ -2145,6 +2377,7 @@ through the common Compute result vocabulary.
 | `BindingAliasUnsupported` | One step aliases a read and write, or aliases logical outputs that map to incompatible physical outputs. |
 | `BindingDuplicate` | Distinct physical output slots in one step bind the same Buffer owner. |
 | `PipelineMemoryBudget` | `PipelinePlan::peak_bytes` exceeds `MemoryBudget`. |
+| `DevicePipelineMemoryCapacity` | The Pipeline's exact `committed_peak_bytes` cannot be reserved from its Device aggregate before materialization. |
 | `BoundedCountInvalid` | A resident device count exceeds the authored `Max`; payload work and publication remain zero. |
 | `PipelineBusy` | The same prepared Pipeline already has an active request. |
 | `PipelinePoisoned` | A previously submitted execution failed or was canceled after writes became possible. |
@@ -2351,14 +2584,17 @@ duration or sample evidence remains raw and is exposed by `saturated()`.
 
 Each row's `memory` is the disjoint Pipeline-owned partition attributable to
 that private step: both prebuilt parity Jobs when transactional, their retained
-metadata, private internal Buffers, CPU tile storage, and step-owned staging.
-`shared_memory` owns the remainder: Pipeline coordinator metadata, the typed
-View arena, resource and hazard plans, terminal control, native prepared
+metadata, private internal Buffers, accelerator workspaces, and step-owned
+staging. `shared_memory` owns the remainder: Pipeline coordinator metadata,
+the one CPU prepared arena and every `PipelineState::cpu_storage` owner, the
+typed View arena, resource and hazard plans, terminal control, native prepared
 command and optional query resources, checkpoint/read staging, frame, and
-transfer traffic. `memory`, every row partition, and `shared_memory` use the
-selected backend and `MemoryScope::Pipeline`; the surrounding field establishes
-whether the value is the complete owner or one disjoint partition. No byte is
-divided proportionally among steps.
+transfer traffic. CPU Jobs borrow arena and Program-storage slices, so neither
+owner is assigned to whichever step happens to be traversed first. `memory`,
+every row partition, and `shared_memory` use the selected backend and
+`MemoryScope::Pipeline`; the surrounding field establishes whether the value
+is the complete owner or one disjoint partition. No byte is divided
+proportionally among steps.
 
 For every `MemoryCategory` counter and each of its `current`, `peak`,
 `cumulative`, `reused`, and `budget` coordinates, saturating addition obeys:
@@ -2455,23 +2691,80 @@ step/iteration/chunk location so capacity failures can name the controlling
 workspace without backend addresses.
 
 `persistent_bytes` is the exact logical payload of caller Buffers referenced
-by the Pipeline. `peak_bytes` is the exact Pipeline-owned planned payload:
+by the Pipeline. `peak_bytes` is the complete checked Pipeline-owned admission
+reservation:
 
 ```text
-peak_bytes = state_bytes + transient_bytes + prepared_bytes
+prepared_bytes = prepared_buffer_bytes
+               + prepared_host_bytes
+               + prepared_tile_bytes
+               + prepared_native_bytes
+peak_bytes      = state_bytes + transient_bytes + prepared_bytes
 ```
 
-`prepared_bytes` is the sum of the dense View arena and primitive scratch arena
-required by Metal or Vulkan prepared commands; CPU has no such term. Pipeline
-owns those Buffer objects once. Private Jobs, recurrence banks, and
-transactional alternates borrow the same arenas and cannot create another
-owner. `view_bytes`, `view_step`, `view_iteration`, and `view_binding` identify
-the largest View requirement; `scratch_bytes` and `scratch_count` identify the
-scratch backing and page count; `largest_*` continues to identify Program
-workspace. `total_bytes = persistent_bytes + peak_bytes` is checked without
-saturation and is the complete planned Buffer observation. `MemoryBudget`
-admits `peak_bytes`; a budget failure therefore occurs before state, workspace,
-View, or scratch Buffer materialization.
+`peak_bytes` is the exact logical runD-owned payload admitted by
+`MemoryBudget`; it is not process RSS. For CPU preparation,
+`arena_extent_bytes` publishes the exact unrounded span of the single sealed
+mapping. Let `A` be the arena's exact Host+Tile payload already included in
+`peak_bytes` and let `C` be the independently page-rounded mapping commitment:
+
+```text
+committed_peak_bytes = peak_bytes - A + C
+```
+
+The Device memory governor reserves `committed_peak_bytes` across all live
+Pipelines. It never rounds aggregate `peak_bytes`, samples RSS, or adds a fixed
+margin. An operating-system process/container hard limit remains the final
+authority for allocator/runtime/driver-private memory that runD cannot
+preflight exactly.
+
+`prepared_buffer_bytes` is the exact dense View-normalization and accelerator
+primitive-scratch Buffer payload. `prepared_host_bytes` reserves the retained
+Pipeline coordinator, private Jobs, compact route bindings, CPU Program-run
+objects, and product-owned container payload. `prepared_tile_bytes` is the
+exact CPU worker/tile-executor, collective, and primitive scratch payload.
+`prepared_native_bytes` reserves explicitly sized command, descriptor,
+parameter, status, and profile payload owned by runD. Host/native structural
+rows are conservative checked envelopes where platform allocators do not
+publish an exact byte layout; runtime may consume less but is rejected before
+allocation if any byte or object count would exceed the frozen reservation.
+Map lowering owns its source upper at emission time: while the admitted parsed
+IR is available it freezes the maximum canonical decimal-literal width beside
+the artifact. Cold Pipeline planning consumes that scalar, adds only the
+backend specialization envelope, and neither reparses nor regenerates source.
+Map binding edits use a fixed stack array of at most two entries per admitted
+binding, so their source-transient charge is exactly zero and the sole heap
+materialization is the retained final source. Retained unique cache sources
+are additive; any other serialized source-producing transform is one maximum
+high-water charge across shared primary/alternate streams. Backend
+cold-finalizer host workspace is a second explicit high-water field and is
+never hidden in source specialization or retained warm memory.
+
+The exact text upper is not treated as an allocator-capacity oracle.
+Each retained source dependency separately freezes a conservative
+`std::string` external-storage envelope `T + 64` for text upper `T`, and
+publication verifies the actual capacity against it. Metal non-Map
+Pipeline-private wrapping charges the raw `R + 64` owner as source transient
+because old and grown allocations can coexist during `reserve`; Map main,
+control, and check emitters reserve the final wrapped owner at first
+materialization and therefore need no such coexistence charge.
+
+Pipeline owns each prepared Buffer once. Private Jobs, recurrence banks, and
+transactional alternates borrow the shared arenas and CPU Program storage;
+primary and alternate accelerator streams share one immutable template
+registry. Metal constructs a cache-miss candidate outside that registry,
+validates every step manifest, materializes every Map template or primitive
+PSO tuple, and prepares every route before publication. A failed source,
+native pipeline, tuple freeze, route, or allocation publishes nothing; a
+step-owned failure records that Program node and preserves its native reason,
+while allocation failure is `compute_pipeline_capacity`. `view_bytes`,
+`view_step`, `view_iteration`, and `view_binding`
+identify the largest View requirement; `scratch_bytes` and `scratch_count`
+identify the accelerator scratch backing and page count; `largest_*` continues
+to identify Program workspace. `total_bytes = persistent_bytes + peak_bytes`
+is checked without saturation. `MemoryBudget` admits `peak_bytes`; a budget
+failure therefore occurs before state/workspace/View Buffers, CPU run storage,
+private Jobs, or accelerator command materialization.
 
 Let the simultaneous dense View requirements of graph node `n`, sorted by
 decreasing bytes with binding ordinal as the tie break, be
@@ -2498,16 +2791,20 @@ visible before the next graph node may reuse the same slot. An input-only node
 therefore closes with a compute-to-compute Buffer barrier as well. Slot reuse
 never relies on queue submission order without a memory dependency.
 
-Recurrence preparation analyzes only the seed occurrence and the two frozen
-bank phases. From iteration three onward `same_recurrence_phase` proves the
-same Job, binding layout, and View requirement as iteration `i - 2`; planning
-records reuse without walking the Program graph again. For iteration bound `K`
-and Program graph size `G`, an exact two-bank recurrence is therefore
-`O(3G + K)`, not `O(KG)`. An occurrence whose authored View changes with its
-iteration, such as a resident-window ordinal, is not the same phase and is
-analyzed independently. That path remains `O(KG)` because eliding its graph
-walk would discard information needed to prove the distinct byte range; it
-does not select a runtime strategy or create another placement authority.
+Recurrence preparation seals the minimum distinct binding routes, then reuses
+the route at `i - 2` whenever `same_recurrence_phase` proves exact parity.
+Nested Action has two parity routes beginning at iteration two; ordinary
+recurrence retains its distinct initial route and begins parity reuse at
+iteration three. The Program's CPU Map worker state, tile executors,
+collectives, and primitive scratch contribute to one merged
+`CpuPreparedArena` plan and are materialized once for the complete serial
+Pipeline. Per-Program run wrappers and immutable indices remain additive but
+borrow that arena. An occurrence whose authored View changes with its
+iteration, such as a resident-window ordinal, retains a distinct small route
+because eliding it would discard the byte range needed for binding safety; it
+still borrows the same Pipeline execution arena. Thus graph-private descriptor
+storage is `O(G)`, the mutable maximum envelope is one owner, and compact route
+metadata is `O(K)`, never `O(K * private(G))`.
 
 Each slot also retains the strongest natural scalar alignment among its uses.
 The slots are then suballocated into U32 backing owners at the maximum of that
@@ -2515,7 +2812,7 @@ natural alignment and the selected backend's published storage-offset
 alignment. At most `min(1 GiB, backend storage limit)` of ordinary slots shares
 one owner; a larger admitted slot remains one dedicated owner and is not split.
 Define
-`view_storage = prepared_bytes - scratch_bytes`; this is the exact View
+`view_storage = prepared_buffer_bytes - scratch_bytes`; this is the exact View
 backing-owner payload including alignment holes. For `m` slots and
 `A = max(storage alignment, largest scalar width)`,
 
@@ -2553,15 +2850,18 @@ overflow, and publication order remain unchanged and therefore result bits do
 not change.
 
 Logical Buffer payload, backend allocation granularity, host container
-capacity, driver metadata, and transfer-pool high-water marks are different
-dimensions. The cold plan includes its own typed View Buffer payload but does
-not combine opaque dimensions into a false scalar device bound. After
-successful prepare, `memory()` and `memory_snapshot()` enumerate View and
-scratch Buffers once and measure retained host, device, resident, and staging
-categories from their actual owners. Snapshot rows classify scratch as
-`MemoryUse::Scratch`; Resident rows report logical payload and Device rows
-report actual physical allocation. Backend allocation or native preparation
-failure retains the owning typed reason.
+capacity, driver metadata, and transfer-pool high-water marks remain distinct
+dimensions. The cold plan publishes their runD-owned byte reservations without
+inventing a driver-private byte estimate. It also freezes descriptor-set,
+descriptor, command, and native-allocation counts and gates them before native
+materialization. After successful prepare, `memory()` and `memory_snapshot()`
+enumerate View/scratch Buffers, CPU storage, and native owners once and measure
+retained host, tile, device, resident, and staging categories from their actual
+owners. Snapshot rows classify accelerator scratch as `MemoryUse::Scratch`;
+Resident rows report logical Buffer payload and Device rows report actual
+physical allocation. Backend allocation or native preparation failure retains
+the typed Reason, template/occurrence and nested coordinates when known, and a
+process-lifetime native reason key.
 
 Host-width binding, View, snapshot, and recurrence products consume the one
 private `compute/size.hpp` law; U64 plan totals consume the Kernel checked law.
@@ -2574,24 +2874,46 @@ Let `V(x) = capacity(x) * sizeof(x::value_type)` for a retained vector and let
 all additions saturate at `UINT64_MAX`. For a private step Job, define:
 
 ```text
-M(Job) = sizeof(JobState)
-       + V(inputs) + V(input views)
-       + V(write inputs)
-       + V(graph buffers)
-       + V(outputs) + V(output views)
-       + V(CPU View input transfers)
-       + V(CPU View output transfers)
-       + V(CPU View dense Buffer owners)
-       + CPU retained-run host metadata
+M(HeapJob) = sizeof(JobState)
+           + V(heap-owned inputs and views)
+           + V(heap-owned write inputs and graph buffers)
+           + V(heap-owned outputs and views)
+           + V(heap-owned CPU View transfers)
 
-M(JobWorkspace) = sizeof(JobWorkspace)
-                + V(Program-internal Buffer routes)
+M(CpuPipelineJob) = sizeof(JobState)
+
+M(AccelJobWorkspace) = sizeof(JobWorkspace)
+                     + V(Program-internal Buffer routes)
+                     + V(offsets)
+
+M(CpuGraphStoragePrivate) = sizeof(CpuGraphStorage)
+                          + V(Map-run owners)
+                          + V(collective-run owners)
+                          + V(primitive-scratch pointer slots)
+                          + sum_unique(Map/collective private host objects)
+
+M(CpuPreparedArena) = sizeof(CpuPreparedArena)
+                    + exact Host payload of tile/primitive objects, routes,
+                      bindings, workspaces, and offsets
+
+Tile(CpuPreparedArena) = exact worker/tile state, map/SIMD scratch,
+                         collective arrays, primitive slabs/tables,
+                         dedicated Scatter keys/marks/epoch
 ```
+
+For a prepared CPU Pipeline Job, every `PreparedArray` named by `M(HeapJob)` is
+an arena-borrowed span; its vector capacity contribution is zero, producing
+the `M(CpuPipelineJob)` form above. A CPU `JobWorkspace` is
+placement-constructed after its offset backing and is exposed through an
+aliasing `shared_ptr` that shares the `CpuPreparedArena` control block. It has
+no heap allocation or second control block. Arena destruction reverses the
+construction order, so the borrowed backing outlives the workspace view.
 
 The private form leaves `JobState::terminal` null and therefore owns no
 `JobTerminalState`. Public convenience and resident Jobs allocate exactly one
 such terminal owner at their cold construction boundary; it is included in
-their Job memory observation, not in `M(Job)` above.
+their Job memory observation, not in either private-Job form above. Let
+`M(PrivateJob)` select `M(CpuPipelineJob)` for CPU and `M(HeapJob)` otherwise.
 
 The exact common Pipeline coordinator metadata extent is:
 
@@ -2599,9 +2921,11 @@ The exact common Pipeline coordinator metadata extent is:
 HostMetadata(Pipeline) = sizeof(PipelineState)
                        + sizeof(PipelinePublicationState)
                        + V(steps)
-                       + sum_step(M(primary private Job)
-                                  + M(optional alternate private Job))
-                       + sum_unique(M(JobWorkspace))
+                       + sum_step(M(PrivateJob primary)
+                                  + M(optional PrivateJob alternate))
+                       + sum_unique(M(AccelJobWorkspace))
+                       + sum_unique(M(CpuGraphStoragePrivate))
+                       + optional M(CpuPreparedArena)
                        + V(shared Buffer owners)
                        + V(window prefix rank)
                        + V(resources)
@@ -2631,13 +2955,25 @@ observation charges exactly one `sizeof(PipelinePublicationState)` and its one
 state-pair vector, including when that authority is shared by sibling Pipeline
 wrappers. Separate self-contained sibling observations each describe their
 retained authority; they are not an additive global-owner inventory.
-Each distinct private Job and its vectors are included once in the coordinator
-metadata group. A transactional route owns two Jobs because native bindings
-are frozen; both are counted, while a nontransactional route retains only the
-primary. Every Program with internal memory receives one `JobWorkspace` route.
-All occurrences of one recurrence reuse that route, and primary/alternate
-transactional Jobs also reference it rather than allocating another internal
-payload.
+Each distinct private Job is included once in the coordinator metadata group.
+A transactional route owns two Jobs because native bindings are frozen; both
+are counted, while a nontransactional route retains only the primary. Every
+Program with a real workspace consumer receives one frozen workspace route;
+all occurrences of one recurrence and both transactional routes reuse it. A
+CPU Program with no chunks, dense Views, or other workspace consumer retains
+an intentional null workspace. Non-null CPU workspace objects and their
+buffer/offset arrays live inside the one sealed arena; accelerator workspace
+owners retain the heap formula above. The host reservation and materializer
+consume the same owner map instead of interpreting iteration fields twice.
+
+Independently, a CPU Pipeline owns exactly one `CpuGraphStorage` per distinct
+Program through `PipelineState::cpu_storage`, and exactly one
+`CpuPreparedArena` for all CPU Programs and route occurrences. Every serial
+Job route, including both transactional routes, borrows those authorities.
+Program-private storage remains additive by distinct Program; execution slabs
+are component-wise maximum envelopes except persistent per-primitive
+descriptors/tables. The materializer replays the sealed typed layout and
+remeasures its exact payload before publication.
 
 Nonzero Program arenas are shared across distinct Pipeline steps by one cold
 canonical plan. One raw-U32 Pipeline arena owns the physical storage; typed
@@ -2687,11 +3023,17 @@ runtime scale selector exists, large-layout proof does not require an
 eight-gigabyte local allocation.
 
 The shared Buffer-owner vector and its physical payload are charged to
-`shared_memory` exactly once. JobWorkspace routes remain in their owning step
-metadata, but shared payload is excluded from every private Job partition.
-CPU tile storage remains with the step. The native
-prepared owner, including command and parameter/status storage, is measured
-once using the common backend memory API. Caller Buffer
+`shared_memory` exactly once. Accelerator heap workspaces remain attributable
+to their first owning step, while every CPU workspace/binding/route slice is
+already part of the single shared arena and is excluded from private Job rows.
+`PipelineState::cpu_prepared_arena` is the canonical shared mapping owner and
+`PipelineState::cpu_storage` is the canonical Program-private storage list.
+Job and storage lifetime references must resolve to those exact owners;
+observation validates that identity and charges each owner once without using
+step traversal order. CPU arena Tile payload is charged to
+`prepared_tile_bytes`, never once per route. The native prepared
+owner, including command and parameter/status storage, is measured once using
+the common backend memory API. Caller Buffer
 physical storage and shared Program owners are excluded because Pipeline
 retains their lifetimes but does not own a second copy of their payload or
 compiled artifact. A register-recurrence specialization is part of that native
@@ -2764,25 +3106,28 @@ may overlap backend timing scopes, so their sum is not a wall-time authority.
 The Release measurement compares total wall medians and reports these
 components without subtracting them into a synthetic total.
 
-Warm runD command construction is independent of dispatch count on the target
-GPU paths: Metal executes one full retained ICB range, and Vulkan submits one
-retained primary command buffer. Metal makes one bulk API call over its `R`
-frozen unique resources; the driver may process `Theta(R)` residency state,
-but runD visits zero command, binding, range, indirect-grid, and recurrence
-state rows. Vulkan's equivalent commands are already recorded. Metal pays
+Warm runD command construction is independent of descriptor count on the
+target GPU paths: Metal executes `C = ceil(D / 65,536)` retained size-class ICB
+ranges from compact fixed records, and Vulkan submits one retained primary
+command buffer. Metal makes one bulk API call over its `R` frozen unique
+resources; the driver may process `Theta(R)` residency state, but runD visits
+zero command, binding, indirect-grid, and recurrence-state rows. Vulkan's
+equivalent commands are already recorded. Metal pays
 device issue and uniform-guard cost for its frozen physical commands, including
 inactive ones; performance measurements retain that cost. If the status arena
 contains `Q` U32 entries,
 canonicalization and deterministic reduction perform `Theta(Q)` device work.
 The exact Metal aggregate is the narrower exception to those canonical device
-costs: its full ICB range contains two dispatches, no inactive guard commands,
-and no status arena. The parallel tile stage performs `K` fixed-grid
+costs: its one two-command size-class ICB chunk contains two dispatches, no
+inactive guard commands, and no status arena. The parallel tile stage performs
+`K` fixed-grid
 threadgroups into two `K`-word plan-owned ranges; its SIMD-group count is capped
 at `max(1, ceil(Tile / SIMDWidth))`, and a threadgroup whose outer window is
 inactive returns uniformly before its first barrier. One ICB Buffer barrier
 orders the single finalize thread, which scans active outer rows in authored
 order and commits once. Host work remains the same constant command-buffer,
-bulk-residency, range, commit, completion, and 128-byte control envelope.
+bulk-residency, one-range, commit, completion, and 128-byte control envelope
+for that two-command stream.
 Cold dependency projection is `Theta(B + D)` after exact hazard analysis rather
 than a dependency-by-barrier nested search, and transactional projection is
 `Theta(A + R + P)` rather than pair-by-binding/resource searches. The cold plan
@@ -3051,8 +3396,9 @@ can claim the Pipeline contract:
     zero binding-mutation count is structural rather than an unwritten
     counter. `N = 1` and `N = 64` retain the same Action scratch allocation
     count and one Action fingerprint rather than graph expansion. A plan-only
-    large `Max` proves route-template and retained-memory growth is `O(K + N)`,
-    not `O(K * N)`, while the tile invariant bank, two carried banks, and
+    large `Max` proves authored logical-route growth is `O(K + N)`, prepared
+    route-template growth is `O(K)`, and neither retained dimension is
+    `O(K * N)`, while the tile invariant bank, two carried banks, and
     maximum shared workspace/View/scratch envelope remain independent of `K`;
     a one-byte-short budget rejects before backend allocation. Flat-only,
     pure nested, and nested-plus-ordinary plans prove that `barrier_count`
@@ -3065,12 +3411,20 @@ can claim the Pipeline contract:
     and transactional suppression of queue/count/state publication on
     overflow across CPU, Metal, and Vulkan.
 29. Metal Pipeline preparation records every control and payload command in
-    one guarded ICB, resets recurrence selectors on-device, preserves the
-    logical/failure guards of every formerly indirect private primitive, and
-    warm execution performs one full-range ICB call with no command, range,
-    binding, indirect-grid, or recurrence-state traversal. Focused semantic
-    tests and an immediate-pre-edit/after ABBA measurement are both required;
-    a one-submit counter alone is not hard-cut evidence.
+    one globally ordered stream partitioned into exact 65,536-command/full and
+    next-power-of-two/tail ICB size classes, resets recurrence selectors
+    on-device, and preserves the logical/failure guards of every formerly
+    indirect private primitive. Warm execution walks only the 16-byte retained
+    chunk records, with no command, binding, indirect-grid, or recurrence-state
+    traversal. Pure contracts cover zero, class-boundary, multi-full, tail, and
+    overflow decomposition on every platform; Metal-native contracts require
+    all 17 calibrated `allocatedSize` values to match reallocation, or require
+    the narrower Pipeline calibration failure while standalone Metal remains
+    available. The explicit `--metal-icb-boundary` route crosses 65,536 with a
+    write immediately before and read immediately after the boundary, requiring
+    exact result parity, one direct boundary barrier, and one native submission.
+    Focused semantic tests and an immediate-pre-edit/after ABBA measurement are
+    both required; a one-submit counter alone is not hard-cut evidence.
 30. the exact `WindowIndexedReduceSumU32` aggregate proof rejects every
     mismatched Program identity, binding role, numeric policy, schedule,
     failure projection, and profile projection; successful Metal preparation

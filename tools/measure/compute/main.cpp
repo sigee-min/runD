@@ -39,9 +39,15 @@ int main(const int argc, char **const argv) {
   const bool pipeline_profile =
       argc == 3 && std::string_view{argv[1]} == "--pipeline-profile" &&
       ParseBackend(argv[2], focus) && focus != Backend::Cpu;
+  const bool plan_memory = argc == 3 &&
+                           std::string_view{argv[1]} == "--plan-memory" &&
+                           ParseBackend(argv[2], focus);
+  const bool prepare_memory = argc == 3 &&
+                              std::string_view{argv[1]} == "--prepare-memory" &&
+                              ParseBackend(argv[2], focus);
   const bool focused = collective || sort || bulk || resident || batch ||
                        pipeline || checkpoint || recurrence || window_repeat ||
-                       pipeline_profile;
+                       pipeline_profile || plan_memory || prepare_memory;
   if (!focused) {
 #else
   (void)argv;
@@ -49,7 +55,8 @@ int main(const int argc, char **const argv) {
 #endif
     std::fputs("usage: runD-compute-measure "
                "[--resident|--collective|--sort|--bulk|--batch|--pipeline|"
-               "--checkpoint|--recurrence|--window-repeat|--pipeline-profile "
+               "--checkpoint|--recurrence|--window-repeat|--pipeline-profile|"
+               "--plan-memory|--prepare-memory "
                "cpu|metal|vulkan]\n",
                stderr);
     return 2;
@@ -70,6 +77,11 @@ int main(const int argc, char **const argv) {
     if (checkpoint) {
       rund::measure::compute::PrintCheckpointColumns();
       ok = rund::measure::compute::MeasureCheckpoints(focus, 1u << 20u, 12u) &&
+           ok;
+    } else if (plan_memory || prepare_memory) {
+      rund::measure::compute::PrintPreparationMemoryColumns();
+      ok = rund::measure::compute::MeasurePreparationMemory(focus,
+                                                            prepare_memory) &&
            ok;
     } else if (pipeline_profile) {
       rund::measure::compute::PrintPipelineProfileColumns();

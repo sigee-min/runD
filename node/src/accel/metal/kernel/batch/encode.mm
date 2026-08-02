@@ -18,7 +18,10 @@ packed(MetalAdapter &adapter, MetalMapEncodeResources *const map,
   id<MTLComputePipelineState> pipeline =
       map == nullptr
           ? nil
-          : (__bridge id<MTLComputePipelineState>)map->pipeline.get();
+          : map->prepared == nullptr
+                ? nil
+                : (__bridge id<MTLComputePipelineState>)
+                      map->prepared->pipeline.get();
   if (map == nullptr || map->adapter != &adapter || pipeline == nil ||
       encoder == nil || map->param.buffer == nullptr ||
       !rund::kernel::checked::mul(view.tiles, group.count)) {

@@ -33,6 +33,7 @@ struct RunSubmission final {
 
 struct RunState final {
   KernelExecution execution{};
+  std::uint64_t tile_count{};
   RunBindBuild binds{};
   ResetBindBuild resets{};
   RunDispatchBuild dispatch{};
@@ -75,6 +76,9 @@ struct PipelineState final {
   rund::AccelContext context{};
   const BackendOps *ops{};
   std::unique_ptr<std::shared_ptr<RunState>[]> states{};
+  // Keeps immutable Program templates alive across both the frozen backend
+  // command stream and every route resource that views them.
+  std::shared_ptr<void> templates{};
   PreparedPipelineStatusLayout status{};
   std::shared_ptr<void> backend{};
   PreparedPipelineMemory memory{};

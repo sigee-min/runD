@@ -1,11 +1,12 @@
 #include "../../source.hpp"
 
-#include <string>
-
 namespace rund::node::accel::detail {
+namespace {
 
-[[nodiscard]] std::string FactorSource64() {
-  return NumericBaseSource64() + R"GLSL(
+template <typename Sink>
+[[nodiscard]] bool EmitFactorSource64(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return EmitNumericBaseSource(sink, true) && sink.append(R"GLSL(
 layout(local_size_x = 32) in;
 layout(set = 0, binding = 1, std430) readonly buffer Input { int64_t input_values[]; };
 layout(set = 0, binding = 2, std430) buffer Factor { int64_t factor_values[]; };
@@ -247,7 +248,28 @@ void main() {
                                       : factor_qr64(batch));
   if (gl_LocalInvocationID.x == 0u) { status_values[ix64(batch)] = status; }
 }
-)GLSL";
+)GLSL");
+}
+
+} // namespace
+
+[[nodiscard]] std::string FactorSource64() {
+  std::uint64_t exact_bytes = 0u;
+  const auto emit = [](auto &sink)
+      noexcept(noexcept(EmitFactorSource64(sink))) {
+    return EmitFactorSource64(sink);
+  };
+  return backend_source_recipe::bytes(emit, exact_bytes)
+             ? backend_source_recipe::materialize(emit, exact_bytes)
+             : std::string{};
+}
+
+bool FactorSource64Bytes(std::uint64_t &bytes) noexcept {
+  return backend_source_recipe::bytes(
+      [](backend_source_recipe::CountSink &sink) noexcept {
+        return EmitFactorSource64(sink);
+      },
+      bytes);
 }
 
 } // namespace rund::node::accel::detail

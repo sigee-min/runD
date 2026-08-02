@@ -67,4 +67,21 @@ rund::AccelCheck DescribeVulkanSegmentedReducePipelineStatus(
 #endif
 }
 
+rund::AccelCheck DescribeVulkanSegmentedReduceCaptureDemand(
+    const std::shared_ptr<void> &resources,
+    std::uint64_t &indirect_dispatch_count) noexcept {
+  indirect_dispatch_count = 0u;
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  if (static_cast<const VulkanSegmentedReduceResources *>(resources.get()) ==
+      nullptr) {
+    return {false, "compute_segmented_reduce_invalid"};
+  }
+  indirect_dispatch_count = 1u;
+  return {true, "ok"};
+#else
+  (void)resources;
+  return {false, "accel_vulkan_loader_unavailable"};
+#endif
+}
+
 } // namespace rund::node::accel::detail

@@ -7,7 +7,8 @@
 namespace rund::kernel {
 namespace compute_lowering_detail {
 
-inline void AppendVulkanFixedLane32Helpers(std::string &out) {
+template <typename Source>
+inline void AppendVulkanFixedLane32Helpers(Source &out) {
   out += "uint RundAbsMagnitude32(uint value) {\n";
   out += "  return (value & 0x80000000u) == 0u ? value : (~value + 1u);\n";
   out += "}\n";
@@ -57,7 +58,8 @@ inline void AppendVulkanFixedLane32Helpers(std::string &out) {
   AppendVulkanFixedLane32NonlinearHelpers(out);
 }
 
-inline void AppendVulkanFixedLane64Helpers(std::string &out) {
+template <typename Source>
+inline void AppendVulkanFixedLane64Helpers(Source &out) {
   out += "uint64_t RundAbsMagnitude64(uint64_t value) {\n";
   out += "  return (value & 0x8000000000000000ul) == 0ul ? value : "
          "(~value + 1ul);\n";

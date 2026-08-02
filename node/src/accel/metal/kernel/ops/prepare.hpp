@@ -26,6 +26,7 @@ namespace rund::node::accel::detail {
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalMapStep(const rund::AccelDevice &pick, const BoundStep &step,
+                    const MetalKernelImmutablePipelines *,
                     std::shared_ptr<void> &resources) {
   const StepBinds *const bindings =
       BindingsFor<StepBinds>(step, rund::kernel::NodeKind::Map);
@@ -39,6 +40,7 @@ PrepareMetalMapStep(const rund::AccelDevice &pick, const BoundStep &step,
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalScanStep(const rund::AccelDevice &pick, const BoundStep &step,
+                     const MetalKernelImmutablePipelines *pipelines,
                      std::shared_ptr<void> &resources) {
   const ScanBinds *const bindings =
       BindingsFor<ScanBinds>(step, rund::kernel::NodeKind::Scan);
@@ -51,7 +53,7 @@ PrepareMetalScanStep(const rund::AccelDevice &pick, const BoundStep &step,
   }
   const rund::AccelCheck check =
       PrepareMetalScan(pick, active->desc, active->plan, step.planned->domain,
-                       *bindings, resources);
+                       *bindings, resources, pipelines);
   if (check.ok) {
     static_cast<MetalScanEncodeResources *>(resources.get())->control =
         step.control.control;
@@ -61,6 +63,7 @@ PrepareMetalScanStep(const rund::AccelDevice &pick, const BoundStep &step,
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalSegmentedStep(const rund::AccelDevice &pick, const BoundStep &step,
+                          const MetalKernelImmutablePipelines *pipelines,
                           std::shared_ptr<void> &resources) {
   const SegmentedScanBinds *const bindings = BindingsFor<SegmentedScanBinds>(
       step, rund::kernel::NodeKind::SegmentedScan);
@@ -69,12 +72,13 @@ PrepareMetalSegmentedStep(const rund::AccelDevice &pick, const BoundStep &step,
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalSegmentedScan(pick, active->desc, active->plan,
                                          step.planned->domain, *bindings,
-                                         resources);
+                                         resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalSegmentedReduceStep(const rund::AccelDevice &pick,
                                 const BoundStep &step,
+                                const MetalKernelImmutablePipelines *pipelines,
                                 std::shared_ptr<void> &resources) {
   const SegmentedReduceBinds *const bindings =
       BindingsFor<SegmentedReduceBinds>(
@@ -84,11 +88,12 @@ PrepareMetalSegmentedReduceStep(const rund::AccelDevice &pick,
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalSegmentedReduce(pick, active->desc, active->plan,
                                            step.planned->domain, *bindings,
-                                           resources);
+                                           resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalSortStep(const rund::AccelDevice &pick, const BoundStep &step,
+                     const MetalKernelImmutablePipelines *pipelines,
                      std::shared_ptr<void> &resources) {
   const SortBinds *const bindings =
       BindingsFor<SortBinds>(step, rund::kernel::NodeKind::Sort);
@@ -101,7 +106,7 @@ PrepareMetalSortStep(const rund::AccelDevice &pick, const BoundStep &step,
   }
   const rund::AccelCheck check =
       PrepareMetalSort(pick, active->desc, active->plan, step.planned->domain,
-                       *bindings, resources);
+                       *bindings, resources, pipelines);
   if (check.ok) {
     static_cast<MetalSortEncodeResources *>(resources.get())->control =
         step.control.control;
@@ -111,6 +116,7 @@ PrepareMetalSortStep(const rund::AccelDevice &pick, const BoundStep &step,
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalCompactStep(const rund::AccelDevice &pick, const BoundStep &step,
+                        const MetalKernelImmutablePipelines *pipelines,
                         std::shared_ptr<void> &resources) {
   const CompactBinds *const bindings =
       BindingsFor<CompactBinds>(step, rund::kernel::NodeKind::Compact);
@@ -118,11 +124,12 @@ PrepareMetalCompactStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalCompact(pick, active->desc, active->plan, *bindings,
-                                   resources);
+                                   resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalGatherStep(const rund::AccelDevice &pick, const BoundStep &step,
+                       const MetalKernelImmutablePipelines *pipelines,
                        std::shared_ptr<void> &resources) {
   const GatherBinds *const bindings =
       BindingsFor<GatherBinds>(step, rund::kernel::NodeKind::Gather);
@@ -130,11 +137,12 @@ PrepareMetalGatherStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalGather(pick, active->desc, active->plan, *bindings,
-                                  resources);
+                                  resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalHistogramStep(const rund::AccelDevice &pick, const BoundStep &step,
+                          const MetalKernelImmutablePipelines *pipelines,
                           std::shared_ptr<void> &resources) {
   const HistogramBinds *const bindings =
       BindingsFor<HistogramBinds>(step, rund::kernel::NodeKind::Histogram);
@@ -142,12 +150,13 @@ PrepareMetalHistogramStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalHistogram(pick, active->desc, active->plan,
-                                     *bindings, resources);
+                                     *bindings, resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalScatterReduceStep(const rund::AccelDevice &pick,
                               const BoundStep &step,
+                              const MetalKernelImmutablePipelines *pipelines,
                               std::shared_ptr<void> &resources) {
   const ScatterReduceBinds *const bindings = BindingsFor<ScatterReduceBinds>(
       step, rund::kernel::NodeKind::ScatterReduce);
@@ -155,11 +164,12 @@ PrepareMetalScatterReduceStep(const rund::AccelDevice &pick,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalScatterReduce(pick, active->plan, *bindings,
-                                         resources);
+                                         resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalPartitionStep(const rund::AccelDevice &pick, const BoundStep &step,
+                          const MetalKernelImmutablePipelines *pipelines,
                           std::shared_ptr<void> &resources) {
   const PartitionBinds *const bindings =
       BindingsFor<PartitionBinds>(step, rund::kernel::NodeKind::Partition);
@@ -167,11 +177,12 @@ PrepareMetalPartitionStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalPartition(pick, active->desc, active->plan,
-                                     *bindings, resources);
+                                     *bindings, resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalReduceStep(const rund::AccelDevice &pick, const BoundStep &step,
+                       const MetalKernelImmutablePipelines *pipelines,
                        std::shared_ptr<void> &resources) {
   const ReduceBinds *const bindings =
       BindingsFor<ReduceBinds>(step, rund::kernel::NodeKind::Reduce);
@@ -179,11 +190,13 @@ PrepareMetalReduceStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalReduce(pick, active->desc, active->plan,
-                                  step.planned->domain, *bindings, resources);
+                                  step.planned->domain, *bindings, resources,
+                                  pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalScatterStep(const rund::AccelDevice &pick, const BoundStep &step,
+                        const MetalKernelImmutablePipelines *pipelines,
                         std::shared_ptr<void> &resources) {
   const ScatterBinds *const bindings =
       BindingsFor<ScatterBinds>(step, rund::kernel::NodeKind::Scatter);
@@ -191,11 +204,12 @@ PrepareMetalScatterStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalScatter(pick, active->desc, active->plan, *bindings,
-                                   resources);
+                                   resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalStencilStep(const rund::AccelDevice &pick, const BoundStep &step,
+                        const MetalKernelImmutablePipelines *pipelines,
                         std::shared_ptr<void> &resources) {
   const StencilBinds *const bindings =
       BindingsFor<StencilBinds>(step, rund::kernel::NodeKind::Stencil);
@@ -203,7 +217,8 @@ PrepareMetalStencilStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalStencil(pick, active->desc, active->plan,
-                                   step.planned->domain, *bindings, resources);
+                                   step.planned->domain, *bindings, resources,
+                                   pipelines);
 }
 
 #include "prepare/numeric.hpp"

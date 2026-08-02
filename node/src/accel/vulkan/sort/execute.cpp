@@ -42,7 +42,18 @@ rund::AccelCheck ExecuteVulkanSort(const rund::AccelDevice &pick,
                                    const SortBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanDomainCollective(pick, desc, plan, domain, bindings,
-                                       PrepareVulkanSort, EncodeVulkanSort,
+                                       [](const rund::AccelDevice &device,
+                                          const rund::kernel::SortDesc &operation,
+                                          const rund::kernel::SortPlan &prepared,
+                                          const rund::kernel::ComputeDomain active_domain,
+                                          const SortBinds &resident,
+                                          std::shared_ptr<void> &resources) {
+                                         return PrepareVulkanSort(
+                                             device, operation, prepared,
+                                             active_domain, resident, resources,
+                                             nullptr);
+                                       },
+                                       EncodeVulkanSort,
                                        FinishVulkanSort);
 #else
   (void)domain;

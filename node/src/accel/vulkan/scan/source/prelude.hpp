@@ -15,7 +15,8 @@ VulkanScanZero(const rund::kernel::ScanElement element) noexcept {
   return element == rund::kernel::ScanElement::U64 ? "uint64_t(0)" : "0u";
 }
 
-inline void AppendVulkanScanPrelude(std::string &source,
+template <typename Source>
+inline void AppendVulkanScanPrelude(Source &source,
                                     const rund::kernel::ScanElement element,
                                     const rund::kernel::ComputeDomain domain,
                                     const std::uint32_t width,
@@ -25,10 +26,10 @@ inline void AppendVulkanScanPrelude(std::string &source,
   source += "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : ";
   source += "require\n";
   source += "layout(local_size_x = ";
-  source += std::to_string(width);
+  source.decimal(width);
   source += ") in;\n";
   source += "const uint kScanWidth = ";
-  source += std::to_string(width);
+  source.decimal(width);
   source += "u;\n";
   source += "layout(set = 0, binding = 0, std430) readonly buffer Params {\n";
   source += "  uint64_t element_count;\n";

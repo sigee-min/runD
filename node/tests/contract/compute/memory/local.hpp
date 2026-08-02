@@ -17,6 +17,7 @@ inline constexpr std::uint64_t kCounterMaximum =
 [[nodiscard]] int CheckCpuPrimitiveScratchOwnership();
 [[nodiscard]] int CheckCpuCollectiveScratchOwnership();
 [[nodiscard]] int CheckValueRouteArena();
+[[nodiscard]] int CheckCpuSealedArena();
 [[nodiscard]] int CheckCpuGraphStorageFormula();
 [[nodiscard]] int CheckAccelMemory(rund::compute::Backend);
 [[nodiscard]] int CheckAccelProgramHostAccounting(rund::compute::Backend);

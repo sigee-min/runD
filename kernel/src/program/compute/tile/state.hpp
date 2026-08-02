@@ -4,18 +4,22 @@
 #include <kernel/program/compute/tile/model.hpp>
 #include <kernel/program/executor.hpp>
 
-#include <atomic>
 #include <cstdint>
 #include <memory>
-#include <vector>
 
-namespace rund::kernel {
-
-namespace compute_tile_detail {
+namespace rund::kernel::compute_tile_detail {
 
 enum class Mode : std::uint8_t {
   Sync,
   Async,
+};
+
+enum class Phase : std::uint8_t {
+  Idle = 0u,
+  Sync = 1u,
+  Async = 2u,
+  Ready = 3u,
+  Binding = 4u,
 };
 
 struct Backend final {
@@ -24,60 +28,45 @@ struct Backend final {
   const char *reason = "compute_tile_backend_invalid";
 };
 
-struct Context final {
-  const void *callback_context = nullptr;
-  ComputeTileCallback callback = nullptr;
-  const PreparedEach<1u> *prepared = nullptr;
-  const char **failures = nullptr;
-  u32 failure_count = 0u;
-  u32 *worker_tiles = nullptr;
-  u32 worker_count = 0u;
-  std::atomic<u32> first_failure{kNoComputeTileFailure};
-  std::atomic<u32> completed{0u};
-};
-
-struct Completion final {
-  bool ok = false;
-  const char *reason = "compute_tile_backend_failed";
-  u32 worker_count = 0u;
-  u32 dispatch_count = 0u;
-  bool report_tail_on_failure = false;
-};
-
-[[nodiscard]] Backend Select(WorkerBackend backend, u32 workers,
-                             Mode mode) noexcept;
-
-void Begin(Context &context, const void *callback_context,
-           ComputeTileCallback callback, const PreparedEach<1u> &prepared,
-           std::vector<const char *> &failures,
-           std::vector<u32> &worker_tiles) noexcept;
-
-void Invoke(void *context, const Partition &partition) noexcept;
-void InvokeWorker(void *context, const Partition &partition) noexcept;
-
-[[nodiscard]] ComputeTileRunResult Project(const Context &context,
-                                           const Completion &completion,
-                                           u32 count, u32 tile_count,
-                                           u32 tile_units) noexcept;
-
-} // namespace compute_tile_detail
-
-struct ComputeTileExecutor::State {
+struct PlanState final {
   WorkerBackend backend{};
   u32 workers = 0u;
   KernelProgramPhysicalTilePolicy tile_policy{};
   Alignment alignment{};
   Workspace workspace{};
   PreparedEach<1u> prepared{};
-  std::vector<const char *> failures{};
-  std::vector<u32> worker_tiles{};
-  std::unique_ptr<compute_tile_detail::Context> async_context{};
-  WorkerSubmission submission{};
-  std::atomic<std::uint8_t> async_phase{0u};
-  void *ready_context = nullptr;
-  ComputeTileReady ready = nullptr;
-  bool async_ok = false;
-  const char *reason = "compute_tile_executor_not_validated";
+  ComputeTileRunStoragePlan storage{};
+  u32 tile_count = 0u;
+  const char *reason = "compute_tile_not_prepared";
 };
 
-} // namespace rund::kernel
+// Exact standalone owner used only by make_run(). The execution algorithm sees
+// the same typed view that an external sealed arena supplies; there is no
+// second owning Workspace clone or vector-backed run representation.
+struct OwnedRunStorage final {
+  ComputeTileRunStorage state{};
+  std::unique_ptr<const char *[]> failure_slots{};
+  std::unique_ptr<u32[]> worker_tiles{};
+  std::unique_ptr<u32[]> worker_stats_partitions{};
+  std::unique_ptr<u64[]> worker_stats_start_offset_ns{};
+  std::unique_ptr<u64[]> worker_stats_elapsed_ns{};
+  std::unique_ptr<u64[]> worker_stats_tail_wait_ns{};
+  u32 failure_slot_count = 0u;
+  u32 worker_count = 0u;
+
+  [[nodiscard]] bool allocate(ComputeTileRunStoragePlan plan) noexcept;
+  [[nodiscard]] ComputeTileRunStorageView view() noexcept;
+};
+
+[[nodiscard]] Backend Select(WorkerBackend backend, u32 workers,
+                             Mode mode) noexcept;
+
+[[nodiscard]] ComputeTileRetainedMemory
+MeasurePlanMemory(const PlanState &plan) noexcept;
+[[nodiscard]] ComputeTileRunStorageView
+BoundStorageView(ComputeTileRunStorage &storage) noexcept;
+[[nodiscard]] bool
+StorageViewSatisfies(ComputeTileRunStorageView storage,
+                     ComputeTileRunStoragePlan plan) noexcept;
+
+} // namespace rund::kernel::compute_tile_detail

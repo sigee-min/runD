@@ -31,6 +31,94 @@ struct ThrowingMove final {
   int value = 0;
 };
 
+constexpr char kNativeReason[] = "native_pipeline_compile_failed";
+constexpr char kNativeReasonCopy[] = "native_pipeline_compile_failed";
+constexpr char kOtherNativeReason[] = "native_pipeline_binding_failed";
+
+constexpr rund::compute::Location kCompleteLocation{
+    .step = 5u,
+    .iteration = 7u,
+    .node = 11u,
+    .template_index = 13u,
+    .occurrence_index = 17u,
+    .outer_iteration = 19u,
+    .inner_iteration = 23u,
+    .nested_phase = rund::compute::PipelineNestedPhase::Action,
+    .native_reason_key = kNativeReason,
+};
+
+[[nodiscard]] constexpr bool LocationValueContract() noexcept {
+  using rund::compute::Location;
+  using rund::compute::PipelineNestedPhase;
+  constexpr Location same_value{
+      .step = 5u,
+      .iteration = 7u,
+      .node = 11u,
+      .template_index = 13u,
+      .occurrence_index = 17u,
+      .outer_iteration = 19u,
+      .inner_iteration = 23u,
+      .nested_phase = PipelineNestedPhase::Action,
+      .native_reason_key = kNativeReasonCopy,
+  };
+  if (Location{}.known() || !Location{.step = 0u}.known() ||
+      !Location{.iteration = 0u}.known() || !Location{.node = 0u}.known() ||
+      !Location{.template_index = 0u}.known() ||
+      !Location{.occurrence_index = 0u}.known() ||
+      !Location{.outer_iteration = 0u}.known() ||
+      !Location{.inner_iteration = 0u}.known() ||
+      !Location{.nested_phase = PipelineNestedPhase::Seed}.known() ||
+      !Location{.native_reason_key = kNativeReason}.known() ||
+      !kCompleteLocation.known() || kCompleteLocation != same_value) {
+    return false;
+  }
+  Location changed = kCompleteLocation;
+  changed.step = 6u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.iteration = 8u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.node = 12u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.template_index = 14u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.occurrence_index = 18u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.outer_iteration = 20u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.inner_iteration = 24u;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.nested_phase = PipelineNestedPhase::Fold;
+  if (changed == kCompleteLocation) {
+    return false;
+  }
+  changed = kCompleteLocation;
+  changed.native_reason_key = kOtherNativeReason;
+  return changed != kCompleteLocation;
+}
+
+static_assert(LocationValueContract());
+
 } // namespace
 
 int RunComputeResultContract() {
@@ -80,17 +168,13 @@ int RunComputeResultContract() {
     return 3;
   }
 
-  constexpr Location lowering{
-      .step = 5u,
-      .iteration = 7u,
-      .node = 11u,
-  };
-  auto located = Result<std::int32_t>::fail(Reason::LoweringInvalid, lowering)
-                     .transform([](const std::int32_t value) {
-                       return static_cast<std::uint64_t>(value);
-                     });
+  auto located =
+      Result<std::int32_t>::fail(Reason::LoweringInvalid, kCompleteLocation)
+          .transform([](const std::int32_t value) {
+            return static_cast<std::uint64_t>(value);
+          });
   if (located || located.reason() != Reason::LoweringInvalid ||
-      located.location() != lowering) {
+      !located.location().known() || located.location() != kCompleteLocation) {
     return 12;
   }
 
@@ -112,11 +196,11 @@ int RunComputeResultContract() {
     return 5;
   }
   auto located_chain =
-      Result<std::int32_t>::fail(Reason::LoweringInvalid, lowering)
+      Result<std::int32_t>::fail(Reason::LoweringInvalid, kCompleteLocation)
           .and_then([](const std::int32_t value) {
             return Result<std::uint64_t>::success(value);
           });
-  if (located_chain || located_chain.location() != lowering) {
+  if (located_chain || located_chain.location() != kCompleteLocation) {
     return 13;
   }
 
@@ -126,7 +210,15 @@ int RunComputeResultContract() {
       prepared_state, Status::fail(Reason::LoweringInvalid));
   if (prepared_failure || prepared_failure.location().step != Location::none ||
       prepared_failure.location().iteration != Location::none ||
-      prepared_failure.location().node != 23u) {
+      prepared_failure.location().node != 23u ||
+      prepared_failure.location().template_index != Location::none ||
+      prepared_failure.location().occurrence_index != Location::none ||
+      prepared_failure.location().outer_iteration != Location::none ||
+      prepared_failure.location().inner_iteration != Location::none ||
+      prepared_failure.location().nested_phase !=
+          rund::compute::PipelineNestedPhase::None ||
+      prepared_failure.location().native_reason_key != nullptr ||
+      !prepared_failure.location().known()) {
     return 14;
   }
 

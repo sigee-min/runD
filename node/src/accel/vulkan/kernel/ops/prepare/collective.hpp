@@ -6,6 +6,7 @@
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanReduceStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const KernelPreparationMode mode,
+                        const VulkanKernelImmutablePipelines *const pipelines,
                         std::shared_ptr<void> &resources) {
   (void)mode;
   const ReduceBinds *const bindings =
@@ -14,12 +15,14 @@ PrepareVulkanReduceStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanReduce(pick, active->desc, active->plan,
-                                   step.planned->domain, *bindings, resources);
+                                   step.planned->domain, *bindings, resources,
+                                   pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanScatterStep(const rund::AccelDevice &pick, const BoundStep &step,
                          const KernelPreparationMode mode,
+                         const VulkanKernelImmutablePipelines *const pipelines,
                          std::shared_ptr<void> &resources) {
   (void)mode;
   const ScatterBinds *const bindings =
@@ -28,12 +31,13 @@ PrepareVulkanScatterStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanScatter(pick, active->desc, active->plan, *bindings,
-                                    resources);
+                                    resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanStencilStep(const rund::AccelDevice &pick, const BoundStep &step,
                          const KernelPreparationMode mode,
+                         const VulkanKernelImmutablePipelines *const pipelines,
                          std::shared_ptr<void> &resources) {
   (void)mode;
   const StencilBinds *const bindings =
@@ -42,7 +46,8 @@ PrepareVulkanStencilStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanStencil(pick, active->desc, active->plan,
-                                    step.planned->domain, *bindings, resources);
+                                    step.planned->domain, *bindings, resources,
+                                    pipelines);
 }
 
 #include "numeric.hpp"

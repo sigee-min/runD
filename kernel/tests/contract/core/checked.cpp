@@ -6,6 +6,7 @@ namespace {
 
 using rund::kernel::u64;
 using rund::kernel::checked::add;
+using rund::kernel::checked::align_up;
 using rund::kernel::checked::ceil;
 using rund::kernel::checked::mul;
 using rund::kernel::checked::sub;
@@ -73,6 +74,23 @@ int Ceiling() {
   return 0;
 }
 
+int Alignment() {
+  u64 value = 59u;
+  TEST_ASSERT(align_up(0u, 64u, value));
+  TEST_ASSERT(value == 0u);
+  TEST_ASSERT(align_up(1u, 64u, value));
+  TEST_ASSERT(value == 64u);
+  TEST_ASSERT(align_up(64u, 64u, value));
+  TEST_ASSERT(value == 64u);
+  TEST_ASSERT(!align_up(1u, 0u, value));
+  TEST_ASSERT(value == 64u);
+  TEST_ASSERT(!align_up(1u, 3u, value));
+  TEST_ASSERT(value == 64u);
+  TEST_ASSERT(!align_up(kMax, 2u, value));
+  TEST_ASSERT(value == 64u);
+  return 0;
+}
+
 } // namespace
 
 int RunCheckedContract() {
@@ -85,5 +103,8 @@ int RunCheckedContract() {
   if (const int result = Multiplication(); result != 0) {
     return result;
   }
-  return Ceiling();
+  if (const int result = Ceiling(); result != 0) {
+    return result;
+  }
+  return Alignment();
 }

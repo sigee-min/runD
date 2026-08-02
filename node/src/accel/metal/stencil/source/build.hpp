@@ -2,6 +2,8 @@
 
 #include "../local.hpp"
 
+#include <string_view>
+
 namespace rund::node::accel::detail {
 
 [[nodiscard]] inline const char* MetalStencilSourceOpName(
@@ -22,10 +24,11 @@ namespace rund::node::accel::detail {
   return "    value += input[left] + input[right];\n";
 }
 
-inline void AppendMetalStencilKernel(std::string& source,
+template <typename Sink>
+inline void AppendMetalStencilKernel(Sink &source,
                                      const rund::kernel::StencilOp op,
-                                     const char* const type,
-                                     const char* const suffix) {
+                                     const char *const type,
+                                     const char *const suffix) {
   source += "kernel void rund_compute_stencil_";
   source += MetalStencilSourceOpName(op);
   source += "_";
@@ -55,6 +58,31 @@ inline void AppendMetalStencilKernel(std::string& source,
   output[i] = value;
 }
 )MSL";
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitMetalStencilSource(
+    Sink &source, const rund::kernel::StencilOp op) noexcept(
+    noexcept(source += std::string_view{})) {
+  source += R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct StencilParams {
+  ulong element_count;
+  ulong radius;
+};
+
+)MSL";
+  AppendMetalStencilKernel(source, op, "uint", "u32");
+  AppendMetalStencilKernel(source, op, "ulong", "u64");
+  AppendMetalStencilKernel(source, op,
+                           op == rund::kernel::StencilOp::Sum ? "uint" : "int",
+                           "i32");
+  AppendMetalStencilKernel(
+      source, op, op == rund::kernel::StencilOp::Sum ? "ulong" : "long",
+      "i64");
+  return source.valid();
 }
 
 }  // namespace rund::node::accel::detail

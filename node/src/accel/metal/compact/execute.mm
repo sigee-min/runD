@@ -15,6 +15,7 @@
 #include "resources/lookup.hpp"
 #include "resources/pipeline.hpp"
 #include "resources/scan.hpp"
+#include "../pipeline/template.hpp"
 
 #include <utility>
 
@@ -67,7 +68,9 @@ rund::AccelCheck PrepareMetalCompact(const rund::AccelDevice &pick,
                                      const rund::kernel::CompactDesc &desc,
                                      const rund::kernel::CompactPlan &plan,
                                      const CompactBinds &bindings,
-                                     std::shared_ptr<void> &resources) {
+                                     std::shared_ptr<void> &resources,
+                                     const MetalKernelImmutablePipelines *const
+                                         pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -101,10 +104,25 @@ rund::AccelCheck PrepareMetalCompact(const rund::AccelDevice &pick,
   if (!scan.ok) {
     return scan;
   }
-  const rund::AccelCheck pipelines =
-      CompileMetalCompactPipelineSet(*adapter, *raw);
-  if (!pipelines.ok) {
-    return pipelines;
+  rund::AccelCheck pipeline_ready{true, "ok"};
+  if (pipelines != nullptr && pipelines->ready(5u)) {
+    if (raw->block_offset_path) {
+      raw->pipelines.count_blocks = pipelines->stages[0u];
+      raw->pipelines.scatter_blocks = pipelines->stages[1u];
+    } else {
+      raw->pipelines.scatter = pipelines->stages[0u];
+      raw->pipelines.status = pipelines->stages[1u];
+    }
+    raw->scan_block = pipelines->stages[2u];
+    raw->scan_prefix = pipelines->stages[3u];
+    raw->scan_offset = pipelines->stages[4u];
+  } else if (pipelines != nullptr) {
+    pipeline_ready = {false, "accel_metal_pipeline_unavailable"};
+  } else {
+    pipeline_ready = CompileMetalCompactPipelineSet(*adapter, *raw);
+  }
+  if (!pipeline_ready.ok) {
+    return pipeline_ready;
   }
   resources = std::move(owned);
   return rund::AccelCheck{true, "ok"};
@@ -114,6 +132,7 @@ rund::AccelCheck PrepareMetalCompact(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

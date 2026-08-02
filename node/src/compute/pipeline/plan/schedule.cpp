@@ -6,6 +6,8 @@
 
 #include <rund/compute/resource/plan.hpp>
 
+#include <kernel/program/compute/binding/model.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -18,6 +20,29 @@
 
 namespace rund::compute::detail {
 namespace {
+
+[[nodiscard]] bool publication_view_identity(
+    const PipelineBinding &binding, const std::uint32_t ordinal,
+    const std::uint32_t usage,
+    node::accel::detail::PreparedKernelPublicationViewIdentity &out) noexcept {
+  std::size_t offset_bytes = 0u;
+  std::size_t stride_bytes = 0u;
+  if (binding.element_bytes == 0u || binding.stride == 0u ||
+      !size::multiply(binding.offset, binding.element_bytes, offset_bytes) ||
+      !size::multiply(binding.stride, binding.element_bytes, stride_bytes)) {
+    return false;
+  }
+  out = node::accel::detail::PreparedKernelPublicationViewIdentity{
+      .backing_bytes = binding.backing_bytes,
+      .offset_bytes = offset_bytes,
+      .count = binding.count,
+      .stride_bytes = stride_bytes,
+      .element_bytes = binding.element_bytes,
+      .resource_ordinal = ordinal,
+      .usage = usage,
+  };
+  return true;
+}
 
 [[nodiscard]] Status prove_sealed_repetitions(
     const PipelineBuildState &build,
@@ -120,6 +145,43 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
   std::unordered_map<const BufferState *, std::uint32_t> external;
   external.reserve(std::min(build.binding_count, PipelineResourceCapacity));
   std::vector<std::uint32_t> internals(build.internals.size(), unassigned);
+  plan.window_states.assign(build.steps.size(), unassigned);
+  std::vector<std::uint32_t> &window_states = plan.window_states;
+  std::vector<std::uint32_t> nested_states(build.nested_windows.size(),
+                                           unassigned);
+  std::uint32_t next_window_state = 0u;
+  for (std::size_t index = 0u; index < build.steps.size(); ++index) {
+    const PipelineBuildStep &step = build.steps[index];
+    if (step.nested != 0u) {
+      const std::size_t nested_index = step.nested - 1u;
+      if (nested_index >= build.nested_windows.size()) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      const PipelineBuildNestedWindow &nested =
+          build.nested_windows[nested_index];
+      if (nested_states[nested_index] == unassigned) {
+        if (index != nested.begin ||
+            next_window_state == std::numeric_limits<std::uint32_t>::max()) {
+          return Status::fail(Reason::PipelineCapacity);
+        }
+        nested_states[nested_index] = next_window_state++;
+      }
+      window_states[index] = nested_states[nested_index];
+    } else if (step.window_tile != 0u) {
+      if (step.iteration == 0u) {
+        if (next_window_state == std::numeric_limits<std::uint32_t>::max()) {
+          return Status::fail(Reason::PipelineCapacity);
+        }
+        window_states[index] = next_window_state++;
+      } else {
+        if (index == 0u || window_states[index - 1u] == unassigned ||
+            build.steps[index - 1u].logical_step != step.logical_step) {
+          return Status::fail(Reason::PipelineInvalid);
+        }
+        window_states[index] = window_states[index - 1u];
+      }
+    }
+  }
 
   const auto admit =
       [&](const PipelineBinding &binding) -> Result<std::uint32_t> {
@@ -249,6 +311,10 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
       }
     }
   }
+  plan.publication_ordinals.clear();
+  plan.publication_ordinals.reserve(build.publications.size());
+  node::accel::detail::SeedPreparedKernelPublicationFingerprint(
+      plan.publication_fingerprint_hi, plan.publication_fingerprint_lo);
   for (const PipelineBuildPublish &publication : build.publications) {
     auto source = admit(publication.source);
     auto target = admit(publication.target);
@@ -260,6 +326,107 @@ Status plan_pipeline_schedule(const PipelineBuildState &build,
                           : !target ? target.reason()
                                     : count.reason());
     }
+    if (publication.step >= build.steps.size() ||
+        window_states[publication.step] == unassigned) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    const PipelineBuildStep &first = build.steps[publication.step];
+    auto projection = project_outputs(first);
+    if (!projection || publication.output >= first.outputs.size()) {
+      return Status::fail(projection ? Reason::PipelineInvalid
+                                    : projection.reason());
+    }
+    const std::uint32_t physical =
+        projection->logical_to_physical[publication.output];
+    if (physical >= projection->physical_count ||
+        physical >= first.inputs.size()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+
+    PipelinePublicationOrdinals ordinals{};
+    ordinals.sources.fill(unassigned);
+    ordinals.count = publication.kind == PipelinePublishKind::Window
+                         ? *count
+                         : unassigned;
+    ordinals.target = *target;
+    node::accel::detail::PreparedKernelPublicationIdentity identity{};
+    identity.state = window_states[publication.step];
+    identity.maximum = static_cast<std::uint32_t>(publication.maximum);
+    identity.tile = static_cast<std::uint32_t>(publication.tile);
+    identity.kind = static_cast<std::uint8_t>(publication.kind);
+    if (publication.maximum > std::numeric_limits<std::uint32_t>::max() ||
+        publication.tile > std::numeric_limits<std::uint32_t>::max() ||
+        !publication_view_identity(publication.target, *target,
+                                   rund::kernel::kResidentUsageWrite,
+                                   identity.target)) {
+      return Status::fail(Reason::PipelineCapacity);
+    }
+    if (publication.kind == PipelinePublishKind::Window) {
+      for (std::size_t bank = 0u; bank < ordinals.sources.size(); ++bank) {
+        ordinals.sources[bank] = *source;
+        if (!publication_view_identity(publication.source, *source,
+                                       rund::kernel::kResidentUsageRead,
+                                       identity.sources[bank])) {
+          return Status::fail(Reason::PipelineCapacity);
+        }
+      }
+      if (!publication_view_identity(publication.count, *count,
+                                     rund::kernel::kResidentUsageRead,
+                                     identity.count)) {
+        return Status::fail(Reason::PipelineCapacity);
+      }
+    } else {
+      const std::uint32_t bound =
+          first.nested == 0u
+              ? first.iteration_bound
+              : static_cast<std::uint32_t>(
+                    build.nested_windows[first.nested - 1u].seed_count);
+      if (bound == 0u) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      identity.final = 1u + ((bound - 1u) & 1u);
+      for (std::size_t bank = 0u; bank < ordinals.sources.size(); ++bank) {
+        const PipelineBinding *binding = nullptr;
+        if (bank == 0u) {
+          binding = &first.inputs[physical];
+        } else {
+          std::size_t step_index = publication.step;
+          if (bank == 2u && step_index + 1u < build.steps.size() &&
+              window_states[step_index + 1u] ==
+                  window_states[publication.step]) {
+            ++step_index;
+          }
+          auto bank_projection = project_outputs(build.steps[step_index]);
+          if (!bank_projection || physical >= bank_projection->physical_count) {
+            return Status::fail(bank_projection ? Reason::PipelineInvalid
+                                                : bank_projection.reason());
+          }
+          const std::uint32_t authored =
+              bank_projection->physical_sources[physical];
+          if (authored >= build.steps[step_index].outputs.size()) {
+            return Status::fail(Reason::PipelineInvalid);
+          }
+          binding = &build.steps[step_index].outputs[authored];
+        }
+        auto ordinal = admit(*binding);
+        if (!ordinal ||
+            !publication_view_identity(*binding, *ordinal,
+                                       rund::kernel::kResidentUsageRead,
+                                       identity.sources[bank])) {
+          return Status::fail(ordinal ? Reason::PipelineCapacity
+                                     : ordinal.reason());
+        }
+        ordinals.sources[bank] = *ordinal;
+      }
+      if (identity.final >= ordinals.sources.size() ||
+          ordinals.sources[identity.final] != *source) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+    }
+    node::accel::detail::MixPreparedKernelPublicationFingerprint(
+        plan.publication_fingerprint_hi, plan.publication_fingerprint_lo,
+        identity);
+    plan.publication_ordinals.push_back(ordinals);
     if (!append_access(publication_accesses, publication.source, 0u, *source,
                        resource::AccessMode::Read) ||
         !append_access(publication_accesses, publication.target, 0u, *target,

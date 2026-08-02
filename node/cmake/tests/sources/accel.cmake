@@ -86,6 +86,7 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/histogram.cpp
   tests/contract/accel/kernel/histogram/match.cpp
   tests/contract/accel/kernel/model.cpp
+  tests/contract/accel/kernel/metal/template_memory.cpp
   tests/contract/accel/kernel/partition.cpp
   tests/contract/accel/kernel/partition/compile.cpp
   tests/contract/accel/kernel/partition/fixture.cpp
@@ -101,6 +102,15 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/scatter.cpp
   tests/contract/accel/kernel/stencil.cpp
 )
+
+if(RUND_NODE_HAVE_METAL_SDK)
+  set_source_files_properties(
+    tests/contract/accel/kernel/metal/template_memory.cpp
+    PROPERTIES
+      LANGUAGE OBJCXX
+      COMPILE_DEFINITIONS RUND_NODE_HAVE_METAL_SDK=1
+      COMPILE_OPTIONS "-fobjc-arc")
+endif()
 
 set(NODE_TEST_ACCEL_KERNEL_NUMERIC_TEST_SOURCES
   tests/contract/accel/kernel/numeric.cpp

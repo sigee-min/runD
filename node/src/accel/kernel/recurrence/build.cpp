@@ -142,7 +142,6 @@ Build(const std::span<const BackendBatchEntry> entries,
   result.first = &first;
   result.last = last;
   result.bindings = first_binding;
-  result.artifact = first.step->artifact;
   result.plan = first.planned->plan;
   result.windows = first.map_windows.data();
   result.window_count = first.map_windows.size();
@@ -168,11 +167,14 @@ Build(const std::span<const BackendBatchEntry> entries,
     const std::span<const std::uint64_t> history_pitches =
         history == nullptr
             ? std::span<const std::uint64_t>{}
-            : std::span<const std::uint64_t>{history->pitch_bytes};
-    if (!TransformSource(result.artifact, input_count, output_count,
-                         history_pitches)) {
+            : history->pitches();
+    result.source_plan = PlanMapRecurrenceSource(
+        first.step->artifact, input_count, output_count, history_pitches);
+    if (!result.source_plan.ok) {
+      result.reason = result.source_plan.reason;
       return result;
     }
+    result.canonical_artifact = &first.step->artifact;
   } catch (const std::bad_alloc &) {
     result.reason = "compute_pipeline_capacity";
     return result;

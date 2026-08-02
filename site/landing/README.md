@@ -32,7 +32,7 @@ same bytes: cpu = metal = vulkan [3, 5, 7, 9]
 This code-and-result pair replaces the release fact table. It shows the
 integration model and the observable contract, which are the two facts a
 prospective SDK user needs first. Release status remains a compact line:
-`1.0.3 Alpha · Darwin ARM64 binary · C++20 · MIT`.
+`1.0.4 Alpha · Darwin ARM64 binary · C++20 · MIT`.
 
 The primary action opens the complete parity Quick Start. The secondary action
 opens the Compute guide.

@@ -3,6 +3,7 @@
 
 #include "../../partition/shape.hpp"
 #include "../collective/execute.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "encode/scatter.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
@@ -37,7 +38,9 @@ rund::AccelCheck PrepareVulkanPartition(const rund::AccelDevice &pick,
                                         const rund::kernel::PartitionDesc &desc,
                                         const rund::kernel::PartitionPlan &plan,
                                         const PartitionBinds &bindings,
-                                        std::shared_ptr<void> &resources) {
+                                        std::shared_ptr<void> &resources,
+                                        const VulkanKernelImmutablePipelines
+                                            *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -73,10 +76,17 @@ rund::AccelCheck PrepareVulkanPartition(const rund::AccelDevice &pick,
   raw->flags_ref = lookup.flags.ref;
   raw->values_ref = lookup.values.ref;
   raw->output_ref = lookup.output.ref;
+  const std::uint32_t tuple_count = raw->scan_plan.pass_count == 1u ? 3u : 5u;
   raw->classify_pipeline =
-      AcquirePartitionPipeline(*adapter, desc, PartitionStage::Classify);
+      pipelines == nullptr
+          ? AcquirePartitionPipeline(*adapter, desc, PartitionStage::Classify)
+          : pipelines->borrow(rund::kernel::NodeKind::Partition, tuple_count,
+                              0u, kPartitionClassifyDescriptorCount, 1u);
   raw->scatter_pipeline =
-      AcquirePartitionPipeline(*adapter, desc, PartitionStage::Scatter);
+      pipelines == nullptr
+          ? AcquirePartitionPipeline(*adapter, desc, PartitionStage::Scatter)
+          : pipelines->borrow(rund::kernel::NodeKind::Partition, tuple_count,
+                              1u, kPartitionScatterDescriptorCount, 1u);
   const PartitionParams params_value{plan.element_count};
   if (!raw->scan_plan.ok || raw->classify_pipeline == nullptr ||
       raw->scatter_pipeline == nullptr ||
@@ -86,7 +96,8 @@ rund::AccelCheck PrepareVulkanPartition(const rund::AccelDevice &pick,
                                 rund::kernel::ComputeDomain::U32,
                                 raw->false_bits, raw->false_offsets,
                                 raw->false_bits, raw->false_totals,
-                                raw->false_status, raw->false_scan_resources) ||
+                                raw->false_status, raw->false_scan_resources,
+                                0u, 0u, 0u, 0u, 0u, 0u, pipelines, 2u) ||
       !CreateVulkanPartitionDescriptorSets(*adapter, *raw)) {
     return rund::AccelCheck{false, VulkanLastError(adapter)};
   }
@@ -98,6 +109,7 @@ rund::AccelCheck PrepareVulkanPartition(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }
@@ -138,7 +150,16 @@ rund::AccelCheck ExecuteVulkanPartition(const rund::AccelDevice &pick,
                                         const PartitionBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanCollective(pick, desc, plan, bindings,
-                                 PrepareVulkanPartition, EncodeVulkanPartition,
+                                 [](const rund::AccelDevice &device,
+                                    const rund::kernel::PartitionDesc &operation,
+                                    const rund::kernel::PartitionPlan &prepared,
+                                    const PartitionBinds &resident,
+                                    std::shared_ptr<void> &resources) {
+                                   return PrepareVulkanPartition(
+                                       device, operation, prepared, resident,
+                                       resources, nullptr);
+                                 },
+                                 EncodeVulkanPartition,
                                  FinishVulkanPartition);
 #else
   return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);

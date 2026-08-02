@@ -3,6 +3,7 @@
 
 #include "../../segmented/shape.hpp"
 #include "../collective/execute.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
 
@@ -32,7 +33,8 @@ rund::AccelCheck PrepareVulkanSegmentedScan(
     const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
     const rund::kernel::SegmentedScanPlan &plan,
     const rund::kernel::ComputeDomain domain,
-    const SegmentedScanBinds &bindings, std::shared_ptr<void> &resources) {
+    const SegmentedScanBinds &bindings, std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -70,14 +72,33 @@ rund::AccelCheck PrepareVulkanSegmentedScan(
       VulkanStorageBindingFor(lookup.output.device_buffer, lookup.output.ref);
   raw->dispatch_count = ScanDispatches(plan.pass_count, plan.block_count,
                                        adapter->max_dispatch_groups);
-  raw->block = AcquireSegmentedScanPipeline(*adapter, desc, domain, "block");
+  const std::uint32_t stage_count = plan.pass_count == 1u ? 1u : 3u;
+  raw->block =
+      pipelines == nullptr
+          ? AcquireSegmentedScanPipeline(
+                *adapter, desc, domain, VulkanSegmentedScanStage::Block)
+          : pipelines->borrow(rund::kernel::NodeKind::SegmentedScan,
+                              stage_count, 0u,
+                              kSegmentedScanDescriptorCount, 1u);
   raw->prefix =
       plan.pass_count == 2u
-          ? AcquireSegmentedScanPipeline(*adapter, desc, domain, "prefix")
+          ? (pipelines == nullptr
+                 ? AcquireSegmentedScanPipeline(
+                       *adapter, desc, domain,
+                       VulkanSegmentedScanStage::Prefix)
+                 : pipelines->borrow(rund::kernel::NodeKind::SegmentedScan,
+                                     stage_count, 1u,
+                                     kSegmentedScanDescriptorCount, 1u))
           : nullptr;
   raw->offset =
       plan.pass_count == 2u
-          ? AcquireSegmentedScanPipeline(*adapter, desc, domain, "offset")
+          ? (pipelines == nullptr
+                 ? AcquireSegmentedScanPipeline(
+                       *adapter, desc, domain,
+                       VulkanSegmentedScanStage::Offset)
+                 : pipelines->borrow(rund::kernel::NodeKind::SegmentedScan,
+                                     stage_count, 2u,
+                                     kSegmentedScanDescriptorCount, 1u))
           : nullptr;
   const SegmentedScanParams params{
       plan.element_count, plan.block_size, plan.block_count,
@@ -101,6 +122,7 @@ rund::AccelCheck PrepareVulkanSegmentedScan(
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

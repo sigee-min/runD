@@ -446,17 +446,23 @@ Job/prepared-resource owners across the cold-frozen stream and perform one
 native submission with no warm allocation, compilation, descriptor growth,
 rebind, count readback, or fallback.
 
-Metal normal command buffers are single-use. Cold preparation therefore owns
-one fully guarded static ICB: Pipeline-private kernels reserve Buffer index 30,
-unowned controls bind zero, recurrence-owned payloads bind the device-private
-owner stop word, and formerly indirect primitives use checked maximum grids
-with their resident logical guards. A warm attempt creates the required outer
-command buffer, declares the frozen resource array with one bulk call, executes
-the whole ICB through one range call, and commits once. It visits no frozen
-command, range, binding, indirect-grid, or recurrence-state rows. This closes
-the schedule-sized host loop without claiming zero CPU participation in Metal
-residency, submission, completion, or fixed control observation. Vulkan's
-primary command buffer remains recorded during cold preparation.
+Metal normal command buffers are single-use. Adapter opening therefore probes
+the exact Pipeline ICB descriptor at the 17 power-of-two capacities from 1
+through 65,536 and freezes each native `allocatedSize`. Cold preparation owns
+one globally ordered guarded stream split into 65,536-command full chunks and
+the smallest power-of-two tail chunk. Pipeline-private kernels reserve Buffer
+index 30, unowned controls bind zero, recurrence-owned payloads bind the
+device-private owner stop word, and formerly indirect primitives use checked
+maximum grids with their resident logical guards. A warm attempt creates the
+required outer command buffer, declares the frozen resource array with one bulk
+call, walks only `ceil(D / 65,536)` compact 16-byte chunk records, executes
+their ranges, and commits once. It visits no frozen command, binding,
+indirect-grid, or recurrence-state rows. A hazard crossing a chunk boundary is
+the next record's direct Buffer-scope barrier. This closes the schedule-sized
+host loop without claiming zero CPU participation in Metal chunk calls,
+residency, submission, completion, or fixed control observation. Invalid ICB
+calibration rejects Pipeline planning without disabling standalone Metal.
+Vulkan's primary command buffer remains recorded during cold preparation.
 
 The corresponding `rebinding_count` means mutations of those retained
 Job/Buffer/View/prepared-owner identities after preparation. Cold native
@@ -465,10 +471,11 @@ counter is zero by construction and is interpreted together with the
 `compute.window` frozen-binding snapshot oracle; a zero counter alone is not
 the ownership proof.
 
-`PipelineBuilder::plan()` returns the exact public `PipelinePlan` summary used
-by `prepare()`: caller-owned `persistent_bytes`, Pipeline-owned state and
-transient logical Buffer bytes, typed backend View and primitive scratch
-storage in `prepared_bytes`, publication traffic, `peak_bytes`, `total_bytes`,
+`PipelineBuilder::plan()` returns the public `PipelinePlan` admission summary
+used unchanged by `prepare()`: caller-owned `persistent_bytes`, Pipeline-owned
+state and transient logical Buffer bytes, the complete cold-preparation
+reservation in `prepared_bytes`, publication traffic, logical `peak_bytes`, CPU
+`arena_extent_bytes`, Device-admitted `committed_peak_bytes`, `total_bytes`,
 allocation/reuse/publication counts, and largest/peak coordinates.
 
 For nested tile-local recurrence, that summary additionally distinguishes
@@ -485,16 +492,40 @@ occurrences. `plan()` freezes that boundary vector and `prepare()` consumes it
 without reconstructing another hazard policy.
 
 ```text
-peak_bytes = state_bytes + transient_bytes + prepared_bytes
+prepared_bytes = prepared_buffer_bytes
+               + prepared_host_bytes
+               + prepared_tile_bytes
+               + prepared_native_bytes
+peak_bytes      = state_bytes + transient_bytes + prepared_bytes
+committed_peak_bytes = peak_bytes - A + C
 ```
 
-The prepared term is not an opaque post-prepare estimate. Pipeline planning
-derives the dense View requirements from the frozen graph binding routes,
-places them in deterministic aligned subranges of bounded backing owners, and
-makes every prepared Job borrow that arena. The alignment is an immutable
-capability of the selected backend combined with the strongest natural scalar
-alignment of every slot. Sequential uses of different scalar types may share
-the same raw-word slot. `view_bytes` and its
+The prepared term is not an opaque post-prepare estimate.
+`prepared_buffer_bytes` is the exact dense View-normalization and accelerator
+primitive-scratch Buffer payload. `prepared_host_bytes` reserves Pipeline,
+route, private-Job, CPU Program-run, and product-owned container payload;
+`prepared_tile_bytes` is the exact CPU worker/tile-executor, collective, and
+primitive scratch payload; and `prepared_native_bytes` reserves explicitly
+sized command, parameter, status, profile, and descriptor payload owned by
+runD. Host/native structural rows are checked upper envelopes when a platform
+allocator does not publish an exact byte layout. Runtime materialization may
+consume less, but its bytes and object counts cannot exceed the frozen
+reservation.
+
+`peak_bytes` remains the exact runD-owned logical payload compared by
+`MemoryBudget`. For a CPU Pipeline, `A` is the exact Host+Tile arena payload
+already included in `peak_bytes`, `E = arena_extent_bytes` is the sealed
+mapping span after internal alignment, and `C = round_up(E, host_page_size)`.
+`committed_peak_bytes` is the sole aggregate Device-governor charge; it is not
+process RSS and does not estimate allocator, runtime, or driver-private
+memory.
+
+Pipeline planning derives the dense View requirements from the frozen graph
+binding routes, places them in deterministic aligned subranges of bounded
+backing owners, and makes every prepared Job borrow that arena. The alignment
+is an immutable capability of the selected backend combined with the strongest
+natural scalar alignment of every slot. Sequential uses of different scalar
+types may share the same raw-word slot. `view_bytes` and its
 step/iteration/binding coordinates name the largest requirement. Its addressed
 span, backing extent, offset, stride, element width, count, and authored
 alignment are available in the corresponding `view_*` fields.
@@ -505,14 +536,34 @@ placement behind an explicit visibility barrier. `scratch_bytes` and
 `scratch_count` expose the maximum serial operation and Program envelope.
 Prepared Metal and Vulkan primitives borrow those offsets; neither owns a
 hidden scratch allocation.
-`MemoryBudget{bytes}` compares this complete
-planned payload and returns `compute_pipeline_memory_budget` before
-Pipeline-owned Buffer materialization. `memory_snapshot()` labels scratch
-separately in Resident and Device categories. Backend allocation granularity,
-driver metadata, and transient transfer pools are measured after prepare by
-`Pipeline::memory()`; their allocation failures retain the owning typed reason.
-Budget is an admission ceiling, not a window planner or a fabricated
-device-memory bound.
+CPU compact Map/collective run wrappers and immutable index arrays are retained
+once per distinct Program. Their mutable spans, every route/binding array,
+workspace object and offset, worker/tile state, collective array, primitive
+descriptor, and primitive scratch slab are planned as typed segments in one
+Pipeline-wide `CpuPreparedArena`. `PipelineState::cpu_prepared_arena` is the
+canonical mapping owner; serial routes borrow slices of it, and a Program with
+no workspace consumer keeps an intentional null workspace. Scatter descriptors
+share one maximum keys slab, one maximum marks slab, and one epoch, so epoch
+wrap clears the complete marks authority rather than a route-local prefix.
+`MemoryBudget{bytes}` compares the complete `peak_bytes` reservation and
+returns `compute_pipeline_memory_budget` before Pipeline-owned state,
+workspace, View/scratch Buffers, CPU Program storage, private Jobs,
+template-registry state, or native command materialization. After that local
+check, the Device reserves exactly `committed_peak_bytes` once before any such
+owner is materialized.
+Primary and transactional-alternate streams consume one cumulative accelerator
+limit while equal immutable templates are charged once. Each backend rechecks
+bytes and native-object counts before allocation, so Vulkan cannot first expand
+an oversized descriptor or command product and reject afterward.
+
+`memory_snapshot()` labels scratch separately in Resident and Device
+categories. Backend allocation granularity, driver metadata, transient transfer
+pools, and process RSS high-water are measured after explicit preparation;
+their allocation failures retain the owning typed reason plus stable logical
+preparation coordinates and native reason key when known. Budget is an
+admission ceiling, not a window planner or a fabricated process-memory bound.
+Deployments that require a literal whole-process cap must apply the operating
+system's process/container limit above the Device governor.
 
 An internal value is live on the closed node interval `[first_use, last_use]`.
 Closed intervals make a value read by a node overlap every value written by
@@ -551,8 +602,13 @@ independently for 32-bit `Fixed<16,16>` and 64-bit `Fixed<20,44>`. For each
 format, the `Max` plan has exactly the same transient bytes and allocation
 count as its `Max = Tile` control; only caller-owned persistent input bytes and
 the fixed occurrence reuse count grow with `Max`. The same contract rejects a
-one-byte-short `MemoryBudget` before allocation and prepares the exact admitted
-plan at its peak budget on CPU, Metal, and Vulkan.
+one-byte-short `MemoryBudget` before allocation. At the admitted peak budget,
+each available CPU, Metal, or Vulkan backend must either materialize within
+the frozen structural reservation or return its stable typed preparation
+failure before unbounded command or descriptor expansion.
+Product-scale plan-only verification is the default measurement path; explicit
+preparation is isolated in the dedicated materialization path so a planning
+contract never accidentally becomes a large allocation test.
 
 The planner also evaluates a proved destructive-Map placement. The Map must
 have one eligible dense full-write output. Every source candidate must be an

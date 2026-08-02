@@ -152,8 +152,8 @@ ResolveDense(const rund::AccelDevice &pick, const std::uint64_t binding,
         "compute_pipeline_memory_plan_invalid");
   }
   const std::uint64_t bytes = requested.count * requested.element_bytes;
-  const KernelViewSlot *const slot =
-      FindKernelViewSlot(*views, binding, bytes);
+  const KernelViewSlot *const slot = FindKernelViewSlot(*views, binding,
+                                                        requested);
   if (slot == nullptr || slot->slot >= view_binds->size()) {
     return RejectResident<MetalResidentBufferResult>(
         "compute_pipeline_memory_plan_invalid");

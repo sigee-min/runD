@@ -1,26 +1,32 @@
 #include "../../domain.hpp"
 #include "local.hpp"
 #include "source/op.hpp"
+#include "../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/reduce/wide.hpp>
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-std::string VulkanReduceSource(const rund::kernel::ReduceOp op,
-                               const rund::kernel::ReduceElement element,
-                               const rund::kernel::u64 block_size,
-                               const rund::kernel::ComputeDomain domain) {
+namespace {
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanReduceSource(
+    Sink &sink, const rund::kernel::ReduceOp op,
+    const rund::kernel::ReduceElement element,
+    const rund::kernel::u64 block_size,
+    const rund::kernel::ComputeDomain domain)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
   const bool u64 = element == rund::kernel::ReduceElement::U64;
   const bool signed_domain = IsSignedDomain(domain);
-  std::string source;
+  VulkanSourceTextSink source{sink};
   source += "#version 450\n";
   source +=
       "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n";
   source += "layout(local_size_x = ";
-  source += std::to_string(block_size);
+  source.decimal(block_size);
   source += ") in;\n";
   source += "#define RUND_REDUCE_NARROW_CHUNK ";
-  source += std::to_string(rund::kernel::kReduceNarrowChunkItems);
+  source.decimal(rund::kernel::kReduceNarrowChunkItems);
   source += "u\n";
   source += "layout(set = 0, binding = 0, std430) buffer Params {\n";
   source += "  uint64_t input_offset;\n";
@@ -55,7 +61,7 @@ std::string VulkanReduceSource(const rund::kernel::ReduceOp op,
     source.append(rund::kernel::ReduceWideSource);
     source += R"GLSL(
 shared RundWide sums[)GLSL";
-    source += std::to_string(block_size);
+    source.decimal(block_size);
     source += R"GLSL(];
 void main() {
   const uint tid = gl_LocalInvocationID.x;
@@ -75,13 +81,13 @@ void main() {
       atomicOr(status[0], 2u);
     }
     const uint64_t stride = params.grid_size * uint64_t()GLSL";
-    source += std::to_string(block_size);
+    source.decimal(block_size);
     source += ");\n";
     if (op == rund::kernel::ReduceOp::CountNonzero) {
       source += "    RundPair count = rund_pair_zero();\n";
       source += "    for (uint64_t index = uint64_t(gl_WorkGroupID.x) * "
                 "uint64_t(";
-      source += std::to_string(block_size);
+      source.decimal(block_size);
       source += R"GLSL() + uint64_t(tid); index < active_count;
          index += stride) {
       count = rund_pair_add(
@@ -92,7 +98,7 @@ void main() {
     } else if (!u64) {
       source += "    for (uint64_t index = uint64_t(gl_WorkGroupID.x) * "
                 "uint64_t(";
-      source += std::to_string(block_size);
+      source.decimal(block_size);
       source += R"GLSL() + uint64_t(tid); index < active_count;) {
 )GLSL";
       source += "      RundPair narrow = rund_pair_zero();\n";
@@ -115,7 +121,7 @@ void main() {
     } else {
       source += "    for (uint64_t index = uint64_t(gl_WorkGroupID.x) * "
                 "uint64_t(";
-      source += std::to_string(block_size);
+      source.decimal(block_size);
       source += R"GLSL() + uint64_t(tid); index < active_count;
          index += stride) {
       acc = rund_wide_add(acc, rund_wide_)GLSL";
@@ -129,7 +135,7 @@ void main() {
     source += R"GLSL(  } else {
     for (uint index = tid; index < uint(params.input_count);
          index += )GLSL";
-    source += std::to_string(block_size);
+    source.decimal(block_size);
     source += R"GLSL(u) {
       const uint word = index << 1u;
       acc = rund_wide_add(
@@ -139,7 +145,7 @@ void main() {
   sums[tid] = acc;
   barrier();
   uint width = )GLSL";
-    source += std::to_string(block_size);
+    source.decimal(block_size);
     source += R"GLSL(u;
   while (width > 1u) {
     const uint next = (width + 1u) >> 1u;
@@ -165,16 +171,16 @@ void main() {
     source +=
         u64 ? "uint64_t(rund_wide_low64(acc));\n" : "rund_wide_low32(acc);\n";
     source += "}\n";
-    return source;
+    return source.ok();
   }
   source += "shared uint64_t sums[";
-  source += std::to_string(block_size);
+  source.decimal(block_size);
   source += "];\nshared uint overflows[";
-  source += std::to_string(block_size);
+  source.decimal(block_size);
   source += "];\nvoid main() {\n";
   source += "  const uint tid = gl_LocalInvocationID.x;\n";
   source += "  const uint64_t index = uint64_t(gl_WorkGroupID.x) * uint64_t(";
-  source += std::to_string(block_size);
+  source.decimal(block_size);
   source += ") + uint64_t(tid);\n";
   source += "  uint64_t resident_count = params.input_count;\n";
   source += "  if (params.count_words == 1u) { resident_count = "
@@ -199,7 +205,7 @@ void main() {
   source += "  overflows[tid] = 0u;\n";
   source += "  barrier();\n";
   source += "  uint width = ";
-  source += std::to_string(block_size);
+  source.decimal(block_size);
   source += "u;\n";
   source += "  while (width > 1u) {\n";
   source += "    const uint next = (width + 1u) >> 1u;\n";
@@ -222,7 +228,37 @@ void main() {
   source += u64 ? "sums[0]" : "uint(sums[0])";
   source += "; }\n";
   source += "  }\n}\n";
-  return source;
+  return source.ok();
+}
+
+} // namespace
+
+std::string VulkanReduceSource(const rund::kernel::ReduceOp op,
+                               const rund::kernel::ReduceElement element,
+                               const rund::kernel::u64 block_size,
+                               const rund::kernel::ComputeDomain domain) {
+  std::uint64_t exact_bytes = 0u;
+  const auto emit = [&](auto &sink)
+      noexcept(noexcept(EmitVulkanReduceSource(sink, op, element, block_size,
+                                                domain))) {
+    return EmitVulkanReduceSource(sink, op, element, block_size, domain);
+  };
+  return backend_source_recipe::bytes(emit, exact_bytes)
+             ? backend_source_recipe::materialize(emit, exact_bytes)
+             : std::string{};
+}
+
+bool VulkanReduceSourceBytes(const rund::kernel::ReduceOp op,
+                             const rund::kernel::ReduceElement element,
+                             const rund::kernel::u64 block_size,
+                             const rund::kernel::ComputeDomain domain,
+                             std::uint64_t &bytes) noexcept {
+  const auto emit = [&](auto &sink)
+      noexcept(noexcept(EmitVulkanReduceSource(sink, op, element, block_size,
+                                                domain))) {
+    return EmitVulkanReduceSource(sink, op, element, block_size, domain);
+  };
+  return backend_source_recipe::bytes(emit, bytes);
 }
 #endif
 } // namespace rund::node::accel::detail

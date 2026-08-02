@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../array.hpp"
 #include "../../accel/kernel/prepared.hpp"
 #include "../../accel/kernel/scratch.hpp"
 #include "../../accel/kernel/view.hpp"
@@ -62,8 +63,48 @@ struct JobBufferView final {
 // here for allocation-free gather/publish on every execution.
 struct CpuViewTransfer final {
   std::shared_ptr<BufferState> external;
-  std::shared_ptr<BufferState> staging;
   JobBufferView view{};
+  std::uint32_t binding{};
+};
+
+struct CpuViewTransferSlot final {
+  std::uint32_t index{};
+  std::uint64_t bytes{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const CpuViewTransferSlot &) const noexcept = default;
+};
+
+// Program-intrinsic dense-port requirements. Computing this descriptor walks
+// the immutable CPU runtime graph; applying it to one Pipeline route only
+// projects that route's View extents and never walks the graph again.
+struct CpuViewTransferRequirements final {
+  const ProgramState *program = nullptr;
+  std::uint64_t graph_hash{};
+  std::size_t input_count{};
+  std::size_t output_count{};
+  std::vector<std::uint32_t> inputs;
+  std::vector<std::uint32_t> outputs;
+
+  [[nodiscard]] bool
+  operator==(const CpuViewTransferRequirements &) const noexcept = default;
+};
+
+// Cold planning resolves the Program's dense-port requirements once and
+// freezes only the occurrence-specific strided bindings. Pipeline admission
+// and Job materialization consume this same layout, so preparation cannot
+// rediscover a larger transfer set after the budget check.
+struct CpuViewTransferLayout final {
+  const ProgramState *program = nullptr;
+  std::uint64_t graph_hash{};
+  std::size_t input_count{};
+  std::size_t output_count{};
+  std::vector<CpuViewTransferSlot> inputs;
+  std::vector<CpuViewTransferSlot> outputs;
+  std::uint64_t bytes{};
+
+  [[nodiscard]] bool
+  operator==(const CpuViewTransferLayout &) const noexcept = default;
 };
 
 // A recurrence owns one Program-internal value workspace for its complete
@@ -71,9 +112,15 @@ struct CpuViewTransfer final {
 // execute serially behind the owning Pipeline gate and therefore share these
 // dead-after-occurrence buffers without changing value or operation order.
 struct JobWorkspace final {
+  JobWorkspace() noexcept = default;
+  JobWorkspace(const JobWorkspace &) = delete;
+  JobWorkspace &operator=(const JobWorkspace &) = delete;
+  JobWorkspace(JobWorkspace &&) = delete;
+  JobWorkspace &operator=(JobWorkspace &&) = delete;
+
   std::shared_ptr<ProgramState> program;
-  std::vector<std::shared_ptr<BufferState>> buffers;
-  std::vector<std::size_t> offsets;
+  ::rund::node::detail::PreparedArray<std::shared_ptr<BufferState>> buffers;
+  ::rund::node::detail::PreparedArray<std::size_t> offsets;
   std::shared_ptr<struct JobArena> arena;
 };
 
@@ -99,20 +146,24 @@ struct JobArena final {
 struct JobState final {
   std::shared_ptr<ProgramState> program;
   std::shared_ptr<JobWorkspace> workspace;
-  std::vector<std::shared_ptr<BufferState>> inputs;
-  std::vector<JobBufferView> input_views;
-  std::vector<std::shared_ptr<BufferState>> write_inputs;
-  std::vector<std::shared_ptr<BufferState>> graph_buffers;
-  std::vector<std::shared_ptr<BufferState>> outputs;
-  std::vector<JobBufferView> output_views;
+  // Declared before every borrowed array so reverse member destruction drops
+  // all views before releasing their sealed backing mapping.
+  std::shared_ptr<CpuPreparedArena> cpu_prepared_arena;
+  ::rund::node::detail::PreparedArray<std::shared_ptr<BufferState>> inputs;
+  ::rund::node::detail::PreparedArray<JobBufferView> input_views;
+  ::rund::node::detail::PreparedArray<std::shared_ptr<BufferState>>
+      write_inputs;
+  ::rund::node::detail::PreparedArray<std::shared_ptr<BufferState>>
+      graph_buffers;
+  ::rund::node::detail::PreparedArray<std::shared_ptr<BufferState>> outputs;
+  ::rund::node::detail::PreparedArray<JobBufferView> output_views;
   node::accel::detail::KernelViewLayout views;
-  std::vector<CpuViewTransfer> cpu_view_inputs;
-  std::vector<CpuViewTransfer> cpu_view_outputs;
-  std::vector<std::shared_ptr<BufferState>> cpu_view_buffers;
+  ::rund::node::detail::PreparedArray<CpuViewTransfer> cpu_view_inputs;
+  ::rund::node::detail::PreparedArray<CpuViewTransfer> cpu_view_outputs;
   std::uint64_t cpu_view_gather_bytes{};
   node::accel::detail::PreparedKernelRun prepared;
   node::accel::detail::PreparedKernelRun write_prepared;
-  std::unique_ptr<CpuRun> cpu;
+  EmbeddedOwner<CpuRun> cpu;
   AccelRunSlot accel_run{};
   // Public Jobs retain result/read telemetry. Pipeline's private prepared Jobs
   // have no public Run receipt and intentionally leave this owner absent.

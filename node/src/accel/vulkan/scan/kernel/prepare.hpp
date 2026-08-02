@@ -16,7 +16,9 @@ rund::AccelCheck PrepareVulkanScan(const rund::AccelDevice &pick,
                                    const rund::kernel::ScanPlan &plan,
                                    const rund::kernel::ComputeDomain domain,
                                    const ScanBinds &bindings,
-                                   std::shared_ptr<void> &resources) {
+                                   std::shared_ptr<void> &resources,
+                                   const VulkanKernelImmutablePipelines
+                                       *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -51,7 +53,8 @@ rund::AccelCheck PrepareVulkanScan(const rund::AccelDevice &pick,
       raw->output.ref.offset_bytes,
       raw->output.ref.count * raw->output.ref.element_bytes,
       raw->logical_count.ref.offset_bytes,
-      raw->logical_count.ref.count * raw->logical_count.ref.element_bytes);
+      raw->logical_count.ref.count * raw->logical_count.ref.element_bytes,
+      pipelines);
   if (!prepare.ok) {
     return prepare;
   }
@@ -64,6 +67,7 @@ rund::AccelCheck PrepareVulkanScan(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

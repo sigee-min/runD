@@ -108,6 +108,7 @@ list(APPEND NODE_SOURCES
   src/accel/kernel/recurrence/build.cpp
   src/accel/kernel/recurrence/aggregate.cpp
   src/accel/kernel/recurrence/match.cpp
+  src/accel/kernel/recurrence/plan.cpp
   src/accel/kernel/recurrence/source.cpp
   src/accel/kernel/reset/overlap.cpp
   src/accel/kernel/reset/proof.cpp

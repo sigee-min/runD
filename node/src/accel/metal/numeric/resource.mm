@@ -18,10 +18,6 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 namespace {
 
-[[nodiscard]] std::string MetalNumericSource() {
-  return MetalNumericFixedLane32Source() + MetalNumericFixedLane64Source();
-}
-
 [[nodiscard]] rund::AccelCheck LookupPipeline(MetalAdapter &adapter,
                                               const char *const name,
                                               const NumericPolicy policy,
@@ -136,7 +132,16 @@ bool PrepareTwiddle(MetalNumericPrepared &state,
 
 rund::AccelCheck PreparedPipeline(MetalNumericPrepared &state,
                                   const char *const name,
-                                  const NumericPolicy policy) {
+                                  const NumericPolicy policy,
+                                  const MetalKernelImmutablePipelines *const
+                                      pipelines) {
+  if (pipelines != nullptr) {
+    if (!pipelines->ready(1u)) {
+      return {false, "accel_metal_pipeline_unavailable"};
+    }
+    state.pipeline = pipelines->stages[0u];
+    return {true, "ok"};
+  }
   return LookupPipeline(*state.adapter, name, policy, state.pipeline);
 }
 

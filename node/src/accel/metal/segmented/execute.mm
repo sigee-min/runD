@@ -8,6 +8,7 @@
 #include "../../segmented/shape.hpp"
 #include "../command/run.hpp"
 #include "local.hpp"
+#include "../pipeline/template.hpp"
 #include "resources/pipeline.hpp"
 
 #include <utility>
@@ -31,7 +32,8 @@ rund::AccelCheck PrepareMetalSegmentedScan(
     const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
     const rund::kernel::SegmentedScanPlan &plan,
     const rund::kernel::ComputeDomain domain,
-    const SegmentedScanBinds &bindings, std::shared_ptr<void> &resources) {
+    const SegmentedScanBinds &bindings, std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -59,7 +61,15 @@ rund::AccelCheck PrepareMetalSegmentedScan(
     check = PrepareMetalSegmentedScanStatusBuffer(*adapter, *raw);
   }
   if (check.ok) {
-    check = PrepareMetalSegmentedScanPipeline(*adapter, plan, domain, *raw);
+    if (pipelines != nullptr && pipelines->ready(3u)) {
+      raw->block = pipelines->stages[0u];
+      raw->prefix = pipelines->stages[1u];
+      raw->offset = pipelines->stages[2u];
+    } else if (pipelines != nullptr) {
+      check = rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
+    } else {
+      check = PrepareMetalSegmentedScanPipeline(*adapter, plan, domain, *raw);
+    }
   }
   if (!check.ok) {
     SetMetalLastError(*adapter, check.reason);
@@ -74,6 +84,7 @@ rund::AccelCheck PrepareMetalSegmentedScan(
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

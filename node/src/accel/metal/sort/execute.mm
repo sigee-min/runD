@@ -14,6 +14,7 @@
 #include "resources/buffers.hpp"
 #include "resources/lookup.hpp"
 #include "resources/pipeline.hpp"
+#include "../pipeline/template.hpp"
 
 #include <utility>
 
@@ -80,7 +81,9 @@ rund::AccelCheck PrepareMetalSort(const rund::AccelDevice &pick,
                                   const rund::kernel::SortPlan &plan,
                                   const rund::kernel::ComputeDomain domain,
                                   const SortBinds &bindings,
-                                  std::shared_ptr<void> &resources) {
+                                  std::shared_ptr<void> &resources,
+                                  const MetalKernelImmutablePipelines *const
+                                      pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -118,10 +121,20 @@ rund::AccelCheck PrepareMetalSort(const rund::AccelDevice &pick,
   if (!buffers.ok) {
     return buffers;
   }
-  const rund::AccelCheck pipelines =
-      CompileMetalSortPipelineSet(*adapter, *raw);
-  if (!pipelines.ok) {
-    return pipelines;
+  rund::AccelCheck pipeline_ready{true, "ok"};
+  if (pipelines != nullptr && pipelines->ready(5u)) {
+    raw->pipelines.dispatch = pipelines->stages[0u];
+    raw->pipelines.histogram = pipelines->stages[1u];
+    raw->pipelines.prefix = pipelines->stages[2u];
+    raw->pipelines.base = pipelines->stages[3u];
+    raw->pipelines.scatter = pipelines->stages[4u];
+  } else if (pipelines != nullptr) {
+    pipeline_ready = {false, "accel_metal_pipeline_unavailable"};
+  } else {
+    pipeline_ready = CompileMetalSortPipelineSet(*adapter, *raw);
+  }
+  if (!pipeline_ready.ok) {
+    return pipeline_ready;
   }
   resources = std::move(owned);
   return rund::AccelCheck{true, "ok"};
@@ -132,6 +145,7 @@ rund::AccelCheck PrepareMetalSort(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

@@ -17,6 +17,7 @@ namespace rund::node::accel::detail {
 
 struct VulkanBuffer;
 struct VulkanPipelineTelemetrySource;
+struct VulkanKernelImmutablePipelines;
 
 enum class VulkanPipelineStatusRule : std::uint32_t {
   None,
@@ -41,7 +42,8 @@ struct VulkanPipelineStatusSource final {
 
 using VulkanPrepareStepFn = rund::AccelCheck (*)(
     const rund::AccelDevice &pick, const BoundStep &step,
-    KernelPreparationMode mode, std::shared_ptr<void> &resources);
+    KernelPreparationMode mode, const VulkanKernelImmutablePipelines *pipelines,
+    std::shared_ptr<void> &resources);
 using VulkanEncodeStepFn = rund::AccelCheck (*)(
     VulkanAdapter &adapter, const std::shared_ptr<void> &resources,
     void *command_buffer);
@@ -77,6 +79,12 @@ using VulkanPipelineTelemetryFn =
                          VulkanPipelineTelemetrySource &source);
 using VulkanFailureFn = bool (*)(const std::shared_ptr<void> &resources,
                                  std::uint64_t &ordinal) noexcept;
+// Exact number of device-authored indirect dispatches emitted by one prepared
+// step. Pipeline window capture consumes one gate descriptor per such command,
+// so this encoder-adjacent contract is the sole preallocation authority.
+using VulkanPipelineCaptureDemandFn =
+    rund::AccelCheck (*)(const std::shared_ptr<void> &resources,
+                         std::uint64_t &indirect_dispatch_count) noexcept;
 
 struct VulkanKernelOps {
   VulkanPrepareStepFn prepare = nullptr;
@@ -85,6 +93,7 @@ struct VulkanKernelOps {
   VulkanPipelineStatusFn pipeline_status = nullptr;
   VulkanPipelineTelemetryFn pipeline_telemetry = nullptr;
   VulkanFailureFn failure = nullptr;
+  VulkanPipelineCaptureDemandFn pipeline_capture_demand = nullptr;
 };
 
 #endif

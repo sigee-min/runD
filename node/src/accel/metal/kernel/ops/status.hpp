@@ -65,7 +65,7 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
   out = {};
   const auto *const map =
       static_cast<const MetalMapEncodeResources *>(resources.get());
-  if (map == nullptr) {
+  if (map == nullptr || map->prepared == nullptr) {
     return false;
   }
   if (!map->controlled()) {
@@ -73,11 +73,12 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
   }
   MetalPipelineStatusBinding described =
       binding(map->control_status,
-              map->checks.empty() ? MetalPipelineStatusEncoding::Nonzero
-                                  : MetalPipelineStatusEncoding::Mapping,
+              map->prepared->checks.empty()
+                  ? MetalPipelineStatusEncoding::Nonzero
+                  : MetalPipelineStatusEncoding::Mapping,
               {reason(rund::compute::Reason::WorksetOverflow),
                reason(rund::compute::Reason::GatherIndexOutOfRange), 0u, 0u});
-  if (!map->checks.empty()) {
+  if (!map->prepared->checks.empty()) {
     described.indirect_dispatch_count = 1u;
   }
   return append(out, described);
@@ -89,7 +90,7 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
   source = {};
   const auto *const map =
       static_cast<const MetalMapEncodeResources *>(resources.get());
-  if (map == nullptr) {
+  if (map == nullptr || map->prepared == nullptr) {
     return false;
   }
   if (!map->controlled()) {
@@ -100,10 +101,12 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
     return false;
   }
   source = MetalPipelineTelemetrySource{
-      .kind = map->checks.empty() ? MetalPipelineTelemetryKind::ControlledMap
-                                  : MetalPipelineTelemetryKind::GatherControl,
-      .primary_buffer = map->checks.empty() ? map->control_args.buffer.get()
-                                            : map->control_status.buffer.get(),
+      .kind = map->prepared->checks.empty()
+                  ? MetalPipelineTelemetryKind::ControlledMap
+                  : MetalPipelineTelemetryKind::GatherControl,
+      .primary_buffer = map->prepared->checks.empty()
+                            ? map->control_args.buffer.get()
+                            : map->control_status.buffer.get(),
       .count_buffer = map->control.has_count()
                           ? map->control_count.device_buffer.get()
                           : nullptr,
@@ -118,11 +121,13 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
       .capacity = map->control.capacity,
       .work_item_count =
           map->windows.back().begin_sequence + map->windows.back().tile_count,
-      .primary_word_count = map->checks.empty() ? static_cast<std::uint32_t>(
-                                                      map->windows.size() * 4u)
-                                                : 2u,
+      .primary_word_count =
+          map->prepared->checks.empty()
+              ? static_cast<std::uint32_t>(map->windows.size() * 4u)
+              : 2u,
       .indirect_dispatch_count =
-          static_cast<std::uint32_t>(1u + (!map->checks.empty() ? 1u : 0u)),
+          static_cast<std::uint32_t>(
+              1u + (!map->prepared->checks.empty() ? 1u : 0u)),
   };
   return (!map->control.has_count() || source.count_buffer != nullptr) &&
          (!map->control.has_predicate() || source.predicate_buffer != nullptr);

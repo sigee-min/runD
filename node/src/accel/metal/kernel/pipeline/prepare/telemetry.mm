@@ -146,6 +146,10 @@ rund::AccelCheck MetalPipelineBuild::EncodeTelemetry(
               atIndex:8u];
     [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
         threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+    const rund::AccelCheck capture = CheckMetalPipelineCapture(captured);
+    if (!capture.ok) {
+      return capture;
+    }
     captured.commands.back().control = true;
     [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   }

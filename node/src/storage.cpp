@@ -256,6 +256,20 @@ Usage Reservation::usage() const noexcept {
   return committed() ? usage_ : Usage{};
 }
 
+Reservation
+Reservation::partition(const std::uint64_t max_allocated_bytes) noexcept {
+  if (!ok() || committed_) {
+    return Reservation{ReasonCode::StorageReservationInvalid};
+  }
+  std::lock_guard lock{state_->hierarchy->gate};
+  if (max_allocated_bytes > max_allocated_bytes_) {
+    Reject(state_.get());
+    return Reservation{ReasonCode::StorageReservationInvalid};
+  }
+  max_allocated_bytes_ -= max_allocated_bytes;
+  return Reservation{state_, max_allocated_bytes};
+}
+
 Status Reservation::commit(const Usage usage) noexcept {
   if (!ok() || committed_) {
     return Status{ReasonCode::StorageReservationInvalid};

@@ -2,6 +2,7 @@
 
 #include "../../../segmented/reduce/metal.hpp"
 #include "../../../segmented/reduce/shape.hpp"
+#include "../../pipeline/template.hpp"
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #import <Metal/Metal.h>
@@ -41,7 +42,9 @@ PrepareMetalSegmentedReduce(const rund::AccelDevice &pick,
                             const rund::kernel::SegmentedReducePlan &plan,
                             const rund::kernel::ComputeDomain domain,
                             const SegmentedReduceBinds &bindings,
-                            std::shared_ptr<void> &resources) {
+                            std::shared_ptr<void> &resources,
+                            const MetalKernelImmutablePipelines *const
+                                pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick) ||
@@ -92,8 +95,18 @@ PrepareMetalSegmentedReduce(const rund::AccelDevice &pick,
       MetalBufferContents(raw->status) == nullptr) {
     return {false, "accel_metal_buffer_unavailable"};
   }
-  const rund::AccelCheck pipeline =
-      CompileMetalSegmentedReduce(*adapter, plan, domain, raw->pipelines);
+  rund::AccelCheck pipeline{true, "ok"};
+  if (pipelines != nullptr && pipelines->ready(4u)) {
+    raw->pipelines.classify = pipelines->stages[0u];
+    raw->pipelines.prefix = pipelines->stages[1u];
+    raw->pipelines.scatter = pipelines->stages[2u];
+    raw->pipelines.reduce = pipelines->stages[3u];
+  } else if (pipelines != nullptr) {
+    pipeline = {false, "accel_metal_pipeline_unavailable"};
+  } else {
+    pipeline = CompileMetalSegmentedReduce(*adapter, plan, domain,
+                                           raw->pipelines);
+  }
   if (!pipeline.ok) {
     return pipeline;
   }
@@ -114,6 +127,7 @@ PrepareMetalSegmentedReduce(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return {false, "accel_metal_unavailable"};
 #endif
 }

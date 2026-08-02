@@ -390,32 +390,31 @@ The source graph condenses to:
 
 ```text
 RUNTIME_PRODUCT (zero-object join)
-       |                         |
-       v                         v
-CPU_RUNTIME_PRODUCT       COMPUTE_EXECUTION
-       |          |              |          |
-       v          v              v          v
-RUNTIME_BASE  CPU_COMPUTE--------+   ACCEL_EXECUTION
-    |    |        |       |                  |
-    v    v        v       v                  v
-                                              |
-                                              v
-                                           CPU_ACCEL
-                                             |   |
-                                             v   v
-                                       CPU_SIMD  CPU core/context
+  +--> CPU_RUNTIME_PRODUCT
+  |      +--> RUNTIME_BASE ----+
+  |      +--> CPU_COMPUTE -----+--> STORAGE
+  +--> COMPUTE_EXECUTION
+         +--> CPU_COMPUTE --> CPU_SIMD
+         +--> ACCEL_EXECUTION --> CPU_ACCEL --> CPU_SIMD
+
+CPU_COMPUTE --> TELEMETRY + WORKER_BACKEND
+RUNTIME_BASE --> NUMERIC + TELEMETRY + WORKER_BACKEND
 ```
 
 - `NUMERIC` owns numeric evidence encoding and validation.
+- `STORAGE` owns the public hierarchical Budget/Reservation implementation as
+  one dependency leaf shared by Compute admission and Runtime storage users.
 - `CPU_SIMD` owns the CPU capability/SIMD translation units required by typed
   CPU Compute.
-- `CPU_COMPUTE` adds typed backend-neutral and CPU Compute plus the shared
-  `WORKER_BACKEND`; it contains no native accelerator source or link edge.
+- `CPU_COMPUTE` adds typed backend-neutral and CPU Compute plus shared
+  `STORAGE` and `WORKER_BACKEND`; it contains no native accelerator source or
+  link edge.
 - `CPU_ACCEL` adds backend-neutral Accel, the CPU adapter, and context owners.
 - `ACCEL_EXECUTION` adds catalog composition, Fake, Metal and Vulkan.
 - `COMPUTE_EXECUTION` adds native Compute adapter owners.
 - `RUNTIME_BASE` owns host, replay, lifecycle, telemetry wrapping, topology
-  projection, Kernel execution, Scheduler, and the selected platform.
+  projection, Kernel execution, Scheduler, and the selected platform; it
+  consumes but does not own the shared `STORAGE` implementation.
 - `CPU_RUNTIME_PRODUCT` adds the CPU NodeHost Compute bridge.
 - `RUNTIME_PRODUCT` is an INTERFACE join over CPU Runtime and complete Compute;
   it adds no object.

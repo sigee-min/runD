@@ -1,16 +1,20 @@
 #pragma once
 
 #include "../../kernel/backend/run.hpp"
+#include "../../kernel/backend/source_recipe.hpp"
 #include "../buffer/create/telemetry.hpp"
 #include "../collective/pipeline.hpp"
 #include "../descriptor.hpp"
 #include "local.hpp"
+#include "source_upper.hpp"
 
 #include <kernel/program/compute/lowering/vulkan/shape.hpp>
 
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,80 +29,23 @@ struct VulkanMapControlPush final {
 
 static_assert(sizeof(VulkanMapControlPush) == 64u);
 
-[[nodiscard]] inline bool ReplaceControl(std::string &source,
-                                         const std::string &needle,
-                                         const std::string &replacement) {
-  const std::size_t at = source.find(needle);
-  if (needle.empty() || at == std::string::npos ||
-      source.find(needle, at + needle.size()) != std::string::npos) {
-    return false;
-  }
-  source.replace(at, needle.size(), replacement);
-  return true;
-}
-
 [[nodiscard]] inline std::string VulkanMapControlSource() {
-  return R"glsl(#version 450
-#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-layout(set = 0, binding = 0, std430) readonly buffer CountSource { uint count_words[]; };
-layout(set = 0, binding = 1, std430) readonly buffer PredicateSource { uint predicate_words[]; };
-layout(set = 0, binding = 2, std430) writeonly buffer DispatchArgs { uint args[]; };
-layout(set = 0, binding = 3, std430) buffer ControlStatus { uint status[]; };
-layout(push_constant) uniform ControlPush { uvec4 row0; uvec4 row1; uvec4 row2; uvec4 row3; } control;
-
-uint64_t pair64(uint low, uint high) {
-  return uint64_t(low) | (uint64_t(high) << 32u);
-}
-
-void main() {
-  uint64_t capacity = pair64(control.row1.x, control.row1.y);
-  uint64_t logical = capacity;
-  if (control.row0.x != 0u) {
-    logical = control.row0.y != 0u
-                  ? pair64(count_words[control.row3.y],
-                           count_words[control.row3.y + 1u])
-                  : uint64_t(count_words[control.row3.y]);
-  }
-  bool overflow = logical > capacity;
-  uint prior = status[0];
-  bool enabled = true;
-  if (control.row0.z != 0u) {
-    uint64_t observed = control.row0.w != 0u
-                            ? pair64(predicate_words[control.row3.z],
-                                     predicate_words[control.row3.z + 1u])
-                            : uint64_t(predicate_words[control.row3.z]);
-    enabled = observed == pair64(control.row1.z, control.row1.w);
-  }
-  uint64_t begin = pair64(control.row2.x, control.row2.y);
-  uint64_t count = pair64(control.row2.z, control.row2.w);
-  uint64_t remaining = !overflow && logical > begin
-                           ? logical - begin
-                           : uint64_t(0);
-  uint dispatch_count =
-      enabled && !overflow && (control.row3.w == 0u || prior == 0u)
-          ? uint(min(remaining, count))
-          : 0u;
-  if (control.row3.w == 0u) {
-    status[0] = overflow ? 1u : 0u;
-  }
-  uint base = control.row3.x * 4u;
-  args[base + 0u] = (dispatch_count + 63u) / 64u;
-  args[base + 1u] = 1u;
-  args[base + 2u] = 1u;
-  args[base + 3u] = dispatch_count;
-}
-)glsl";
+  const auto recipe = []<typename Sink>(Sink &sink) noexcept(
+                          noexcept(sink.append(std::string_view{}))) {
+    return sink.append(VulkanMapControlSourceText());
+  };
+  return backend_source_recipe::materialize(
+      recipe, VulkanMapControlSourceText().size());
 }
 
 [[nodiscard]] inline std::pair<std::uint64_t, std::uint64_t>
-VulkanMapCheckHash(const VulkanMapEncodeResources &resources) noexcept {
-  std::uint64_t hi = resources.plan.op_hash_hi ^ 0x6d61702e63686563ull;
-  std::uint64_t lo = resources.plan.op_hash_lo ^ 0x6b2e696e64657800ull;
+VulkanMapCheckHash(const VulkanMapTemplateResources &prepared) noexcept {
+  std::uint64_t hi = prepared.plan.op_hash_hi ^ 0x6d61702e63686563ull;
+  std::uint64_t lo = prepared.plan.op_hash_lo ^ 0x6b2e696e64657800ull;
   const auto mix = [](std::uint64_t &hash, const std::uint64_t value) {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
   };
-  for (const VulkanMapCheck check : resources.checks) {
+  for (const VulkanMapCheck check : prepared.checks) {
     mix(hi, check.binding);
     mix(hi, check.limit);
     mix(lo, check.offset);
@@ -107,93 +54,107 @@ VulkanMapCheckHash(const VulkanMapEncodeResources &resources) noexcept {
   return {hi, lo};
 }
 
-[[nodiscard]] inline rund::kernel::LoweringArtifact
-VulkanMapCheckArtifact(const VulkanMapEncodeResources &resources) {
-  std::string source = R"glsl(#version 450
-#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-layout(set = 0, binding = 0, std430) readonly buffer CountSource { uint count_words[]; };
-layout(set = 0, binding = 1, std430) readonly buffer PredicateSource { uint predicate_words[]; };
-)glsl";
-  for (std::size_t index = 0u; index < resources.checks.size(); ++index) {
-    source += "layout(set = 0, binding = " + std::to_string(index + 2u) +
-              ", std430) readonly buffer Index" + std::to_string(index) +
-              " { uint index" + std::to_string(index) + "_words[]; };\n";
-  }
-  const std::size_t status_binding = resources.checks.size() + 2u;
-  source += "layout(set = 0, binding = " + std::to_string(status_binding) +
-            ", std430) buffer ControlStatus { uint status[]; };\n";
-  source += R"glsl(
-layout(push_constant) uniform ControlPush { uvec4 row0; uvec4 row1; uvec4 row2; uvec4 row3; } control;
-shared uint invalids[256];
+struct VulkanMapCheckSourceRecipe final {
+  const VulkanMapTemplateResources &prepared;
 
-uint64_t pair64(uint low, uint high) {
-  return uint64_t(low) | (uint64_t(high) << 32u);
-}
-
-void main() {
-  const uint tid = gl_LocalInvocationID.x;
-  const uint64_t capacity = pair64(control.row1.x, control.row1.y);
-  uint64_t logical = capacity;
-  if (control.row0.x != 0u) {
-    logical = control.row0.y != 0u
-                  ? pair64(count_words[control.row3.y],
-                           count_words[control.row3.y + 1u])
-                  : uint64_t(count_words[control.row3.y]);
-  }
-  bool enabled = true;
-  if (control.row0.z != 0u) {
-    const uint64_t observed =
-        control.row0.w != 0u
-            ? pair64(predicate_words[control.row3.z],
-                     predicate_words[control.row3.z + 1u])
-            : uint64_t(predicate_words[control.row3.z]);
-    enabled = observed == pair64(control.row1.z, control.row1.w);
-  }
-  uint local_invalid = 0xffffffffu;
-  if (enabled && logical <= capacity) {
-    for (uint64_t ordinal = uint64_t(tid); ordinal < logical;
-         ordinal += uint64_t(256)) {
-)glsl";
-  for (std::size_t index = 0u; index < resources.checks.size(); ++index) {
-    const VulkanMapCheck check = resources.checks[index];
-    source += "      if (uint64_t(index" + std::to_string(index) +
-              "_words[uint((" + std::to_string(check.offset) +
-              "ul + ordinal * " + std::to_string(check.stride) +
-              "ul) / 4ul)]) >= " + std::to_string(check.limit) +
-              "ul) { local_invalid = min(local_invalid, "
-              "uint(min(ordinal, uint64_t(0xfffffffeu)))); }\n";
-  }
-  source += R"glsl(    }
-  }
-  invalids[tid] = local_invalid;
-  barrier();
-  for (uint stride = 128u; stride != 0u; stride >>= 1u) {
-    if (tid < stride) {
-      invalids[tid] = min(invalids[tid], invalids[tid + stride]);
+  template <typename Sink>
+  [[nodiscard]] bool operator()(Sink &sink) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
+    using namespace vulkan_map_source_detail;
+    if (!sink.append(CheckPrefix)) {
+      return false;
     }
-    barrier();
+    for (std::size_t index = 0u; index < prepared.checks.size(); ++index) {
+      if (!sink.append(BindingPrefix) ||
+          !backend_source_recipe::append_decimal(sink, index + 2u) ||
+          !sink.append(BindingIndex) ||
+          !backend_source_recipe::append_decimal(sink, index) ||
+          !sink.append(BindingWords) ||
+          !backend_source_recipe::append_decimal(sink, index) ||
+          !sink.append(BindingSuffix)) {
+        return false;
+      }
+    }
+    if (!sink.append(BindingPrefix) ||
+        !backend_source_recipe::append_decimal(sink,
+                                               prepared.checks.size() + 2u) ||
+        !sink.append(StatusMiddle) || !sink.append(CheckBody)) {
+      return false;
+    }
+    for (std::size_t index = 0u; index < prepared.checks.size(); ++index) {
+      const VulkanMapCheck check = prepared.checks[index];
+      if (!sink.append(CheckLinePrefix) ||
+          !backend_source_recipe::append_decimal(sink, index) ||
+          !sink.append(CheckLineOffset) ||
+          !backend_source_recipe::append_decimal(sink, check.offset) ||
+          !sink.append(CheckLineStride) ||
+          !backend_source_recipe::append_decimal(sink, check.stride) ||
+          !sink.append(CheckLineLimit) ||
+          !backend_source_recipe::append_decimal(sink, check.limit) ||
+          !sink.append(CheckLineSuffix)) {
+        return false;
+      }
+    }
+    return sink.append(CheckTail);
   }
-  if (tid != 0u) { return; }
-  status[1] = uint(min(logical, uint64_t(0xffffffffu)));
-  status[0] = logical > capacity
-                  ? 1u
-                  : (invalids[0] == 0xffffffffu ? 0u : 2u);
-  if (status[0] == 2u) { status[1] = invalids[0]; }
-}
-)glsl";
-  const auto [hi, lo] = VulkanMapCheckHash(resources);
+};
+
+[[nodiscard]] inline rund::kernel::LoweringArtifact
+VulkanMapCheckArtifact(const VulkanMapTemplateResources &prepared) {
+  const auto [hi, lo] = VulkanMapCheckHash(prepared);
   rund::kernel::LoweringArtifact artifact{};
   artifact.key.api = rund::kernel::ComputeApi::Vulkan;
-  artifact.key.scalar = resources.plan.scalar;
-  artifact.key.domain = resources.plan.domain;
-  artifact.key.fixed_format = resources.plan.fixed_format;
+  artifact.key.scalar = prepared.plan.scalar;
+  artifact.key.domain = prepared.plan.domain;
+  artifact.key.fixed_format = prepared.plan.fixed_format;
   artifact.key.op_hash_hi = hi;
   artifact.key.op_hash_lo = lo;
   artifact.key.canonical_ir_hash_hi = hi;
   artifact.key.canonical_ir_hash_lo = lo;
   artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = std::move(source);
+  if (prepared.checks.empty() ||
+      prepared.checks.size() > rund::kernel::kMaxComputeBindingCount) {
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  }
+  std::uint64_t offset_digits = 0u;
+  std::uint64_t stride_digits = 0u;
+  std::uint64_t limit_digits = 0u;
+  for (const VulkanMapCheck check : prepared.checks) {
+    if (!rund::kernel::checked::add(offset_digits,
+                                    VulkanDecimalDigitCount(check.offset),
+                                    offset_digits) ||
+        !rund::kernel::checked::add(stride_digits,
+                                    VulkanDecimalDigitCount(check.stride),
+                                    stride_digits) ||
+        !rund::kernel::checked::add(
+            limit_digits, VulkanDecimalDigitCount(check.limit), limit_digits)) {
+      artifact.reason = "compute_pipeline_capacity";
+      return artifact;
+    }
+  }
+  std::uint64_t source_upper = 0u;
+  if (!VulkanMapCheckSourceUpperBytes(prepared.checks.size(), offset_digits,
+                                      stride_digits, limit_digits,
+                                      source_upper) ||
+      source_upper > std::numeric_limits<std::size_t>::max()) {
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  }
+  const VulkanMapCheckSourceRecipe recipe{prepared};
+  std::uint64_t exact_source_bytes = 0u;
+  if (!backend_source_recipe::bytes(recipe, exact_source_bytes) ||
+      exact_source_bytes != source_upper) {
+    artifact.reason = "compute_artifact_mismatch";
+    return artifact;
+  }
+  artifact.source_text =
+      backend_source_recipe::materialize(recipe, exact_source_bytes);
+  if (artifact.source_text.empty()) {
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  }
+  artifact.source_text_upper_bytes = source_upper;
   artifact.ok = true;
   artifact.reason = "ok";
   return artifact;
@@ -208,45 +169,94 @@ VulkanMapControlArtifact(const rund::kernel::ComputePlan &plan) {
   artifact.key.fixed_format = plan.fixed_format;
   artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
   artifact.source_text = VulkanMapControlSource();
-  artifact.ok = true;
-  artifact.reason = "ok";
+  artifact.source_text_upper_bytes = VulkanMapControlSourceText().size();
+  artifact.ok = !artifact.source_text.empty();
+  artifact.reason = artifact.ok ? "ok" : "compute_pipeline_capacity";
   return artifact;
 }
 
 [[nodiscard]] inline rund::kernel::LoweringArtifact
-VulkanControlledMapArtifact(const rund::kernel::LoweringArtifact &source,
+VulkanControlledMapArtifact(rund::kernel::LoweringArtifact artifact,
                             const rund::kernel::ComputePlan &plan) {
-  rund::kernel::LoweringArtifact artifact = source;
-  const std::uint64_t binding =
-      plan.input_buffer_count + plan.output_buffer_count + 1u;
-  const std::string entry = "void main() {\n";
-  const std::string guard =
-      "  if (gid >= rund_dispatch.tile_count) { return; }\n";
-  const std::string controlled_guard =
-      "  if (gid >= rund_control_args[rund_dispatch.tile_count * 4u + 3u]) "
-      "{ return; }\n";
-  const std::string declaration =
-      "layout(set = 0, binding = " + std::to_string(binding) +
-      ", std430) readonly buffer RundControlArgs { uint "
-      "rund_control_args[]; };\n";
-  if (!ReplaceControl(artifact.source_text, entry, declaration + entry) ||
-      !ReplaceControl(artifact.source_text, guard, controlled_guard) ||
-      !ReplaceControl(artifact.source_text, "// artifact_variant=canonical",
-                      "// artifact_variant=controlled")) {
+  std::uint64_t source_upper = 0u;
+  if (!VulkanControlledMapSourceUpperBytes(
+          plan,
+          std::max<std::uint64_t>(artifact.source_text.size(),
+                                  artifact.source_text_upper_bytes),
+          source_upper) ||
+      source_upper > std::numeric_limits<std::size_t>::max()) {
     artifact.ok = false;
-    artifact.reason = "compute_artifact_mismatch";
+    artifact.reason = "compute_pipeline_capacity";
     return artifact;
   }
-  artifact.key.variant = rund::kernel::LoweringArtifactVariant::Controlled;
-  return artifact;
+  try {
+    using namespace vulkan_controlled_map_source_detail;
+    if (!backend_source_recipe::reserve_string(artifact.source_text,
+                                               source_upper)) {
+      artifact.ok = false;
+      artifact.reason = "compute_pipeline_capacity";
+      return artifact;
+    }
+    std::uint64_t binding = 0u;
+    constexpr std::size_t ControlledEntryCapacity =
+        DeclarationPrefix.size() + 20u + DeclarationSuffix.size() +
+        Entry.size();
+    std::array<char, ControlledEntryCapacity> controlled_storage{};
+    backend_source_recipe::FixedBufferSink<ControlledEntryCapacity>
+        controlled_sink{controlled_storage};
+    if (!rund::kernel::checked::add(plan.input_buffer_count,
+                                    plan.output_buffer_count, binding) ||
+        !rund::kernel::checked::add(binding, 1u, binding) ||
+        !controlled_sink.append(DeclarationPrefix) ||
+        !backend_source_recipe::append_decimal(controlled_sink, binding) ||
+        !controlled_sink.append(DeclarationSuffix) ||
+        !controlled_sink.append(Entry)) {
+      artifact.ok = false;
+      artifact.reason = "compute_pipeline_capacity";
+      return artifact;
+    }
+    const std::size_t frozen_capacity = artifact.source_text.capacity();
+    const auto replace_unique = [&](const std::string_view needle,
+                                    const std::string_view replacement) {
+      const std::size_t at = artifact.source_text.find(needle);
+      if (needle.empty() || at == std::string::npos ||
+          artifact.source_text.find(needle, at + needle.size()) !=
+              std::string::npos) {
+        return false;
+      }
+      artifact.source_text.replace(at, needle.size(), replacement.data(),
+                                   replacement.size());
+      return artifact.source_text.capacity() == frozen_capacity;
+    };
+    if (!replace_unique(Entry, controlled_sink.text()) ||
+        !replace_unique(Guard, ControlledGuard) ||
+        !replace_unique(CanonicalVariant, ControlledVariant) ||
+        artifact.source_text.size() > source_upper ||
+        artifact.source_text.capacity() != frozen_capacity) {
+      artifact.ok = false;
+      artifact.reason = "compute_artifact_mismatch";
+      return artifact;
+    }
+    artifact.key.variant = rund::kernel::LoweringArtifactVariant::Controlled;
+    artifact.source_text_upper_bytes = source_upper;
+    return artifact;
+  } catch (const std::bad_alloc &) {
+    artifact.ok = false;
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  } catch (const std::length_error &) {
+    artifact.ok = false;
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  }
 }
 
 [[nodiscard]] inline bool PrepareVulkanMapControl(
     const rund::AccelDevice &pick, const BoundControl &bound,
-    const rund::kernel::ComputePlan &plan,
     const std::vector<rund::kernel::ComputeDispatchWindow> &windows,
     VulkanMapEncodeResources &resources) {
-  if (!bound.active() && resources.checks.empty()) {
+  if (resources.prepared == nullptr ||
+      (!bound.active() && resources.prepared->checks.empty())) {
     return true;
   }
   if (windows.empty() ||
@@ -289,11 +299,7 @@ VulkanControlledMapArtifact(const rund::kernel::LoweringArtifact &source,
     return false;
   }
   resources.control_args = ScopedBuffer{*resources.adapter, args, args_bytes};
-  const rund::kernel::LoweringArtifact control_artifact =
-      VulkanMapControlArtifact(plan);
-  resources.control_pipeline = AcquireVulkanCollectivePipeline(
-      *resources.adapter, 4u, sizeof(VulkanMapControlPush), plan,
-      control_artifact);
+  resources.control_pipeline = resources.prepared->control_pipeline;
   if (resources.control_pipeline == nullptr ||
       !AcquireVulkanCollectiveDescriptorSet(*resources.adapter,
                                             *resources.control_pipeline, 4u,
@@ -361,16 +367,18 @@ VulkanControlledMapArtifact(const rund::kernel::LoweringArtifact &source,
           *resources.adapter, resources.control_descriptor, bindings)) {
     return false;
   }
-  if (resources.checks.empty()) {
+  if (resources.prepared->checks.empty()) {
     return true;
   }
   const std::uint64_t capacity =
       windows.back().begin_sequence + windows.back().tile_count;
   std::vector<VulkanStorageBinding> check_bindings;
-  check_bindings.reserve(resources.checks.size() + 3u);
+  check_bindings.reserve(resources.prepared->checks.size() + 3u);
   check_bindings.push_back(count_binding);
   check_bindings.push_back(predicate_binding);
-  for (VulkanMapCheck &check : resources.checks) {
+  resources.check_bases.clear();
+  resources.check_bases.reserve(resources.prepared->checks.size());
+  for (const VulkanMapCheck &check : resources.prepared->checks) {
     const auto *const ref =
         resources.bindings.resident_inputs.ref(check.binding);
     const VulkanResidentBufferResult &resident =
@@ -381,46 +389,43 @@ VulkanControlledMapArtifact(const rund::kernel::LoweringArtifact &source,
         resident.device_buffer == nullptr || alignment == 0u ||
         capacity == 0u ||
         !rund::kernel::checked::mul(capacity - 1u, ref->stride_bytes) ||
-        !rund::kernel::checked::add(
-            (capacity - 1u) * ref->stride_bytes, ref->element_bytes)) {
+        !rund::kernel::checked::add((capacity - 1u) * ref->stride_bytes,
+                                    ref->element_bytes)) {
       return false;
     }
-    check.base = ref->offset_bytes - ref->offset_bytes % alignment;
-    check.offset = ref->offset_bytes - check.base;
-    check.stride = ref->stride_bytes;
+    const std::uint64_t base =
+        ref->offset_bytes - ref->offset_bytes % alignment;
+    if (ref->offset_bytes - base != check.offset ||
+        ref->stride_bytes != check.stride) {
+      return false;
+    }
+    resources.check_bases.push_back(base);
     const std::uint64_t payload =
         (capacity - 1u) * ref->stride_bytes + ref->element_bytes;
     if (check.offset > std::numeric_limits<std::uint64_t>::max() - payload) {
       return false;
     }
     const std::uint64_t range = check.offset + payload;
-    if (check.base > resident.device_buffer->bytes ||
-        range > resident.device_buffer->bytes - check.base ||
+    if (base > resident.device_buffer->bytes ||
+        range > resident.device_buffer->bytes - base ||
         range > resources.adapter->storage_limit) {
       return false;
     }
     check_bindings.push_back(
-        VulkanStorageBinding{resident.device_buffer, check.base, range});
+        VulkanStorageBinding{resident.device_buffer, base, range});
   }
-  check_bindings.push_back(
-      VulkanStorageBinding{&resources.control_status.device, 0u,
-                           2u * sizeof(std::uint32_t)});
-  const rund::kernel::LoweringArtifact check_artifact =
-      VulkanMapCheckArtifact(resources);
-  resources.check_pipeline = AcquireVulkanCollectivePipeline(
-      *resources.adapter,
-      static_cast<std::uint32_t>(check_bindings.size()),
-      sizeof(VulkanMapControlPush), plan, check_artifact);
+  check_bindings.push_back(VulkanStorageBinding{
+      &resources.control_status.device, 0u, 2u * sizeof(std::uint32_t)});
+  resources.check_pipeline = resources.prepared->check_pipeline;
   return resources.check_pipeline != nullptr &&
          AcquireVulkanCollectiveDescriptorSet(
              *resources.adapter, *resources.check_pipeline,
              static_cast<std::uint32_t>(check_bindings.size()),
              resources.check_descriptor) &&
-         WriteVulkanStorageDescriptorSet(*resources.adapter,
-                                         resources.check_descriptor,
-                                         check_bindings.data(),
-                                         static_cast<std::uint32_t>(
-                                             check_bindings.size()));
+         WriteVulkanStorageDescriptorSet(
+             *resources.adapter, resources.check_descriptor,
+             check_bindings.data(),
+             static_cast<std::uint32_t>(check_bindings.size()));
 }
 
 [[nodiscard]] inline VulkanMapControlPush
@@ -467,14 +472,13 @@ VulkanMapControlParameters(const VulkanMapEncodeResources &map,
                                  sizeof(std::uint32_t)),
       static_cast<std::uint32_t>((predicate_offset - map.predicate_base) /
                                  sizeof(std::uint32_t)),
-      map.checks.empty() ? 0u : 1u};
+      map.prepared->checks.empty() ? 0u : 1u};
   return params;
 }
 
-inline void
-EncodeVulkanMapCheck(VkCommandBuffer command,
-                     const VulkanMapEncodeResources &map) {
-  if (map.checks.empty()) {
+inline void EncodeVulkanMapCheck(VkCommandBuffer command,
+                                 const VulkanMapEncodeResources &map) {
+  if (map.prepared == nullptr || map.prepared->checks.empty()) {
     return;
   }
   const VulkanMapControlPush params =

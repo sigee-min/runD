@@ -11,6 +11,7 @@
 #include "local.hpp"
 #include "pipeline/store.hpp"
 #include "resources/pipeline.hpp"
+#include "../pipeline/template.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -55,7 +56,9 @@ rund::AccelCheck PrepareMetalStencil(const rund::AccelDevice &pick,
                                      const rund::kernel::StencilPlan &plan,
                                      const rund::kernel::ComputeDomain domain,
                                      const StencilBinds &bindings,
-                                     std::shared_ptr<void> &resources) {
+                                     std::shared_ptr<void> &resources,
+                                     const MetalKernelImmutablePipelines *const
+                                         pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -81,7 +84,13 @@ rund::AccelCheck PrepareMetalStencil(const rund::AccelDevice &pick,
     SetMetalLastError(*adapter, check.reason);
     return check;
   }
-  check = PrepareMetalStencilPipeline(*adapter, plan, domain, *raw);
+  if (pipelines != nullptr && pipelines->ready(1u)) {
+    raw->pipeline = pipelines->stages[0u];
+  } else if (pipelines != nullptr) {
+    check = {false, "accel_metal_pipeline_unavailable"};
+  } else {
+    check = PrepareMetalStencilPipeline(*adapter, plan, domain, *raw);
+  }
   if (!check.ok) {
     SetMetalLastError(*adapter, check.reason);
     return check;
@@ -95,6 +104,7 @@ rund::AccelCheck PrepareMetalStencil(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

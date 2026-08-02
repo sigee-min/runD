@@ -14,7 +14,12 @@ BindVulkanMapOutputs(VulkanAdapter &adapter,
                      const VulkanMapEncodeResources &map,
                      const rund::kernel::ComputeDispatchWindow &window,
                      VkDescriptorBufferInfo *const infos) {
-  for (rund::kernel::u64 index = 0u; index < map.plan.output_buffer_count;
+  if (map.prepared == nullptr) {
+    SetVulkanLastError(adapter, "compute_plan_invalid");
+    return false;
+  }
+  for (rund::kernel::u64 index = 0u;
+       index < map.prepared->plan.output_buffer_count;
        ++index) {
     VkDeviceSize output_offset = 0u;
     VkDeviceSize output_range = 0u;
@@ -32,7 +37,8 @@ BindVulkanMapOutputs(VulkanAdapter &adapter,
       SetVulkanLastError(adapter, "compute_binding_mismatch");
       return false;
     }
-    infos[static_cast<std::size_t>(map.plan.input_buffer_count + index + 1u)] =
+    infos[static_cast<std::size_t>(
+        map.prepared->plan.input_buffer_count + index + 1u)] =
         VkDescriptorBufferInfo{output.device_buffer->buffer, output_offset,
                                output_range};
   }
@@ -44,12 +50,14 @@ BindVulkanMapOutputs(VulkanAdapter &adapter,
     const rund::kernel::ComputeDispatchWindow &window) {
   std::array<VkBufferMemoryBarrier, rund::kernel::kMaxGraphSignatureValues>
       barriers{};
-  if (map.plan.output_buffer_count == 0u ||
-      map.plan.output_buffer_count > barriers.size()) {
+  if (map.prepared == nullptr ||
+      map.prepared->plan.output_buffer_count == 0u ||
+      map.prepared->plan.output_buffer_count > barriers.size()) {
     SetVulkanLastError(*map.adapter, "compute_binding_mismatch");
     return false;
   }
-  for (rund::kernel::u64 index = 0u; index < map.plan.output_buffer_count;
+  for (rund::kernel::u64 index = 0u;
+       index < map.prepared->plan.output_buffer_count;
        ++index) {
     VkDeviceSize offset = 0u;
     VkDeviceSize range = 0u;
@@ -77,7 +85,8 @@ BindVulkanMapOutputs(VulkanAdapter &adapter,
   }
   vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 0u, nullptr,
-                       static_cast<std::uint32_t>(map.plan.output_buffer_count),
+                       static_cast<std::uint32_t>(
+                           map.prepared->plan.output_buffer_count),
                        barriers.data(), 0u, nullptr);
   return true;
 }

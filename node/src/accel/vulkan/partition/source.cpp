@@ -1,12 +1,18 @@
 #include "local.hpp"
+#include "../kernel/source_recipe.hpp"
 
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-std::string VulkanPartitionSource(const PartitionStage stage,
-                                  const rund::kernel::u32 flag_bytes,
-                                  const rund::kernel::u32 value_bytes) {
-  std::string source;
+namespace {
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanPartitionSource(
+    Sink &sink, const PartitionStage stage,
+    const rund::kernel::u32 flag_bytes,
+    const rund::kernel::u32 value_bytes)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink source{sink};
   source += "#version 450\n";
   source += "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : ";
   source += "require\n";
@@ -30,7 +36,7 @@ std::string VulkanPartitionSource(const PartitionStage stage,
                   : "  const bool true_group = flags[gid] != 0u;\n";
     source += "  false_bits[gid] = true_group ? 0u : 1u;\n";
     source += "}\n";
-    return source;
+    return source.ok();
   }
   source += "layout(set = 0, binding = 1, std430) readonly buffer Flags {\n";
   source += flag_bytes == sizeof(rund::kernel::u64) ? "  uint64_t flags[];\n"
@@ -70,7 +76,35 @@ std::string VulkanPartitionSource(const PartitionStage stage,
   source += "false_total_shared + true_rank;\n";
   source += "  output_values[target] = values[gid];\n";
   source += "}\n";
-  return source;
+  return source.ok();
+}
+
+} // namespace
+
+std::string VulkanPartitionSource(const PartitionStage stage,
+                                  const rund::kernel::u32 flag_bytes,
+                                  const rund::kernel::u32 value_bytes) {
+  std::uint64_t exact_bytes = 0u;
+  const auto emit = [&](auto &sink)
+      noexcept(noexcept(EmitVulkanPartitionSource(
+          sink, stage, flag_bytes, value_bytes))) {
+    return EmitVulkanPartitionSource(sink, stage, flag_bytes, value_bytes);
+  };
+  return backend_source_recipe::bytes(emit, exact_bytes)
+             ? backend_source_recipe::materialize(emit, exact_bytes)
+             : std::string{};
+}
+
+bool VulkanPartitionSourceBytes(const PartitionStage stage,
+                                const rund::kernel::u32 flag_bytes,
+                                const rund::kernel::u32 value_bytes,
+                                std::uint64_t &bytes) noexcept {
+  const auto emit = [&](auto &sink)
+      noexcept(noexcept(EmitVulkanPartitionSource(
+          sink, stage, flag_bytes, value_bytes))) {
+    return EmitVulkanPartitionSource(sink, stage, flag_bytes, value_bytes);
+  };
+  return backend_source_recipe::bytes(emit, bytes);
 }
 #endif
 

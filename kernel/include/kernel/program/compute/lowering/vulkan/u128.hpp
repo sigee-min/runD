@@ -4,7 +4,7 @@
 
 namespace rund::kernel::compute_lowering_detail {
 
-inline void AppendVulkanU128Core(std::string &out) {
+template <typename Source> inline void AppendVulkanU128Core(Source &out) {
   out += R"GLSL(
 struct RundU128 {
   uint64_t hi;
@@ -60,7 +60,7 @@ RundU128 RundMulWide64(uint64_t lhs, uint64_t rhs) {
 )GLSL";
 }
 
-inline void AppendVulkanU128Division(std::string &out) {
+template <typename Source> inline void AppendVulkanU128Division(Source &out) {
   out += R"GLSL(
 uint64_t RundUnsignedDivU128ByU64(RundU128 numerator,
                                   uint64_t denominator) {
@@ -85,7 +85,8 @@ uint64_t RundUnsignedDivU128ByU64(RundU128 numerator,
 )GLSL";
 }
 
-inline void AppendVulkanU128IntegerSquareRoot(std::string &out) {
+template <typename Source>
+inline void AppendVulkanU128IntegerSquareRoot(Source &out) {
   out += R"GLSL(
 uint64_t RundUnsignedSqrtU128ToU64(RundU128 value) {
   RundU128 result = RundMakeU128(0ul, 0ul);

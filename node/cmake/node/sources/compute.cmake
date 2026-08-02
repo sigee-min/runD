@@ -13,6 +13,8 @@ list(APPEND NODE_SOURCES
   src/compute/map/compile/model.cpp
   src/compute/map/compile/operation.cpp
   src/compute/map/compile/replay.cpp
+  src/compute/cpu/arena.cpp
+  src/compute/cpu/prepared.cpp
   src/compute/cpu/run/execute.cpp
   src/compute/cpu/run/primitive.cpp
   src/compute/cpu/run/primitive/algebra.cpp

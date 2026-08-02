@@ -1,11 +1,12 @@
 #include "local.hpp"
 
 #include <string>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
-std::string MetalGatherSource() {
-  return R"MSL(
+namespace {
+inline constexpr std::string_view Source = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -93,6 +94,10 @@ kernel void rund_compute_gather_u64(
   output[gid] = values[source_index];
 }
 )MSL";
-}
+} // namespace
+
+std::string MetalGatherSource() { return std::string{Source}; }
+
+std::uint64_t MetalGatherSourceUpperBytes() noexcept { return Source.size(); }
 
 }  // namespace rund::node::accel::detail

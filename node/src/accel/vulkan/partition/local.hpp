@@ -54,6 +54,9 @@ void DestroyVulkanPartitionEncodeResources(void *raw);
 [[nodiscard]] std::string VulkanPartitionSource(PartitionStage stage,
                                                 rund::kernel::u32 flag_bytes,
                                                 rund::kernel::u32 value_bytes);
+[[nodiscard]] bool VulkanPartitionSourceBytes(
+    PartitionStage stage, rund::kernel::u32 flag_bytes,
+    rund::kernel::u32 value_bytes, std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquirePartitionPipeline(VulkanAdapter &adapter,
                          const rund::kernel::PartitionDesc &desc,

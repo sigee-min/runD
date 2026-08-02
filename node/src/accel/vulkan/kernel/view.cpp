@@ -8,6 +8,7 @@
 #include "../command.hpp"
 #include "../descriptor.hpp"
 #include "../resident/access.hpp"
+#include "pipeline/source_artifact.hpp"
 
 #include <kernel/program/compute/artifact.hpp>
 #include <kernel/program/compute/model.hpp>
@@ -16,6 +17,7 @@
 #include <limits>
 #include <mutex>
 #include <new>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -39,7 +41,7 @@ struct VulkanViewParams final {
 
 static_assert(sizeof(VulkanViewParams) == 48u);
 
-[[nodiscard]] std::string VulkanViewSource() {
+[[nodiscard]] constexpr std::string_view VulkanViewSource() noexcept {
   return R"GLSL(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = 256) in;
@@ -78,8 +80,9 @@ void main() {
 )GLSL";
 }
 
-[[nodiscard]] VulkanCollectivePipeline *
-AcquireViewPipeline(VulkanAdapter &adapter) {
+} // namespace
+
+VulkanCollectivePipeline *AcquireVulkanViewPipeline(VulkanAdapter &adapter) {
   const rund::kernel::ComputePlan pseudo{
       .op_hash_hi = 0x7069706576696577ull,
       .op_hash_lo = 0x636f707975333200ull,
@@ -88,15 +91,17 @@ AcquireViewPipeline(VulkanAdapter &adapter) {
       .ok = true,
       .reason = "ok",
   };
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = VulkanViewSource();
-  artifact.ok = true;
-  artifact.reason = "ok";
+  const rund::kernel::LoweringArtifact artifact =
+      VulkanFixedSourceArtifact(VulkanViewSource());
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(adapter, kViewDescriptorCount,
                                          sizeof(VulkanViewParams), pseudo,
                                          artifact);
 }
+
+namespace {
 
 [[nodiscard]] bool Strided(const rund::kernel::ResidentBufferRef &ref) {
   // Stride cannot change the selected address set for zero or one element.
@@ -154,7 +159,7 @@ ResolveDense(const rund::AccelDevice &pick, const std::uint64_t binding,
   }
   const std::uint64_t bytes = requested.count * requested.element_bytes;
   const KernelViewSlot *const slot =
-      FindKernelViewSlot(*views, binding, bytes);
+      FindKernelViewSlot(*views, binding, requested);
   if (slot == nullptr || slot->slot >= view_binds->size()) {
     return RejectResident<VulkanResidentBufferResult>(
         "compute_pipeline_memory_plan_invalid");
@@ -280,6 +285,8 @@ ResolveDense(const rund::AccelDevice &pick, const std::uint64_t binding,
 
 } // namespace
 
+std::string_view VulkanViewSourceText() noexcept { return VulkanViewSource(); }
+
 rund::AccelCheck PrepareVulkanViewLowering(
     const rund::AccelDevice &pick, const BoundStep &source,
     const KernelPreparationMode mode, const KernelViewLayout *const views,
@@ -302,6 +309,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
     view->transfer_by_binding.resize(original.size(), 0u);
   } catch (const std::bad_alloc &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   view->adapter = static_cast<VulkanAdapter *>(pick.backend.context);
   std::vector<Replacement> replacements;
@@ -310,6 +319,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
     replacements.reserve(source.step->graph_binding_indices.size());
     replacement_by_binding.resize(original.size(), 0u);
   } catch (const std::bad_alloc &) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   for (std::size_t local = 0u;
@@ -349,12 +360,14 @@ rund::AccelCheck PrepareVulkanViewLowering(
             static_cast<std::uint32_t>(replacements.size());
       } catch (const std::bad_alloc &) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      } catch (const std::length_error &) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
       continue;
     }
     bool planned = false;
-    VulkanResidentBufferResult dense = ResolveDense(
-        pick, index, ref, mode, views, view_binds, planned);
+    VulkanResidentBufferResult dense =
+        ResolveDense(pick, index, ref, mode, views, view_binds, planned);
     if (!dense.check.ok) {
       return dense.check;
     }
@@ -403,6 +416,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
           static_cast<std::uint32_t>(replacements.size());
     } catch (const std::bad_alloc &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    } catch (const std::length_error &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
   if (replacements.empty()) {
@@ -436,8 +451,17 @@ PrepareVulkanViewCommands(VulkanAdapter &adapter,
   if (view == nullptr || view->transfers.empty()) {
     return rund::AccelCheck{true, "ok"};
   }
-  view->pipeline = AcquireViewPipeline(adapter);
+  const bool borrowed_pipeline = view->pipeline != nullptr;
+  if (!borrowed_pipeline) {
+    view->pipeline = AcquireVulkanViewPipeline(adapter);
+  }
   if (view->pipeline == nullptr) {
+    return rund::AccelCheck{false, VulkanLastError(&adapter)};
+  }
+  const std::uint64_t descriptor_set_count = VulkanViewDispatchCount(view);
+  if (!borrowed_pipeline && !ReserveVulkanCollectiveDescriptorDemand(
+                                adapter, *view->pipeline, kViewDescriptorCount,
+                                descriptor_set_count)) {
     return rund::AccelCheck{false, VulkanLastError(&adapter)};
   }
   for (VulkanViewTransfer &transfer : view->transfers) {

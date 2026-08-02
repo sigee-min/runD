@@ -4,7 +4,6 @@
 #include "../../../kernel/telemetry.hpp"
 #include "../../pipeline/named.hpp"
 
-#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -14,9 +13,10 @@ namespace rund::node::accel::detail {
 [[nodiscard]] bool
 ValidMetalSequence(const MetalSequence *const sequence) noexcept {
   return sequence != nullptr && sequence->adapter != nullptr &&
-         ((sequence->command_count == 0u && sequence->commands == nil) ||
-          (sequence->command_count != 0u && sequence->commands != nil &&
+         ((sequence->command_count == 0u && sequence->command_chunks.empty()) ||
+          (sequence->command_count != 0u && !sequence->command_chunks.empty() &&
            sequence->control != nil &&
+           sequence->warm.owns(sequence->residency, sequence->command_chunks) &&
            (sequence->direct_aggregate || sequence->guard_zero != nil) &&
            (!sequence->direct_aggregate ||
             (sequence->command_count == 2u && sequence->state_count == 0u &&
@@ -32,27 +32,26 @@ ValidMetalSequence(const MetalSequence *const sequence) noexcept {
   return sequence.command_count == 0u;
 }
 
-[[nodiscard]] rund::AccelCheck EncodeMetalSequence(MetalSequence &sequence,
-                                                   CommandRun &command) {
-  if (EmptyMetalSequence(sequence)) {
-    return rund::AccelCheck{true, "ok"};
+[[nodiscard]] rund::AccelCheck
+EncodeMetalWarmSubmission(MetalAdapter &adapter, const MetalWarmSubmission warm,
+                          CommandRun &command) {
+  if (warm.chunks == nullptr || warm.chunk_count == 0u) {
+    return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
   }
   const rund::AccelCheck ready =
-      OpenCommand<ResourceRefs::Borrowed>(*sequence.adapter, command);
+      OpenCommand<ResourceRefs::Borrowed>(adapter, command);
   if (!ready.ok) {
     return ready;
   }
-  if (!sequence.declared.empty()) {
-    [command.encoder useResources:sequence.declared.data()
-                            count:sequence.declared.size()
+  if (warm.resource_count != 0u) {
+    [command.encoder useResources:warm.resources
+                            count:warm.resource_count
                             usage:MTLResourceUsageRead | MTLResourceUsageWrite];
   }
-  [command.encoder
-      executeCommandsInBuffer:sequence.commands
-                    withRange:NSMakeRange(0u, sequence.command_count)];
-  [command.encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+  const rund::AccelCheck encoded = EncodeMetalPipelineIcbChunks(
+      command.encoder, warm.chunks, warm.chunk_count);
   CloseCommand(command);
-  return rund::AccelCheck{true, "ok"};
+  return encoded;
 }
 
 [[nodiscard]] bool
@@ -165,15 +164,6 @@ SeedPreparedMetalPipelineGeneration(const std::shared_ptr<void> &prepared,
     }
     const PreparedPipelineControl initial{.generation = generation};
     std::memcpy(contents, &initial, sizeof(initial));
-    if (pipeline->profile_steps) {
-      auto *const controls = static_cast<PreparedPipelineStepControl *>(
-          [pipeline->step_control contents]);
-      if (controls == nullptr) {
-        return rund::AccelCheck{false, "accel_metal_buffer_unavailable"};
-      }
-      std::fill_n(controls, pipeline->step_evidence.size(),
-                  PreparedPipelineStepControl{});
-    }
     return rund::AccelCheck{true, "ok"};
   }
 }
@@ -199,7 +189,8 @@ SubmitPreparedMetalPipeline(const std::shared_ptr<void> &prepared,
       return rund::AccelCheck{false, "compute_pipeline_busy"};
     }
     CommandRun command{};
-    const rund::AccelCheck ready = EncodeMetalSequence(*pipeline, command);
+    const rund::AccelCheck ready =
+        EncodeMetalWarmSubmission(*pipeline->adapter, pipeline->warm, command);
     const rund::AccelCheck submitted =
         ready.ok
             ? QueueCommand(*pipeline->adapter, (__bridge void *)command.buffer,

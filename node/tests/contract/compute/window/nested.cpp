@@ -4,6 +4,9 @@
 
 #include <node/runtime/compute/access.hpp>
 
+#include "src/compute/cpu/prepared.hpp"
+#include "src/compute/cpu/run/state.hpp"
+#include "src/compute/memory/cpu.hpp"
 #include "src/compute/pipeline/state.hpp"
 
 #include <algorithm>
@@ -25,6 +28,8 @@ constexpr std::size_t kInner = 3u;
 constexpr std::size_t kDomain = 64u;
 constexpr std::size_t kOuter = CeilDiv(kMaximum, kTile);
 constexpr std::size_t kTemplates = kOuter + kInner + 3u;
+constexpr std::size_t kPreparedTemplates =
+    kOuter + (kInner == 1u ? 1u : 2u) + 3u;
 constexpr std::size_t kCommands = kOuter * (kInner + 2u);
 constexpr std::uint32_t kOuterSeed = 7u;
 constexpr std::uint32_t kSentinel = 0xA5A55A5Au;
@@ -48,6 +53,102 @@ constexpr std::array<std::uint32_t, 7u> kCounts{
 
 static_assert(kOuter == 3u);
 static_assert(kOuter * kInner < rund::compute::PipelineIterationCapacity);
+
+[[nodiscard]] bool
+CpuRouteOwnershipIsExact(const rund::compute::Pipeline &pipeline) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  const std::shared_ptr<PipelineState> &state =
+      PipelineStateAccess::state(pipeline);
+  if (state == nullptr || state->device == nullptr ||
+      state->device->backend != Backend::Cpu || state->cpu_storage.empty() ||
+      state->cpu_storage.size() > kTemplates) {
+    return false;
+  }
+  for (std::size_t index = 0u; index < state->cpu_storage.size(); ++index) {
+    const std::shared_ptr<CpuGraphStorage> &storage = state->cpu_storage[index];
+    if (storage == nullptr || storage->program == nullptr) {
+      return false;
+    }
+    for (std::size_t prior = 0u; prior < index; ++prior) {
+      if (state->cpu_storage[prior].get() == storage.get() ||
+          state->cpu_storage[prior]->program == storage->program) {
+        return false;
+      }
+    }
+  }
+
+  std::array<const JobState *, 2u * kTemplates> jobs{};
+  std::array<bool, kTemplates> storage_used{};
+  std::size_t job_count = 0u;
+  bool shared_storage_with_independent_routes = false;
+  const auto inspect = [&](const std::shared_ptr<JobState> &job) {
+    if (job == nullptr) {
+      return false;
+    }
+    if (std::find(jobs.begin(), jobs.begin() + job_count, job.get()) !=
+        jobs.begin() + job_count) {
+      return true;
+    }
+    if (job_count == jobs.size() || job->program == nullptr ||
+        job->program->cpu_graph == nullptr || job->cpu == nullptr ||
+        job->cpu->graph == nullptr || job->cpu->graph->storage == nullptr) {
+      return false;
+    }
+    const auto planned = plan_cpu_run_route(job->program);
+    if (!planned) {
+      return false;
+    }
+    CpuGraphRun &route = *job->cpu->graph;
+    std::size_t storage_index = state->cpu_storage.size();
+    for (std::size_t index = 0u; index < state->cpu_storage.size(); ++index) {
+      if (state->cpu_storage[index].get() == route.storage.get()) {
+        storage_index = index;
+        break;
+      }
+    }
+    if (storage_index == state->cpu_storage.size() ||
+        route.storage->program != job->program->cpu_graph.get()) {
+      return false;
+    }
+    storage_used[storage_index] = true;
+
+    for (std::size_t prior = 0u; prior < job_count; ++prior) {
+      const JobState &other = *jobs[prior];
+      if (other.cpu.get() == job->cpu.get() ||
+          other.cpu->graph.get() == job->cpu->graph.get()) {
+        return false;
+      }
+      if (other.program.get() != job->program.get()) {
+        continue;
+      }
+      const CpuGraphRun &other_route = *other.cpu->graph;
+      if (other_route.storage.get() != route.storage.get() ||
+          (!route.maps.empty() &&
+           other_route.maps.data() == route.maps.data()) ||
+          (!route.reads.empty() &&
+           other_route.reads.data() == route.reads.data()) ||
+          (!route.writes.empty() &&
+           other_route.writes.data() == route.writes.data())) {
+        return false;
+      }
+      shared_storage_with_independent_routes = true;
+    }
+    jobs[job_count++] = job.get();
+    return true;
+  };
+
+  for (const PipelineStep &step : state->steps) {
+    if (!inspect(step.job) ||
+        (step.alternate_job != nullptr && !inspect(step.alternate_job))) {
+      return false;
+    }
+  }
+  return job_count != 0u && shared_storage_with_independent_routes &&
+         std::all_of(storage_used.begin(),
+                     storage_used.begin() + state->cpu_storage.size(),
+                     [](const bool used) { return used; });
+}
 
 template <std::size_t Maximum, std::size_t Tile>
 [[nodiscard]] auto SeedProgram(rund::compute::Device &device) {
@@ -240,7 +341,7 @@ template <class Seed, class Action, class Fold>
        fold.graph().memory.live_bytes});
   return plan.outer_window_count == kOuter && plan.tile_capacity == kTile &&
          plan.inner_iteration_count == kInner &&
-         plan.prepared_template_count == kTemplates &&
+         plan.prepared_template_count == kPreparedTemplates &&
          plan.prepared_command_count == kCommands &&
          plan.barrier_count == kTemplates - 1u && plan.resource_count == 11u &&
          plan.state_bytes == internal_bytes && plan.publish_count == 1u &&
@@ -346,7 +447,12 @@ struct JobViewIdentity final {
 struct KernelViewIdentity final {
   std::uint64_t binding{};
   std::size_t slot{};
-  std::uint64_t bytes{};
+  std::uint64_t backing_bytes{};
+  std::uint64_t offset_bytes{};
+  std::uint64_t count{};
+  std::uint64_t stride_bytes{};
+  std::uint64_t element_bytes{};
+  std::uint32_t usage{};
 
   [[nodiscard]] bool
   operator==(const KernelViewIdentity &) const noexcept = default;
@@ -387,6 +493,7 @@ struct CpuTransferIdentity final {
   const rund::compute::detail::BufferState *external{};
   const rund::compute::detail::BufferState *staging{};
   JobViewIdentity view{};
+  std::uint32_t binding{};
 
   [[nodiscard]] bool
   operator==(const CpuTransferIdentity &) const noexcept = default;
@@ -411,7 +518,6 @@ struct JobBindingIdentity final {
   std::vector<const rund::compute::detail::BufferState *> graph_buffers;
   std::vector<const rund::compute::detail::BufferState *> effective_graph;
   std::vector<const rund::compute::detail::BufferState *> outputs;
-  std::vector<const rund::compute::detail::BufferState *> cpu_view_buffers;
   std::vector<const rund::compute::detail::BufferState *> workspace_buffers;
   std::vector<const rund::compute::detail::BufferState *> arena_buffers;
   std::vector<std::size_t> workspace_offsets;
@@ -455,7 +561,6 @@ struct PipelineBindingIdentity final {
   std::vector<const rund::compute::detail::JobState *> alternate_jobs;
   std::vector<JobBindingIdentity> jobs;
   std::vector<const rund::compute::detail::BufferState *> resources;
-  std::vector<const rund::compute::detail::BufferState *> shared_buffers;
   std::vector<const rund::compute::detail::BufferState *> prepared_buffers;
   std::vector<const rund::compute::detail::BufferState *> claims;
   std::vector<const rund::compute::detail::BufferState *> alternate_claims;
@@ -476,9 +581,9 @@ BindingView(const rund::compute::detail::JobBufferView view) noexcept {
                          .alignment = view.alignment};
 }
 
+template <class Owners>
 void CaptureBufferOwners(
-    const std::vector<std::shared_ptr<rund::compute::detail::BufferState>>
-        &source,
+    const Owners &source,
     std::vector<const rund::compute::detail::BufferState *> &target,
     bool &valid) {
   target.reserve(source.size());
@@ -517,7 +622,6 @@ CaptureJobBinding(const rund::compute::detail::JobState &job,
   CaptureBufferOwners(job.write_inputs, result.write_inputs, valid);
   CaptureBufferOwners(job.graph_buffers, result.graph_buffers, valid);
   CaptureBufferOwners(job.outputs, result.outputs, valid);
-  CaptureBufferOwners(job.cpu_view_buffers, result.cpu_view_buffers, valid);
   const auto graph = job_graph_buffers(job);
   result.effective_graph.reserve(graph.size());
   for (const auto &owner : graph) {
@@ -536,27 +640,38 @@ CaptureJobBinding(const rund::compute::detail::JobState &job,
           result.output_views.size() == result.outputs.size();
   result.kernel_views.reserve(job.views.size());
   for (const rund::node::accel::detail::KernelViewSlot view : job.views) {
-    result.kernel_views.push_back(KernelViewIdentity{
-        .binding = view.binding, .slot = view.slot, .bytes = view.bytes});
+    result.kernel_views.push_back(
+        KernelViewIdentity{.binding = view.binding,
+                           .slot = view.slot,
+                           .backing_bytes = view.backing_bytes,
+                           .offset_bytes = view.offset_bytes,
+                           .count = view.count,
+                           .stride_bytes = view.stride_bytes,
+                           .element_bytes = view.element_bytes,
+                           .usage = view.usage});
   }
-  const auto capture_transfers = [&](const std::vector<CpuViewTransfer> &source,
+  const auto capture_transfers = [&](const auto &source, const auto &owners,
                                      std::vector<CpuTransferIdentity> &target) {
     target.reserve(source.size());
     for (const CpuViewTransfer &transfer : source) {
+      const BufferState *const staging = transfer.binding < owners.size()
+                                             ? owners[transfer.binding].get()
+                                             : nullptr;
       target.push_back(CpuTransferIdentity{.external = transfer.external.get(),
-                                           .staging = transfer.staging.get(),
-                                           .view = BindingView(transfer.view)});
-      valid =
-          valid && transfer.external != nullptr && transfer.staging != nullptr;
+                                           .staging = staging,
+                                           .view = BindingView(transfer.view),
+                                           .binding = transfer.binding});
+      valid = valid && transfer.external != nullptr && staging != nullptr;
     }
   };
-  capture_transfers(job.cpu_view_inputs, result.cpu_inputs);
-  capture_transfers(job.cpu_view_outputs, result.cpu_outputs);
+  capture_transfers(job.cpu_view_inputs, job.inputs, result.cpu_inputs);
+  capture_transfers(job.cpu_view_outputs, job.outputs, result.cpu_outputs);
 
   if (job.workspace != nullptr) {
     CaptureBufferOwners(job.workspace->buffers, result.workspace_buffers,
                         valid);
-    result.workspace_offsets = job.workspace->offsets;
+    result.workspace_offsets.assign(job.workspace->offsets.begin(),
+                                    job.workspace->offsets.end());
     valid = valid &&
             result.workspace_buffers.size() == result.workspace_offsets.size();
   }
@@ -686,8 +801,6 @@ CaptureBindingIdentity(const rund::compute::Pipeline &pipeline,
     result.valid = result.valid &&
                    result.normal_jobs.size() == result.alternate_jobs.size();
   }
-  CaptureBufferOwners(state->shared_buffers, result.shared_buffers,
-                      result.valid);
   CaptureBufferOwners(state->prepared_buffers, result.prepared_buffers,
                       result.valid);
   result.resources.reserve(state->resources.size());
@@ -769,7 +882,7 @@ CaptureBindingIdentity(const rund::compute::Pipeline &pipeline,
          stats.pipeline.failed_inner_iteration ==
              PipelineStats::no_coordinate &&
          stats.pipeline.barrier_count == kTemplates - 1u &&
-         stats.pipeline.prepared_template_count == kTemplates &&
+         stats.pipeline.prepared_template_count == kPreparedTemplates &&
          stats.pipeline.prepared_command_count == kCommands &&
          stats.pipeline.rebinding_count == 0u &&
          stats.control.iteration_count == active &&
@@ -845,6 +958,11 @@ CheckCount(rund::compute::Device &device, const rund::compute::Backend backend,
                  static_cast<unsigned>(prepared.ok()),
                  static_cast<unsigned>(prepared.reason()));
     return 3;
+  }
+  if (backend == Backend::Cpu && count_value == kCounts.front() &&
+      !CpuRouteOwnershipIsExact(*prepared)) {
+    std::fprintf(stderr, "nested CPU route ownership mismatch\n");
+    return 7;
   }
   const PipelineBindingIdentity frozen_bindings =
       CaptureBindingIdentity(*prepared, backend);
@@ -1615,9 +1733,48 @@ template <class Seed, class Fold>
       };
 
   auto one_builder = make_builder.template operator()<1u>(*output_one);
+  auto two_builder = make_builder.template operator()<2u>(*output_short);
+  auto three_builder = make_builder.template operator()<3u>(*output_short);
   auto many_builder = make_builder.template operator()<64u>(*output_many);
   const auto one_plan = one_builder.plan();
+  const auto two_plan = two_builder.plan();
+  const auto three_plan = three_builder.plan();
   const auto many_plan = many_builder.plan();
+  const Backend selected_backend =
+      rund::compute::detail::DeviceAccess::state(device)->backend;
+  const bool cpu = selected_backend == Backend::Cpu;
+  const bool accelerator = selected_backend != Backend::Cpu;
+  const auto seed_storage = rund::compute::detail::plan_cpu_graph_storage(
+      rund::compute::detail::ProgramAccess::state(seed));
+  const auto action_storage = rund::compute::detail::plan_cpu_graph_storage(
+      rund::compute::detail::ProgramAccess::state(*action));
+  const auto fold_storage = rund::compute::detail::plan_cpu_graph_storage(
+      rund::compute::detail::ProgramAccess::state(fold));
+  rund::compute::detail::CpuExecutionStoragePlan storage_execution{};
+  const bool storage_ready =
+      seed_storage && action_storage && fold_storage &&
+      rund::compute::detail::merge_cpu_execution_storage_plan(
+          storage_execution, seed_storage->execution) &&
+      rund::compute::detail::merge_cpu_execution_storage_plan(
+          storage_execution, action_storage->execution) &&
+      rund::compute::detail::merge_cpu_execution_storage_plan(
+          storage_execution, fold_storage->execution);
+  const rund::compute::detail::CpuStorageBytes execution_payload =
+      storage_ready ? rund::compute::detail::cpu_execution_storage_payload(
+                          storage_execution)
+                    : rund::compute::detail::CpuStorageBytes{};
+  const std::uint64_t storage_host =
+      storage_ready
+          ? seed_storage->private_total.host +
+                action_storage->private_total.host +
+                fold_storage->private_total.host + execution_payload.host
+          : 0u;
+  const std::uint64_t storage_tile =
+      storage_ready
+          ? seed_storage->private_total.tile +
+                action_storage->private_total.tile +
+                fold_storage->private_total.tile + execution_payload.tile
+          : 0u;
   const std::uint64_t action_delta =
       kOuter * 63u * action->graph().memory.logical_bytes;
   const std::uint64_t phase_live = std::max({seed.graph().memory.live_bytes,
@@ -1631,28 +1788,100 @@ template <class Seed, class Fold>
                      inner * action->graph().memory.logical_bytes +
                      fold.graph().memory.logical_bytes);
   };
-  if (!one_plan || !many_plan || action->graph().memory.logical_bytes == 0u ||
-      one_plan->state_bytes != many_plan->state_bytes ||
+  const auto prepared_components_exact = [](const PipelinePlan &plan) {
+    return plan.prepared_bytes ==
+           plan.prepared_buffer_bytes + plan.prepared_host_bytes +
+               plan.prepared_tile_bytes + plan.prepared_native_bytes;
+  };
+  const bool plans_ready = one_plan && two_plan && three_plan && many_plan;
+  const std::uint64_t prepared_delta =
+      one_plan && many_plan &&
+              many_plan->prepared_bytes >= one_plan->prepared_bytes
+          ? many_plan->prepared_bytes - one_plan->prepared_bytes
+          : 0u;
+  const std::uint64_t host_step =
+      two_plan && three_plan &&
+              three_plan->prepared_host_bytes >= two_plan->prepared_host_bytes
+          ? three_plan->prepared_host_bytes - two_plan->prepared_host_bytes
+          : 0u;
+  const std::uint64_t route_step =
+      two_plan && three_plan &&
+              three_plan->prepared_bytes >= two_plan->prepared_bytes
+          ? three_plan->prepared_bytes - two_plan->prepared_bytes
+          : 0u;
+  const bool monotonic_prepared_shape =
+      plans_ready && one_plan->prepared_bytes < two_plan->prepared_bytes &&
+      two_plan->prepared_bytes < three_plan->prepared_bytes &&
+      three_plan->prepared_bytes < many_plan->prepared_bytes;
+  const bool affine_prepared_shape =
+      plans_ready && route_step != 0u &&
+      many_plan->prepared_bytes - two_plan->prepared_bytes == 62u * route_step;
+  // Native backend reservations are deliberately structural rather than a
+  // public constant-per-route coefficient. Metal ICB tails use calibrated
+  // bit-ceil size classes, and each backend owns its exact command/descriptor
+  // equation. Keep this cross-backend contract on shared component and shape
+  // invariants instead of mirroring either private planner.
+  const bool backend_structural_prepared_shape =
+      !accelerator ||
+      (plans_ready &&
+       one_plan->prepared_host_bytes < two_plan->prepared_host_bytes &&
+       two_plan->prepared_host_bytes < three_plan->prepared_host_bytes &&
+       three_plan->prepared_host_bytes < many_plan->prepared_host_bytes &&
+       one_plan->prepared_native_bytes < two_plan->prepared_native_bytes &&
+       two_plan->prepared_native_bytes < three_plan->prepared_native_bytes &&
+       three_plan->prepared_native_bytes < many_plan->prepared_native_bytes &&
+       one_plan->prepared_buffer_bytes == many_plan->prepared_buffer_bytes &&
+       one_plan->prepared_tile_bytes == many_plan->prepared_tile_bytes);
+  const bool compact_route_prepared_shape =
+      monotonic_prepared_shape && backend_structural_prepared_shape &&
+      (accelerator || affine_prepared_shape);
+  const bool cpu_prepared_shape =
+      !cpu ||
+      (plans_ready && seed_storage && action_storage && fold_storage &&
+       storage_host != 0u && storage_tile != 0u && prepared_delta != 0u &&
+       host_step != 0u && one_plan->prepared_host_bytes >= storage_host &&
+       two_plan->prepared_host_bytes > one_plan->prepared_host_bytes &&
+       three_plan->prepared_host_bytes > two_plan->prepared_host_bytes &&
+       many_plan->prepared_host_bytes > three_plan->prepared_host_bytes &&
+       many_plan->prepared_host_bytes - two_plan->prepared_host_bytes ==
+           62u * host_step &&
+       one_plan->prepared_buffer_bytes == many_plan->prepared_buffer_bytes &&
+       one_plan->prepared_tile_bytes == storage_tile &&
+       two_plan->prepared_tile_bytes == storage_tile &&
+       three_plan->prepared_tile_bytes == storage_tile &&
+       many_plan->prepared_tile_bytes == storage_tile &&
+       one_plan->prepared_native_bytes == 0u &&
+       many_plan->prepared_native_bytes == 0u);
+  if (!plans_ready || action->graph().memory.logical_bytes == 0u ||
+      !prepared_components_exact(*one_plan) ||
+      !prepared_components_exact(*two_plan) ||
+      !prepared_components_exact(*three_plan) ||
+      !prepared_components_exact(*many_plan) || !compact_route_prepared_shape ||
+      !cpu_prepared_shape || one_plan->state_bytes != many_plan->state_bytes ||
       one_plan->transient_bytes != many_plan->transient_bytes ||
-      one_plan->prepared_bytes != many_plan->prepared_bytes ||
       one_plan->scratch_bytes != many_plan->scratch_bytes ||
       one_plan->scratch_count != many_plan->scratch_count ||
-      one_plan->peak_bytes != many_plan->peak_bytes ||
-      one_plan->live_bytes != many_plan->live_bytes ||
-      one_plan->physical_bytes != many_plan->physical_bytes ||
       one_plan->logical_bytes != expected_logical(*one_plan, 1u) ||
       many_plan->logical_bytes != expected_logical(*many_plan, 64u) ||
-      one_plan->logical_bytes + action_delta != many_plan->logical_bytes ||
+      one_plan->logical_bytes + action_delta + prepared_delta !=
+          many_plan->logical_bytes ||
       one_plan->live_bytes !=
           one_plan->state_bytes + one_plan->prepared_bytes + phase_live ||
+      one_plan->live_bytes + prepared_delta != many_plan->live_bytes ||
       one_plan->physical_bytes != one_plan->state_bytes +
                                       one_plan->prepared_bytes +
                                       one_plan->transient_bytes ||
+      one_plan->physical_bytes + prepared_delta != many_plan->physical_bytes ||
+      one_plan->peak_bytes + prepared_delta != many_plan->peak_bytes ||
       one_plan->allocation_count != many_plan->allocation_count ||
       one_plan->resource_count != many_plan->resource_count ||
       one_plan->prepared_template_count != kOuter + 1u + 3u ||
-      many_plan->prepared_template_count != kOuter + 64u + 3u ||
+      two_plan->prepared_template_count != kOuter + 2u + 3u ||
+      three_plan->prepared_template_count != kOuter + 2u + 3u ||
+      many_plan->prepared_template_count != kOuter + 2u + 3u ||
       one_plan->prepared_command_count != kOuter * (1u + 2u) ||
+      two_plan->prepared_command_count != kOuter * (2u + 2u) ||
+      three_plan->prepared_command_count != kOuter * (3u + 2u) ||
       many_plan->prepared_command_count != kOuter * (64u + 2u)) {
     if (one_plan && many_plan) {
       std::fprintf(
@@ -1661,7 +1890,9 @@ template <class Seed, class Fold>
           "prepared=%llu/%llu scratch=%llu:%llu/%llu:%llu "
           "logical=%llu/%llu action=%llu delta=%llu live=%llu/%llu "
           "peak=%llu/%llu physical=%llu/%llu allocations=%llu/%llu "
-          "templates=%llu/%llu commands=%llu/%llu\n",
+          "templates=%llu/%llu commands=%llu/%llu "
+          "host=%llu/%llu/%llu/%llu native=%llu/%llu/%llu/%llu "
+          "route_step=%llu host_step=%llu\n",
           static_cast<unsigned long long>(one_plan->state_bytes),
           static_cast<unsigned long long>(many_plan->state_bytes),
           static_cast<unsigned long long>(one_plan->transient_bytes),
@@ -1687,7 +1918,17 @@ template <class Seed, class Fold>
           static_cast<unsigned long long>(one_plan->prepared_template_count),
           static_cast<unsigned long long>(many_plan->prepared_template_count),
           static_cast<unsigned long long>(one_plan->prepared_command_count),
-          static_cast<unsigned long long>(many_plan->prepared_command_count));
+          static_cast<unsigned long long>(many_plan->prepared_command_count),
+          static_cast<unsigned long long>(one_plan->prepared_host_bytes),
+          static_cast<unsigned long long>(two_plan->prepared_host_bytes),
+          static_cast<unsigned long long>(three_plan->prepared_host_bytes),
+          static_cast<unsigned long long>(many_plan->prepared_host_bytes),
+          static_cast<unsigned long long>(one_plan->prepared_native_bytes),
+          static_cast<unsigned long long>(two_plan->prepared_native_bytes),
+          static_cast<unsigned long long>(three_plan->prepared_native_bytes),
+          static_cast<unsigned long long>(many_plan->prepared_native_bytes),
+          static_cast<unsigned long long>(route_step),
+          static_cast<unsigned long long>(host_step));
     }
     return 2;
   }
@@ -1741,8 +1982,12 @@ template <class Action, class Fold>
   constexpr std::size_t tile = 1024u;
   constexpr std::size_t inner = 64u;
   constexpr std::size_t small_maximum = tile;
+  constexpr std::size_t medium_maximum = 2u * tile;
+  constexpr std::size_t steady_maximum = 3u * tile;
   constexpr std::size_t maximum = 516096u;
   constexpr std::size_t small_outer = CeilDiv(small_maximum, tile);
+  constexpr std::size_t medium_outer = CeilDiv(medium_maximum, tile);
+  constexpr std::size_t steady_outer = CeilDiv(steady_maximum, tile);
   constexpr std::size_t outer = CeilDiv(maximum, tile);
   static_assert(outer == 504u);
   static_assert(outer * inner > PipelineIterationCapacity);
@@ -1766,17 +2011,90 @@ template <class Action, class Fold>
   };
 
   const auto small = planned.template operator()<small_maximum>();
+  const auto medium = planned.template operator()<medium_maximum>();
+  const auto steady = planned.template operator()<steady_maximum>();
   const auto large = planned.template operator()<maximum>();
   constexpr std::uint64_t small_schedule_bytes =
       small_outer * sizeof(std::uint32_t);
   constexpr std::uint64_t large_schedule_bytes = outer * sizeof(std::uint32_t);
   constexpr std::uint64_t state_bytes = (outer + 5u) * sizeof(std::uint32_t);
-  if (!small || !large || small->state_bytes < small_schedule_bytes ||
+  const Backend selected_backend =
+      rund::compute::detail::DeviceAccess::state(device)->backend;
+  const bool cpu = selected_backend == Backend::Cpu;
+  const bool accelerator = selected_backend != Backend::Cpu;
+  const bool plans_ready = small && medium && steady && large;
+  const std::uint64_t host_step =
+      small && medium &&
+              medium->prepared_host_bytes >= small->prepared_host_bytes
+          ? medium->prepared_host_bytes - small->prepared_host_bytes
+          : 0u;
+  const std::uint64_t prepared_delta =
+      small && large && large->prepared_bytes >= small->prepared_bytes
+          ? large->prepared_bytes - small->prepared_bytes
+          : 0u;
+  const std::uint64_t steady_route_step =
+      medium && steady && steady->prepared_bytes >= medium->prepared_bytes
+          ? steady->prepared_bytes - medium->prepared_bytes
+          : 0u;
+  const auto prepared_components_exact = [](const PipelinePlan &plan) {
+    return plan.prepared_bytes ==
+           plan.prepared_buffer_bytes + plan.prepared_host_bytes +
+               plan.prepared_tile_bytes + plan.prepared_native_bytes;
+  };
+  const bool cpu_prepared_shape =
+      !cpu ||
+      (plans_ready && host_step != 0u &&
+       large->prepared_host_bytes - small->prepared_host_bytes ==
+           (outer - small_outer) * host_step &&
+       prepared_delta ==
+           large->prepared_host_bytes - small->prepared_host_bytes +
+               (large->prepared_tile_bytes - small->prepared_tile_bytes) &&
+       small->prepared_buffer_bytes == medium->prepared_buffer_bytes &&
+       small->prepared_buffer_bytes == steady->prepared_buffer_bytes &&
+       small->prepared_buffer_bytes == large->prepared_buffer_bytes &&
+       small->prepared_tile_bytes <= medium->prepared_tile_bytes &&
+       medium->prepared_tile_bytes == steady->prepared_tile_bytes &&
+       medium->prepared_tile_bytes == large->prepared_tile_bytes &&
+       small->prepared_native_bytes == 0u &&
+       medium->prepared_native_bytes == 0u &&
+       steady->prepared_native_bytes == 0u &&
+       large->prepared_native_bytes == 0u);
+  const bool monotonic_prepared_shape =
+      plans_ready && small->prepared_bytes < medium->prepared_bytes &&
+      medium->prepared_bytes < steady->prepared_bytes &&
+      steady->prepared_bytes < large->prepared_bytes;
+  const bool affine_prepared_shape =
+      plans_ready && steady_route_step != 0u &&
+      large->prepared_bytes - medium->prepared_bytes ==
+          (outer - medium_outer) * steady_route_step;
+  const bool backend_structural_prepared_shape =
+      !accelerator ||
+      (plans_ready &&
+       small->prepared_host_bytes < medium->prepared_host_bytes &&
+       medium->prepared_host_bytes < steady->prepared_host_bytes &&
+       steady->prepared_host_bytes < large->prepared_host_bytes &&
+       small->prepared_native_bytes < medium->prepared_native_bytes &&
+       medium->prepared_native_bytes < steady->prepared_native_bytes &&
+       steady->prepared_native_bytes < large->prepared_native_bytes &&
+       small->prepared_buffer_bytes == medium->prepared_buffer_bytes &&
+       medium->prepared_buffer_bytes == steady->prepared_buffer_bytes &&
+       steady->prepared_buffer_bytes == large->prepared_buffer_bytes &&
+       small->prepared_tile_bytes == medium->prepared_tile_bytes &&
+       medium->prepared_tile_bytes == steady->prepared_tile_bytes &&
+       steady->prepared_tile_bytes == large->prepared_tile_bytes);
+  const bool compact_route_prepared_shape =
+      monotonic_prepared_shape && backend_structural_prepared_shape &&
+      (accelerator || affine_prepared_shape);
+  if (!plans_ready || !cpu_prepared_shape || !compact_route_prepared_shape ||
+      !prepared_components_exact(*small) ||
+      !prepared_components_exact(*medium) ||
+      !prepared_components_exact(*steady) ||
+      !prepared_components_exact(*large) ||
+      small->state_bytes < small_schedule_bytes ||
       large->state_bytes < large_schedule_bytes ||
       small->state_bytes - small_schedule_bytes !=
           large->state_bytes - large_schedule_bytes ||
       small->transient_bytes != large->transient_bytes ||
-      small->prepared_bytes != large->prepared_bytes ||
       small->scratch_bytes != large->scratch_bytes ||
       small->scratch_count != large->scratch_count ||
       small->allocation_count != large->allocation_count ||
@@ -1784,8 +2102,14 @@ template <class Action, class Fold>
       small->resource_count != large->resource_count ||
       large->state_bytes != state_bytes || large->outer_window_count != outer ||
       large->tile_capacity != tile || large->inner_iteration_count != inner ||
-      large->prepared_template_count != outer + inner + 3u ||
+      small->prepared_template_count != small_outer + 2u + 3u ||
+      medium->prepared_template_count != medium_outer + 2u + 3u ||
+      steady->prepared_template_count != steady_outer + 2u + 3u ||
+      large->prepared_template_count != outer + 2u + 3u ||
       large->prepared_command_count != outer * (inner + 2u) ||
+      large->peak_bytes != small->peak_bytes +
+                               (large->state_bytes - small->state_bytes) +
+                               prepared_delta ||
       large->logical_bytes <= large->physical_bytes) {
     if (small && large) {
       std::fprintf(
@@ -1823,6 +2147,27 @@ template <class Action, class Fold>
           static_cast<unsigned long long>(large->prepared_command_count),
           static_cast<unsigned long long>(large->logical_bytes),
           static_cast<unsigned long long>(large->physical_bytes));
+      if (medium) {
+        std::fprintf(
+            stderr,
+            "nested maximum prepared buffer=%llu/%llu/%llu "
+            "host=%llu/%llu/%llu tile=%llu/%llu/%llu "
+            "native=%llu/%llu/%llu host_step=%llu delta=%llu\n",
+            static_cast<unsigned long long>(small->prepared_buffer_bytes),
+            static_cast<unsigned long long>(medium->prepared_buffer_bytes),
+            static_cast<unsigned long long>(large->prepared_buffer_bytes),
+            static_cast<unsigned long long>(small->prepared_host_bytes),
+            static_cast<unsigned long long>(medium->prepared_host_bytes),
+            static_cast<unsigned long long>(large->prepared_host_bytes),
+            static_cast<unsigned long long>(small->prepared_tile_bytes),
+            static_cast<unsigned long long>(medium->prepared_tile_bytes),
+            static_cast<unsigned long long>(large->prepared_tile_bytes),
+            static_cast<unsigned long long>(small->prepared_native_bytes),
+            static_cast<unsigned long long>(medium->prepared_native_bytes),
+            static_cast<unsigned long long>(large->prepared_native_bytes),
+            static_cast<unsigned long long>(host_step),
+            static_cast<unsigned long long>(prepared_delta));
+      }
     }
     return 1;
   }
@@ -1924,6 +2269,102 @@ CheckNestedAggregateStats(rund::compute::Device &device,
         static_cast<unsigned long long>(stats.control.skipped_iteration_count),
         static_cast<unsigned long long>(stats.command_submits));
     return 2;
+  }
+  return 0;
+}
+
+[[nodiscard]] int
+CheckWorkspaceObservationCapacity(rund::compute::Device &device) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr std::size_t window_count = 22u;
+  constexpr std::size_t rows_per_window = 5u;
+  constexpr std::size_t row_count = window_count * rows_per_window;
+  static_assert(3u * window_count > PipelineStepCapacity);
+  static_assert(row_count < PipelineRouteCapacity);
+
+  auto seed = on(device)
+                  .input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto total, auto ordinal) {
+                    (void)total;
+                    return ordinal.scan(Scan::InclusiveSum)
+                        .map("workspace-capacity-seed",
+                             [](auto value) { return value + 1u; });
+                  })
+                  .compile();
+  auto action = on(device)
+                    .input<std::uint32_t>(1u)
+                    .branch([](auto value) {
+                      return value.scan(Scan::InclusiveSum)
+                          .map("workspace-capacity-action",
+                               [](auto current) { return current + 1u; });
+                    })
+                    .compile();
+  auto fold = on(device)
+                  .input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto outer, auto tile) {
+                    auto prefix = tile.scan(Scan::InclusiveSum);
+                    return outer.combine(
+                        "workspace-capacity-fold", prefix,
+                        [](auto left, auto right) { return left + right; });
+                  })
+                  .compile();
+  constexpr std::array<std::uint32_t, 1u> initial{1u};
+  constexpr std::array<std::uint32_t, 1u> inactive{0u};
+  auto outer = device.upload<std::uint32_t>(initial);
+  auto count = device.upload<std::uint32_t>(inactive);
+  if (!seed || !action || !fold || !outer || !count) {
+    return 1;
+  }
+  std::vector<rund::compute::Buffer<std::uint32_t>> outputs;
+  outputs.reserve(window_count);
+  for (std::size_t index = 0u; index < window_count; ++index) {
+    auto output = device.buffer<std::uint32_t>(1u);
+    if (!output) {
+      return 1;
+    }
+    outputs.push_back(std::move(*output));
+  }
+
+  const auto body = tile_repeat<1u>(*seed, *action, *fold);
+  auto builder = pipeline(device).profile(PipelineProfile::Steps);
+  for (std::size_t index = 0u; index < window_count; ++index) {
+    builder.windows<1u, 1u>(body, rund::compute::window(*count), read(*outer),
+                            write_final(outputs[index]));
+  }
+  auto prepared = std::move(builder).prepare();
+  const std::shared_ptr<PipelineState> state =
+      prepared ? PipelineStateAccess::state(*prepared)
+               : std::shared_ptr<PipelineState>{};
+  if (!prepared || state == nullptr || state->steps.size() != row_count ||
+      !prepared->run()) {
+    return 2;
+  }
+
+  std::array<const JobWorkspace *, row_count> workspaces{};
+  std::size_t workspace_count = 0u;
+  for (const PipelineStep &step : state->steps) {
+    if (step.job == nullptr || step.job->workspace == nullptr) {
+      return 3;
+    }
+    const JobWorkspace *const workspace = step.job->workspace.get();
+    if (std::find(workspaces.begin(), workspaces.begin() + workspace_count,
+                  workspace) == workspaces.begin() + workspace_count) {
+      workspaces[workspace_count++] = workspace;
+    }
+  }
+  std::array<PipelineStepProfile, row_count> rows{};
+  const auto profile = prepared->profile(rows);
+  if (workspace_count <= PipelineStepCapacity || !profile ||
+      profile->written != row_count || profile->total != row_count ||
+      !::rund_node_test_pipeline::ProfileMemoryReconciles(*profile, rows) ||
+      profile->memory.host.current ==
+          std::numeric_limits<std::uint64_t>::max() ||
+      profile->memory.resident.current ==
+          std::numeric_limits<std::uint64_t>::max()) {
+    return 4;
   }
   return 0;
 }
@@ -2293,7 +2734,7 @@ template <class Seed, class Action, class Fold>
   const std::uint64_t live_workspace = std::max(
       {seed.graph().memory.live_bytes, action.graph().memory.live_bytes,
        fold.graph().memory.live_bytes, increment->graph().memory.live_bytes});
-  if (!plan || plan->prepared_template_count != kTemplates + 2u ||
+  if (!plan || plan->prepared_template_count != kPreparedTemplates + 2u ||
       plan->prepared_command_count != kCommands + 2u ||
       plan->barrier_count != kTemplates + 1u ||
       plan->logical_bytes !=
@@ -2368,10 +2809,11 @@ template <class Seed, class Action, class Fold>
   constexpr std::size_t tile = 1u;
   constexpr std::size_t inner = 33u;
   constexpr std::size_t outer = CeilDiv(maximum, tile);
-  constexpr std::size_t templates = outer + inner + 3u;
+  constexpr std::size_t routes = outer + inner + 3u;
+  constexpr std::size_t prepared_templates = outer + 2u + 3u;
   constexpr std::size_t commands = outer * (inner + 2u);
   static_assert(outer * inner > PipelineIterationCapacity);
-  static_assert(templates < PipelineIterationCapacity);
+  static_assert(routes < PipelineIterationCapacity);
 
   auto seed = SeedProgram<maximum, tile>(device);
   auto action = ActionProgram(device);
@@ -2405,7 +2847,7 @@ template <class Seed, class Action, class Fold>
   constexpr std::uint64_t state_bytes = (outer + 5u) * sizeof(std::uint32_t);
   if (!plan || plan->outer_window_count != outer ||
       plan->tile_capacity != tile || plan->inner_iteration_count != inner ||
-      plan->prepared_template_count != templates ||
+      plan->prepared_template_count != prepared_templates ||
       plan->prepared_command_count != commands ||
       plan->state_bytes != state_bytes || plan->resource_count != 11u ||
       plan->physical_bytes != plan->peak_bytes ||
@@ -2515,6 +2957,10 @@ template <class Seed, class Action, class Fold>
   const int aggregate = CheckNestedAggregateStats(device, backend);
   if (aggregate != 0) {
     return 175 + aggregate;
+  }
+  const int workspace_observation = CheckWorkspaceObservationCapacity(device);
+  if (workspace_observation != 0) {
+    return 176 + workspace_observation;
   }
   const int aggregate_failures =
       CheckAggregateSeedFailures(device, backend, *seed, *action, *fold);

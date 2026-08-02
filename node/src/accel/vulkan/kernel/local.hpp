@@ -3,15 +3,20 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../kernel/backend/template_plan.hpp"
 #include "../../kernel/reset/model.hpp"
 #include "../../kernel/submission.hpp"
 #include "../adapter/api.hpp"
 #include "../command.hpp"
 #include "../command/model.hpp"
 #include "../kernel.hpp"
+#include "../map/local.hpp"
+#include "manifest.hpp"
 #include "ops/model.hpp"
+#include "pipeline/template.hpp"
 #include "view.hpp"
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -30,7 +35,14 @@ ValidateVulkanKernelContext(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck
 PrepareVulkanStep(const rund::AccelDevice &pick, const BoundStep &step,
                   const VulkanKernelOps &ops, KernelPreparationMode mode,
+                  const VulkanKernelImmutablePipelines *pipelines,
                   std::shared_ptr<void> &resources);
+
+[[nodiscard]] rund::AccelCheck PrepareVulkanKernelProgramTemplate(
+    const rund::AccelDevice &pick, const BoundStep *steps,
+    std::size_t step_count, KernelPreparationMode mode,
+    const BackendRun *template_probe, PreparedKernelTemplateRegistry *templates,
+    std::uint32_t *failed_node, VulkanKernelResources &resources);
 
 [[nodiscard]] rund::AccelCheck
 PrepareVulkanStepViews(const rund::AccelDevice &pick, const BoundStep *steps,

@@ -16,7 +16,9 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 struct MetalPipelineStatusBindings;
 struct VulkanPipelineStatusSource;
 struct VulkanPipelineTelemetrySource;
@@ -30,7 +32,9 @@ ExecuteMetalScatter(const rund::AccelDevice &pick,
                                         const rund::kernel::ScatterDesc &desc,
                                         const rund::kernel::ScatterPlan &plan,
                                         const ScatterBinds &bindings,
-                                        std::shared_ptr<void> &resources);
+                                        std::shared_ptr<void> &resources,
+                                        const MetalKernelImmutablePipelines *pipelines =
+                                            nullptr);
 [[nodiscard]] rund::AccelCheck EncodeMetalScatter(MetalAdapter &adapter,
                                        const std::shared_ptr<void> &resources,
                                        void *command_encoder);
@@ -45,7 +49,8 @@ ExecuteVulkanScatter(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck PrepareVulkanScatter(
     const rund::AccelDevice &pick, const rund::kernel::ScatterDesc &desc,
     const rund::kernel::ScatterPlan &plan,
-    const ScatterBinds &bindings, std::shared_ptr<void> &resources);
+    const ScatterBinds &bindings, std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck EncodeVulkanScatter(VulkanAdapter &adapter,
                                         const std::shared_ptr<void> &resources,
                                         void *command_buffer);
@@ -55,7 +60,8 @@ ExecuteVulkanScatter(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck PrepareMetalScatterReduce(
     const rund::AccelDevice &pick,
     const rund::kernel::ScatterReducePlan &plan,
-    const ScatterReduceBinds &bindings, std::shared_ptr<void> &resources);
+    const ScatterReduceBinds &bindings, std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck EncodeMetalScatterReduce(
     MetalAdapter &adapter, const std::shared_ptr<void> &resources,
     void *command_encoder);
@@ -70,7 +76,8 @@ ExecuteVulkanScatter(const rund::AccelDevice &pick,
     const rund::AccelDevice &pick,
     const rund::kernel::ScatterReducePlan &plan,
     const ScatterReduceBinds &bindings, KernelPreparationMode mode,
-    std::shared_ptr<void> &resources);
+    std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck EncodeVulkanScatterReduce(
     VulkanAdapter &adapter, const std::shared_ptr<void> &resources,
     void *command_buffer);

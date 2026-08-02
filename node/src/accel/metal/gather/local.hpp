@@ -29,6 +29,7 @@ struct MetalGatherEncodeResources {
 
 void DestroyMetalGatherEncodeResources(void *raw);
 [[nodiscard]] std::string MetalGatherSource();
+[[nodiscard]] std::uint64_t MetalGatherSourceUpperBytes() noexcept;
 [[nodiscard]] bool CompileMetalGatherPipelines(
     MetalAdapter &adapter, rund::kernel::GatherElement element,
     std::shared_ptr<void> &control, std::shared_ptr<void> &gather);

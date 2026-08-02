@@ -4,8 +4,9 @@
 
 namespace rund::node::accel::detail {
 
+template <typename Source>
 inline void
-AppendSegmentedPrefix(std::string &source,
+AppendSegmentedPrefix(Source &source,
                       const rund::kernel::SegmentedScanElement element) {
   const char *const type = VulkanSegmentedType(element);
   const char *const zero =

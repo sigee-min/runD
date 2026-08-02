@@ -68,12 +68,6 @@ struct MetalPipelineStatusParams final {
   std::uint32_t state_count{};
 };
 
-struct MetalPipelineStatusBindingRecord final {
-  MetalPipelineStatusBinding binding{};
-  std::uint32_t raw_offset{};
-  std::uint32_t raw_count{};
-};
-
 struct MetalPipelineTelemetryParams final {
   std::uint32_t kind{};
   std::uint32_t primary_word_count{};
@@ -156,21 +150,66 @@ struct MetalPipelineTelemetryRecord final {
   std::shared_ptr<void> owner;
 };
 
+// Cold finalization freezes the only two host inputs needed to submit a warm
+// tick. `resources` is one bulk-residency slice; `chunks` is one compact fixed
+// record slice. Neither descriptors nor logical-step tables are reachable
+// from this structure.
+struct MetalWarmSubmission final {
+  const id<MTLResource> *resources{};
+  NSUInteger resource_count{};
+  const MetalIcbChunk *chunks{};
+  NSUInteger chunk_count{};
+
+  [[nodiscard]] bool
+  owns(const std::vector<id<MTLResource>> &residency,
+       const std::vector<MetalIcbChunk> &command_chunks) const noexcept {
+    const id<MTLResource> *const expected =
+        residency.empty() ? nullptr : residency.data();
+    const MetalIcbChunk *const expected_chunks =
+        command_chunks.empty() ? nullptr : command_chunks.data();
+    return resources == expected && resource_count == residency.size() &&
+           chunks == expected_chunks && chunk_count == command_chunks.size();
+  }
+
+  // Cold-only integrity gate. Warm execution uses owns() for its constant-time
+  // retained-slice check and validates each compact record while issuing it;
+  // it never performs a second summation pass over the chunk slice.
+  [[nodiscard]] bool matches(const std::vector<id<MTLResource>> &residency,
+                             const std::vector<MetalIcbChunk> &command_chunks,
+                             const NSUInteger command_count) const noexcept {
+    if (!owns(residency, command_chunks)) {
+      return false;
+    }
+    std::uint64_t observed_commands = 0u;
+    for (std::size_t index = 0u; index < command_chunks.size(); ++index) {
+      const MetalIcbChunk &chunk = command_chunks[index];
+      if (!chunk.valid() || (index == 0u && chunk.barrier_before()) ||
+          observed_commands >
+              std::numeric_limits<std::uint64_t>::max() - chunk.command_count) {
+        return false;
+      }
+      observed_commands += chunk.command_count;
+    }
+    return observed_commands == command_count;
+  }
+};
+
 struct MetalSequence final {
   MetalAdapter *adapter{};
-  std::vector<id<MTLResource>> declared;
+  std::vector<id<MTLResource>> residency;
   std::vector<id<MTLComputePipelineState>> pipelines;
+  std::vector<MetalIcbChunk> command_chunks;
   std::vector<MetalPipelineTelemetryRecord> telemetry;
   std::vector<PreparedPipelineStepEvidence> step_evidence;
   std::shared_ptr<void> recurrence;
   std::vector<std::shared_ptr<void>> transducers;
-  id<MTLIndirectCommandBuffer> commands = nil;
   id<MTLBuffer> parameters = nil;
   id<MTLBuffer> raw_status = nil;
   id<MTLBuffer> control = nil;
   id<MTLBuffer> states = nil;
   id<MTLBuffer> guard_zero = nil;
   id<MTLBuffer> step_control = nil;
+  MetalWarmSubmission warm{};
   NSUInteger command_count = 0u;
   std::uint32_t control_command_count{};
   std::uint32_t state_count{};

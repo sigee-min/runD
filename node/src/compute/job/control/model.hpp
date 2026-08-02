@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../state.hpp"
+#include "../view.hpp"
 
 #include "../../host.hpp"
 
@@ -15,7 +16,6 @@ enum class JobBindings : unsigned char {
   Writable,
 };
 
-[[nodiscard]] Status prepare_cpu_view_transfers(JobState &state);
 [[nodiscard]] Status
 validate_host_inputs(const ProgramState &program,
                      std::span<const HostView> inputs) noexcept;
@@ -26,6 +26,13 @@ validate_bound_buffers(const std::shared_ptr<ProgramState> &program,
                        bool check_poison = true) noexcept;
 [[nodiscard]] Status prepare_job_state(const std::shared_ptr<JobState> &state,
                                        JobBindings mode);
+[[nodiscard]] Status
+prepare_cpu_pipeline_job_state(const std::shared_ptr<JobState> &state,
+                               JobBindings mode,
+                               std::shared_ptr<CpuGraphStorage> cpu_storage,
+                               const CpuRunRoutePlan &cpu_route,
+                               std::shared_ptr<CpuPreparedArena> prepared_arena,
+                               const CpuRunRouteSlice &cpu_route_slice);
 [[nodiscard]] Result<std::shared_ptr<JobState>>
 finish_prepare(std::shared_ptr<JobState> state, Status status) noexcept;
 [[nodiscard]] Result<std::shared_ptr<JobState>>

@@ -10,6 +10,12 @@ bool AcquireVulkanCollectiveDescriptorSet(
     const std::uint32_t descriptor_count,
     VkDescriptorSet& set) {
   set = VK_NULL_HANDLE;
+  if (adapter.active_descriptor_leases != nullptr &&
+      adapter.active_descriptor_leases->size() ==
+          adapter.active_descriptor_leases->capacity()) {
+    SetVulkanLastError(adapter, "compute_pipeline_capacity");
+    return false;
+  }
   PrepareVulkanCollectiveDescriptorSlots(adapter, pipeline);
   std::uint64_t slot = pipeline.next_descriptor_slot;
   while (slot < pipeline.descriptor_leased.size() &&

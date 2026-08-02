@@ -18,6 +18,13 @@ namespace rund::node::accel::detail {
 
 inline constexpr std::uint32_t kVulkanSegmentedReduceBindings = 6u;
 
+enum class VulkanSegmentedReduceStage : std::uint64_t {
+  Classify = 1u,
+  Prefix = 2u,
+  Scatter = 3u,
+  Reduce = 4u,
+};
+
 struct VulkanSegmentedReduceParams final {
   rund::kernel::u64 count{};
   rund::kernel::u64 block_count{};
@@ -49,21 +56,20 @@ struct VulkanSegmentedReduceResources final {
 
 void DestroyVulkanSegmentedReduce(void *raw);
 
-[[nodiscard]] std::string VulkanSegmentedClassifySource();
-[[nodiscard]] std::string VulkanSegmentedPrefixSource();
-[[nodiscard]] std::string VulkanSegmentedScatterSource();
 [[nodiscard]] std::string
 VulkanSegmentedReduceSource(const rund::kernel::SegmentedReducePlan &plan,
-                            rund::kernel::ComputeDomain domain);
+                            rund::kernel::ComputeDomain domain,
+                            VulkanSegmentedReduceStage stage);
+[[nodiscard]] bool VulkanSegmentedReduceSourceBytes(
+    const rund::kernel::SegmentedReducePlan &plan,
+    rund::kernel::ComputeDomain domain, VulkanSegmentedReduceStage stage,
+    std::uint64_t &bytes) noexcept;
 
-[[nodiscard]] VulkanCollectivePipeline *AcquireVulkanSegmentedIndex(
-    VulkanAdapter &adapter, const rund::kernel::SegmentedReduceDesc &desc,
-    rund::kernel::ComputeDomain domain, const char *source);
 [[nodiscard]] VulkanCollectivePipeline *
-AcquireVulkanSegmentedReduce(VulkanAdapter &adapter,
-                             const rund::kernel::SegmentedReduceDesc &desc,
-                             const rund::kernel::SegmentedReducePlan &plan,
-                             rund::kernel::ComputeDomain domain);
+AcquireVulkanSegmentedReducePipeline(
+    VulkanAdapter &adapter, const rund::kernel::SegmentedReduceDesc &desc,
+    const rund::kernel::SegmentedReducePlan &plan,
+    rund::kernel::ComputeDomain domain, VulkanSegmentedReduceStage stage);
 
 #endif
 

@@ -15,7 +15,9 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 [[nodiscard]] rund::AccelCheck
 ExecuteMetalSort(const rund::AccelDevice &pick,
                  const rund::kernel::SortDesc &desc,
@@ -24,7 +26,8 @@ ExecuteMetalSort(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck PrepareMetalSort(
     const rund::AccelDevice &pick, const rund::kernel::SortDesc &desc,
     const rund::kernel::SortPlan &plan, rund::kernel::ComputeDomain domain,
-    const SortBinds &bindings, std::shared_ptr<void> &resources);
+    const SortBinds &bindings, std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeMetalSort(MetalAdapter &adapter, const std::shared_ptr<void> &resources,
                 void *command_encoder);
@@ -38,7 +41,8 @@ FinishMetalSort(MetalAdapter &adapter, const std::shared_ptr<void> &resources);
 [[nodiscard]] rund::AccelCheck PrepareVulkanSort(
     const rund::AccelDevice &pick, const rund::kernel::SortDesc &desc,
     const rund::kernel::SortPlan &plan, rund::kernel::ComputeDomain domain,
-    const SortBinds &bindings, std::shared_ptr<void> &resources);
+    const SortBinds &bindings, std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanSort(VulkanAdapter &adapter, const std::shared_ptr<void> &resources,
                  void *command_buffer);

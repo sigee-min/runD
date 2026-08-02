@@ -4,7 +4,8 @@
 
 namespace rund::node::accel::detail {
 
-inline void AppendVulkanScanBlock(std::string &source,
+template <typename Source>
+inline void AppendVulkanScanBlock(Source &source,
                                   const rund::kernel::ScanElement element,
                                   const bool inclusive) {
   const char *const type = VulkanScanScalar(element);

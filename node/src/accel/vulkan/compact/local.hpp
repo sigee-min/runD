@@ -50,6 +50,8 @@ struct VulkanCompactEncodeResources {
 
 void DestroyVulkanCompactEncodeResources(void *raw);
 [[nodiscard]] std::string VulkanCompactSource(CompactStage stage);
+[[nodiscard]] bool VulkanCompactSourceBytes(CompactStage stage,
+                                            std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireCompactPipeline(VulkanAdapter &adapter,
                        const rund::kernel::CompactDesc &desc,

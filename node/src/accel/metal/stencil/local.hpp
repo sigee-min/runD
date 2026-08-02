@@ -24,6 +24,8 @@ struct MetalStencilEncodeResources {
 
 void DestroyMetalStencilEncodeResources(void *raw);
 [[nodiscard]] std::string MetalStencilSource(rund::kernel::StencilOp op);
+[[nodiscard]] bool MetalStencilSourceUpperBytes(rund::kernel::StencilOp op,
+                                                std::uint64_t &upper) noexcept;
 [[nodiscard]] bool
 CompileMetalStencilPipeline(MetalAdapter &adapter, rund::kernel::StencilOp op,
                             rund::kernel::StencilElement element,

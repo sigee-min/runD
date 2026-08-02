@@ -48,6 +48,23 @@ A no-growth compile or run is admitted only when the proof is checked and
 satisfied. Capacity failure is precise and cannot be replaced by an empty
 program or an allocation attempt on the hot path.
 
+### Compute tile run boundary
+
+Compute tile preparation uses a normal owning Workspace once to compile the
+immutable `ComputeTileRunPlan`. A bound tile run does not clone that Workspace.
+Its `ComputeTileRunStorage` contains a mutable Workspace control whose
+`KernelProgram` views point into the pinned immutable plan, while the four
+worker-stat arrays arrive as explicit typed spans in
+`ComputeTileRunStorageView` and are passed as explicit dispatch sinks.
+
+This is a narrower execution boundary than general Workspace preparation:
+schedule, packet, placement, and fold arrays are immutable plan data during a
+tile run, so the mutable run owner must not reserve a second copy merely to
+satisfy vector-capacity checks. `ComputeTileRunPlan::bind` checks the failure,
+worker-tile, and all worker-stat span capacities component by component before
+publishing the view. The storage phase prevents binding while workers or an
+unconsumed async result can observe the current pointers.
+
 ## Schedule Compilation
 
 Schedule compilation preserves packet identity and deterministic placement.

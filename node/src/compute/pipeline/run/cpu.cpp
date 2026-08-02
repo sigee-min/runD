@@ -72,10 +72,8 @@ namespace {
   if (job == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  const std::vector<std::shared_ptr<BufferState>> &owners =
-      input ? job->inputs : job->outputs;
-  const std::vector<JobBufferView> &views =
-      input ? job->input_views : job->output_views;
+  const auto &owners = input ? job->inputs : job->outputs;
+  const auto &views = input ? job->input_views : job->output_views;
   if (output >= owners.size() || output >= views.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }

@@ -8,14 +8,177 @@
 #include "../../../runtime/map/api.hpp"
 #include "../../../runtime/map/resources.hpp"
 
+#include "../../../../kernel/recurrence/plan.hpp"
+#include "../../../../kernel/recurrence/source.hpp"
+#include "../../../pipeline/guard.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <string_view>
 
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+namespace {
+
+[[nodiscard]] std::span<const std::uint64_t>
+RecurrenceHistoryPitches(const MapRecurrence &recurrence) noexcept {
+  return recurrence.history == nullptr ? std::span<const std::uint64_t>{}
+                                       : recurrence.history->pitches();
+}
+
+struct MetalRecurrenceTemplateProbe final {
+  const MapRecurrencePreparationPlan *plan{};
+  MetalAdapter *adapter{};
+  bool history{};
+};
+
+[[nodiscard]] bool
+MatchMetalRecurrenceTemplate(const void *const prepared,
+                             const void *const raw_probe) noexcept {
+  if (prepared == nullptr || raw_probe == nullptr ||
+      MetalKernelTemplateKindOf(prepared) !=
+          MetalKernelTemplateKind::MapRecurrence) {
+    return false;
+  }
+  const auto *const cached =
+      static_cast<const MetalMapRecurrenceTemplate *>(prepared);
+  const auto *const probe =
+      static_cast<const MetalRecurrenceTemplateProbe *>(raw_probe);
+  if (cached->signature == nullptr || cached->prepared == nullptr ||
+      cached->prepared->adapter != probe->adapter || probe->plan == nullptr ||
+      probe->adapter == nullptr || cached->history != probe->history) {
+    return false;
+  }
+  const MapRecurrencePreparationPlan cached_plan = PlanMapRecurrencePreparation(
+      *cached->signature, 1u, cached->history ? 1u : 0u);
+  return SameMapRecurrenceTemplate(cached_plan, *probe->plan, probe->history);
+}
+
+inline constexpr std::uint64_t MetalRecurrenceVariantHi = 0x6d6574616c2e7265ull;
+inline constexpr std::uint64_t MetalTerminalRecurrenceVariantLo =
+    0x6375722e7465726dull;
+inline constexpr std::uint64_t MetalHistoryRecurrenceVariantLo =
+    0x6375722e68697374ull;
+
+[[nodiscard]] rund::AccelCheck AcquireMetalRecurrenceTemplate(
+    PreparedKernelTemplateRegistry &registry, MetalAdapter &adapter,
+    const rund::AccelDevice &pick, const BackendRun &signature,
+    const MapRecurrence &recurrence,
+    std::shared_ptr<const MetalMapTemplateResources> &prepared) {
+  prepared.reset();
+  const std::span<const std::uint64_t> history_pitch_bytes =
+      RecurrenceHistoryPitches(recurrence);
+  const bool history = !history_pitch_bytes.empty();
+  const MapRecurrencePreparationPlan normalized =
+      PlanMapRecurrencePreparation(signature, 1u, history ? 1u : 0u);
+  const MapRecurrenceSourcePlan &source_plan =
+      history ? normalized.history_source : normalized.terminal_source;
+  if (registry.owner == nullptr || recurrence.first == nullptr ||
+      recurrence.first->step == nullptr || signature.steps == nullptr ||
+      signature.ops == nullptr || signature.step_count != 1u ||
+      signature.steps[0u].step != recurrence.first->step ||
+      !normalized.eligible() || normalized.group_count != 1u ||
+      normalized.history_group_count != (history ? 1u : 0u) ||
+      normalized.binding_alignment != 1u ||
+      normalized.authority != recurrence.first->step ||
+      normalized.canonical_artifact == nullptr || !source_plan.ok ||
+      source_plan.history != history ||
+      (history && history_pitch_bytes.size() != normalized.output_count)) {
+    return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+  }
+  const std::uint64_t variant_lo = history ? MetalHistoryRecurrenceVariantLo
+                                           : MetalTerminalRecurrenceVariantLo;
+  const MetalRecurrenceTemplateProbe probe{
+      .plan = &normalized,
+      .adapter = &adapter,
+      .history = history,
+  };
+  std::shared_ptr<void> found = FindPreparedKernelTemplate(
+      registry, normalized.authority, MetalRecurrenceVariantHi, variant_lo,
+      MatchMetalRecurrenceTemplate, &probe);
+  if (found != nullptr) {
+    const auto cached =
+        std::static_pointer_cast<MetalMapRecurrenceTemplate>(found);
+    if (cached == nullptr || cached->prepared == nullptr) {
+      return rund::AccelCheck{false, "accel_kernel_template_invalid"};
+    }
+    prepared = cached->prepared;
+    return rund::AccelCheck{true, "ok"};
+  }
+
+  // A miss owns exactly one transformed source. PrepareMetalMapTemplate moves
+  // the specialized/guarded text into the adapter cache; this local artifact
+  // dies before any route resource is allocated. Reserve the final guarded
+  // upper during initial recurrence emission so every later edit is in-place.
+  std::uint64_t specialized_upper = 0u;
+  std::uint64_t final_source_upper = 0u;
+  if (recurrence.first->control.active() ||
+      !normalized.canonical_artifact->metadata.read_routes.empty() ||
+      !MapSpecializedSourceUpperBytes(source_plan.exact_source_bytes,
+                                      source_plan.source_upper_bytes,
+                                      normalized.plan, specialized_upper) ||
+      !PipelinePrivateMetalSourceUpperBytes(specialized_upper, 1u, true,
+                                            final_source_upper)) {
+    return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+  }
+  rund::kernel::LoweringArtifact artifact{};
+  if (!MaterializeMapRecurrenceArtifact(
+          *normalized.canonical_artifact, source_plan, normalized.input_count,
+          normalized.output_count, history_pitch_bytes, artifact,
+          final_source_upper)) {
+    return rund::AccelCheck{false,
+                            "compute_pipeline_recurrence_source_invalid"};
+  }
+  std::shared_ptr<const MetalMapTemplateResources> native;
+  const rund::AccelCheck ready = PrepareMetalMapOwnedTemplate(
+      pick, normalized.plan, std::move(artifact), recurrence.windows,
+      recurrence.window_count, recurrence.bindings, recurrence.first->control,
+      native);
+  if (!ready.ok) {
+    return ready;
+  }
+
+  auto owner = std::make_shared<MetalMapRecurrenceTemplate>();
+  owner->signature = &signature;
+  owner->history = history;
+  owner->prepared = std::move(native);
+  std::shared_ptr<void> published = owner;
+  const rund::AccelCheck stored = PublishPreparedKernelTemplate(
+      registry, normalized.authority, MetalRecurrenceVariantHi, variant_lo,
+      *signature.ops, MatchMetalRecurrenceTemplate, &probe, published);
+  if (!stored.ok || published == nullptr ||
+      !MatchMetalRecurrenceTemplate(published.get(), &probe)) {
+    return stored.ok ? rund::AccelCheck{false, "accel_kernel_template_invalid"}
+                     : stored;
+  }
+  const auto cached =
+      std::static_pointer_cast<MetalMapRecurrenceTemplate>(published);
+  if (cached == nullptr || cached->prepared == nullptr) {
+    return rund::AccelCheck{false, "accel_kernel_template_invalid"};
+  }
+  prepared = cached->prepared;
+  return rund::AccelCheck{true, "ok"};
+}
+
+[[nodiscard]] rund::AccelCheck PrepareMetalRecurrenceRoute(
+    PreparedKernelTemplateRegistry &registry, MetalAdapter &adapter,
+    const rund::AccelDevice &pick, const BackendRun &signature,
+    const MapRecurrence &recurrence, const BoundControl &control,
+    std::shared_ptr<void> &resources, const std::uint32_t iterations) {
+  std::shared_ptr<const MetalMapTemplateResources> prepared;
+  const rund::AccelCheck acquired = AcquireMetalRecurrenceTemplate(
+      registry, adapter, pick, signature, recurrence, prepared);
+  return acquired.ok ? PrepareMetalMapProvedRoute(
+                           pick, recurrence.plan, recurrence.windows,
+                           recurrence.window_count, recurrence.bindings,
+                           control, std::move(prepared), resources, iterations)
+                     : acquired;
+}
+
+} // namespace
 
 rund::AccelCheck MetalPipelineBuild::Admit() {
   if (templates.empty() || templates.size() != status.active_step_count ||
@@ -34,6 +197,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
     for (std::size_t index = 0u; index < entries.size(); ++index) {
+      failure_context.occurrence_route(entries[index]);
       if (entries[index].occurrence_index != index ||
           entries[index].template_index >= templates.size() ||
           (entries[index].transducer != NoTileTransducer &&
@@ -42,6 +206,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       }
     }
   }
+  failure_context.clear_route();
   const rund::AccelCheck valid =
       ValidateMetalKernelContext(*templates.front().run->pick, context);
   if (!valid.ok || context.adapter == nullptr) {
@@ -93,6 +258,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       }
     } catch (const std::bad_alloc &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    } catch (const std::length_error &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     return rund::AccelCheck{true, "ok"};
   }
@@ -109,38 +276,50 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
   std::uint32_t state_count = 0u;
   try {
     constexpr std::uint32_t unset = std::numeric_limits<std::uint32_t>::max();
-    std::vector<std::uint32_t> deferred_inner_advance;
-    std::vector<std::uint32_t> deferred_inner_bound;
+    struct DeferredInnerState final {
+      std::uint32_t advance{unset};
+      std::uint32_t bound{unset};
+      bool used{};
+    };
+    // Window-state identity is frozen by the common Pipeline route-capacity
+    // contract. Keep this admission proof on the stack: growing a heap table
+    // from a backend-provided state id would create an unplanned cold owner
+    // and allow a malformed id to select an allocation size.
+    std::array<DeferredInnerState, PreparedPipelineStepCapacity>
+        deferred_inner{};
+    std::size_t planned_native_window_count = 0u;
     for (const BackendBatchEntry &entry : entries) {
+      failure_context.occurrence_route(entry);
       const BackendWindow *const window = entry.recurrence.window;
-      if (window == nullptr || !window->nested()) {
+      if (window == nullptr) {
         continue;
       }
-      if (window->state == unset) {
-        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      ++planned_native_window_count;
+      if (!window->nested()) {
+        continue;
       }
-      if (deferred_inner_advance.size() <= window->state) {
-        deferred_inner_advance.resize(
-            static_cast<std::size_t>(window->state) + 1u, unset);
-        deferred_inner_bound.resize(
-            static_cast<std::size_t>(window->state) + 1u, unset);
+      if (window->state == unset || window->state >= deferred_inner.size()) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
       }
       if (window->phase != BackendWindowPhase::NestedFold) {
         continue;
       }
-      std::uint32_t &advance = deferred_inner_advance[window->state];
-      std::uint32_t &bound = deferred_inner_bound[window->state];
-      if ((advance != unset && advance != window->inner_advance) ||
-          (bound != unset && bound != window->inner_bound)) {
+      DeferredInnerState &deferred = deferred_inner[window->state];
+      if (deferred.used && (deferred.advance != window->inner_advance ||
+                            deferred.bound != window->inner_bound)) {
         return rund::AccelCheck{false, "accel_kernel_run_invalid"};
       }
-      advance = window->inner_advance;
-      bound = window->inner_bound;
+      deferred.advance = window->inner_advance;
+      deferred.bound = window->inner_bound;
+      deferred.used = true;
     }
-    native_publications.reserve(publications.size());
-    native_windows.reserve(entries.size());
+    native_windows.reserve(planned_native_window_count);
+    if (native_windows.capacity() != planned_native_window_count) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
     MetalResidentState &resident = MetalResidents(*context.adapter);
     std::lock_guard resident_lock{resident.mutex};
+    failure_context.clear_route();
     for (const BackendPublish &publication : publications) {
       const bool window = publication.kind == BackendPublishKind::Window;
       const MetalResidentBufferResult target = ResolveMetalResidentBuffer(
@@ -155,6 +334,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       }
       if (!target.check.ok || target.device_buffer == nullptr ||
           publication.state == std::numeric_limits<std::uint32_t>::max() ||
+          publication.state >= deferred_inner.size() ||
           (!window && publication.final >= publication.sources.size()) ||
           (window &&
            (!count.check.ok || count.device_buffer == nullptr ||
@@ -188,7 +368,10 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
         }
       }
       state_count = std::max(state_count, publication.state + 1u);
-      native_publications.push_back(MetalPublish{
+      if (native_publication_count == native_publications.size()) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      }
+      native_publications[native_publication_count++] = MetalPublish{
           .sources = {sources[0].device_buffer, sources[1].device_buffer,
                       sources[2].device_buffer},
           .target = target.device_buffer,
@@ -227,24 +410,21 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                                    sizeof(std::uint32_t)
                              : 0u,
               },
-      });
+      };
     }
     for (std::size_t entry_index = 0u; entry_index < entries.size();
          ++entry_index) {
+      failure_context.occurrence_route(entries[entry_index]);
       const BackendWindow *const window =
           entries[entry_index].recurrence.window;
       if (window == nullptr) {
         continue;
       }
       const bool nested = window->nested();
-      const std::uint32_t deferred =
-          nested && window->state < deferred_inner_advance.size()
-              ? deferred_inner_advance[window->state]
-              : unset;
-      const std::uint32_t deferred_bound =
-          nested && window->state < deferred_inner_bound.size()
-              ? deferred_inner_bound[window->state]
-              : unset;
+      if (window->state == unset || window->state >= deferred_inner.size()) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
+      const DeferredInnerState &deferred = deferred_inner[window->state];
       const bool nested_shape_valid =
           !nested ||
           (window->outer_bound != 0u &&
@@ -262,8 +442,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
              window->route < 3u &&
              (window->inner_advance == 0u ||
               window->inner_advance == window->inner_bound))) &&
-           deferred != unset && deferred_bound == window->inner_bound &&
-           (deferred == 0u || deferred == deferred_bound));
+           deferred.used && deferred.bound == window->inner_bound &&
+           (deferred.advance == 0u || deferred.advance == deferred.bound));
       if (entries[entry_index].transducer != NoTileTransducer) {
         const TileTransducer &transducer =
             transducers[entries[entry_index].transducer];
@@ -346,15 +526,21 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                   .inner_bound = window->inner_bound,
                   .inner_advance =
                       window->phase == BackendWindowPhase::NestedSeed
-                          ? deferred
+                          ? deferred.advance
                           : window->inner_advance,
               },
           .entry = static_cast<std::uint32_t>(entry_index),
       });
     }
+    if (native_windows.size() != planned_native_window_count) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
   } catch (const std::bad_alloc &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
+  failure_context.clear_route();
   try {
     pipeline = std::make_shared<MetalSequence>();
     pipeline->adapter = context.adapter;
@@ -370,24 +556,31 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     }
   } catch (const std::bad_alloc &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
+  failure_context.clear_route();
   if (recurrence.ready()) {
     if (!transducers.empty()) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
-    if (recurrence.first == nullptr || recurrence.windows == nullptr ||
+    if (recurrence.first == nullptr ||
+        recurrence.canonical_artifact == nullptr ||
+        !recurrence.source_plan.ok || recurrence.windows == nullptr ||
         recurrence.window_count == 0u || recurrence.iterations < 2u ||
         recurrence.iterations > std::numeric_limits<std::uint32_t>::max()) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
     rund::AccelCheck ready{};
     try {
-      ready = PrepareMetalMap(
-          *entries.front().run->pick, recurrence.plan, recurrence.artifact,
-          recurrence.windows, recurrence.window_count, recurrence.bindings,
-          recurrence.first->control, pipeline->recurrence,
+      ready = PrepareMetalRecurrenceRoute(
+          template_registry, *context.adapter, *entries.front().run->pick,
+          *entries.front().run, recurrence, recurrence.first->control,
+          pipeline->recurrence,
           static_cast<std::uint32_t>(recurrence.iterations));
     } catch (const std::bad_alloc &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    } catch (const std::length_error &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     if (!ready.ok) {
@@ -402,10 +595,12 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
   }
   for (std::size_t index = 0u; index < transducers.size(); ++index) {
     const TileTransducer &transducer = transducers[index];
+    failure_context.template_route(transducer.template_first);
     const MapRecurrence &map = transducer.recurrence;
-    if (!map.ready() || map.first == nullptr || map.windows == nullptr ||
-        map.window_count == 0u || map.iterations < 2u ||
-        map.iterations != transducer.template_count ||
+    if (!map.ready() || map.first == nullptr ||
+        map.canonical_artifact == nullptr || !map.source_plan.ok ||
+        map.windows == nullptr || map.window_count == 0u ||
+        map.iterations < 2u || map.iterations != transducer.template_count ||
         map.iterations > std::numeric_limits<std::uint32_t>::max() ||
         transducer.template_first >= templates.size() ||
         transducer.template_count >
@@ -418,11 +613,13 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     }
     rund::AccelCheck ready{};
     try {
-      ready = PrepareMetalMap(*owner.run->pick, map.plan, map.artifact,
-                              map.windows, map.window_count, map.bindings,
-                              map.first->control, pipeline->transducers[index],
-                              static_cast<std::uint32_t>(map.iterations));
+      ready = PrepareMetalRecurrenceRoute(
+          template_registry, *context.adapter, *owner.run->pick, *owner.run,
+          map, map.first->control, pipeline->transducers[index],
+          static_cast<std::uint32_t>(map.iterations));
     } catch (const std::bad_alloc &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    } catch (const std::length_error &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     if (!ready.ok) {

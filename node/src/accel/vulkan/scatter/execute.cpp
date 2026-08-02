@@ -4,6 +4,7 @@
 #include "../../scatter/shape.hpp"
 #include "../collective/execute.hpp"
 #include "../status.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "encode/dispatch.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
@@ -32,7 +33,9 @@ rund::AccelCheck PrepareVulkanScatter(const rund::AccelDevice &pick,
                                       const rund::kernel::ScatterDesc &desc,
                                       const rund::kernel::ScatterPlan &plan,
                                       const ScatterBinds &bindings,
-                                      std::shared_ptr<void> &resources) {
+                                      std::shared_ptr<void> &resources,
+                                      const VulkanKernelImmutablePipelines
+                                          *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -64,7 +67,11 @@ rund::AccelCheck PrepareVulkanScatter(const rund::AccelDevice &pick,
       VulkanStorageBindingFor(lookup.indices.device_buffer, lookup.indices.ref);
   raw->output_binding =
       VulkanStorageBindingFor(lookup.output.device_buffer, lookup.output.ref);
-  raw->pipeline = AcquireScatterPipeline(*adapter, desc);
+  raw->pipeline =
+      pipelines == nullptr
+          ? AcquireScatterPipeline(*adapter, desc)
+          : pipelines->borrow(rund::kernel::NodeKind::Scatter, 1u, 0u,
+                              kScatterDescriptorCount, 1u);
   const ScatterParams params_value{plan.element_count, plan.output_count};
   if (raw->values_binding.buffer == nullptr ||
       raw->indices_binding.buffer == nullptr ||
@@ -81,6 +88,7 @@ rund::AccelCheck PrepareVulkanScatter(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }
@@ -120,7 +128,16 @@ rund::AccelCheck ExecuteVulkanScatter(const rund::AccelDevice &pick,
                                       const ScatterBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanCollective(pick, desc, plan, bindings,
-                                 PrepareVulkanScatter, EncodeVulkanScatter,
+                                 [](const rund::AccelDevice &device,
+                                    const rund::kernel::ScatterDesc &operation,
+                                    const rund::kernel::ScatterPlan &prepared,
+                                    const ScatterBinds &resident,
+                                    std::shared_ptr<void> &resources) {
+                                   return PrepareVulkanScatter(
+                                       device, operation, prepared, resident,
+                                       resources, nullptr);
+                                 },
+                                 EncodeVulkanScatter,
                                  FinishVulkanScatter);
 #else
   return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);

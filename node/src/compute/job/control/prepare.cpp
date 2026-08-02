@@ -19,70 +19,51 @@ namespace {
   if (state.program->graph_bindings.empty()) {
     return Status::success();
   }
-  std::vector<std::shared_ptr<BufferState>> *buffers = &state.graph_buffers;
   if (state.workspace != nullptr) {
     if (state.workspace->program != state.program) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    buffers = &state.workspace->buffers;
-  } else if (state.program->device->backend == Backend::Cpu) {
-    return Status::success();
   }
-  if (!buffers->empty()) {
-    if (buffers->size() != state.program->chunks.size() ||
-        (state.workspace != nullptr &&
-         state.workspace->offsets.size() != buffers->size())) {
-      return Status::fail(Reason::PipelineInvalid);
-    }
-    for (std::size_t index = 0u; index < buffers->size(); ++index) {
-      const Chunk chunk = state.program->chunks[index];
-      const std::shared_ptr<BufferState> &buffer = (*buffers)[index];
-      const std::size_t offset =
-          state.workspace == nullptr ? 0u : state.workspace->offsets[index];
-      if (buffer == nullptr || buffer->device != state.program->device ||
-          buffer->type != Type::U32 || offset > buffer->count ||
-          chunk.count > buffer->count - offset) {
+  const auto prepare = [&](auto &buffers,
+                           const std::span<const std::size_t> offsets) {
+    if (!buffers.empty()) {
+      if (buffers.size() != state.program->chunks.size() ||
+          (!offsets.empty() && offsets.size() != buffers.size())) {
         return Status::fail(Reason::PipelineInvalid);
       }
+      for (std::size_t index = 0u; index < buffers.size(); ++index) {
+        const Chunk chunk = state.program->chunks[index];
+        const std::shared_ptr<BufferState> &buffer = buffers[index];
+        const std::size_t offset = offsets.empty() ? 0u : offsets[index];
+        if (buffer == nullptr || buffer->device != state.program->device ||
+            buffer->type != Type::U32 || offset > buffer->count ||
+            chunk.count > buffer->count - offset) {
+          return Status::fail(Reason::PipelineInvalid);
+        }
+      }
+      return Status::success();
+    }
+    buffers.reserve(state.program->chunks.size());
+    for (const Chunk chunk : state.program->chunks) {
+      auto made = make_workspace_buffer(state.program->device, chunk.count);
+      if (!made) {
+        return Status::fail(made.reason());
+      }
+      buffers.push_back(std::move(made).value());
     }
     return Status::success();
-  }
-  buffers->reserve(state.program->chunks.size());
-  for (const Chunk chunk : state.program->chunks) {
-    auto made = make_workspace_buffer(state.program->device, chunk.count);
-    if (!made) {
-      return Status::fail(made.reason());
+  };
+  if (state.workspace != nullptr) {
+    if (state.workspace->offsets.size() != state.program->chunks.size()) {
+      return Status::fail(Reason::PipelineInvalid);
     }
-    buffers->push_back(std::move(made).value());
+    return prepare(state.workspace->buffers, state.workspace->offsets);
   }
-  return Status::success();
+  return prepare(state.graph_buffers, std::span<const std::size_t>{});
 }
 
-} // namespace
-
-Result<RunState> empty_run(const std::shared_ptr<JobState> &state) {
-  if (state == nullptr || state->program == nullptr || state->outputs.empty()) {
-    return Result<RunState>::fail(Reason::RunInvalid);
-  }
-  RunState run{};
-  run.program = state->program;
-  std::copy(state->outputs.begin(), state->outputs.end(), run.outputs.begin());
-  run.stats = Stats{.backend = state->program->device->backend,
-                    .graph_read_bytes = state->program->graph_info.read_bytes,
-                    .graph_hash = state->program->empty_graph_hash};
-  return Result<RunState>::success(std::move(run));
-}
-
-Status prepare_job_state(const std::shared_ptr<JobState> &state,
-                         const JobBindings mode) {
-  const Status graph_buffers = prepare_graph_buffers(*state);
-  if (!graph_buffers) {
-    return graph_buffers;
-  }
-  const Status cpu_prepared = prepare_cpu_run(*state);
-  if (!cpu_prepared) {
-    return cpu_prepared;
-  }
+[[nodiscard]] Status prepare_device_job(const std::shared_ptr<JobState> &state,
+                                        const JobBindings mode) {
   const DeviceOps *const ops = state->program->device->ops;
   if (state->program->device->backend != Backend::Cpu &&
       (ops == nullptr || ops->prepare_job == nullptr)) {
@@ -107,6 +88,63 @@ Status prepare_job_state(const std::shared_ptr<JobState> &state,
   state->write_prepared = std::move(state->prepared);
   state->prepared = std::move(active);
   return Status::success();
+}
+
+} // namespace
+
+Result<RunState> empty_run(const std::shared_ptr<JobState> &state) {
+  if (state == nullptr || state->program == nullptr || state->outputs.empty()) {
+    return Result<RunState>::fail(Reason::RunInvalid);
+  }
+  RunState run{};
+  run.program = state->program;
+  std::copy(state->outputs.begin(), state->outputs.end(), run.outputs.begin());
+  run.stats = Stats{.backend = state->program->device->backend,
+                    .graph_read_bytes = state->program->graph_info.read_bytes,
+                    .graph_hash = state->program->empty_graph_hash};
+  return Result<RunState>::success(std::move(run));
+}
+
+Status prepare_job_state(const std::shared_ptr<JobState> &state,
+                         const JobBindings mode) {
+  if (state == nullptr || state->program == nullptr ||
+      state->program->device == nullptr) {
+    return Status::fail(Reason::ProgramInvalid);
+  }
+  const Status graph_buffers = prepare_graph_buffers(*state);
+  if (!graph_buffers) {
+    return graph_buffers;
+  }
+  if (state->program->device->backend == Backend::Cpu) {
+    const Status cpu_prepared = prepare_cpu_run(*state);
+    if (!cpu_prepared) {
+      return cpu_prepared;
+    }
+  }
+  return prepare_device_job(state, mode);
+}
+
+Status
+prepare_cpu_pipeline_job_state(const std::shared_ptr<JobState> &state,
+                               const JobBindings mode,
+                               std::shared_ptr<CpuGraphStorage> cpu_storage,
+                               const CpuRunRoutePlan &cpu_route,
+                               std::shared_ptr<CpuPreparedArena> prepared_arena,
+                               const CpuRunRouteSlice &cpu_route_slice) {
+  if (state == nullptr || state->program == nullptr ||
+      state->program->device == nullptr ||
+      state->program->device->backend != Backend::Cpu ||
+      cpu_storage == nullptr || prepared_arena == nullptr) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  const Status graph_buffers = prepare_graph_buffers(*state);
+  if (!graph_buffers) {
+    return graph_buffers;
+  }
+  const Status cpu_prepared =
+      prepare_cpu_run(*state, std::move(cpu_storage), cpu_route,
+                      std::move(prepared_arena), cpu_route_slice);
+  return cpu_prepared ? prepare_device_job(state, mode) : cpu_prepared;
 }
 
 Result<std::shared_ptr<JobState>>

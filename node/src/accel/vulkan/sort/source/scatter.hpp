@@ -5,9 +5,11 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-[[nodiscard]] inline std::string
-VulkanSortScatterSource(const std::string &key_type) {
-  std::string source;
+template <typename Sink>
+[[nodiscard]] bool AppendVulkanSortScatterSource(
+    Sink &sink, const std::string_view key_type)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink source{sink};
   source += "layout(set = 0, binding = 0, std430) readonly buffer ";
   source += "SourceKeys {\n  ";
   source += key_type;
@@ -24,13 +26,13 @@ VulkanSortScatterSource(const std::string &key_type) {
   source += "layout(set = 0, binding = 6, std430) readonly buffer ";
   source += "BlockCounts {\n  uint block_counts[];\n};\n";
   source += "const uint kSortRankGroupSize = ";
-  source += std::to_string(kVulkanSortRankGroupSize);
+  source.decimal(kVulkanSortRankGroupSize);
   source += "u;\nconst uint kSortRankGroupCount = ";
-  source += std::to_string(kVulkanSortRankGroupCount);
+  source.decimal(kVulkanSortRankGroupCount);
   source += "u;\nconst uint kSortGroupsPerWord = ";
-  source += std::to_string(kVulkanSortGroupsPerWord);
+  source.decimal(kVulkanSortGroupsPerWord);
   source += "u;\nconst uint kSortPackedWordCount = ";
-  source += std::to_string(kVulkanSortPackedWordCount);
+  source.decimal(kVulkanSortPackedWordCount);
   source += "u;\n";
   source += "shared uint local_buckets[kSortBlockSize];\n";
   source += "shared uint packed_counts["
@@ -134,7 +136,7 @@ VulkanSortScatterSource(const std::string &key_type) {
   source += "    }\n";
   source += "  }\n";
   source += "}\n";
-  return source;
+  return source.ok();
 }
 #endif
 

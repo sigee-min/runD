@@ -91,15 +91,18 @@ closed.
 
 `ComputeTileExecutor` is the buffer-oriented CPU Compute worker executor. It
 reuses `CompileKernelProgram`, the physical tile plan, and
-`RunPreparedProgram`. Preparation reserves all workspace, failure-slot, and
-worker accounting storage. `run`, `run_with`, and prepared run instances
-use the frozen plan without selecting another scheduler.
+`RunPreparedProgram`. Preparation publishes an immutable `ComputeTileRunPlan`.
+Execution requires a checked typed `ComputeTileRunStorageView`; it borrows one
+mutable max-envelope storage owner without cloning the plan Workspace.
+`make_run()` is the standalone typed owner over the same bind path. `run`,
+`run_with`, and bound run instances use the frozen plan without selecting
+another scheduler.
 
 The implementation is owned by the focused leaves under
 `src/program/compute/tile/`. `prepare`, sync `run`, async submit/finish,
 callback work, and result projection have one compiled owner each. Sync and
-async execution both reset one `Context` through
-`Begin(...)` and both close through `Project(...)`; neither path carries a
+async execution both reset one `ComputeTileRunStorage` through `Begin(...)`
+and both close through `Project(...)`; neither path carries a
 second failure scan, worker-count formula, tail formula, or result vocabulary.
 
 ## Monitoring

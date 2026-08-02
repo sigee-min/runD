@@ -11,6 +11,7 @@
 namespace rund::node::accel::detail {
 
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck ExecuteVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
@@ -19,7 +20,8 @@ struct VulkanAdapter;
 [[nodiscard]] rund::AccelCheck PrepareVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings, std::shared_ptr<void> &resources);
+    const StencilBinds &bindings, std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanStencil(VulkanAdapter &adapter,
                     const std::shared_ptr<void> &resources,

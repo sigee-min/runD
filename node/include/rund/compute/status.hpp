@@ -1,5 +1,6 @@
 #pragma once
 #include <rund/compute/reason.hpp>
+#include <rund/compute/pipeline/coordinate.hpp>
 #include <rund/outcome/result.hpp>
 
 #include <string_view>
@@ -17,13 +18,47 @@ struct Location final {
   std::uint32_t step{none};
   std::uint32_t iteration{none};
   std::uint32_t node{none};
+  // Accelerator preparation preserves both compact-template identity and the
+  // expanded command occurrence that failed.  Nested coordinates are never
+  // flattened: an unavailable coordinate remains `none`.
+  std::uint32_t template_index{none};
+  std::uint32_t occurrence_index{none};
+  std::uint32_t outer_iteration{none};
+  std::uint32_t inner_iteration{none};
+  PipelineNestedPhase nested_phase{PipelineNestedPhase::None};
+  // Backends publish process-lifetime static reason keys.  This retains the
+  // native diagnostic instead of projecting it irreversibly to one public
+  // Reason.  Null means that no native preparation failure was observed.
+  const char *native_reason_key{nullptr};
 
   [[nodiscard]] constexpr bool known() const noexcept {
-    return step != none || iteration != none || node != none;
+    return step != none || iteration != none || node != none ||
+           template_index != none || occurrence_index != none ||
+           outer_iteration != none || inner_iteration != none ||
+           nested_phase != PipelineNestedPhase::None ||
+           native_reason_key != nullptr;
   }
 
   [[nodiscard]] constexpr bool
-  operator==(const Location &) const noexcept = default;
+  operator==(const Location &other) const noexcept {
+    const auto same_reason = [](const char *left, const char *right) constexpr {
+      if (left == nullptr || right == nullptr) {
+        return left == right;
+      }
+      while (*left != '\0' && *right != '\0' && *left == *right) {
+        ++left;
+        ++right;
+      }
+      return *left == *right;
+    };
+    return step == other.step && iteration == other.iteration &&
+           node == other.node && template_index == other.template_index &&
+           occurrence_index == other.occurrence_index &&
+           outer_iteration == other.outer_iteration &&
+           inner_iteration == other.inner_iteration &&
+           nested_phase == other.nested_phase &&
+           same_reason(native_reason_key, other.native_reason_key);
+  }
 };
 
 class Status final {

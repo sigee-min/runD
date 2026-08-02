@@ -25,7 +25,8 @@ ExecutePreparedVulkanNumeric(const rund::AccelDevice &pick, const Desc &desc,
   BeginVulkanCollectiveDescriptorEpoch(*adapter);
   std::shared_ptr<void> prepared;
   const rund::AccelCheck check = prepare(
-      pick, desc, plan, bindings, KernelPreparationMode::Standalone, prepared);
+      pick, desc, plan, bindings, KernelPreparationMode::Standalone, prepared,
+      nullptr);
   return check.ok ? SubmitVulkanEncodedResources(*adapter, prepared,
                                                  EncodeVulkanNumeric,
                                                  FinishVulkanNumeric)

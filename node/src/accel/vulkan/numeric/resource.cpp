@@ -4,6 +4,7 @@
 #include "../buffer/transfer/copy.hpp"
 #include "../scope.hpp"
 #include "../status.hpp"
+#include "../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/transform/twiddle.hpp>
 
@@ -15,20 +16,21 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 [[nodiscard]] rund::kernel::LoweringArtifact
-NumericArtifact(const std::string &source) noexcept {
-  return rund::kernel::LoweringArtifact{
-      .kind = rund::kernel::LoweringArtifactKind::VulkanSource,
-      .source_text = source,
-      .ok = true,
-      .reason = "ok",
-  };
+NumericArtifact(const rund::kernel::ComputePlan &pseudo,
+                std::string source) noexcept {
+  const std::uint64_t source_bytes = source.size();
+  return VulkanBackendArtifact(pseudo, std::move(source), source_bytes);
 }
 
 [[nodiscard]] VulkanCollectivePipeline *AcquireNumericPipeline(
     VulkanAdapter &adapter, const std::uint32_t descriptor_count,
     const std::uint32_t push_bytes, const rund::kernel::ComputePlan &pseudo,
-    const std::string &source, const NumericPolicy policy) {
-  const rund::kernel::LoweringArtifact artifact = NumericArtifact(source);
+    std::string source, const NumericPolicy policy) {
+  const rund::kernel::LoweringArtifact artifact =
+      NumericArtifact(pseudo, std::move(source));
+  if (!artifact.ok) {
+    return nullptr;
+  }
   const VulkanSpecialization specialization{
       .values = policy.constants(),
       .count = 4u,
@@ -147,10 +149,8 @@ LookupPrepared(const rund::AccelDevice &pick, VulkanNumericPrepared &state,
 [[nodiscard]] rund::AccelCheck
 FinalizePrepared(VulkanNumericPrepared &state, const NumericParams &params,
                  const std::uint32_t descriptor_count,
-                 const rund::kernel::ComputePlan &pseudo,
-                 const std::string &source, const NumericPolicy policy,
-                 const KernelPreparationMode mode,
-                 const std::uint32_t push_bytes) {
+                 VulkanCollectivePipeline *const pipeline,
+                 const KernelPreparationMode mode) {
   if (state.status_count > std::numeric_limits<rund::kernel::u64>::max() /
                                sizeof(rund::kernel::u32) ||
       (state.status_count != 0u && state.status == nullptr)) {
@@ -169,8 +169,7 @@ FinalizePrepared(VulkanNumericPrepared &state, const NumericParams &params,
                           state.status_readback)) {
     return rund::AccelCheck{false, VulkanLastError(state.adapter)};
   }
-  state.pipeline = AcquireNumericPipeline(*state.adapter, descriptor_count,
-                                          push_bytes, pseudo, source, policy);
+  state.pipeline = pipeline;
   if (state.pipeline == nullptr ||
       !MakeParamsBuffer(*state.adapter, params, state.params) ||
       !MakeDummyBuffer(*state.adapter, state.dummy) ||

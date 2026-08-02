@@ -13,6 +13,7 @@ namespace rund::node::accel::detail {
 
 struct MetalAdapter;
 struct MetalPipelineStatusBindings;
+struct MetalKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
 ExecuteMetalSegmentedReduce(const rund::AccelDevice &pick,
@@ -26,7 +27,9 @@ PrepareMetalSegmentedReduce(const rund::AccelDevice &pick,
                             const rund::kernel::SegmentedReducePlan &plan,
                             rund::kernel::ComputeDomain domain,
                             const SegmentedReduceBinds &bindings,
-                            std::shared_ptr<void> &resources);
+                            std::shared_ptr<void> &resources,
+                            const MetalKernelImmutablePipelines *pipelines =
+                                nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeMetalSegmentedReduce(MetalAdapter &adapter,
                            const std::shared_ptr<void> &resources,

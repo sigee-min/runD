@@ -101,6 +101,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/loss.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/metal.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/admission.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/profile.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/repeat.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/state.cpp|compute.pipeline"
@@ -119,6 +120,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/workset.cpp|compute.window"
   "tests/contract/compute/memory/accel.cpp|compute.memory"
   "tests/contract/compute/memory/arena.cpp|compute.memory"
+  "tests/contract/compute/memory/cpu_arena.cpp|compute.memory"
   "tests/contract/compute/memory/graph.cpp|compute.memory"
   "tests/contract/compute/memory/observe.cpp|compute.memory"
   "tests/contract/compute/memory/program.cpp|compute.memory"
@@ -181,6 +183,7 @@ set(NODE_TEST_COMPUTE_LINE_TABLE_SOURCES
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
   tests/contract/compute/memory/arena.cpp
+  tests/contract/compute/memory/cpu_arena.cpp
   tests/contract/compute/memory/graph.cpp
   tests/contract/compute/memory/observe.cpp
   tests/contract/compute/memory/program.cpp
@@ -219,6 +222,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/loss.cpp
   tests/contract/compute/pipeline/metal.cpp
   tests/contract/compute/pipeline/memory.cpp
+  tests/contract/compute/pipeline/admission.cpp
   tests/contract/compute/pipeline/profile.cpp
   tests/contract/compute/pipeline/repeat.cpp
   tests/contract/compute/pipeline/state.cpp
@@ -239,6 +243,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
   tests/contract/compute/memory/arena.cpp
+  tests/contract/compute/memory/cpu_arena.cpp
   tests/contract/compute/memory/graph.cpp
   tests/contract/compute/memory/observe.cpp
   tests/contract/compute/memory/program.cpp

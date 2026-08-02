@@ -51,6 +51,9 @@ bool PrepareResidentBindings(MetalAdapter &adapter,
       return false;
     }
     out.overflow_inputs.resize(overflow_count);
+    if (out.overflow_inputs.capacity() != overflow_count) {
+      return false;
+    }
   }
   if (plan.output_buffer_count > kInlineMetalBufferCount) {
     std::size_t overflow_count = 0u;
@@ -59,6 +62,9 @@ bool PrepareResidentBindings(MetalAdapter &adapter,
       return false;
     }
     out.overflow_outputs.resize(overflow_count);
+    if (out.overflow_outputs.capacity() != overflow_count) {
+      return false;
+    }
   }
   MetalResidentState &resident = MetalResidents(adapter);
   std::lock_guard lock{resident.mutex};

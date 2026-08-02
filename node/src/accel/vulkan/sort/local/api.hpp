@@ -13,6 +13,8 @@
 
 namespace rund::node::accel::detail {
 
+struct VulkanKernelImmutablePipelines;
+
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 void DestroyVulkanSortEncodeResources(void *raw);
 [[nodiscard]] rund::AccelCheck ValidateVulkanSortPrepareShape(
@@ -26,7 +28,8 @@ void DestroyVulkanSortEncodeResources(void *raw);
 [[nodiscard]] rund::AccelCheck AllocateVulkanSortSharedResources(
     VulkanAdapter &adapter, const rund::kernel::SortDesc &desc,
     const rund::kernel::SortPlan &plan, const VulkanSortPrepareShape &shape,
-    VulkanSortEncodeResources &resources);
+    VulkanSortEncodeResources &resources,
+    const VulkanKernelImmutablePipelines *pipelines);
 [[nodiscard]] rund::AccelCheck PrepareVulkanSortPass(
     VulkanAdapter &adapter, const rund::kernel::SortPlan &plan,
     const VulkanSortResidentBuffers &buffers, bool signed_order,
@@ -41,6 +44,9 @@ SortBlockShapeOk(const rund::kernel::SortPlan &plan,
                  rund::kernel::u64 &block_table_bytes) noexcept;
 [[nodiscard]] std::string VulkanSortSource(rund::kernel::SortKey key,
                                            SortStage stage);
+[[nodiscard]] bool VulkanSortSourceBytes(rund::kernel::SortKey key,
+                                         SortStage stage,
+                                         std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireSortPipeline(VulkanAdapter &adapter, const rund::kernel::SortDesc &desc,
                     SortStage stage);

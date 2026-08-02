@@ -13,7 +13,9 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck ExecuteMetalGather(const rund::AccelDevice &pick,
                                        const rund::kernel::GatherDesc &desc,
@@ -23,7 +25,9 @@ struct VulkanAdapter;
                                        const rund::kernel::GatherDesc &desc,
                                        const rund::kernel::GatherPlan &plan,
                                        const GatherBinds &bindings,
-                                       std::shared_ptr<void> &resources);
+                                       std::shared_ptr<void> &resources,
+                                       const MetalKernelImmutablePipelines *pipelines =
+                                           nullptr);
 [[nodiscard]] rund::AccelCheck EncodeMetalGather(MetalAdapter &adapter,
                                       const std::shared_ptr<void> &resources,
                                       void *command_encoder);
@@ -38,7 +42,9 @@ struct VulkanAdapter;
                                         const rund::kernel::GatherDesc &desc,
                                         const rund::kernel::GatherPlan &plan,
                                         const GatherBinds &bindings,
-                                        std::shared_ptr<void> &resources);
+                                        std::shared_ptr<void> &resources,
+                                        const VulkanKernelImmutablePipelines
+                                            *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck EncodeVulkanGather(VulkanAdapter &adapter,
                                        const std::shared_ptr<void> &resources,
                                        void *command_buffer);

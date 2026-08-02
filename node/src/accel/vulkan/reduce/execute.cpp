@@ -5,6 +5,7 @@
 #include "../../reduce/vulkan.hpp"
 #include "../collective/execute.hpp"
 #include "../status.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "encode/pass.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
@@ -36,7 +37,9 @@ rund::AccelCheck PrepareVulkanReduce(const rund::AccelDevice &pick,
                                      const rund::kernel::ReducePlan &plan,
                                      const rund::kernel::ComputeDomain domain,
                                      const ReduceBinds &bindings,
-                                     std::shared_ptr<void> &resources) {
+                                     std::shared_ptr<void> &resources,
+                                     const VulkanKernelImmutablePipelines
+                                         *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -73,7 +76,11 @@ rund::AccelCheck PrepareVulkanReduce(const rund::AccelDevice &pick,
   raw->logical_count = requested(bindings.logical_count_handle == nullptr
                                      ? lookup.input
                                      : lookup.logical_count);
-  raw->pipeline = AcquireReducePipeline(*adapter, desc, domain);
+  raw->pipeline =
+      pipelines == nullptr
+          ? AcquireReducePipeline(*adapter, desc, domain)
+          : pipelines->borrow(rund::kernel::NodeKind::Reduce, 1u, 0u,
+                              kReduceDescriptorCount, plan.pass_count);
   if (raw->pipeline == nullptr ||
       !CreateVulkanReduceScratchBuffers(*adapter, *raw, plan) ||
       !CreateVulkanReducePassResources(*adapter, *raw)) {
@@ -88,6 +95,7 @@ rund::AccelCheck PrepareVulkanReduce(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }
@@ -155,7 +163,18 @@ rund::AccelCheck ExecuteVulkanReduce(const rund::AccelDevice &pick,
                                      const ReduceBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanDomainCollective(pick, desc, plan, domain, bindings,
-                                       PrepareVulkanReduce, EncodeVulkanReduce,
+                                       [](const rund::AccelDevice &device,
+                                          const rund::kernel::ReduceDesc &operation,
+                                          const rund::kernel::ReducePlan &prepared,
+                                          const rund::kernel::ComputeDomain active_domain,
+                                          const ReduceBinds &resident,
+                                          std::shared_ptr<void> &resources) {
+                                         return PrepareVulkanReduce(
+                                             device, operation, prepared,
+                                             active_domain, resident, resources,
+                                             nullptr);
+                                       },
+                                       EncodeVulkanReduce,
                                        FinishVulkanReduce);
 #else
   (void)domain;

@@ -50,8 +50,13 @@ namespace {
 
 [[nodiscard]] bool NumericGeneratedSourcesCloseGenericDependencies() {
 #if defined(__APPLE__)
+  using rund::node::accel::detail::EmitMetalNumericFixedLane64Source;
   const std::string metal =
-      rund::node::accel::detail::MetalNumericFixedLane64Source();
+      rund::node::accel::detail::backend_source_recipe::materialize(
+          [](auto &sink) noexcept(
+              noexcept(EmitMetalNumericFixedLane64Source(sink))) {
+            return EmitMetalNumericFixedLane64Source(sink);
+          });
   if (!OrderedToken(metal, "inline ulong RundUnsignedDivU128ByU64(",
                     "ulong magnitude = RundUnsignedDivU128ByU64(") ||
       !OrderedToken(metal, "inline ulong RundUnsignedSqrtU128ToU64(",

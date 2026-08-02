@@ -1027,24 +1027,90 @@ workspace before that cross-step reuse. This makes an oversized workspace
 diagnosable without exposing allocator addresses or creating another size
 limit.
 
-`PipelinePlan::peak_bytes` reports the exact Pipeline-owned planned payload:
+`PipelinePlan::peak_bytes` reports the complete checked Pipeline-owned
+admission reservation:
 
 ```text
-peak_bytes = state_bytes + transient_bytes + prepared_bytes
+prepared_bytes = prepared_buffer_bytes
+               + prepared_host_bytes
+               + prepared_tile_bytes
+               + prepared_native_bytes
+peak_bytes      = state_bytes + transient_bytes + prepared_bytes
 ```
 
-`prepared_bytes` is the aligned backing payload of the typed dense View and
-primitive scratch arenas referenced by prepared backend commands. Multiple
-logical View slots and ordered primitive temporary requests are suballocated
-from shared owners at the required scalar and selected backend storage
-alignment. Sequential uses of different scalar types may share the same
-raw-word slot.
-The arenas are planned and allocated once by Pipeline, shared by sequential
-Programs and recurrence phases, and never privately allocated by a prepared
-Job. `scratch_bytes` and `scratch_count` expose the retained scratch payload and
-physical page count. Because Pipeline steps are serial, scratch capacity is the
-maximum deterministic Program page envelope rather than the sum of every
-prepared occurrence. `view_bytes`, `view_step`, `view_iteration`, and
+`peak_bytes` keeps this exact logical-payload meaning. CPU plans additionally
+report `arena_extent_bytes`, the unrounded span of their one sealed prepared
+mapping, and `committed_peak_bytes`, the Device governor charge after that
+mapping is rounded once to the captured host page size. If `A` is the exact
+arena payload already included in `peak_bytes` and `C` is the mapping
+commitment, the checked relation is
+
+```text
+committed_peak_bytes = peak_bytes - A + C
+```
+
+`MemoryBudget` compares `peak_bytes`; `DevicePipelineMemoryLimit` aggregates
+`committed_peak_bytes` across live Pipelines before materialization. Neither
+field is process RSS or a driver-private estimate.
+
+The four prepared components are disjoint. `prepared_buffer_bytes` is the
+exact aligned backing payload of typed dense View normalization and accelerator
+primitive scratch. `prepared_host_bytes` reserves retained Pipeline, route,
+private-Job, and CPU Program-run objects plus product-owned container payload.
+`prepared_tile_bytes` is the exact CPU worker/tile-executor, collective, and
+primitive scratch payload. `prepared_native_bytes` reserves explicitly sized
+command, parameter, status, profile, and descriptor payload owned by runD.
+For a Map template, lowering freezes `source_text_upper_bytes` while its
+admitted parsed IR is still available. It is the canonical decimal-literal
+upper for that exact IR; Pipeline planning starts retained-source and
+backend-envelope accounting from this scalar and never reparses or regenerates
+shader text. Map binding specialization freezes at most two edits per admitted
+binding in a fixed stack array, then allocates only the retained final string;
+its `source_transient_bytes` contribution is therefore zero. A source
+transient required by another serialized transform is still charged once as a
+high-water owner even when primary and alternate streams share the template.
+Exact source text bytes and allocator storage are distinct: a retained source
+with text upper `T` receives a conservative external `std::string` envelope
+`T + 64`, and runtime rejects publication if observed capacity plus terminator
+exceeds it. A Metal non-Map private-ABI growth additionally reserves the raw
+`R + 64` allocation as the serialized transient; Map main/control/check
+recipes materialize directly into their final wrapper reserve and keep that
+transient at zero.
+Metal Pipeline cold admission also keeps bounded state/profile/publication
+proofs inline, borrows status replacement rows instead of copying them per
+occurrence, and reserves the sole native-window vector exactly once. Sparse
+capture rows use one shared power-of-two capacity law in planning and runtime;
+the pointer-identity index and live native-window rows are charged together.
+Host and native rows are conservative checked structural envelopes where a
+platform allocator does not publish an exact byte layout: materialization may
+consume less but cannot exceed either the frozen byte reservation or its object
+counts. Opaque allocator headers and driver-private allocation granularity are
+not invented as plan bytes.
+
+Multiple logical View slots and ordered primitive temporary requests are
+suballocated from shared owners at the required scalar and selected backend
+storage alignment. Sequential uses of different scalar types may share the
+same raw-word slot. The arenas are planned and allocated once by Pipeline,
+shared by sequential Programs and recurrence phases, and never privately
+allocated by a prepared Job. `scratch_bytes` and `scratch_count` expose the
+retained accelerator scratch payload and physical page count. Because Pipeline
+steps are serial, scratch capacity is the maximum deterministic Program page
+envelope rather than the sum of every prepared occurrence. CPU
+Program-private Map/collective descriptors are materialized once per distinct
+Program. All CPU mutable execution slabs, route and binding arrays, workspace
+objects/offsets, collective arrays, and primitive scratch live in one typed
+`CpuPreparedArena` shared by every serial route; the per-Program wrappers and
+immutable indices only point into it. Primitive descriptor objects and
+persistent transform tables are additive; reusable slabs are maximum envelopes.
+Scatter has one maximum keys slab, one maximum marks slab, and one shared epoch
+so different Scatter Programs cannot create false duplicates.
+These owners are charged once to `prepared_host_bytes` and
+`prepared_tile_bytes`; a Program with no workspace consumer keeps an
+intentional null workspace.
+Accelerator scratch planning also walks each distinct Program once in
+first-declaration order; recurrence route count therefore does not multiply the
+Kernel operation scan or alter deterministic failure priority.
+`view_bytes`, `view_step`, `view_iteration`, and
 `view_binding` identify the largest logical View requirement without changing
 the Program-workspace coordinates. `view_span_bytes`, `view_backing_bytes`, `view_offset_bytes`,
 `view_stride_bytes`, `view_element_bytes`, `view_count`, and
@@ -1089,15 +1155,59 @@ proved status-free element-local Action is one device transducer invocation per
 outer window while retaining all `N` ordered logical transitions; other Action
 shapes keep their canonical per-iteration stream.
 
-`MemoryBudget` compares `peak_bytes` before any Pipeline-owned View, scratch,
-state, or workspace Buffer is materialized because caller Buffers already
-exist and are not allocated by prepare. Planned payload cannot be mixed
-dimensionally with backend allocation rounding, driver metadata, or
-transfer-pool high-water marks. Those are reported after prepare by
-`Pipeline::memory()`. `memory_snapshot()` labels scratch separately in
-Resident and Device categories so logical payload and physical allocation
-rounding remain distinguishable. Allocation failures retain the allocator or
-backend's typed reason. runD does not invent a platform-memory capacity.
+`MemoryBudget` compares `peak_bytes` before any Pipeline-owned state,
+workspace, View/scratch Buffer, CPU Program-run storage, private Job,
+accelerator template registry, or native command/descriptor owner is
+materialized because caller Buffers already exist and are not allocated by
+prepare. Primary and transactional-alternate streams consume one cumulative
+accelerator reservation and share equal immutable templates. Every byte and
+native-object count is rechecked against that reservation before the
+corresponding backend allocation; Vulkan therefore either stays within the
+frozen envelope or rejects before command/descriptor expansion.
+
+Recurrence route groups are counted per authored stream, while immutable
+terminal/history templates are counted per normalized variant class. For a
+class `E`, the frozen template capacity is
+`sum(route_copies(r) * group_count(r), r in E)`: Metal retains one fixed group
+table of that size, and Vulkan additionally retains exactly
+`capacity * dispatch_window_count` descriptor sets. Those template dimensions
+are charged once and never multiplied by authored occurrence or nested
+outer/inner iteration counts.
+
+Backend route descriptions and encoded commands are likewise separate frozen
+coordinates. If route `r` has `a_r` compact authored entries, `o_r` physical
+occurrences, `d_r` step descriptions, and `q_r` stream copies, retained step
+descriptions total `sum(q_r * a_r * d_r)`; retained status and telemetry
+descriptions use the same compact scale. Status/telemetry commands and their
+occurrence-local parameter payload use `q_r * o_r`. Metal and Vulkan compare
+each actual described or captured owner to its matching field before native
+allocation and fail at the stable route/node coordinate rather than borrowing
+capacity from another dimension.
+
+The backend dispatch coordinate is the physical body/View capture upper,
+including primitive stage expansion, while reset and all control families stay
+separate. Vulkan keeps a deliberate 1,024 aggregate retained-template-step
+materialization ceiling. Plan-only inspection may describe a larger safe
+memory envelope; preparation then rejects before registry publication or a
+Vulkan call with the first crossing template and Program node intact. The
+stable native key `compute_pipeline_template_step_capacity` projects to public
+`PipelineCapacity`, which distinguishes the declared compile ceiling from a
+malformed lowering.
+
+The CPU sealed mapping is the one explicit page-rounding boundary represented
+in the plan: `arena_extent_bytes` names its exact span after internal alignment
+and
+`committed_peak_bytes` names the complete Device-governor charge after that
+mapping is rounded once. Other backend allocation granularity, opaque driver
+metadata, transfer pools, and process RSS high-water remain observations after
+materialization through `Pipeline::memory()` and the measurement harness.
+`memory_snapshot()` labels scratch separately in Resident and Device categories
+so logical payload and observed physical allocation remain distinguishable.
+Native allocation failures retain the public typed reason, logical
+step/template and occurrence, outer/inner/phase coordinates when known, and a
+stable native reason key. A literal process/container limit is an operating-
+system policy above the Device governor; runD does not invent that capacity
+from RSS samples.
 
 The public Device, Buffer, and Program handles do not mirror backend, buffer
 count, or Program shape metadata. One shared state owns those values, and the
@@ -2011,11 +2121,16 @@ truth conversion, `error()`, and `exit_code()` are pure projections;
 `exit_code()` is zero only for `Reason::Ok` and one for every failure. Failure
 construction is `Status::fail(Reason)` or `Result<T>::fail(Reason, Location)`.
 The location is optional cold-path evidence owned by `Result<T>` and does not
-enlarge the hot execution `Status`. Its three canonical U32 coordinates are
-the logical Pipeline step, physical recurrence iteration, and Program graph
-node; an unavailable coordinate is `Location::none`. `transform` and
-`and_then` preserve the whole failure, including location, without invoking
-the callback.
+enlarge the hot execution `Status`. It preserves the logical Pipeline step,
+physical recurrence iteration, Program graph node, immutable accelerator
+template, expanded command occurrence, and unflattened outer/inner/phase
+coordinates; an unavailable integer coordinate is `Location::none`. Nested
+coordinates have one canonical shape: ordinary work has neither coordinate,
+Seed/Fold have only an outer coordinate, and Action has both. Accelerator
+preparation also preserves its process-lifetime static `native_reason_key`
+instead of discarding that diagnostic during public Reason projection.
+`transform` and `and_then` preserve the whole failure, including location,
+without invoking the callback.
 
 There is no `Code + string_view` overload, so a temporary diagnostic cannot
 dangle and callers cannot combine an unrelated category and text. A forged
@@ -2226,11 +2341,18 @@ The opaque implementation is a tagged split: CPU devices store frozen
 `CpuCaps` plus the Kernel worker backend, CPU buffers store 64-byte-aligned
 host memory, and accelerator devices/buffers alone store Accel context and
 resident handles. `CpuProgram` owns one immutable `ComputeMap` descriptor, one
-compact prepared SIMD instruction/format plan, and one tile plan. Each resident
-Job prepares its own tile-run state, SIMD counters, and
-fixed-capacity map and primitive scratch before the warm loop. Independent
-Jobs from one CPU Program therefore do not share mutable execution scratch;
-the same Job still rejects a second concurrent run with `compute_job_busy`.
+compact prepared SIMD instruction/format plan, and one tile plan. A standalone
+resident Job prepares its own tile-run state, SIMD counters, and fixed-capacity
+map and primitive scratch before the warm loop. Independent concurrently usable
+standalone Jobs from one CPU Program therefore do not share mutable execution
+scratch; the same Job still rejects a second concurrent run with
+`compute_job_busy`. A Pipeline has a stricter serial execution gate and owns
+one `CpuPreparedArena` for the maximum mutable worker/tile, Map, collective,
+and primitive execution envelope across all serial Programs. Each distinct
+Program retains only its compact run wrappers, immutable indices, and
+descriptors; their spans and every occurrence/recurrence route borrow that one
+Pipeline owner. This does not weaken standalone Job isolation or create a
+second execution authority.
 Accelerator resident Jobs likewise allocate their intermediate graph and
 collective buffers during `resident()`. Those buffers and their fixed-view
 binding arrays are not shared between Jobs. The mutex-serialized convenience

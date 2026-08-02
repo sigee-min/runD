@@ -14,6 +14,7 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+struct MetalKernelImmutablePipelines;
 struct PreparedMemory;
 struct MetalPipelineStatusBindings;
 
@@ -22,27 +23,32 @@ inline constexpr rund::kernel::u64 kMetalAlgebraLanes = 32u;
 [[nodiscard]] rund::AccelCheck PrepareMetalTransform(
     const rund::AccelDevice &pick, const rund::kernel::TransformDesc &desc,
     const rund::kernel::TransformPlan &plan, const TransformBinds &bindings,
-    std::shared_ptr<void> &out);
+    std::shared_ptr<void> &out,
+    const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 PrepareMetalMatrix(const rund::AccelDevice &pick,
                    const rund::kernel::MatrixDesc &desc,
                    const rund::kernel::MatrixPlan &plan,
-                   const MatrixBinds &bindings, std::shared_ptr<void> &out);
+                   const MatrixBinds &bindings, std::shared_ptr<void> &out,
+                   const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 PrepareMetalFactor(const rund::AccelDevice &pick,
                    const rund::kernel::FactorDesc &desc,
                    const rund::kernel::FactorPlan &plan,
-                   const FactorBinds &bindings, std::shared_ptr<void> &out);
+                   const FactorBinds &bindings, std::shared_ptr<void> &out,
+                   const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 PrepareMetalSolve(const rund::AccelDevice &pick,
                   const rund::kernel::SolveDesc &desc,
                   const rund::kernel::SolvePlan &plan,
-                  const SolveBinds &bindings, std::shared_ptr<void> &out);
+                  const SolveBinds &bindings, std::shared_ptr<void> &out,
+                  const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 PrepareMetalSpectrum(const rund::AccelDevice &pick,
                      const rund::kernel::SpectrumDesc &desc,
                      const rund::kernel::SpectrumPlan &plan,
-                     const SpectrumBinds &bindings, std::shared_ptr<void> &out);
+                     const SpectrumBinds &bindings, std::shared_ptr<void> &out,
+                     const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeMetalNumeric(MetalAdapter &adapter, const std::shared_ptr<void> &prepared,
                    void *command_encoder);

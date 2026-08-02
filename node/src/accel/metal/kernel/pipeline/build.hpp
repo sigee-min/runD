@@ -4,7 +4,10 @@
 #include "state.hpp"
 #include "status.hpp"
 
+#include "../../../kernel/backend/pipeline_failure.hpp"
 #include "../../../kernel/recurrence.hpp"
+
+#include <rund/compute/pipeline/shape.hpp>
 
 #include <array>
 #include <cstdint>
@@ -16,6 +19,20 @@ namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
+// Registry-owned immutable recurrence template. It deliberately retains no
+// transformed LoweringArtifact, source string, or copied binding/history
+// identity. The common normalized recurrence plan is reconstructed from this
+// immutable Program signature when a cold registry lookup needs to compare
+// templates; only the prepared native owner survives into the warm path.
+struct MetalMapRecurrenceTemplate final {
+  MetalKernelTemplateKind kind{MetalKernelTemplateKind::MapRecurrence};
+  const BackendRun *signature{};
+  bool history{};
+  std::shared_ptr<const MetalMapTemplateResources> prepared{};
+};
+
+static_assert(std::is_standard_layout_v<MetalMapRecurrenceTemplate>);
+
 struct MetalPipelineBuild final {
   std::span<const BackendBatchEntry> templates;
   std::span<const BackendBatchEntry> entries;
@@ -23,12 +40,16 @@ struct MetalPipelineBuild final {
   std::span<const TileTransducer> transducers;
   std::span<const NestedAggregate> aggregates;
   std::span<const BackendPublish> publications;
+  PreparedKernelTemplateRegistry &template_registry;
   PreparedPipelineStatusLayout &status;
   bool profile_steps{};
+  PreparedPipelineFailureContext failure_context{};
 
   MapRecurrence recurrence{};
   MetalKernelContext context{};
-  std::vector<MetalPublish> native_publications;
+  std::array<MetalPublish, rund::compute::detail::PipelineLeafCapacity>
+      native_publications{};
+  std::size_t native_publication_count{};
   std::vector<MetalWindow> native_windows;
   std::shared_ptr<MetalSequence> pipeline;
   MetalNestedAggregate native_aggregate{};
@@ -37,7 +58,6 @@ struct MetalPipelineBuild final {
 
   std::vector<MetalPipelineStatusBindingRecord> status_bindings;
   std::vector<MetalPipelineStatusSourceMeta> status_sources;
-  std::vector<MetalPipelineStatusSourceMeta> occurrence_status_sources;
   std::vector<MetalPipelineStatusEntryMeta> status_entries;
   std::vector<MetalPipelineResetMeta> status_resets;
   std::vector<PreparedProgramStatusSlice> telemetry_steps;
@@ -77,6 +97,15 @@ struct MetalPipelineBuild final {
   std::uint32_t canonicalize_count{};
   std::uint32_t window_publish_count{};
   bool finished{};
+
+  [[nodiscard]] std::span<MetalPublish> native_publication_rows() noexcept {
+    return {native_publications.data(), native_publication_count};
+  }
+
+  [[nodiscard]] std::span<const MetalPublish>
+  native_publication_rows() const noexcept {
+    return {native_publications.data(), native_publication_count};
+  }
 
   [[nodiscard]] rund::AccelCheck Admit();
   [[nodiscard]] rund::AccelCheck Describe();

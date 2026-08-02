@@ -10,10 +10,12 @@
 namespace rund::compute {
 
 struct MemoryBudget final {
-  // Maximum planned bytes retained by Pipeline-owned state, Program
-  // workspace, dense backend View storage, and primitive scratch arena.
-  // Native driver metadata and physical allocation granularity remain
-  // observable through memory().
+  // Maximum complete runD-owned preparation reservation. The check covers
+  // Pipeline state/workspace, dense backend View and primitive scratch
+  // Buffers, retained host/CPU execution storage, and explicitly sized native
+  // command/descriptor storage before those owners are materialized. Opaque
+  // allocator headers and driver-private allocation granularity remain
+  // post-prepare telemetry through memory().
   std::uint64_t bytes{};
 };
 
@@ -22,10 +24,22 @@ struct PipelinePlan final {
   std::uint64_t persistent_bytes{};
   std::uint64_t state_bytes{};
   std::uint64_t transient_bytes{};
-  // Backend storage referenced by prepared native commands. Dense View
-  // normalization and primitive scratch are allocated by this immutable
-  // Pipeline plan, never by private Pipeline Jobs.
+  // Complete runD-owned cold preparation reservation.  It is the checked sum
+  // of the disjoint Buffer, host, CPU tile-run, and native product-owned
+  // components below and participates in MemoryBudget before materialization.
   std::uint64_t prepared_bytes{};
+  // Dense View normalization and primitive scratch Buffer payload.
+  std::uint64_t prepared_buffer_bytes{};
+  // Retained Pipeline/Job route metadata and CPU Program-private run state.
+  std::uint64_t prepared_host_bytes{};
+  // CPU worker, tile-executor, collective, and primitive scratch payload.
+  std::uint64_t prepared_tile_bytes{};
+  // Backend command/descriptor storage whose byte ownership is visible to
+  // runD. Metal Pipeline ICB bytes are exact device-calibrated size-class
+  // allocations and are reserved here before materialization. Other opaque
+  // driver bookkeeping that has no allocation query remains post-prepare
+  // telemetry.
+  std::uint64_t prepared_native_bytes{};
   // Backend primitive scratch is one serially reused arena. scratch_bytes is
   // its retained payload and scratch_count is its physical page count.
   std::uint64_t scratch_bytes{};
@@ -33,9 +47,20 @@ struct PipelinePlan final {
   // Bytes copied by final and append-only window publication. This is traffic,
   // not retained storage, and therefore does not participate in peak_bytes.
   std::uint64_t publish_bytes{};
-  // Exact planned retained payload. total_bytes is exactly referenced caller
-  // payload plus this Pipeline-owned payload.
+  // Complete checked retained admission reservation. total_bytes is the
+  // checked sum of referenced caller payload and this Pipeline-owned
+  // reservation. Host/native structural envelopes may materialize below their
+  // reserved byte counts, never above them.
   std::uint64_t peak_bytes{};
+  // Exact byte extent of explicit Pipeline-owned sealed arena mappings before
+  // host-page rounding. This excludes caller-owned persistent Buffers and
+  // never includes process RSS, allocator metadata, or driver-private state.
+  std::uint64_t arena_extent_bytes{};
+  // Conservative backing charge admitted by the Device Pipeline budget. It is
+  // the checked sum of each explicit mapping rounded once to its platform page
+  // boundary plus separately owned exact commitments; it is never derived by
+  // rounding peak_bytes as one aggregate allocation.
+  std::uint64_t committed_peak_bytes{};
   std::uint64_t total_bytes{};
   // These three reports exclude persistent_bytes and include the same fixed
   // infrastructure B = state_bytes + prepared_bytes. logical_bytes adds every

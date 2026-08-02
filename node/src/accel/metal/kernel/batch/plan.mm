@@ -73,23 +73,26 @@ resolve(const BackendBatchEntry &entry) noexcept {
       entry.run == nullptr || entry.run->steps == nullptr
           ? nullptr
           : &entry.run->steps[0];
-  if (map == nullptr || bound == nullptr || bound->planned == nullptr ||
+  if (map == nullptr || map->prepared == nullptr || bound == nullptr ||
+      bound->planned == nullptr ||
       bound->planned->artifact == nullptr ||
       bound->planned->artifact->metadata.uses_index ||
       map->windows.size() != 1u || map->windows.front().begin_sequence != 0u ||
-      map->windows.front().tile_count != map->plan.tile_count ||
-      map->plan.tile_count == 0u ||
-      map->plan.input_buffer_count > result.inputs.size() ||
-      map->plan.output_buffer_count == 0u ||
-      map->plan.output_buffer_count > result.outputs.size() ||
+      map->windows.front().tile_count != map->prepared->plan.tile_count ||
+      map->prepared->plan.tile_count == 0u ||
+      map->prepared->plan.input_buffer_count > result.inputs.size() ||
+      map->prepared->plan.output_buffer_count == 0u ||
+      map->prepared->plan.output_buffer_count > result.outputs.size() ||
       entry.run->execution->admission.kernel_id == 0u ||
       (entry.run->resets != nullptr && !entry.run->resets->empty())) {
     return result;
   }
   result.kernel = entry.run->execution->admission.kernel_id;
-  result.tiles = map->plan.tile_count;
-  result.input_count = static_cast<std::size_t>(map->plan.input_buffer_count);
-  result.output_count = static_cast<std::size_t>(map->plan.output_buffer_count);
+  result.tiles = map->prepared->plan.tile_count;
+  result.input_count =
+      static_cast<std::size_t>(map->prepared->plan.input_buffer_count);
+  result.output_count =
+      static_cast<std::size_t>(map->prepared->plan.output_buffer_count);
   result.max_tiles = std::numeric_limits<std::uint32_t>::max();
   for (std::size_t index = 0u; index < result.input_count; ++index) {
     const auto *const ref = map->bindings.resident_inputs.ref(index);

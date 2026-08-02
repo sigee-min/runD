@@ -3,11 +3,17 @@
 #include "../cached/index.hpp"
 #include "pipeline/acquire.hpp"
 
+#include <kernel/core/checked.hpp>
+
 #include <utility>
 
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
+[[nodiscard]] bool GrowCollectiveDescriptorSets(
+    VulkanAdapter &adapter, VulkanCollectivePipeline &pipeline,
+    std::uint32_t descriptor_count, std::uint64_t set_count);
+
 VulkanCollectivePipeline::~VulkanCollectivePipeline() { reset(); }
 
 VulkanCollectivePipeline::VulkanCollectivePipeline(
@@ -97,6 +103,29 @@ void PrepareVulkanCollectiveDescriptorSlots(
   pipeline.descriptor_epoch = epoch;
   pipeline.next_descriptor_slot = 0u;
   pipeline.reusable_descriptor_count = pipeline.descriptor_sets.size();
+}
+
+bool ReserveVulkanCollectiveDescriptorDemand(
+    VulkanAdapter &adapter, VulkanCollectivePipeline &pipeline,
+    const std::uint32_t descriptor_count, const std::uint64_t set_count) {
+  PrepareVulkanCollectiveDescriptorSlots(adapter, pipeline);
+  if (descriptor_count != pipeline.descriptor_count) {
+    SetVulkanLastError(adapter, "accel_vulkan_descriptor_unavailable");
+    return false;
+  }
+  std::uint64_t available = 0u;
+  for (std::size_t slot = pipeline.next_descriptor_slot;
+       slot < pipeline.descriptor_sets.size(); ++slot) {
+    available += pipeline.descriptor_leased[slot] == 0u ? 1u : 0u;
+  }
+  if (set_count <= available) {
+    return true;
+  }
+  std::uint64_t target = 0u;
+  return rund::kernel::checked::add(pipeline.descriptor_sets.size(),
+                                    set_count - available, target) &&
+         GrowCollectiveDescriptorSets(adapter, pipeline, descriptor_count,
+                                      target);
 }
 #endif
 

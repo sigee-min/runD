@@ -78,9 +78,12 @@ CheckParity(Device &device, const Backend backend, Fingerprint &body_identity,
   }
   std::array<PipelineStepProfile, windows> rows{};
   const auto profile = prepared->profile(rows);
+  const std::uint64_t planned_resident = planned->state_bytes +
+                                         planned->transient_bytes +
+                                         planned->prepared_buffer_bytes;
   if (!profile ||
       profile->referenced_resource_bytes != planned->persistent_bytes ||
-      profile->shared_memory.resident.current != planned->peak_bytes ||
+      profile->shared_memory.resident.current != planned_resident ||
       !rund_node_test_pipeline::ProfileMemoryReconciles(*profile, rows)) {
     return 10;
   }

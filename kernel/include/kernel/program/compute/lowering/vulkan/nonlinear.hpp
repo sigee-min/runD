@@ -4,30 +4,46 @@
 #include <kernel/program/compute/lowering/vulkan/u128.hpp>
 
 #include <string>
+#include <array>
+#include <charconv>
+#include <string_view>
 
 namespace rund::kernel {
 namespace compute_lowering_detail {
 
-template <std::size_t N>
+template <typename Source>
+inline void AppendVulkanDecimal(Source &out, const std::uint64_t value) {
+  std::array<char, 20u> storage{};
+  const auto result =
+      std::to_chars(storage.data(), storage.data() + storage.size(), value);
+  if (result.ec == std::errc{}) {
+    out += std::string_view{
+        storage.data(), static_cast<std::size_t>(result.ptr - storage.data())};
+  }
+}
+
+template <typename Source, std::size_t N>
 inline void AppendVulkanTurnPoly64(
-    std::string &out, const char *const name,
+    Source &out, const char *const name,
     const std::array<std::int64_t, N> &coefficients) {
   out += "uint64_t ";
   out += name;
   out += "(uint64_t square) {\n";
   out += "  uint64_t acc = ";
-  out += std::to_string(static_cast<std::uint64_t>(coefficients.back()));
+  AppendVulkanDecimal(
+      out, static_cast<std::uint64_t>(coefficients.back()));
   out += "ul;\n";
   for (std::size_t index = N - 1u; index != 0u; --index) {
     out += "  acc = RundAddSat64(";
-    out += std::to_string(
-        static_cast<std::uint64_t>(coefficients[index - 1u]));
+    AppendVulkanDecimal(
+        out, static_cast<std::uint64_t>(coefficients[index - 1u]));
     out += "ul, RundMulFixedLane64(acc, square));\n";
   }
   out += "  return acc;\n}\n";
 }
 
-inline void AppendVulkanFixedLane32NonlinearHelpers(std::string &out) {
+template <typename Source>
+inline void AppendVulkanFixedLane32NonlinearHelpers(Source &out) {
   out += "uint64_t RundTurnUnsignedDiv32(uint64_t numerator, "
          "uint denominator) {\n";
   out += "  uint64_t quotient = 0ul;\n";
@@ -160,7 +176,8 @@ inline void AppendVulkanFixedLane32NonlinearHelpers(std::string &out) {
   out += "}\n";
 }
 
-inline void AppendVulkanFixedLane64NonlinearHelpers(std::string &out) {
+template <typename Source>
+inline void AppendVulkanFixedLane64NonlinearHelpers(Source &out) {
   AppendVulkanU128Core(out);
   AppendVulkanU128Division(out);
   AppendVulkanU128IntegerSquareRoot(out);
@@ -173,7 +190,7 @@ inline void AppendVulkanFixedLane64NonlinearHelpers(std::string &out) {
   out += "uint64_t RundTurnUnit64(uint64_t offset, bool cosine) {\n";
   out += "  if (offset == 0ul) { return cosine ? 0x7ffffffffffffffful : 0ul; }\n";
   out += "  if (offset >= 0x2000000000000000ul) { return ";
-  out += std::to_string(kTurnSqrtHalf64);
+  AppendVulkanDecimal(out, kTurnSqrtHalf64);
   out += "ul; }\n";
   out += "  const uint64_t unit = offset << 2ul;\n";
   out += "  const uint64_t square = RundMulFixedLane64(unit, unit);\n";
@@ -245,7 +262,7 @@ inline void AppendVulkanFixedLane64NonlinearHelpers(std::string &out) {
   out += "  if (denominator == 0ul) { return false; }\n";
   out += "  const RundU128 left = RundTurnNumerator64(numerator);\n";
   out += "  const RundU128 right = RundMulWide64(denominator, ";
-  out += std::to_string(kTurnTanEighth64);
+  AppendVulkanDecimal(out, kTurnTanEighth64);
   out += "ul);\n";
   out += "  return RundGeU128(right, left);\n";
   out += "}\n";

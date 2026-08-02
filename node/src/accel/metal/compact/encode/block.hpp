@@ -28,6 +28,8 @@ EncodeMetalCompactBlockPath(MetalAdapter &adapter, void *const command_encoder,
       (__bridge void *)state.block_counts, (__bridge void *)state.block_offsets,
       state.compact->scan_totals.buffer.get(),
       state.compact->scan_status.buffer.get(), command_encoder,
+      state.compact->scan_block, state.compact->scan_prefix,
+      state.compact->scan_offset,
       state.compact->block_counts.offset,
       state.compact->block_offsets.offset,
       state.compact->scan_totals.offset);

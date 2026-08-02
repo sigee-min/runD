@@ -1,5 +1,6 @@
 #include "control.hpp"
 #include "lease.hpp"
+#include "pipeline/source_artifact.hpp"
 
 #include "../../../hash/fnv.hpp"
 
@@ -18,7 +19,9 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 namespace {
@@ -31,11 +34,13 @@ struct CanonicalParams final {
   std::uint32_t rule{};
   std::uint32_t success{};
   std::uint32_t mapping_count{};
+  std::uint32_t invalid_reason{};
   std::array<std::uint32_t, 8u> raw_values{};
   std::array<std::uint32_t, 8u> reasons{};
 };
 
-static_assert(sizeof(CanonicalParams) == 84u);
+static_assert(sizeof(CanonicalParams) ==
+              VulkanPipelineCanonicalParameterBytes);
 
 struct ControlParams final {
   std::uint32_t first{};
@@ -46,11 +51,13 @@ struct ControlParams final {
   std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
   std::uint32_t failed_nested_phase{};
   std::uint32_t reserved{};
+  std::uint32_t generation_stride{};
+  std::uint32_t declared_step_count{};
 };
 
-static_assert(sizeof(ControlParams) == 32u);
+static_assert(sizeof(ControlParams) == VulkanPipelineControlParameterBytes);
 
-[[nodiscard]] std::uint64_t SourceHash(const std::string &source) noexcept {
+[[nodiscard]] std::uint64_t SourceHash(const std::string_view source) noexcept {
   ::rund::node::hash_detail::Fnv hash{};
   for (const unsigned char byte : source) {
     hash.Byte(byte);
@@ -59,7 +66,7 @@ static_assert(sizeof(ControlParams) == 32u);
 }
 
 [[nodiscard]] rund::kernel::ComputePlan
-PipelinePseudoPlan(const std::string &source) noexcept {
+PipelinePseudoPlan(const std::string_view source) noexcept {
   const std::uint64_t hash = SourceHash(source);
   return rund::kernel::ComputePlan{
       .op_hash_hi = hash,
@@ -71,19 +78,8 @@ PipelinePseudoPlan(const std::string &source) noexcept {
   };
 }
 
-[[nodiscard]] rund::kernel::LoweringArtifact
-PipelineArtifact(const std::string &source) {
-  return rund::kernel::LoweringArtifact{
-      .kind = rund::kernel::LoweringArtifactKind::VulkanSource,
-      .source_text = source,
-      .ok = true,
-      .reason = "ok",
-  };
-}
-
-[[nodiscard]] const std::string &CanonicalSource() {
-  static const std::string source = [] {
-    std::string text = R"GLSL(#version 450
+[[nodiscard]] constexpr std::string_view CanonicalSource() noexcept {
+  return R"GLSL(#version 450
 layout(local_size_x = 256) in;
 layout(set = 0, binding = 0, std430) readonly buffer RawStatus {
   uint raw_status[];
@@ -97,6 +93,7 @@ layout(push_constant) uniform CanonicalParams {
   uint rule;
   uint success;
   uint mapping_count;
+  uint invalid_reason;
   uint raw_values[8];
   uint reasons[8];
 } p;
@@ -108,10 +105,7 @@ void main() {
   if (raw != p.success) {
     uint key = raw;
     if (p.rule == 3u) { key &= 1u; }
-    reason = )GLSL";
-    text += std::to_string(
-        static_cast<std::uint32_t>(rund::compute::Reason::ReasonInvalid));
-    text += R"GLSL(u;
+    reason = p.invalid_reason;
     if (p.rule == 4u) { reason = p.reasons[0]; }
     for (uint map = 0u; map < p.mapping_count; ++map) {
       const bool match = p.rule == 2u
@@ -123,61 +117,10 @@ void main() {
   canonical_status[p.first + index] = reason;
 }
 )GLSL";
-    return text;
-  }();
-  return source;
 }
 
-[[nodiscard]] std::string
-ReduceSource(const PreparedPipelineStatusLayout &layout) {
-  if (layout.status_entry_count == 0u) {
-    std::string source = R"GLSL(#version 450
-layout(local_size_x = 1) in;
-layout(set = 0, binding = 0, std430) buffer ControlSummary {
-  uint control[];
-};
-layout(push_constant) uniform Params {
-  uint first;
-  uint count;
-  uint declared_step;
-  uint phase;
-  uint failed_outer_window;
-  uint failed_inner_iteration;
-  uint failed_nested_phase;
-  uint reserved;
-} p;
-void main() {
-  if (p.phase == 2u) {
-    control[1] = 0u;
-    control[2] = 0xffffffffu;
-    control[3] = 0u;
-    for (uint index = 4u; index < 18u; ++index) { control[index] = 0u; }
-    control[18] = 0xffffffffu;
-    control[19] = 0xffffffffu;
-    control[20] = 0xffffffffu;
-    control[21] = 0xffffffffu;
-    control[22] = 0u;
-    control[23] = 0u;
-    for (uint index = 24u; index < 32u; ++index) { control[index] = 0u; }
-    return;
-  }
-  if (p.phase != 1u) { return; }
-  control[0] += )GLSL";
-    source += std::to_string(layout.generation_stride);
-    source += R"GLSL(u;
-  if (control[1] == 0u) {
-    control[2] = 0xffffffffu;
-    control[3] = )GLSL";
-    source += std::to_string(layout.declared_step_count);
-    source += R"GLSL(u;
-  } else {
-    control[3] = control[2];
-  }
-}
-)GLSL";
-    return source;
-  }
-  std::string source = R"GLSL(#version 450
+[[nodiscard]] constexpr std::string_view ReduceSource() noexcept {
+  return R"GLSL(#version 450
 layout(local_size_x = 256) in;
 layout(set = 0, binding = 0, std430) readonly buffer CanonicalStatus {
   uint status_values[];
@@ -194,6 +137,8 @@ layout(push_constant) uniform Params {
   uint failed_inner_iteration;
   uint failed_nested_phase;
   uint reserved;
+  uint generation_stride;
+  uint declared_step_count;
 } p;
 shared uint ordinals[256];
 shared uint reasons[256];
@@ -217,14 +162,10 @@ void main() {
   }
   if (p.phase == 1u) {
     if (lane == 0u) {
-      control[0] += )GLSL";
-  source += std::to_string(layout.generation_stride);
-  source += R"GLSL(u;
+      control[0] += p.generation_stride;
       if (control[1] == 0u) {
         control[2] = 0xffffffffu;
-        control[3] = )GLSL";
-  source += std::to_string(layout.declared_step_count);
-  source += R"GLSL(u;
+        control[3] = p.declared_step_count;
       } else {
         control[3] = control[2];
       }
@@ -234,16 +175,13 @@ void main() {
   if (control[1] != 0u) { return; }
   uint best = 0xffffffffu;
   uint reason = 0u;
-)GLSL";
-  source += R"GLSL(  for (uint index = lane; index < p.count; index += 256u) {
+  for (uint index = lane; index < p.count; index += 256u) {
     const uint candidate = status_values[p.first + index];
     if (candidate != 0u && index < best) {
       best = index;
       reason = candidate;
     }
   }
-)GLSL";
-  source += R"GLSL(
   ordinals[lane] = best;
   reasons[lane] = reason;
   barrier();
@@ -262,9 +200,9 @@ void main() {
       control[21] = p.failed_inner_iteration;
       control[22] = p.failed_nested_phase;
     }
+  }
+}
 )GLSL";
-  source += "  }\n}\n";
-  return source;
 }
 
 void ReleaseDescriptorLeases(VulkanPipelineControlResources &control) {
@@ -305,10 +243,19 @@ void ReleaseDescriptorLeases(VulkanPipelineControlResources &control) {
 
 } // namespace
 
+std::string_view VulkanCanonicalStatusSourceText() noexcept {
+  return CanonicalSource();
+}
+
+std::string_view VulkanReduceStatusSourceText() noexcept {
+  return ReduceSource();
+}
+
 rund::AccelCheck PrepareVulkanPipelineControl(
     VulkanAdapter &adapter,
     const std::span<VulkanPipelineCanonicalStatus> statuses,
-    const PreparedPipelineStatusLayout &layout, const bool profile_steps,
+    const PreparedPipelineStatusLayout &layout,
+    const std::size_t telemetry_count, const bool profile_steps,
     VulkanPipelineControlResources &control, PreparedPipelineMemory &memory) {
   control = {};
   control.adapter = &adapter;
@@ -341,34 +288,54 @@ rund::AccelCheck PrepareVulkanPipelineControl(
     return rund::AccelCheck{false, "accel_vulkan_memory_unavailable"};
   }
   control.profile_step_count = profile_steps ? layout.declared_step_count : 0u;
+  control.declared_step_count = layout.declared_step_count;
+  control.generation_stride = layout.generation_stride;
 
+  if (statuses.size() >
+      std::numeric_limits<std::size_t>::max() - 1u - telemetry_count) {
+    DestroyVulkanPipelineControl(control);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
   try {
-    control.descriptor_leases.reserve(statuses.size() + 1u);
+    control.descriptor_leases.reserve(statuses.size() + 1u + telemetry_count);
   } catch (const std::bad_alloc &) {
+    DestroyVulkanPipelineControl(control);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     DestroyVulkanPipelineControl(control);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   bool ready = false;
   try {
     VulkanLeaseScope lease_scope{adapter, control.descriptor_leases};
-    const std::string &canonical_source = CanonicalSource();
+    const std::string_view canonical_source = CanonicalSource();
     if (!statuses.empty()) {
       const auto canonical_plan = PipelinePseudoPlan(canonical_source);
-      const auto canonical_artifact = PipelineArtifact(canonical_source);
-      control.canonical_pipeline =
-          AcquireVulkanCollectivePipeline(adapter, 2u, sizeof(CanonicalParams),
-                                          canonical_plan, canonical_artifact);
+      const auto canonical_artifact =
+          VulkanFixedSourceArtifact(canonical_source);
+      if (canonical_artifact.ok) {
+        control.canonical_pipeline = AcquireVulkanCollectivePipeline(
+            adapter, 2u, sizeof(CanonicalParams), canonical_plan,
+            canonical_artifact);
+      }
     }
-    const std::string reduce_source = ReduceSource(layout);
+    const std::string_view reduce_source = ReduceSource();
     const auto reduce_plan = PipelinePseudoPlan(reduce_source);
-    const auto reduce_artifact = PipelineArtifact(reduce_source);
-    const std::uint32_t reduce_descriptor_count =
-        layout.status_entry_count == 0u ? 1u : 2u;
-    control.reduce_pipeline = AcquireVulkanCollectivePipeline(
-        adapter, reduce_descriptor_count, sizeof(ControlParams), reduce_plan,
-        reduce_artifact);
+    const auto reduce_artifact = VulkanFixedSourceArtifact(reduce_source);
+    constexpr std::uint32_t reduce_descriptor_count = 2u;
+    if (reduce_artifact.ok) {
+      control.reduce_pipeline = AcquireVulkanCollectivePipeline(
+          adapter, reduce_descriptor_count, sizeof(ControlParams), reduce_plan,
+          reduce_artifact);
+    }
     ready = control.reduce_pipeline != nullptr &&
             (statuses.empty() || control.canonical_pipeline != nullptr);
+    ready = ready &&
+            (statuses.empty() ||
+             ReserveVulkanCollectiveDescriptorDemand(
+                 adapter, *control.canonical_pipeline, 2u, statuses.size())) &&
+            ReserveVulkanCollectiveDescriptorDemand(
+                adapter, *control.reduce_pipeline, reduce_descriptor_count, 1u);
     std::uint32_t expected_first = 0u;
     for (std::size_t index = 0u; ready && index < statuses.size(); ++index) {
       VulkanPipelineCanonicalStatus &status = statuses[index];
@@ -400,18 +367,17 @@ rund::AccelCheck PrepareVulkanPipelineControl(
                          adapter, *control.reduce_pipeline,
                          reduce_descriptor_count, control.reduce_descriptor);
     if (ready) {
-      if (layout.status_entry_count == 0u) {
-        const std::array<const VulkanBuffer *, 1u> buffers{&control.summary};
-        ready = WriteVulkanStorageDescriptorSet(
-            adapter, control.reduce_descriptor, buffers);
-      } else {
-        const std::array<const VulkanBuffer *, 2u> buffers{&control.arena,
-                                                           &control.summary};
-        ready = WriteVulkanStorageDescriptorSet(
-            adapter, control.reduce_descriptor, buffers);
-      }
+      const VulkanBuffer *const arena =
+          layout.status_entry_count == 0u ? &control.summary : &control.arena;
+      const std::array<const VulkanBuffer *, 2u> buffers{arena,
+                                                         &control.summary};
+      ready = WriteVulkanStorageDescriptorSet(
+          adapter, control.reduce_descriptor, buffers);
     }
   } catch (const std::bad_alloc &) {
+    DestroyVulkanPipelineControl(control);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     DestroyVulkanPipelineControl(control);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
@@ -452,6 +418,8 @@ bool EncodeVulkanPipelineCanonicalStatus(
       .rule = static_cast<std::uint32_t>(status.source.rule),
       .success = status.source.success,
       .mapping_count = status.source.mapping_count,
+      .invalid_reason =
+          static_cast<std::uint32_t>(rund::compute::Reason::ReasonInvalid),
       .raw_values = status.source.raw_values,
       .reasons = status.source.reasons,
   };
@@ -473,7 +441,7 @@ namespace {
 [[nodiscard]] bool
 EncodeVulkanPipelineControl(const VkCommandBuffer command,
                             const VulkanPipelineControlResources &control,
-                            const ControlParams params) noexcept {
+                            ControlParams params) noexcept {
   if (command == VK_NULL_HANDLE || control.reduce_pipeline == nullptr ||
       control.reduce_descriptor == VK_NULL_HANDLE ||
       control.summary.buffer == VK_NULL_HANDLE ||
@@ -481,6 +449,8 @@ EncodeVulkanPipelineControl(const VkCommandBuffer command,
        (params.count == 0u || control.arena.buffer == VK_NULL_HANDLE))) {
     return false;
   }
+  params.generation_stride = control.generation_stride;
+  params.declared_step_count = control.declared_step_count;
   std::array<VkBufferMemoryBarrier, 2u> inputs{};
   std::uint32_t input_count = 0u;
   if (control.arena.buffer != VK_NULL_HANDLE) {

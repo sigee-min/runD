@@ -3,9 +3,10 @@
 #include "../../../../clock.hpp"
 #include "../../../descriptor.hpp"
 #include "../../../runtime/counter.hpp"
-#include "layouts.hpp"
 #include "pool.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -13,6 +14,11 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
+
+// Keep cold descriptor allocation stack-bounded while amortizing Vulkan calls.
+// 256 handles occupy 2 KiB on a 64-bit ABI; unlike the removed heap scratch,
+// this bound is independent of route count and cannot fail after pool creation.
+inline constexpr std::uint32_t kDescriptorSetAllocationBatch = 256u;
 
 [[nodiscard]] bool CreateDescriptorSetsWithLayout(
     VulkanAdapter &adapter, const std::uint32_t descriptor_count,
@@ -31,16 +37,27 @@ namespace rund::node::accel::detail {
     return false;
   }
 
-  SetLayoutScratch layouts{};
-  FillSetLayouts(layouts, layout, set_count32);
-  VkDescriptorSetAllocateInfo alloc{};
-  alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc.descriptorPool = pool;
-  alloc.descriptorSetCount = set_count32;
-  alloc.pSetLayouts = layouts.data;
-  if (vkAllocateDescriptorSets(adapter.device, &alloc, sets) != VK_SUCCESS) {
-    SetVulkanLastError(adapter, "accel_vulkan_descriptor_unavailable");
-    return false;
+  std::array<VkDescriptorSetLayout, kDescriptorSetAllocationBatch> layouts{};
+  layouts.fill(layout);
+  std::uint32_t allocated = 0u;
+  while (allocated != set_count32) {
+    const std::uint32_t batch =
+        std::min(kDescriptorSetAllocationBatch, set_count32 - allocated);
+    VkDescriptorSetAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc.descriptorPool = pool;
+    alloc.descriptorSetCount = batch;
+    alloc.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(adapter.device, &alloc, sets + allocated) !=
+        VK_SUCCESS) {
+      vkDestroyDescriptorPool(adapter.device, pool, nullptr);
+      pool = VK_NULL_HANDLE;
+      std::fill_n(sets, static_cast<std::size_t>(set_count32),
+                  VK_NULL_HANDLE);
+      SetVulkanLastError(adapter, "accel_vulkan_descriptor_unavailable");
+      return false;
+    }
+    allocated += batch;
   }
 
   ::rund::detail::counter::Accumulate(adapter.descriptor_set_allocate_count,

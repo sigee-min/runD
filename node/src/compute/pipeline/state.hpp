@@ -27,6 +27,12 @@ namespace rund::compute::detail {
 struct PipelinePublicationState;
 struct SnapshotStorageState;
 
+struct PipelinePublicationOrdinals final {
+  std::array<std::uint32_t, 3u> sources{};
+  std::uint32_t count{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
+};
+
 enum class PipelinePhase : unsigned char {
   Ready,
   Running,
@@ -87,19 +93,73 @@ struct PipelineMemoryPlan final {
   };
 
   PipelinePlan summary{};
+  // Portion of summary.committed_peak_bytes whose owners are retained by the
+  // resident publication authority after Pipeline destruction. Zero is an
+  // exact value, never a sentinel or request to fall back to peak_bytes.
+  std::uint64_t publication_committed_bytes{};
   // Cold schedule authority shared by plan() and prepare(). Resource hazards
   // come from resource::analyze; schedule_barriers is their executable
   // boundary projection plus the shared-workspace reuse frontiers.
   resource::Plan hazards;
   std::vector<std::uint8_t> schedule_barriers;
+  // Canonical compact window-state identity for every authored step.  The
+  // schedule owns this ordinal assignment; public accelerator accounting and
+  // private recurrence admission consume the same frozen projection.
+  std::vector<std::uint32_t> window_states;
   std::vector<std::size_t> steps;
   std::vector<std::size_t> owners;
   std::vector<std::size_t> offsets;
   std::vector<std::size_t> chunks;
   std::vector<ViewSlot> view_slots;
   std::vector<std::size_t> view_chunks;
-  std::vector<std::size_t> scratch_chunks;
+  // Canonical accelerator scratch authority. Bytes and final JobArena slot
+  // are frozen once; admission, Buffer materialization, private Jobs, and
+  // backend preparation all consume this same descriptor.
+  node::accel::detail::KernelScratchLayout scratch;
   std::vector<node::accel::detail::KernelViewLayout> views;
+  // Canonical private-Job recurrence owner for every compact route. Planning,
+  // materialization, prepared-template counts, and memory admission consume
+  // this one mapping instead of independently rediscovering parity reuse.
+  std::vector<std::size_t> job_owners;
+  // Canonical workspace owner for every compact route. Serial recurrence
+  // steps borrow one Program workspace from their first phase; planning and
+  // materialization never re-interpret iteration fields independently.
+  std::vector<std::size_t> workspace_owners;
+  // One sealed CPU preparation plan is the physical authority for the shared
+  // serial execution envelope, every immutable route, and every private-Job
+  // binding. cpu_storage_by_step indexes cpu_programs and never owns a second
+  // Program, mapping, or mutable runner.
+  std::vector<std::shared_ptr<ProgramState>> cpu_programs;
+  std::vector<CpuGraphStoragePlan> cpu_storage_plans;
+  std::vector<CpuRunRoutePlan> cpu_route_plans;
+  std::vector<std::size_t> cpu_storage_by_step;
+  CpuPreparedArenaPlan cpu_prepared_arena{};
+  std::vector<CpuRunRouteSlice> cpu_route_slices;
+  std::vector<CpuRunRouteSlice> cpu_alternate_route_slices;
+  // CPU private Jobs borrow these exact typed slices from cpu_prepared_arena.
+  // Binding and route storage share one cold layout authority; recurrence
+  // points at its canonical owner and transactional parity receives a disjoint
+  // slice because dense-view staging rewrites owners during preparation.
+  std::vector<CpuJobBindingSlice> cpu_job_slices;
+  std::vector<CpuJobBindingSlice> cpu_alternate_job_slices;
+  // Canonical CPU workspaces and their chunk tables are placement-constructed
+  // in the same sealed preparation arena. Recurrent steps borrow their
+  // workspace owner's alias and therefore keep an empty slice here.
+  std::vector<CpuWorkspaceSlice> cpu_workspace_slices;
+  // Exact dense CPU View transfers for each canonical private Job. Reused
+  // recurrence entries are empty because they borrow their owner's Job.
+  std::vector<CpuViewTransferLayout> cpu_view_layouts;
+  // Canonical resource admission is the sole publication-ordinal authority.
+  // The semantic fingerprint is consumed by public accelerator planning;
+  // bind carries only these ordinals so private preparation can hash the
+  // actual ResidentBufferRef shapes without pointer/handle identity.
+  std::vector<PipelinePublicationOrdinals> publication_ordinals;
+  std::uint64_t publication_fingerprint_hi{};
+  std::uint64_t publication_fingerprint_lo{};
+  // Frozen accelerator preparation admission. The public plan owns this
+  // immutable descriptor until bind hands it to PipelineState; no backend or
+  // native owner exists while this value is computed.
+  node::accel::detail::PreparedKernelPipelineReservation accel_preparation{};
 };
 
 // A nested window keeps one compact table of reusable routes.  Route entries
@@ -307,6 +367,7 @@ struct PipelinePublish final {
   std::size_t resident_count_offset{};
   std::uint32_t maximum{};
   std::uint32_t tile{};
+  PipelinePublicationOrdinals ordinals{};
 };
 
 struct PipelineSnapshotField final {
@@ -346,6 +407,9 @@ struct SnapshotStorageState final {
 // selector changes only in the terminal Device-claim critical section.
 struct PipelinePublicationState final {
   std::shared_ptr<DeviceState> device;
+  // Declared before publication resources so reverse destruction releases the
+  // aggregate Device charge only after every resident owner is gone.
+  storage::Reservation publication_memory;
   std::vector<PipelineStatePair> state_pairs;
   graph::Fingerprint fingerprint{};
   mutable std::mutex gate;
@@ -371,15 +435,22 @@ struct PipelineDependency final {
 
 struct PipelineState final {
   std::shared_ptr<DeviceState> device;
+  // Declared before all Pipeline-private owners so reverse destruction keeps
+  // the aggregate Device charge live until those owners are gone.
+  storage::Reservation private_memory;
   std::shared_ptr<PipelinePublicationState> publication;
+  // Canonical owner of the one CPU prepared mapping. Jobs and Program storage
+  // retain lifetime references to this same control block, but planning,
+  // observation, and destruction read this Pipeline-owned authority.
+  std::shared_ptr<CpuPreparedArena> cpu_prepared_arena;
   std::vector<PipelineStep> steps;
   std::vector<PipelineWindow> windows;
   // Sealed rank of physical window steps in each prefix. Empty for a Pipeline
   // without resident windows; otherwise size is steps.size() + 1.
   std::vector<std::uint16_t> window_rank;
   std::vector<PipelineResource> resources;
-  std::vector<std::shared_ptr<BufferState>> shared_buffers;
   std::vector<std::shared_ptr<BufferState>> prepared_buffers;
+  std::vector<std::shared_ptr<CpuGraphStorage>> cpu_storage;
   std::vector<BufferClaim> claims;
   std::vector<BufferClaim> alternate_claims;
   std::vector<PipelinePublish> publications;
@@ -390,6 +461,10 @@ struct PipelineState final {
   std::vector<PipelineDependency> dependencies;
   std::vector<std::uint8_t> barriers;
   std::unique_ptr<PipelineProfileState> profile;
+  // Sole mutable authority for Program-template publication across primary
+  // and transactional-alternate native streams. Its limit is copied from the
+  // frozen memory plan before private Jobs are materialized.
+  node::accel::detail::PreparedKernelTemplateRegistry accel_templates;
   node::accel::detail::PreparedKernelPipeline prepared;
   node::accel::detail::PreparedKernelPipeline alternate_prepared;
   PipelinePlan plan{};

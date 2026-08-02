@@ -257,7 +257,7 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.3` is the current
+The CMake version file uses exact-version matching. `1.0.4` is the current
 artifact identity; a major-only version range is not a supported consumption
 contract.
 
@@ -283,6 +283,15 @@ a later same-Pipeline read, and a zero-active nested window seals only the
 leading Fold output prefix that carries recurrent state. Headers and libraries
 must still come from one matched `1.0.3` artifact; an earlier implementation may
 not be mixed into the tuple.
+
+The `1.0.4` Alpha is a new exact identity. It adds the public CPU arena extent
+and committed preparation bound to `PipelinePlan`, Device-owned aggregate
+Pipeline admission, and stable accelerator preparation failure coordinates.
+CPU Pipeline preparation now owns one sealed arena and compact Program routes;
+Metal and Vulkan use one frozen native-materialization manifest each. These
+declarations, object layouts, and linked implementations must come from one
+matched `1.0.4` artifact; a `1.0.3` header or library may not be mixed into the
+tuple.
 
 ## Compute Contract
 
@@ -547,7 +556,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.3 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.4 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

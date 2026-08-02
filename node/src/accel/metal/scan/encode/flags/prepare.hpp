@@ -17,7 +17,8 @@ namespace rund::node::accel::detail {
     const std::uint64_t flags_offset, void *const output_buffer,
     const std::uint64_t output_offset, void *const totals_buffer,
     const std::uint64_t totals_offset, void *const status_buffer,
-    void *const command_encoder,
+    void *const command_encoder, const std::shared_ptr<void> &block,
+    const std::shared_ptr<void> &prefix, const std::shared_ptr<void> &offset,
     MetalFlagScanEncodeState &state) {
   if (adapter.device == nullptr || flags_buffer == nullptr ||
       output_buffer == nullptr || totals_buffer == nullptr ||
@@ -41,12 +42,13 @@ namespace rund::node::accel::detail {
   if (!pipeline_private) {
     std::memset([state.status contents], 0, sizeof(rund::kernel::u32));
   }
-  if (!CompileMetalScanFlagPipelines(adapter, state.block_handle,
-                                     state.prefix_handle,
-                                     state.offset_handle)) {
+  if (block == nullptr || prefix == nullptr || offset == nullptr) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
+  state.block_handle = block;
+  state.prefix_handle = prefix;
+  state.offset_handle = offset;
   state.block = (__bridge id<MTLComputePipelineState>)state.block_handle.get();
   state.prefix =
       (__bridge id<MTLComputePipelineState>)state.prefix_handle.get();

@@ -54,19 +54,24 @@ template <class View>
 [[nodiscard]] inline Status
 prepare_bounded_collective(CpuCollectiveRun &run,
                            const kernel::u32 count) noexcept {
-  const kernel::ComputeTilePrepareResult prepared = run.tiles.prepare(count);
-  if (!prepared.ok || prepared.tile_count > run.totals.capacity() ||
-      (run.needs_prefixes && prepared.tile_count > run.prefixes.capacity())) {
-    return Status::fail(
-        prepared.ok
-            ? Reason::TileRunCapacity
-            : project_reason(prepared.reason, Reason::TileBackendFailed));
+  if (!run.tile_plan.prepared() || run.execution == nullptr) {
+    return Status::fail(Reason::TileRunCapacity);
   }
-  run.totals.resize(prepared.tile_count);
-  if (run.needs_prefixes) {
-    run.prefixes.resize(prepared.tile_count);
+  run.tiles = run.tile_plan.bind(run.execution->tile_storage(), count);
+  const std::size_t tile_count = run.tiles.tile_count();
+  if (!run.tiles.prepared() || !run.tiles.has_run_storage() ||
+      run.tiles.count() != count || tile_count > run.total_capacity.size() ||
+      (run.needs_prefixes && tile_count > run.prefix_capacity.size())) {
+    return Status::fail(Reason::TileRunCapacity);
   }
-  run.tile_size = prepared.tile_units;
+  run.totals = run.total_capacity.first(tile_count);
+  run.prefixes = run.needs_prefixes
+                     ? run.prefix_capacity.first(tile_count)
+                     : std::span<CpuCollectiveWide>{};
+  run.tile_size = tile_count == 0u
+                      ? 0u
+                      : (static_cast<std::uint64_t>(count) + tile_count - 1u) /
+                            tile_count;
   return Status::success();
 }
 

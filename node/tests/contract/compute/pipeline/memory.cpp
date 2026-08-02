@@ -2,12 +2,16 @@
 
 #include <node/runtime/compute/access.hpp>
 
+#include "src/accel/kernel/prepared/failure.hpp"
 #include "src/compute/job/local.hpp"
 #include "src/compute/memory/arena.hpp"
+#include "src/compute/memory/cpu.hpp"
 #include "src/compute/pipeline/plan/local.hpp"
 #include "src/compute/pipeline/state.hpp"
+#include "src/compute/status.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include <memory>
 
@@ -15,6 +19,12 @@ namespace rund_node_test_pipeline {
 
 [[nodiscard]] int CheckMemory(rund::compute::Device &device) {
   using namespace rund::compute;
+  if (detail::project_pipeline_preparation_reason(
+          rund::node::accel::detail::
+              PreparedPipelineTemplateStepCapacityReasonKey) !=
+      Reason::PipelineCapacity) {
+    return 21;
+  }
   constexpr std::array<std::int32_t, 4u> first_input{1, 2, 3, 4};
   constexpr std::array<std::int32_t, 4u> second_input{2, 3, 4, 5};
   const auto build = [&](const char *name, const std::int32_t add) {
@@ -72,9 +82,61 @@ namespace rund_node_test_pipeline {
       state->steps[0u].job == nullptr || state->steps[1u].job == nullptr ||
       state->steps[0u].job->workspace == nullptr ||
       state->steps[1u].job->workspace == nullptr ||
-      state->steps[0u].job->workspace == state->steps[1u].job->workspace ||
-      state->shared_buffers.size() != 1u) {
+      state->steps[0u].job->workspace == state->steps[1u].job->workspace) {
     return 3;
+  }
+  if (!accelerated) {
+    const std::shared_ptr<detail::CpuPreparedArena> &cpu_arena =
+        state->cpu_prepared_arena;
+    if (cpu_arena == nullptr || cpu_arena->payload_host_bytes() >
+                                    std::numeric_limits<std::uint64_t>::max() -
+                                        cpu_arena->payload_tile_bytes()) {
+      return 20;
+    }
+    const std::uint64_t arena_payload =
+        cpu_arena->payload_host_bytes() + cpu_arena->payload_tile_bytes();
+    const std::uint64_t arena_extent = cpu_arena->extent_bytes();
+    const std::uint64_t arena_committed = cpu_arena->committed_bytes();
+    if (arena_payload > arena_extent || arena_extent > arena_committed ||
+        arena_payload > plan->peak_bytes ||
+        arena_committed > std::numeric_limits<std::uint64_t>::max() -
+                              (plan->peak_bytes - arena_payload) ||
+        plan->arena_extent_bytes != arena_extent ||
+        plan->committed_peak_bytes !=
+            plan->peak_bytes - arena_payload + arena_committed) {
+      return 20;
+    }
+  } else if (plan->arena_extent_bytes != 0u ||
+             plan->committed_peak_bytes != plan->peak_bytes) {
+    return 20;
+  }
+  const MemoryStats prepared_memory = prepared->memory();
+  const std::uint64_t planned_resident =
+      plan->state_bytes + plan->transient_bytes + plan->prepared_buffer_bytes;
+  const std::uint64_t planned_host =
+      planned_resident + plan->prepared_host_bytes;
+  if ((!accelerated &&
+       (plan->prepared_native_bytes != 0u ||
+        prepared_memory.resident.current != planned_resident ||
+        prepared_memory.host.current > planned_host ||
+        prepared_memory.tile.current != plan->prepared_tile_bytes ||
+        prepared_memory.host.current + prepared_memory.tile.current >
+            plan->peak_bytes)) ||
+      prepared_memory.resident.current > plan->peak_bytes) {
+    std::fprintf(
+        stderr,
+        "prepared memory backend=%u resident=%llu/%llu host=%llu/%llu "
+        "tile=%llu/%llu native=%llu peak=%llu\n",
+        static_cast<unsigned>(prepared_memory.backend),
+        static_cast<unsigned long long>(prepared_memory.resident.current),
+        static_cast<unsigned long long>(planned_resident),
+        static_cast<unsigned long long>(prepared_memory.host.current),
+        static_cast<unsigned long long>(planned_host),
+        static_cast<unsigned long long>(prepared_memory.tile.current),
+        static_cast<unsigned long long>(plan->prepared_tile_bytes),
+        static_cast<unsigned long long>(plan->prepared_native_bytes),
+        static_cast<unsigned long long>(plan->peak_bytes));
+    return 19;
   }
   const auto &first_arena = state->steps[0u].job->workspace->arena;
   const auto &second_arena = state->steps[1u].job->workspace->arena;
@@ -203,7 +265,6 @@ namespace rund_node_test_pipeline {
   if (first_reset >= first_workspace.size() ||
       second_reset >= second_workspace.size() ||
       first_workspace[first_reset] != second_workspace[second_reset] ||
-      reset_state->shared_buffers.size() != 1u ||
       reset_shared->stats().pipeline.barrier_count != 1u ||
       !reset_shared->run()) {
     return 8;
@@ -228,6 +289,78 @@ namespace rund_node_test_pipeline {
       !ProfileMemoryReconciles(*reset_profile, reset_rows)) {
     return 10;
   }
+  if (!accelerated) {
+    const auto zero = [](const MemoryCounter &counter) noexcept {
+      return counter.current == 0u && counter.peak == 0u &&
+             counter.cumulative == 0u && counter.reused == 0u &&
+             counter.budget == 0u;
+    };
+    const PipelinePlan reset_plan = reset_shared->plan();
+    const std::shared_ptr<detail::CpuPreparedArena> &cpu_arena =
+        reset_state->cpu_prepared_arena;
+    if (cpu_arena == nullptr || cpu_arena->payload_host_bytes() >
+                                    std::numeric_limits<std::uint64_t>::max() -
+                                        sizeof(detail::CpuPreparedArena)) {
+      return 22;
+    }
+    std::uint64_t shared_cpu_host =
+        sizeof(detail::CpuPreparedArena) + cpu_arena->payload_host_bytes();
+    for (const std::shared_ptr<detail::CpuGraphStorage> &storage :
+         reset_state->cpu_storage) {
+      const detail::CpuRetainedMemory memory =
+          detail::cpu_graph_storage_private_memory(storage.get());
+      if (memory.host >
+          std::numeric_limits<std::uint64_t>::max() - shared_cpu_host) {
+        shared_cpu_host = std::numeric_limits<std::uint64_t>::max();
+        break;
+      }
+      shared_cpu_host += memory.host;
+    }
+    const bool rows_private =
+        std::all_of(reset_rows.begin(), reset_rows.end(), [&](const auto &row) {
+          return zero(row.memory.tile) &&
+                 row.memory.host.current == sizeof(detail::JobState);
+        });
+    if (cpu_arena == nullptr || !rows_private ||
+        reset_profile->shared_memory.tile.current !=
+            reset_profile->memory.tile.current ||
+        reset_profile->shared_memory.tile.current !=
+            reset_plan.prepared_tile_bytes ||
+        reset_profile->shared_memory.host.current < shared_cpu_host ||
+        reset_state->cpu_storage.empty()) {
+      return 22;
+    }
+
+    std::shared_ptr<detail::CpuPreparedArena> retained_arena =
+        std::move(reset_state->cpu_storage.front()->prepared_arena);
+    std::array<PipelineStepProfile, 2u> invalid_rows{};
+    const auto invalid_profile = reset_shared->profile(invalid_rows);
+    reset_state->cpu_storage.front()->prepared_arena = retained_arena;
+    constexpr std::uint64_t saturated =
+        std::numeric_limits<std::uint64_t>::max();
+    if (!invalid_profile ||
+        invalid_profile->shared_memory.host.current != saturated ||
+        invalid_profile->shared_memory.tile.current != saturated ||
+        invalid_profile->memory.host.current != saturated ||
+        invalid_profile->memory.tile.current != saturated ||
+        !ProfileMemoryReconciles(*invalid_profile, invalid_rows)) {
+      return 23;
+    }
+
+    std::vector<std::shared_ptr<detail::CpuGraphStorage>> retained_storage;
+    retained_storage.swap(reset_state->cpu_storage);
+    std::array<PipelineStepProfile, 2u> missing_rows{};
+    const auto missing_profile = reset_shared->profile(missing_rows);
+    reset_state->cpu_storage.swap(retained_storage);
+    if (!missing_profile ||
+        missing_profile->shared_memory.host.current != saturated ||
+        missing_profile->shared_memory.tile.current != saturated ||
+        missing_profile->memory.host.current != saturated ||
+        missing_profile->memory.tile.current != saturated ||
+        !ProfileMemoryReconciles(*missing_profile, missing_rows)) {
+      return 24;
+    }
+  }
 
   auto arena_program = std::make_shared<detail::ProgramState>();
   arena_program->device = detail::DeviceAccess::state(device);
@@ -249,6 +382,20 @@ namespace rund_node_test_pipeline {
       (*arena_plan)->owners != std::vector<std::size_t>{0u, 0u} ||
       (*arena_plan)->offsets != std::vector<std::size_t>{0u, 64u} ||
       (*arena_plan)->chunks != std::vector<std::size_t>{69u}) {
+    if (arena_plan) {
+      std::fprintf(stderr,
+                   "arena plan alloc=%llu transient=%llu steps=%zu owners=%zu "
+                   "offsets=%zu chunks=%zu\n",
+                   static_cast<unsigned long long>(
+                       (*arena_plan)->summary.allocation_count),
+                   static_cast<unsigned long long>(
+                       (*arena_plan)->summary.transient_bytes),
+                   (*arena_plan)->steps.size(), (*arena_plan)->owners.size(),
+                   (*arena_plan)->offsets.size(), (*arena_plan)->chunks.size());
+    } else {
+      std::fprintf(stderr, "arena plan rejected reason=%u\n",
+                   static_cast<unsigned>(arena_plan.reason()));
+    }
     return 11;
   }
   const auto arena_memory = detail::make_pipeline_memory(
@@ -257,12 +404,51 @@ namespace rund_node_test_pipeline {
       arena_memory->steps.size() != 1u ||
       arena_memory->steps.front() == nullptr ||
       arena_memory->steps.front()->buffers.size() != 2u ||
-      arena_memory->steps.front()->offsets !=
-          std::vector<std::size_t>{0u, 64u} ||
+      arena_memory->steps.front()->offsets.size() != 2u ||
+      arena_memory->steps.front()->offsets[0u] != 0u ||
+      arena_memory->steps.front()->offsets[1u] != 64u ||
+      (!accelerated && (!arena_memory->steps.front()->buffers.borrowed() ||
+                        !arena_memory->steps.front()->offsets.borrowed() ||
+                        arena_memory->cpu_prepared_arena == nullptr ||
+                        arena_memory->steps.front().owner_before(
+                            arena_memory->cpu_prepared_arena) ||
+                        arena_memory->cpu_prepared_arena.owner_before(
+                            arena_memory->steps.front()))) ||
+      (accelerated && (arena_memory->steps.front()->buffers.borrowed() ||
+                       arena_memory->steps.front()->offsets.borrowed() ||
+                       arena_memory->cpu_prepared_arena != nullptr)) ||
       arena_memory->steps.front()->buffers[0u] !=
           arena_memory->buffers.front() ||
       arena_memory->steps.front()->buffers[1u] !=
           arena_memory->buffers.front()) {
+    if (!arena_memory) {
+      std::fprintf(stderr, "arena materialization rejected reason=%u\n",
+                   static_cast<unsigned>(arena_memory.reason()));
+    } else {
+      const auto &workspace = arena_memory->steps.front();
+      std::fprintf(
+          stderr,
+          "arena workspace buffers=%zu/%d offsets=%zu/%d prepared=%d "
+          "shared=%d values=%zu,%zu owners=%d,%d\n",
+          workspace == nullptr ? 0u : workspace->buffers.size(),
+          workspace != nullptr && workspace->buffers.borrowed(),
+          workspace == nullptr ? 0u : workspace->offsets.size(),
+          workspace != nullptr && workspace->offsets.borrowed(),
+          arena_memory->cpu_prepared_arena != nullptr,
+          workspace != nullptr &&
+              !workspace.owner_before(arena_memory->cpu_prepared_arena) &&
+              !arena_memory->cpu_prepared_arena.owner_before(workspace),
+          workspace == nullptr || workspace->offsets.size() < 1u
+              ? std::numeric_limits<std::size_t>::max()
+              : workspace->offsets[0u],
+          workspace == nullptr || workspace->offsets.size() < 2u
+              ? std::numeric_limits<std::size_t>::max()
+              : workspace->offsets[1u],
+          workspace != nullptr && workspace->buffers.size() > 0u &&
+              workspace->buffers[0u] == arena_memory->buffers.front(),
+          workspace != nullptr && workspace->buffers.size() > 1u &&
+              workspace->buffers[1u] == arena_memory->buffers.front());
+    }
     return 12;
   }
 

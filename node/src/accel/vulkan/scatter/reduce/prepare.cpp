@@ -3,6 +3,7 @@
 #include "../../../scatter/reduce/model.hpp"
 
 #include "../../buffer/resident/batch.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include <algorithm>
 #include <array>
@@ -73,7 +74,8 @@ void DestroyVulkanScatterReduce(void *const raw) {
 rund::AccelCheck PrepareVulkanScatterReduce(
     const rund::AccelDevice &pick, const rund::kernel::ScatterReducePlan &plan,
     const ScatterReduceBinds &bindings, const KernelPreparationMode mode,
-    std::shared_ptr<void> &resources) {
+    std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   VulkanAdapter *const adapter = CheckedVulkanAdapter(pick);
@@ -104,12 +106,24 @@ rund::AccelCheck PrepareVulkanScatterReduce(
       return {false, "compute_scatter_reduce_buffer_invalid"};
     }
   }
-  raw->control_pipeline = AcquireVulkanScatterReducePipeline(
-      *adapter, plan, VulkanScatterReduceStage::Control);
-  raw->init_pipeline = AcquireVulkanScatterReducePipeline(
-      *adapter, plan, VulkanScatterReduceStage::Init);
-  raw->fold_pipeline = AcquireVulkanScatterReducePipeline(
-      *adapter, plan, VulkanScatterReduceStage::Fold);
+  raw->control_pipeline =
+      pipelines == nullptr
+          ? AcquireVulkanScatterReducePipeline(
+                *adapter, plan, VulkanScatterReduceStage::Control)
+          : pipelines->borrow(rund::kernel::NodeKind::ScatterReduce, 3u, 0u,
+                              kVulkanScatterReduceBindings, 1u);
+  raw->init_pipeline =
+      pipelines == nullptr
+          ? AcquireVulkanScatterReducePipeline(
+                *adapter, plan, VulkanScatterReduceStage::Init)
+          : pipelines->borrow(rund::kernel::NodeKind::ScatterReduce, 3u, 1u,
+                              kVulkanScatterReduceBindings, 1u);
+  raw->fold_pipeline =
+      pipelines == nullptr
+          ? AcquireVulkanScatterReducePipeline(
+                *adapter, plan, VulkanScatterReduceStage::Fold)
+          : pipelines->borrow(rund::kernel::NodeKind::ScatterReduce, 3u, 2u,
+                              kVulkanScatterReduceBindings, 1u);
   ResidentSlice values{};
   ResidentSlice indices{};
   ResidentSlice count{};
@@ -175,6 +189,7 @@ rund::AccelCheck PrepareVulkanScatterReduce(
   (void)bindings;
   (void)mode;
   (void)resources;
+  (void)pipelines;
   return {false, "accel_vulkan_loader_unavailable"};
 #endif
 }

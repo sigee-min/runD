@@ -7,21 +7,64 @@
 VulkanNumericOpsFor(const rund::kernel::NodeKind kind) noexcept {
   switch (kind) {
   case rund::kernel::NodeKind::Transform:
-    return {PrepareVulkanTransformStep, EncodeVulkanNumeric,
-            FinishVulkanNumeric, DescribeVulkanNumericPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanTransformStep,
+        .encode = EncodeVulkanNumeric,
+        .finish = FinishVulkanNumeric,
+        .pipeline_status = DescribeVulkanNumericPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Matrix:
-    return {PrepareVulkanMatrixStep, EncodeVulkanNumeric, FinishVulkanNumeric,
-            DescribeVulkanNumericPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanMatrixStep,
+        .encode = EncodeVulkanNumeric,
+        .finish = FinishVulkanNumeric,
+        .pipeline_status = DescribeVulkanNumericPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Factor:
-    return {PrepareVulkanFactorStep, EncodeVulkanNumeric, FinishVulkanNumeric,
-            DescribeVulkanNumericPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanFactorStep,
+        .encode = EncodeVulkanNumeric,
+        .finish = FinishVulkanNumeric,
+        .pipeline_status = DescribeVulkanNumericPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Solve:
-    return {PrepareVulkanSolveStep, EncodeVulkanNumeric, FinishVulkanNumeric,
-            DescribeVulkanNumericPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanSolveStep,
+        .encode = EncodeVulkanNumeric,
+        .finish = FinishVulkanNumeric,
+        .pipeline_status = DescribeVulkanNumericPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Spectrum:
-    return {PrepareVulkanSpectrumStep, EncodeVulkanNumeric,
-            FinishVulkanNumeric, DescribeVulkanNumericPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanSpectrumStep,
+        .encode = EncodeVulkanNumeric,
+        .finish = FinishVulkanNumeric,
+        .pipeline_status = DescribeVulkanNumericPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   default:
-    return {};
+    return VulkanKernelOps{
+        .prepare = nullptr,
+        .encode = nullptr,
+        .finish = nullptr,
+        .pipeline_status = nullptr,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   }
 }

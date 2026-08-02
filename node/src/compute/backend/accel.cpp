@@ -307,26 +307,16 @@ MemoryCounter device_staging(const DeviceState &device) noexcept {
 }
 
 MemoryCounter job_staging(const JobState &job) noexcept {
-  const node::accel::detail::PreparedMemory active =
+  node::accel::detail::PreparedMemory memory =
       node::accel::detail::ReadPreparedKernelMemory(job.prepared);
   const node::accel::detail::PreparedMemory pending =
       node::accel::detail::ReadPreparedKernelMemory(job.write_prepared);
-  const std::uint64_t current =
-      ::rund::detail::counter::SaturatingAdd(active.current, pending.current);
-  const std::uint64_t active_extra =
-      active.peak > active.current ? active.peak - active.current : 0u;
-  const std::uint64_t pending_extra =
-      pending.peak > pending.current ? pending.peak - pending.current : 0u;
-  return MemoryCounter{
-      .current = current,
-      .peak = ::rund::detail::counter::SaturatingAdd(
-          current, std::max(active_extra, pending_extra)),
-      .cumulative = ::rund::detail::counter::SaturatingAdd(active.cumulative,
-                                                           pending.cumulative),
-      .reused =
-          ::rund::detail::counter::SaturatingAdd(active.reused, pending.reused),
-      .budget = std::max(active.budget, pending.budget),
-  };
+  node::accel::detail::accumulate_serial_memory(memory, pending);
+  return MemoryCounter{.current = memory.current,
+                       .peak = memory.peak,
+                       .cumulative = memory.cumulative,
+                       .reused = memory.reused,
+                       .budget = memory.budget};
 }
 
 node::accel::detail::PreparedPipelineMemory
@@ -336,10 +326,34 @@ pipeline_memory(const PipelineState &pipeline) noexcept {
   const node::accel::detail::PreparedPipelineMemory alternate =
       node::accel::detail::ReadPreparedKernelPipelineMemory(
           pipeline.alternate_prepared);
-  node::accel::detail::accumulate_memory(memory.host, alternate.host);
-  node::accel::detail::accumulate_memory(memory.device, alternate.device);
-  node::accel::detail::accumulate_memory(memory.staging, alternate.staging);
+  node::accel::detail::accumulate_serial_memory(memory.host, alternate.host);
+  node::accel::detail::accumulate_serial_memory(memory.device,
+                                                alternate.device);
+  node::accel::detail::accumulate_serial_memory(memory.staging,
+                                                alternate.staging);
+  // Primary and transactional alternate share one immutable template
+  // registry. Report that owner once after combining the two stream-local
+  // pipelines so retained host memory is neither omitted nor doubled.
+  node::accel::detail::accumulate_serial_memory(
+      memory.host,
+      node::accel::detail::ReadPreparedKernelTemplateRegistryMemory(
+          pipeline.accel_templates));
   return memory;
+}
+
+node::accel::detail::PreparedKernelPipelineReservation
+plan_pipeline_preparation(
+    const DeviceState &device,
+    const std::span<const node::accel::detail::PreparedKernelProgramRoute>
+        routes,
+    const node::accel::detail::PreparedKernelPipelineShape shape,
+    node::accel::detail::PreparedKernelTemplateRegistry &templates) noexcept {
+  const AccelDeviceState *const accel = accel_device(device);
+  if (accel == nullptr) {
+    return {};
+  }
+  return node::accel::detail::PlanPreparedKernelPipelineLimit(
+      accel->context, routes, shape, templates);
 }
 
 node::accel::detail::PreparedPipelineEvidence
@@ -363,14 +377,16 @@ node::accel::detail::PreparedKernelPipeline prepare_pipeline(
     const std::span<const node::accel::detail::BackendRecurrence> recurrences,
     const std::span<const node::accel::detail::BackendPublish> publications,
     const std::uint32_t declared_step_count,
-    const std::uint32_t generation_stride, const bool profile_steps) {
+    const std::uint32_t generation_stride, const bool profile_steps,
+    node::accel::detail::PreparedKernelTemplateRegistry *const templates) {
   const AccelDeviceState *const accel = accel_device(device);
   if (accel == nullptr) {
     return {};
   }
   return node::accel::detail::PrepareKernelPipeline(
       accel->context, prepared, barriers, declared_steps, recurrences,
-      publications, declared_step_count, generation_stride, profile_steps);
+      publications, declared_step_count, generation_stride, profile_steps,
+      templates);
 }
 
 rund::AccelCheck submit_pipeline(
@@ -407,6 +423,7 @@ const DeviceOps Operations{
     .run_job = run_job_accel,
     .submit_job = submit_job_accel,
     .finish_job = finish_job_accel,
+    .plan_pipeline_preparation = plan_pipeline_preparation,
     .prepare_pipeline = prepare_pipeline,
     .run_pipeline = run_pipeline,
     .submit_pipeline = submit_pipeline,

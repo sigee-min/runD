@@ -10,6 +10,8 @@
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+namespace {
+
 [[nodiscard]] bool to_u32(const std::uint64_t value,
                           std::uint32_t &out) noexcept {
   if (value > std::numeric_limits<std::uint32_t>::max()) {
@@ -19,13 +21,19 @@ namespace rund::node::accel::detail {
   return true;
 }
 
+[[nodiscard]] bool Overlaps(const MetalPipelineStatusBinding &left,
+                            const MetalPipelineStatusBinding &right) noexcept {
+  return left.buffer == right.buffer &&
+         left.offset < right.offset + right.bytes &&
+         right.offset < left.offset + left.bytes;
+}
+
+template <typename Append>
 [[nodiscard]] bool
-CollectMetalStatus(MetalKernelResources &resources,
-                   const std::uint32_t declared_step,
-                   std::vector<MetalPipelineStatusBindingRecord> &bindings,
-                   std::vector<MetalPipelineStatusSourceMeta> &sources,
-                   std::uint32_t &raw_count, std::uint32_t &entry_count) {
-  const std::size_t program_binding_begin = bindings.size();
+CollectMetalStatusRows(MetalKernelResources &resources,
+                       const std::uint32_t declared_step,
+                       std::size_t source_count, std::uint32_t &raw_count,
+                       std::uint32_t &entry_count, Append &&append) {
   for (std::size_t index = 0u; index < resources.size(); ++index) {
     MetalKernelEntry *const entry = resources.entry(index);
     if (entry == nullptr) {
@@ -54,19 +62,10 @@ CollectMetalStatus(MetalKernelResources &resources,
           binding.observed_count == 0u || binding.observed >= words ||
           binding.observed_count > words - binding.observed ||
           words > std::numeric_limits<std::uint32_t>::max() - raw_count ||
-          sources.size() >= std::numeric_limits<std::uint32_t>::max() ||
+          source_count >= std::numeric_limits<std::uint32_t>::max() ||
           binding.observed_count >
               std::numeric_limits<std::uint32_t>::max() - entry_count) {
         return false;
-      }
-      for (std::size_t prior = program_binding_begin; prior < bindings.size();
-           ++prior) {
-        const MetalPipelineStatusBinding &other = bindings[prior].binding;
-        if (other.buffer == binding.buffer &&
-            binding.offset < other.offset + other.bytes &&
-            other.offset < binding.offset + binding.bytes) {
-          return false;
-        }
       }
       MetalPipelineStatusSourceMeta source{
           .encoding = static_cast<std::uint32_t>(binding.encoding),
@@ -92,17 +91,85 @@ CollectMetalStatus(MetalKernelResources &resources,
         }
         source.policies[reason_index] = reason | (priority << 16u);
       }
-      sources.push_back(source);
-      bindings.push_back(MetalPipelineStatusBindingRecord{
-          .binding = binding,
-          .raw_offset = raw_count,
-          .raw_count = words,
-      });
+      if (!append(binding, source, words)) {
+        return false;
+      }
       raw_count += words;
       entry_count += binding.observed_count;
+      ++source_count;
     }
   }
   return true;
+}
+
+} // namespace
+
+[[nodiscard]] bool
+CollectMetalStatus(MetalKernelResources &resources,
+                   const std::uint32_t declared_step,
+                   std::vector<MetalPipelineStatusBindingRecord> &bindings,
+                   std::vector<MetalPipelineStatusSourceMeta> &sources,
+                   std::uint32_t &raw_count, std::uint32_t &entry_count,
+                   const std::size_t source_limit,
+                   const std::uint32_t entry_limit, bool &capacity_failed) {
+  capacity_failed = false;
+  const std::size_t program_binding_begin = bindings.size();
+  const auto append = [&](const MetalPipelineStatusBinding &binding,
+                          const MetalPipelineStatusSourceMeta &source,
+                          const std::uint32_t words) {
+    if (sources.size() >= source_limit || bindings.size() >= source_limit ||
+        entry_count > entry_limit ||
+        binding.observed_count > entry_limit - entry_count) {
+      capacity_failed = true;
+      return false;
+    }
+    for (std::size_t prior = program_binding_begin; prior < bindings.size();
+         ++prior) {
+      if (Overlaps(bindings[prior].binding, binding)) {
+        return false;
+      }
+    }
+    sources.push_back(source);
+    bindings.push_back(MetalPipelineStatusBindingRecord{
+        .binding = binding,
+        .raw_offset = raw_count,
+        .raw_count = words,
+    });
+    return true;
+  };
+  return CollectMetalStatusRows(resources, declared_step, sources.size(),
+                                raw_count, entry_count, append);
+}
+
+bool CountMetalDirectAggregateStatus(MetalKernelResources &resources,
+                                     std::uint32_t &entry_count) noexcept {
+  constexpr std::size_t BindingCapacity =
+      kMetalDirectAggregateStatusStepCapacity *
+      kMetalPipelineStatusBindingCapacity;
+  if (resources.size() == 0u ||
+      resources.size() > kMetalDirectAggregateStatusStepCapacity) {
+    return false;
+  }
+  std::array<MetalPipelineStatusBinding, BindingCapacity> bindings{};
+  std::size_t binding_count = 0u;
+  std::uint32_t raw_count = 0u;
+  entry_count = 0u;
+  const auto append = [&](const MetalPipelineStatusBinding &binding,
+                          const MetalPipelineStatusSourceMeta &,
+                          const std::uint32_t) noexcept {
+    if (binding_count == bindings.size()) {
+      return false;
+    }
+    for (std::size_t prior = 0u; prior < binding_count; ++prior) {
+      if (Overlaps(bindings[prior], binding)) {
+        return false;
+      }
+    }
+    bindings[binding_count++] = binding;
+    return true;
+  };
+  return CollectMetalStatusRows(resources, 0u, 0u, raw_count, entry_count,
+                                append);
 }
 
 [[nodiscard]] bool

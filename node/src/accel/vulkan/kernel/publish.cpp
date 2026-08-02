@@ -1,6 +1,7 @@
 #include "publish.hpp"
 #include "copy.hpp"
 #include "lease.hpp"
+#include "pipeline/source_artifact.hpp"
 #include "window.hpp"
 
 #include "../../kernel/footprint.hpp"
@@ -20,6 +21,7 @@
 #include <limits>
 #include <mutex>
 #include <new>
+#include <stdexcept>
 #include <string>
 
 namespace rund::node::accel::detail {
@@ -27,8 +29,8 @@ namespace {
 
 inline constexpr std::uint64_t kPublishThreads = 256u;
 
-[[nodiscard]] const std::string &PublishSource() {
-  static const std::string source = R"GLSL(#version 450
+[[nodiscard]] constexpr std::string_view PublishSource() noexcept {
+  return R"GLSL(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = 256) in;
 layout(set = 0, binding = 0, std430) readonly buffer Source0 {
@@ -124,7 +126,6 @@ void main() {
   }
 }
 )GLSL";
-  return source;
 }
 
 [[nodiscard]] VulkanCollectivePipeline *
@@ -137,11 +138,11 @@ AcquirePublishPipeline(VulkanAdapter &adapter) {
       .ok = true,
       .reason = "ok",
   };
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = PublishSource();
-  artifact.ok = true;
-  artifact.reason = "ok";
+  const rund::kernel::LoweringArtifact artifact =
+      VulkanFixedSourceArtifact(PublishSource());
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(
       adapter, 7u, sizeof(VulkanPipelinePublishParams), plan, artifact);
 }
@@ -154,6 +155,8 @@ AcquirePublishPipeline(VulkanAdapter &adapter) {
 }
 
 } // namespace
+
+std::string_view VulkanPublishSourceText() noexcept { return PublishSource(); }
 
 rund::AccelCheck
 PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
@@ -176,10 +179,23 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
     DestroyVulkanPipelinePublish(resources);
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
+  std::size_t descriptor_set_count = publications.size();
+  for (const BackendPublish &publication : publications) {
+    if (publication.kind == BackendPublishKind::Terminal) {
+      if (descriptor_set_count == std::numeric_limits<std::size_t>::max()) {
+        DestroyVulkanPipelinePublish(resources);
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      }
+      ++descriptor_set_count;
+    }
+  }
   try {
     resources.routes.reserve(publications.size());
-    resources.descriptor_leases.reserve(publications.size() * 2u);
+    resources.descriptor_leases.reserve(descriptor_set_count);
   } catch (const std::bad_alloc &) {
+    DestroyVulkanPipelinePublish(resources);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     DestroyVulkanPipelinePublish(resources);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
@@ -314,7 +330,9 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
   try {
     VulkanLeaseScope lease_scope{adapter, resources.descriptor_leases};
     resources.pipeline = AcquirePublishPipeline(adapter);
-    ready = resources.pipeline != nullptr;
+    ready = resources.pipeline != nullptr &&
+            ReserveVulkanCollectiveDescriptorDemand(
+                adapter, *resources.pipeline, 7u, descriptor_set_count);
     for (VulkanPipelinePublishRoute &route : resources.routes) {
       const bool terminal =
           route.params.kind ==
@@ -357,6 +375,9 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
       }
     }
   } catch (const std::bad_alloc &) {
+    DestroyVulkanPipelinePublish(resources);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     DestroyVulkanPipelinePublish(resources);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }

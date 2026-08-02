@@ -1,9 +1,11 @@
 #include "local.hpp"
 
+#include <string_view>
+
 namespace rund::node::accel::detail {
 
-std::string MetalHistogramSource() {
-  return R"MSL(
+namespace {
+inline constexpr std::string_view Source = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -47,6 +49,12 @@ kernel void rund_compute_histogram_count(
   atomic_fetch_add_explicit(&counts[bin], 1u, memory_order_relaxed);
 }
 )MSL";
+} // namespace
+
+std::string MetalHistogramSource() { return std::string{Source}; }
+
+std::uint64_t MetalHistogramSourceUpperBytes() noexcept {
+  return Source.size();
 }
 
 }  // namespace rund::node::accel::detail

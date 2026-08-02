@@ -114,6 +114,7 @@ KindFor(const ComputeApi api) noexcept {
       (plan != nullptr &&
        !ComputePlanMatchesMap(*plan, emission.metadata.map)) ||
       !SameMetadata(emission.metadata, artifact.metadata) ||
+      emission.source_text_upper_bytes != artifact.source_text_upper_bytes ||
       emission.source_text != artifact.source_text) {
     return Reject(std::move(input), "compute_artifact_mismatch",
                   emission_count);
@@ -150,7 +151,10 @@ RetainedAdmission AdmitRetained(const ComputePlan &plan,
       artifact.canonical_ir_bytes.empty() && artifact.metadata.ok &&
       SameReason(artifact.metadata.reason, "ok") &&
       ComputePlanMatchesMap(plan, artifact.metadata.map) &&
-      (cpu ? artifact.source_text.empty() : !artifact.source_text.empty());
+      (cpu ? artifact.source_text.empty()
+           : !artifact.source_text.empty() &&
+                 artifact.source_text_upper_bytes >=
+                     artifact.source_text.size());
   if (!artifact_matches) {
     return {};
   }

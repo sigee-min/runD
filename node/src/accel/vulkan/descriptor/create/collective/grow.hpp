@@ -26,7 +26,7 @@ namespace rund::node::accel::detail {
     return false;
   VkDescriptorPool pool = VK_NULL_HANDLE;
   pipeline.descriptor_sets.resize(target);
-  pipeline.descriptor_leased.resize(target, false);
+  pipeline.descriptor_leased.resize(target, 0u);
   if (!CreateDescriptorSetsWithLayout(adapter, descriptor_count, target - old,
                                       pipeline.descriptor_set_layout, pool,
                                       pipeline.descriptor_sets.data() + old)) {

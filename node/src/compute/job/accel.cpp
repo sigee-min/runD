@@ -88,11 +88,13 @@ namespace {
     arena.bound = true;
   }
   for (const node::accel::detail::KernelViewSlot &view : state->views) {
-    if (view.slot >= arena.binds.size() ||
+    std::uint64_t bytes = 0u;
+    if (!kernel::checked::mul(view.count, view.element_bytes, bytes) ||
+        view.slot >= arena.binds.size() ||
         arena.binds.refs()[view.slot].offset_bytes >
             arena.binds.refs()[view.slot].bytes ||
-        view.bytes > arena.binds.refs()[view.slot].bytes -
-                         arena.binds.refs()[view.slot].offset_bytes) {
+        bytes > arena.binds.refs()[view.slot].bytes -
+                    arena.binds.refs()[view.slot].offset_bytes) {
       return Status::fail(Reason::PipelineInvalid);
     }
   }

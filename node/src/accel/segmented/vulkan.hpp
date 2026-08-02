@@ -13,6 +13,7 @@
 namespace rund::node::accel::detail {
 
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck ExecuteVulkanSegmentedScan(
     const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
@@ -22,7 +23,8 @@ struct VulkanAdapter;
     const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
     const rund::kernel::SegmentedScanPlan &plan,
     rund::kernel::ComputeDomain domain, const SegmentedScanBinds &bindings,
-    std::shared_ptr<void> &resources);
+    std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanSegmentedScan(VulkanAdapter &adapter,
                           const std::shared_ptr<void> &resources,

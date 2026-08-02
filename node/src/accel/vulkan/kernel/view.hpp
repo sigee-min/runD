@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -19,6 +20,10 @@ namespace rund::node::accel::detail {
 
 struct VulkanCollectivePipeline;
 struct VulkanAdapter;
+
+[[nodiscard]] std::string_view VulkanViewSourceText() noexcept;
+[[nodiscard]] VulkanCollectivePipeline *
+AcquireVulkanViewPipeline(VulkanAdapter &adapter);
 
 struct ViewPage final {
   VkDescriptorSet descriptor = VK_NULL_HANDLE;

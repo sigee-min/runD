@@ -70,7 +70,9 @@ struct VulkanCollectivePipeline {
   VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
   std::vector<VkDescriptorPool> descriptor_pools{};
   std::vector<VkDescriptorSet> descriptor_sets{};
-  std::vector<bool> descriptor_leased{};
+  // Byte-addressable lease ownership keeps capacity/accounting exact and
+  // avoids the proxy/bit-packing semantics of vector<bool>.
+  std::vector<std::uint8_t> descriptor_leased{};
   std::uint64_t descriptor_epoch = 0u;
   std::uint64_t next_descriptor_slot = 0u;
   std::uint64_t reusable_descriptor_count = 0u;

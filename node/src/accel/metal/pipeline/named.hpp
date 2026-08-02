@@ -54,8 +54,10 @@ NewMetalLibrary(id<MTLDevice> device, const std::string &source_text) {
 }
 
 [[nodiscard]] inline std::shared_ptr<void>
-AcquireMetalLibrary(MetalAdapter &adapter, std::string source_text) {
-  source_text = PipelinePrivateMetalSource(std::move(source_text));
+AcquireMetalLibrary(MetalAdapter &adapter, std::string source_text,
+                    const std::uint64_t reserved_upper = 0u) {
+  source_text =
+      PipelinePrivateMetalSource(std::move(source_text), reserved_upper);
   if (source_text.empty()) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return {};

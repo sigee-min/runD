@@ -9,6 +9,8 @@
 #include "backend/run.hpp"
 #include "memory.hpp"
 #include "preparation.hpp"
+#include "prepared/failure.hpp"
+#include "prepared/template_registry.hpp"
 #include "profile.hpp"
 #include "scratch.hpp"
 #include "status.hpp"
@@ -31,7 +33,7 @@ struct PreparedKernelRun {
 struct PreparedKernelPipeline {
   std::shared_ptr<void> owner{};
   bool ok = false;
-  const char *reason = "accel_kernel_pipeline_invalid";
+  PreparedPipelineFailure failure{};
 };
 
 struct PreparedBatchEvidence final {
@@ -87,7 +89,31 @@ PrepareKernelPipeline(const rund::AccelContext &context,
                       std::span<const BackendRecurrence> recurrences,
                       std::span<const BackendPublish> publications,
                       std::uint32_t declared_step_count,
-                      std::uint32_t generation_stride, bool profile_steps);
+                      std::uint32_t generation_stride, bool profile_steps,
+                      PreparedKernelTemplateRegistry *templates = nullptr);
+
+// This pass performs no heap or native allocation. The returned descriptor is
+// also written into `templates` when supplied, and the materializer validates
+// its fingerprint before consuming it.
+[[nodiscard]] PreparedKernelPipelineReservation PlanPreparedKernelPipeline(
+    const rund::AccelContext &context,
+    std::span<const PreparedKernelRun *const> prepared,
+    std::span<const BackendRecurrence> recurrences,
+    PreparedKernelPipelineShape shape,
+    PreparedKernelTemplateRegistry *templates = nullptr) noexcept;
+
+// Public Pipeline::plan authority. This pass consumes only compiled Program
+// identity and canonical route shape, performs no heap/native allocation, and
+// freezes the field-wise upper bound later enforced by materialization.
+[[nodiscard]] PreparedKernelPipelineReservation PlanPreparedKernelPipelineLimit(
+    const rund::AccelContext &context,
+    std::span<const PreparedKernelProgramRoute> routes,
+    PreparedKernelPipelineShape shape,
+    PreparedKernelTemplateRegistry &templates) noexcept;
+
+[[nodiscard]] bool PreparedKernelPipelineReservationWithin(
+    const PreparedKernelPipelineReservation &reservation,
+    const PreparedKernelPipelineReservation &limit) noexcept;
 
 [[nodiscard]] PreparedPipelineEvidence
 RunPreparedKernelPipeline(const rund::AccelContext &context,
@@ -113,6 +139,14 @@ ReadPreparedKernelMemory(const PreparedKernelRun &prepared) noexcept;
 
 [[nodiscard]] PreparedPipelineMemory ReadPreparedKernelPipelineMemory(
     const PreparedKernelPipeline &prepared) noexcept;
+
+// Shared Program-template registry telemetry. Compute adds this once after
+// combining primary and alternate stream memory; each stream only retains a
+// shared_ptr to this single owner. Backend observers enumerate runD-owned
+// wrapper/container capacity exactly once. Adapter-global source caches and
+// opaque driver allocations retain their independent device/cache authority.
+[[nodiscard]] PreparedMemory ReadPreparedKernelTemplateRegistryMemory(
+    const PreparedKernelTemplateRegistry &registry) noexcept;
 
 [[nodiscard]] PreparedPipelineStatusLayout ReadPreparedKernelPipelineStatus(
     const PreparedKernelPipeline &prepared) noexcept;

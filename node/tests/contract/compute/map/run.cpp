@@ -30,7 +30,8 @@ int Run() {
     return 1;
   }
 
-  auto raw_device = rund::compute::detail::open_cpu(0u);
+  auto raw_device =
+      rund::compute::detail::open_target(rund::compute::Target::cpu());
   if (!raw_device) {
     return 8;
   }

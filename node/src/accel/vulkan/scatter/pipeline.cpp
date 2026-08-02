@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/scatter/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -29,11 +30,13 @@ AcquireScatterPipeline(VulkanAdapter &adapter,
                        const rund::kernel::ScatterDesc &desc) {
   const rund::kernel::ComputePlan pseudo =
       PseudoScatterPlan(desc, rund::kernel::ComputeApi::Vulkan);
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = VulkanScatterSource(desc.element);
-  artifact.ok = true;
-  artifact.reason = "ok";
+  std::string source = VulkanScatterSource(desc.element);
+  const std::uint64_t source_bytes = source.size();
+  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
+      pseudo, std::move(source), source_bytes);
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(adapter, kScatterDescriptorCount, 0u,
                                          pseudo, artifact);
 }

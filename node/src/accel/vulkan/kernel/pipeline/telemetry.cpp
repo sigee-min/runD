@@ -5,12 +5,15 @@
 #include "../../command.hpp"
 #include "../../descriptor.hpp"
 #include "../../runtime/timestamp.hpp"
+#include "../lease.hpp"
 #include "source.hpp"
+#include "source_artifact.hpp"
 
 #include <algorithm>
 #include <array>
 #include <limits>
 #include <new>
+#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -21,31 +24,42 @@ namespace rund::node::accel::detail {
     return true;
   }
   const bool profile_steps = pipeline.profile != nullptr;
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text =
-      profile_steps ? VulkanProfileSource() : VulkanTelemetrySource();
-  artifact.ok = true;
-  artifact.reason = "ok";
+  rund::kernel::LoweringArtifact artifact =
+      profile_steps ? rund::kernel::LoweringArtifact{}
+                    : VulkanFixedSourceArtifact(VulkanTelemetrySourceText());
+  if (profile_steps) {
+    artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
+    artifact.source_text = VulkanProfileSource();
+    artifact.source_text_upper_bytes = VulkanProfileSourceBytes();
+    artifact.ok =
+        artifact.source_text_upper_bytes != 0u &&
+        artifact.source_text.size() == artifact.source_text_upper_bytes;
+    artifact.reason = artifact.ok ? "ok" : "compute_pipeline_capacity";
+  }
   const std::uint32_t descriptor_count = profile_steps ? 6u : 5u;
   const std::uint32_t parameter_bytes =
       profile_steps ? sizeof(VulkanPipelineProfileTelemetryParams)
                     : sizeof(VulkanPipelineTelemetryParams);
+  if (!artifact.ok) {
+    return false;
+  }
   pipeline.telemetry_pipeline = AcquireVulkanCollectivePipeline(
       *pipeline.adapter, descriptor_count, parameter_bytes,
       profile_steps ? VulkanProfilePlan() : VulkanTelemetryPlan(), artifact);
   if (pipeline.telemetry_pipeline == nullptr ||
       pipeline.control.summary.buffer == VK_NULL_HANDLE ||
-      (profile_steps && pipeline.control.profile.buffer == VK_NULL_HANDLE)) {
+      (profile_steps && pipeline.control.profile.buffer == VK_NULL_HANDLE) ||
+      !ReserveVulkanCollectiveDescriptorDemand(
+          *pipeline.adapter, *pipeline.telemetry_pipeline, descriptor_count,
+          pipeline.telemetry.size())) {
     return false;
   }
   const VulkanBuffer *const states =
       pipeline.window.states.buffer == VK_NULL_HANDLE
           ? &pipeline.control.summary
           : &pipeline.window.states;
-  auto *const prior = pipeline.adapter->active_descriptor_leases;
-  pipeline.adapter->active_descriptor_leases =
-      &pipeline.control.descriptor_leases;
+  VulkanLeaseScope lease_scope{*pipeline.adapter,
+                               pipeline.control.descriptor_leases};
   bool ready = true;
   try {
     for (VulkanPipelineTelemetryRecord &record : pipeline.telemetry) {
@@ -73,8 +87,9 @@ namespace rund::node::accel::detail {
       }
       if (profile_steps) {
         const std::array<const VulkanBuffer *, 6u> buffers{
-            primary, count, predicate, &pipeline.control.summary,
-            states, &pipeline.control.profile};
+            primary,   count,
+            predicate, &pipeline.control.summary,
+            states,    &pipeline.control.profile};
         ready = WriteVulkanStorageDescriptorSet(*pipeline.adapter,
                                                 record.descriptor, buffers);
       } else {
@@ -86,8 +101,9 @@ namespace rund::node::accel::detail {
     }
   } catch (const std::bad_alloc &) {
     ready = false;
+  } catch (const std::length_error &) {
+    ready = false;
   }
-  pipeline.adapter->active_descriptor_leases = prior;
   return ready;
 }
 

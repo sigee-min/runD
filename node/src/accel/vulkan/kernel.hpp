@@ -20,10 +20,13 @@ struct VulkanAdapter;
     std::size_t step_count, std::uint64_t dispatch_count,
     KernelPreparationMode mode, const BoundResets *resets,
     const KernelViewLayout *views, const RunBinds *view_binds,
-    const KernelScratchLayout *scratch, std::uint32_t *failed_node,
+    const KernelScratchLayout *scratch, const BackendRun *template_probe,
+    PreparedKernelTemplateRegistry *templates, std::uint32_t *failed_node,
     std::shared_ptr<void> &prepared, PreparedMemory &memory);
 [[nodiscard]] std::uint64_t
 VulkanKernelTraffic(const std::shared_ptr<void> &prepared) noexcept;
+[[nodiscard]] PreparedMemory
+ObserveVulkanPipelineTemplate(const void *prepared) noexcept;
 [[nodiscard]] rund::AccelCheck
 RunVulkanResources(const rund::AccelDevice &pick,
                    const std::shared_ptr<void> &prepared);

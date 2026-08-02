@@ -3,6 +3,7 @@
 #include "state.hpp"
 
 #include "../../numeric/policy.hpp"
+#include "../pipeline/template.hpp"
 
 #include <accel/check.hpp>
 #include <accel/device.hpp>
@@ -30,7 +31,8 @@ StatusCheck(MetalAdapter &adapter, const MetalResidentBufferResult &status,
                                   const rund::kernel::TransformPlan &plan);
 [[nodiscard]] rund::AccelCheck PreparedPipeline(MetalNumericPrepared &state,
                                                 const char *name,
-                                                NumericPolicy policy);
+                                                NumericPolicy policy,
+                                                const MetalKernelImmutablePipelines *pipelines);
 [[nodiscard]] rund::AccelCheck
 PreparedBuffers(const rund::AccelDevice &pick, MetalNumericPrepared &state,
                 std::span<MetalResidentReq> requests);

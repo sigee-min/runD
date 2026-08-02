@@ -15,6 +15,22 @@ ObserveVulkanMapFailure(const std::shared_ptr<void> &resources,
 ObserveVulkanGatherFailure(const std::shared_ptr<void> &resources,
                            std::uint64_t &ordinal) noexcept;
 
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanMapPipelineCaptureDemand(const std::shared_ptr<void> &,
+                                       std::uint64_t &) noexcept;
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanSegmentedReduceCaptureDemand(const std::shared_ptr<void> &,
+                                           std::uint64_t &) noexcept;
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanSortPipelineCaptureDemand(const std::shared_ptr<void> &,
+                                        std::uint64_t &) noexcept;
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanGatherPipelineCaptureDemand(const std::shared_ptr<void> &,
+                                          std::uint64_t &) noexcept;
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanScatterReduceCaptureDemand(const std::shared_ptr<void> &,
+                                         std::uint64_t &) noexcept;
+
 [[nodiscard]] inline rund::AccelCheck
 NoVulkanPipelineStatus(const std::shared_ptr<void> &,
                        VulkanPipelineStatusSource &source) {
@@ -70,57 +86,135 @@ DescribeVulkanScatterPipelineStatus(const std::shared_ptr<void> &,
 VulkanKernelOpsFor(const rund::kernel::NodeKind kind) noexcept {
   switch (kind) {
   case rund::kernel::NodeKind::Map:
-    return {PrepareVulkanMapStep,
-            EncodeVulkanMap,
-            FinishVulkanMap,
-            DescribeVulkanMapPipelineStatus,
-            DescribeVulkanMapPipelineTelemetry,
-            ObserveVulkanMapFailure};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanMapStep,
+        .encode = EncodeVulkanMap,
+        .finish = FinishVulkanMap,
+        .pipeline_status = DescribeVulkanMapPipelineStatus,
+        .pipeline_telemetry = DescribeVulkanMapPipelineTelemetry,
+        .failure = ObserveVulkanMapFailure,
+        .pipeline_capture_demand = DescribeVulkanMapPipelineCaptureDemand,
+    };
   case rund::kernel::NodeKind::Scan:
-    return {PrepareVulkanScanStep, EncodeVulkanScan, FinishVulkanScan,
-            DescribeVulkanScanPipelineStatus,
-            DescribeVulkanScanPipelineTelemetry};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanScanStep,
+        .encode = EncodeVulkanScan,
+        .finish = FinishVulkanScan,
+        .pipeline_status = DescribeVulkanScanPipelineStatus,
+        .pipeline_telemetry = DescribeVulkanScanPipelineTelemetry,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::SegmentedScan:
-    return {PrepareVulkanSegmentedStep, EncodeVulkanSegmentedScan,
-            FinishVulkanSegmentedScan, DescribeVulkanSegmentedPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanSegmentedStep,
+        .encode = EncodeVulkanSegmentedScan,
+        .finish = FinishVulkanSegmentedScan,
+        .pipeline_status = DescribeVulkanSegmentedPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::SegmentedReduce:
-    return {PrepareVulkanSegmentedReduceStep, EncodeVulkanSegmentedReduce,
-            FinishVulkanSegmentedReduce,
-            DescribeVulkanSegmentedReducePipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanSegmentedReduceStep,
+        .encode = EncodeVulkanSegmentedReduce,
+        .finish = FinishVulkanSegmentedReduce,
+        .pipeline_status = DescribeVulkanSegmentedReducePipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = DescribeVulkanSegmentedReduceCaptureDemand,
+    };
   case rund::kernel::NodeKind::Sort:
-    return {PrepareVulkanSortStep, EncodeVulkanSort, FinishVulkanSort,
-            DescribeVulkanSortPipelineStatus,
-            DescribeVulkanSortPipelineTelemetry};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanSortStep,
+        .encode = EncodeVulkanSort,
+        .finish = FinishVulkanSort,
+        .pipeline_status = DescribeVulkanSortPipelineStatus,
+        .pipeline_telemetry = DescribeVulkanSortPipelineTelemetry,
+        .failure = nullptr,
+        .pipeline_capture_demand = DescribeVulkanSortPipelineCaptureDemand,
+    };
   case rund::kernel::NodeKind::Compact:
-    return {PrepareVulkanCompactStep, EncodeVulkanCompact, FinishVulkanCompact,
-            DescribeVulkanCompactPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanCompactStep,
+        .encode = EncodeVulkanCompact,
+        .finish = FinishVulkanCompact,
+        .pipeline_status = DescribeVulkanCompactPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Gather:
-    return {PrepareVulkanGatherStep,
-            EncodeVulkanGather,
-            FinishVulkanGather,
-            DescribeVulkanGatherPipelineStatus,
-            DescribeVulkanGatherPipelineTelemetry,
-            ObserveVulkanGatherFailure};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanGatherStep,
+        .encode = EncodeVulkanGather,
+        .finish = FinishVulkanGather,
+        .pipeline_status = DescribeVulkanGatherPipelineStatus,
+        .pipeline_telemetry = DescribeVulkanGatherPipelineTelemetry,
+        .failure = ObserveVulkanGatherFailure,
+        .pipeline_capture_demand = DescribeVulkanGatherPipelineCaptureDemand,
+    };
   case rund::kernel::NodeKind::Histogram:
-    return {PrepareVulkanHistogramStep, EncodeVulkanHistogram,
-            FinishVulkanHistogram, DescribeVulkanHistogramPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanHistogramStep,
+        .encode = EncodeVulkanHistogram,
+        .finish = FinishVulkanHistogram,
+        .pipeline_status = DescribeVulkanHistogramPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Partition:
-    return {PrepareVulkanPartitionStep, EncodeVulkanPartition,
-            FinishVulkanPartition, DescribeVulkanPartitionPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanPartitionStep,
+        .encode = EncodeVulkanPartition,
+        .finish = FinishVulkanPartition,
+        .pipeline_status = DescribeVulkanPartitionPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Reduce:
-    return {PrepareVulkanReduceStep, EncodeVulkanReduce, FinishVulkanReduce,
-            DescribeVulkanReducePipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanReduceStep,
+        .encode = EncodeVulkanReduce,
+        .finish = FinishVulkanReduce,
+        .pipeline_status = DescribeVulkanReducePipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::Scatter:
-    return {PrepareVulkanScatterStep, EncodeVulkanScatter, FinishVulkanScatter,
-            DescribeVulkanScatterPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanScatterStep,
+        .encode = EncodeVulkanScatter,
+        .finish = FinishVulkanScatter,
+        .pipeline_status = DescribeVulkanScatterPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   case rund::kernel::NodeKind::ScatterReduce:
-    return {PrepareVulkanScatterReduceStep, EncodeVulkanScatterReduce,
-            FinishVulkanScatterReduce,
-            DescribeVulkanScatterReducePipelineStatus,
-            DescribeVulkanScatterReducePipelineTelemetry};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanScatterReduceStep,
+        .encode = EncodeVulkanScatterReduce,
+        .finish = FinishVulkanScatterReduce,
+        .pipeline_status = DescribeVulkanScatterReducePipelineStatus,
+        .pipeline_telemetry = DescribeVulkanScatterReducePipelineTelemetry,
+        .failure = nullptr,
+        .pipeline_capture_demand = DescribeVulkanScatterReduceCaptureDemand,
+    };
   case rund::kernel::NodeKind::Stencil:
-    return {PrepareVulkanStencilStep, EncodeVulkanStencil, FinishVulkanStencil,
-            NoVulkanPipelineStatus};
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanStencilStep,
+        .encode = EncodeVulkanStencil,
+        .finish = FinishVulkanStencil,
+        .pipeline_status = NoVulkanPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   default:
     return VulkanNumericOpsFor(kind);
   }

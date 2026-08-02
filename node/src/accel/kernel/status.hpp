@@ -350,19 +350,9 @@ SetPreparedProgramStatusSlice(PreparedPipelineStatusLayout &layout,
     const PreparedPipelineControl &control) noexcept {
   const auto phase = static_cast<rund::compute::PipelineNestedPhase>(
       control.failed_nested_phase);
-  switch (phase) {
-  case rund::compute::PipelineNestedPhase::None:
-    return control.failed_outer_window == PreparedPipelineNoStep &&
-           control.failed_inner_iteration == PreparedPipelineNoStep;
-  case rund::compute::PipelineNestedPhase::Seed:
-  case rund::compute::PipelineNestedPhase::Fold:
-    return control.failed_outer_window != PreparedPipelineNoStep &&
-           control.failed_inner_iteration == PreparedPipelineNoStep;
-  case rund::compute::PipelineNestedPhase::Action:
-    return control.failed_outer_window != PreparedPipelineNoStep &&
-           control.failed_inner_iteration != PreparedPipelineNoStep;
-  }
-  return false;
+  return rund::compute::valid_pipeline_nested_coordinate(
+      phase, control.failed_outer_window != PreparedPipelineNoStep,
+      control.failed_inner_iteration != PreparedPipelineNoStep);
 }
 
 [[nodiscard]] constexpr bool ValidPreparedPipelineControl(

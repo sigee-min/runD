@@ -26,6 +26,7 @@ struct MetalScatterEncodeResources {
 
 void DestroyMetalScatterEncodeResources(void *raw);
 [[nodiscard]] std::string MetalScatterSource();
+[[nodiscard]] std::uint64_t MetalScatterSourceUpperBytes() noexcept;
 [[nodiscard]] bool
 CompileMetalScatterPipeline(MetalAdapter &adapter,
                             rund::kernel::ScatterElement element,

@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -34,6 +35,8 @@ struct VulkanWindowParams final {
 };
 
 static_assert(sizeof(VulkanWindowParams) == 80u);
+
+inline constexpr std::uint64_t VulkanGateParameterBytes = 12u;
 
 struct VulkanWindowRoute final {
   VulkanResidentBufferResult count{};
@@ -63,13 +66,18 @@ struct VulkanWindowResources final {
   std::vector<VulkanGateRoute> gates;
   std::vector<VulkanCollectiveDescriptorLease> descriptor_leases;
   VulkanDispatchCapture capture{};
+  std::uint64_t gate_capacity{};
   std::uint32_t state_count{};
 };
 
+[[nodiscard]] std::string_view VulkanWindowSourceText() noexcept;
+[[nodiscard]] std::string_view VulkanGateSourceText() noexcept;
+
 [[nodiscard]] rund::AccelCheck PrepareVulkanWindow(
     VulkanAdapter &adapter, std::span<const BackendBatchEntry> entries,
-    std::uint64_t dispatch_capacity, const PreparedPipelineStatusLayout &status,
-    const VulkanBuffer &control, VulkanWindowResources &resources);
+    std::uint64_t dispatch_capacity, std::uint64_t gate_capacity,
+    const PreparedPipelineStatusLayout &status, const VulkanBuffer &control,
+    VulkanWindowResources &resources);
 
 void DestroyVulkanWindow(VulkanWindowResources &resources) noexcept;
 

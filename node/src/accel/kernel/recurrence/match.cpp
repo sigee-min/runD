@@ -242,10 +242,10 @@ namespace {
     return false;
   }
 
-  const std::size_t count = static_cast<std::size_t>(output_count);
-  history.outputs.resize(count);
-  history.handles.resize(count);
-  history.pitch_bytes.resize(count);
+  if (output_count > MapRecurrenceHistory::Capacity) {
+    return false;
+  }
+  history.count = static_cast<std::uint32_t>(output_count);
   for (std::uint64_t output = 0u; output < output_count; ++output) {
     const ResidentBufferRef *const ref = first.resident_outputs.ref(output);
     const std::shared_ptr<void> *const handle =

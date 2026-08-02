@@ -4,6 +4,8 @@
 
 #include "src/compute/pipeline/state.hpp"
 
+#include <algorithm>
+#include <array>
 #include <memory>
 
 namespace rund_node_test_pipeline {
@@ -14,7 +16,7 @@ namespace rund_node_test_pipeline {
   constexpr std::array<std::int32_t, 8u> source_values{0, 1, 2, 3, 4, 5, 6, 7};
   const std::size_t expected_owners = backend == Backend::Cpu ? 0u : 1u;
   const std::uint64_t expected_bytes =
-      backend == Backend::Cpu ? 0u : 4u * sizeof(std::int32_t);
+      (backend == Backend::Cpu ? 2u : 1u) * 4u * sizeof(std::int32_t);
 
   // Dense storage is word-addressed. Sequential 32-bit and 64-bit bindings
   // with the same byte extent share one slot, while the slot keeps the
@@ -49,7 +51,12 @@ namespace rund_node_test_pipeline {
           .then(*wide_reduce, read(*wide_input), write(*wide_target));
   const auto mixed_plan = mixed_builder.plan();
   if (!mixed_plan ||
-      mixed_plan->prepared_bytes != expected_bytes + mixed_plan->scratch_bytes) {
+      mixed_plan->prepared_buffer_bytes !=
+          expected_bytes + mixed_plan->scratch_bytes ||
+      mixed_plan->prepared_bytes != mixed_plan->prepared_buffer_bytes +
+                                        mixed_plan->prepared_host_bytes +
+                                        mixed_plan->prepared_tile_bytes +
+                                        mixed_plan->prepared_native_bytes) {
     return 2;
   }
   auto mixed = std::move(mixed_builder).prepare();
@@ -123,8 +130,11 @@ namespace rund_node_test_pipeline {
           .commit();
   const auto recurrent_plan = recurrent_builder.plan();
   if (!recurrent_plan ||
-      recurrent_plan->prepared_bytes !=
-          expected_bytes + recurrent_plan->scratch_bytes) {
+      recurrent_plan->prepared_buffer_bytes < recurrent_plan->scratch_bytes ||
+      recurrent_plan->prepared_bytes != recurrent_plan->prepared_buffer_bytes +
+                                            recurrent_plan->prepared_host_bytes +
+                                            recurrent_plan->prepared_tile_bytes +
+                                            recurrent_plan->prepared_native_bytes) {
     return 6;
   }
   auto recurrent = std::move(recurrent_builder).prepare();
@@ -136,13 +146,52 @@ namespace rund_node_test_pipeline {
           expected_owners + recurrent_plan->scratch_count) {
     return 7;
   }
+  if (backend == Backend::Cpu) {
+    std::array<const detail::JobState *, 12u> jobs{};
+    std::size_t job_count = 0u;
+    std::uint64_t view_bytes = 0u;
+    const auto account = [&](const std::shared_ptr<detail::JobState> &job) {
+      if (job == nullptr ||
+          std::find(jobs.begin(), jobs.begin() + job_count, job.get()) !=
+              jobs.begin() + job_count) {
+        return;
+      }
+      jobs[job_count++] = job.get();
+      const auto account_transfers = [&](const auto &transfers,
+                                         const auto &owners) {
+        for (const detail::CpuViewTransfer &transfer : transfers) {
+          if (transfer.binding < owners.size() &&
+              owners[transfer.binding] != nullptr) {
+            view_bytes += owners[transfer.binding]->bytes;
+          }
+        }
+      };
+      account_transfers(job->cpu_view_inputs, job->inputs);
+      account_transfers(job->cpu_view_outputs, job->outputs);
+    };
+    for (const detail::PipelineStep &step : recurrent_state->steps) {
+      account(step.job);
+      account(step.alternate_job);
+    }
+    if (view_bytes != recurrent_plan->prepared_buffer_bytes -
+                          recurrent_plan->scratch_bytes) {
+      return 7;
+    }
+  } else if (recurrent_plan->prepared_buffer_bytes !=
+             4u * sizeof(std::int32_t) + recurrent_plan->scratch_bytes) {
+    return 7;
+  }
   for (const detail::PipelineStep &step : recurrent_state->steps) {
     if (step.job == nullptr || step.alternate_job == nullptr ||
-        step.job->workspace == nullptr ||
-        step.alternate_job->workspace != step.job->workspace ||
-        step.job->workspace != recurrent_state->steps.front().job->workspace ||
+        (expected_owners == 0u &&
+         (step.job->workspace != nullptr ||
+          step.alternate_job->workspace != nullptr)) ||
         (expected_owners != 0u &&
-         (step.job->workspace->arena == nullptr ||
+         (step.job->workspace == nullptr ||
+          step.alternate_job->workspace != step.job->workspace ||
+          step.job->workspace !=
+              recurrent_state->steps.front().job->workspace ||
+          step.job->workspace->arena == nullptr ||
           step.job->workspace->arena !=
               recurrent_state->steps.front().job->workspace->arena))) {
       return 8;

@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <utility>
 
 namespace rund::node::accel::detail {
 
@@ -14,7 +15,7 @@ namespace rund::node::accel::detail {
 
 [[nodiscard]] std::shared_ptr<void> StoreMetalMapArtifactPipeline(
     MetalAdapter& adapter,
-    const rund::kernel::LoweringArtifact& artifact,
+    rund::kernel::LoweringArtifact artifact,
     const std::shared_ptr<void>& pipeline) {
   std::lock_guard<std::mutex> lock{adapter.mutex};
   if (pipeline == nullptr) {
@@ -43,7 +44,7 @@ namespace rund::node::accel::detail {
     adapter.pipelines.push_back(MetalPipeline{
         .key = artifact.key,
         .source_hash = source_hash,
-        .source = artifact.source_text,
+        .source = std::move(artifact.source_text),
         .pipeline = pipeline,
     });
     try {

@@ -205,6 +205,55 @@ int CommitValidationContract() {
   return 0;
 }
 
+int PartitionContract() {
+  Budget budget{100u};
+  Reservation remainder = budget.reserve(80u);
+  TEST_ASSERT(remainder);
+
+  Reservation publication = remainder.partition(30u);
+  TEST_ASSERT(publication);
+  TEST_ASSERT(publication.max_allocated_bytes() == 30u);
+  TEST_ASSERT(remainder.max_allocated_bytes() == 50u);
+  const auto split = budget.report();
+  TEST_ASSERT(split.reserved_bytes == 80u);
+  TEST_ASSERT(split.available_bytes == 20u);
+  TEST_ASSERT(split.reservation_count == 1u);
+
+  Reservation zero = remainder.partition(0u);
+  TEST_ASSERT(zero);
+  TEST_ASSERT(zero.max_allocated_bytes() == 0u);
+  TEST_ASSERT(remainder.max_allocated_bytes() == 50u);
+  TEST_ASSERT(zero.commit(Usage{}));
+
+  Reservation oversized = remainder.partition(51u);
+  TEST_ASSERT(!oversized);
+  TEST_ASSERT(oversized.code() == ReasonCode::StorageReservationInvalid);
+  TEST_ASSERT(remainder.max_allocated_bytes() == 50u);
+  TEST_ASSERT(budget.report().reserved_bytes == 80u);
+  TEST_ASSERT(budget.report().rejection_count == 1u);
+
+  TEST_ASSERT(
+      publication.commit(Usage{.physical_bytes = 20u, .allocated_bytes = 30u}));
+  TEST_ASSERT(
+      remainder.commit(Usage{.physical_bytes = 40u, .allocated_bytes = 45u}));
+  const auto committed = budget.report();
+  TEST_ASSERT(committed.reserved_bytes == 0u);
+  TEST_ASSERT(committed.allocated_bytes == 75u);
+  TEST_ASSERT(committed.physical_bytes == 60u);
+  TEST_ASSERT(committed.available_bytes == 25u);
+  TEST_ASSERT(committed.commit_count == 3u);
+  TEST_ASSERT(committed.reservation_count == 1u);
+  TEST_ASSERT(!publication.partition(1u));
+
+  TEST_ASSERT(publication.refund());
+  TEST_ASSERT(remainder.refund());
+  const auto released = budget.report();
+  TEST_ASSERT(released.allocated_bytes == 0u);
+  TEST_ASSERT(released.physical_bytes == 0u);
+  TEST_ASSERT(released.available_bytes == 100u);
+  return 0;
+}
+
 int ConcurrentAdmissionContract() {
   constexpr std::uint64_t kCapacity = 32u;
   constexpr std::uint64_t kContenders = 96u;
@@ -263,6 +312,9 @@ int RunRuntimeStorageContract() {
     return result;
   }
   if (const int result = CommitValidationContract(); result != 0) {
+    return result;
+  }
+  if (const int result = PartitionContract(); result != 0) {
     return result;
   }
   return ConcurrentAdmissionContract();

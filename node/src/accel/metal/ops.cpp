@@ -5,6 +5,8 @@
 
 #include "buffer/owner.hpp"
 #include "kernel.hpp"
+#include "kernel/manifest.hpp"
+#include "kernel/template_memory.hpp"
 #include "ops.hpp"
 #include "resident.hpp"
 #include "stats.hpp"
@@ -144,6 +146,14 @@ const BackendOps Operations{
     .memory = Memory,
     .run = RunMetalKernel,
     .prepare = PrepareMetalKernel,
+    .plan_pipeline_private = PlanMetalPipelinePrivateKernel,
+    .plan_pipeline_program = PlanMetalPipelineProgram,
+    .plan_pipeline_recurrence = PlanMetalPipelineRecurrence,
+    .plan_pipeline_structure = PlanMetalPipelineStructure,
+    .build_step_manifest = BuildMetalBackendManifest,
+    .same_pipeline_program_template = SameMetalPipelineProgramTemplate,
+    .same_pipeline_template = SameMetalPipelineTemplate,
+    .observe_pipeline_template = ObserveMetalPipelineTemplate,
     .prepare_pipeline_private = PrepareMetalPipelinePrivateKernel,
     .traffic = MetalKernelTraffic,
     .run_batch = RunPreparedMetalBatch,

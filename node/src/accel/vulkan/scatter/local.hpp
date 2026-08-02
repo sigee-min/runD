@@ -38,6 +38,8 @@ struct VulkanScatterEncodeResources {
 void DestroyVulkanScatterEncodeResources(void *raw);
 [[nodiscard]] std::string
 VulkanScatterSource(rund::kernel::ScatterElement element);
+[[nodiscard]] bool VulkanScatterSourceBytes(
+    rund::kernel::ScatterElement element, std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireScatterPipeline(VulkanAdapter &adapter,
                        const rund::kernel::ScatterDesc &desc);

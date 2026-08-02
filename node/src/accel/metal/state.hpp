@@ -1,6 +1,7 @@
 #pragma once
 
 #include "adapter.hpp"
+#include "kernel/pipeline/icb.hpp"
 #include "stats.hpp"
 #include <accel/device.hpp>
 #include <kernel/program/compute/artifact.hpp>
@@ -70,6 +71,9 @@ struct MetalAdapter {
   std::weak_ptr<void> owner_token{};
   std::shared_ptr<void> device{};
   std::shared_ptr<void> queue{};
+  // Immutable device-capability calibration. It is measured once while the
+  // adapter is opened and is never charged to an individual Pipeline owner.
+  MetalIcbCalibration pipeline_icb_calibration{};
   rund::kernel::ComputeCaps caps{};
   rund::AccelBackendInfo info{};
   std::mutex mutex{};

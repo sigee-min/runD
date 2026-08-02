@@ -3,6 +3,7 @@
 #include "../../backend.hpp"
 #include "../../device/state.hpp"
 #include "../../memory/arena.hpp"
+#include "../../program/state.hpp"
 #include "../../status.hpp"
 #include "../state.hpp"
 
@@ -14,9 +15,9 @@
 namespace rund::compute::detail {
 
 Status plan_pipeline_scratch(const DeviceState &device,
-                             const std::span<const PipelineBuildStep> steps,
+                             const std::span<const ProgramState *const> programs,
                              PipelineMemoryPlan &plan) {
-  plan.scratch_chunks.clear();
+  plan.scratch.clear();
   plan.summary.scratch_bytes = 0u;
   plan.summary.scratch_count = 0u;
   if (device.backend == Backend::Cpu) {
@@ -36,18 +37,18 @@ Status plan_pipeline_scratch(const DeviceState &device,
   }
   std::size_t page_count = 0u;
   std::uint64_t last_bytes = 0u;
-  for (const PipelineBuildStep &step : steps) {
-    if (step.program == nullptr) {
+  for (const ProgramState *const program : programs) {
+    if (program == nullptr) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    if (step.program->accel == nullptr) {
-      if (step.program->graph_info.nodes.empty()) {
+    if (program->accel == nullptr) {
+      if (program->graph_info.nodes.empty()) {
         continue;
       }
       return Status::fail(Reason::PipelineInvalid);
     }
     const node::accel::detail::KernelScratchPlan scratch =
-        device.ops->plan_scratch(device, step.program->accel->kernel,
+        device.ops->plan_scratch(device, program->accel->kernel,
                                  accel->pick.caps.storage_alignment, page);
     if (!scratch.ok) {
       return Status::fail(
@@ -70,24 +71,23 @@ Status plan_pipeline_scratch(const DeviceState &device,
                                    std::numeric_limits<std::size_t>::max())) {
       return Status::fail(Reason::PipelineCapacity);
     }
-    plan.scratch_chunks.push_back(
-        static_cast<std::size_t>(bytes / memory::Word));
+    plan.scratch.push_back(node::accel::detail::KernelScratchPage{
+        .slot = plan.view_slots.size() + index,
+        .bytes = bytes,
+    });
   }
   std::uint64_t physical = 0u;
-  for (const std::size_t words : plan.scratch_chunks) {
-    std::uint64_t bytes = 0u;
-    if (!kernel::checked::mul(static_cast<std::uint64_t>(words), memory::Word,
-                              bytes) ||
-        !kernel::checked::add(physical, bytes, physical)) {
+  for (const node::accel::detail::KernelScratchPage &scratch : plan.scratch) {
+    if (!kernel::checked::add(physical, scratch.bytes, physical)) {
       return Status::fail(Reason::PipelineCapacity);
     }
   }
-  if (!kernel::checked::add(plan.summary.prepared_bytes, physical,
-                            plan.summary.prepared_bytes)) {
+  if (!kernel::checked::add(plan.summary.prepared_buffer_bytes, physical,
+                            plan.summary.prepared_buffer_bytes)) {
     return Status::fail(Reason::PipelineCapacity);
   }
   plan.summary.scratch_bytes = physical;
-  plan.summary.scratch_count = plan.scratch_chunks.size();
+  plan.summary.scratch_count = plan.scratch.size();
   return Status::success();
 }
 

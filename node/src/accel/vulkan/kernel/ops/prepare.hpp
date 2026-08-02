@@ -27,6 +27,7 @@ namespace rund::node::accel::detail {
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanMapStep(const rund::AccelDevice &pick, const BoundStep &step,
                      const KernelPreparationMode mode,
+                     const VulkanKernelImmutablePipelines *,
                      std::shared_ptr<void> &resources) {
   (void)mode;
   const StepBinds *const bindings =
@@ -42,6 +43,7 @@ PrepareVulkanMapStep(const rund::AccelDevice &pick, const BoundStep &step,
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanScanStep(const rund::AccelDevice &pick, const BoundStep &step,
                       const KernelPreparationMode mode,
+                      const VulkanKernelImmutablePipelines *const pipelines,
                       std::shared_ptr<void> &resources) {
   (void)mode;
   const ScanBinds *const bindings =
@@ -55,7 +57,7 @@ PrepareVulkanScanStep(const rund::AccelDevice &pick, const BoundStep &step,
   }
   const rund::AccelCheck check =
       PrepareVulkanScan(pick, active->desc, active->plan, step.planned->domain,
-                        *bindings, resources);
+                        *bindings, resources, pipelines);
   if (check.ok) {
     static_cast<VulkanKernelScanResources *>(resources.get())->control =
         step.control.control;
@@ -66,6 +68,7 @@ PrepareVulkanScanStep(const rund::AccelDevice &pick, const BoundStep &step,
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanSegmentedStep(const rund::AccelDevice &pick, const BoundStep &step,
                            const KernelPreparationMode mode,
+                           const VulkanKernelImmutablePipelines *const pipelines,
                            std::shared_ptr<void> &resources) {
   (void)mode;
   const SegmentedScanBinds *const bindings = BindingsFor<SegmentedScanBinds>(
@@ -75,12 +78,14 @@ PrepareVulkanSegmentedStep(const rund::AccelDevice &pick, const BoundStep &step,
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanSegmentedScan(pick, active->desc, active->plan,
                                           step.planned->domain, *bindings,
-                                          resources);
+                                          resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck PrepareVulkanSegmentedReduceStep(
     const rund::AccelDevice &pick, const BoundStep &step,
-    const KernelPreparationMode mode, std::shared_ptr<void> &resources) {
+    const KernelPreparationMode mode,
+    const VulkanKernelImmutablePipelines *const pipelines,
+    std::shared_ptr<void> &resources) {
   (void)mode;
   const SegmentedReduceBinds *const bindings =
       BindingsFor<SegmentedReduceBinds>(
@@ -90,12 +95,13 @@ PrepareVulkanSegmentedStep(const rund::AccelDevice &pick, const BoundStep &step,
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanSegmentedReduce(pick, active->desc, active->plan,
                                             step.planned->domain, *bindings,
-                                            resources);
+                                            resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanSortStep(const rund::AccelDevice &pick, const BoundStep &step,
                       const KernelPreparationMode mode,
+                      const VulkanKernelImmutablePipelines *const pipelines,
                       std::shared_ptr<void> &resources) {
   (void)mode;
   const SortBinds *const bindings =
@@ -109,7 +115,7 @@ PrepareVulkanSortStep(const rund::AccelDevice &pick, const BoundStep &step,
   }
   const rund::AccelCheck check =
       PrepareVulkanSort(pick, active->desc, active->plan, step.planned->domain,
-                        *bindings, resources);
+                        *bindings, resources, pipelines);
   if (check.ok) {
     static_cast<VulkanSortEncodeResources *>(resources.get())->control =
         step.control.control;
@@ -120,6 +126,7 @@ PrepareVulkanSortStep(const rund::AccelDevice &pick, const BoundStep &step,
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanCompactStep(const rund::AccelDevice &pick, const BoundStep &step,
                          const KernelPreparationMode mode,
+                         const VulkanKernelImmutablePipelines *const pipelines,
                          std::shared_ptr<void> &resources) {
   (void)mode;
   const CompactBinds *const bindings =
@@ -128,12 +135,13 @@ PrepareVulkanCompactStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanCompact(pick, active->desc, active->plan, *bindings,
-                                    resources);
+                                    resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanGatherStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const KernelPreparationMode mode,
+                        const VulkanKernelImmutablePipelines *const pipelines,
                         std::shared_ptr<void> &resources) {
   (void)mode;
   const GatherBinds *const bindings =
@@ -142,12 +150,13 @@ PrepareVulkanGatherStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanGather(pick, active->desc, active->plan, *bindings,
-                                   resources);
+                                   resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanHistogramStep(const rund::AccelDevice &pick, const BoundStep &step,
                            const KernelPreparationMode mode,
+                           const VulkanKernelImmutablePipelines *const pipelines,
                            std::shared_ptr<void> &resources) {
   (void)mode;
   const HistogramBinds *const bindings =
@@ -156,24 +165,27 @@ PrepareVulkanHistogramStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanHistogram(pick, active->desc, active->plan,
-                                      *bindings, resources);
+                                      *bindings, resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck PrepareVulkanScatterReduceStep(
     const rund::AccelDevice &pick, const BoundStep &step,
-    const KernelPreparationMode mode, std::shared_ptr<void> &resources) {
+    const KernelPreparationMode mode,
+    const VulkanKernelImmutablePipelines *const pipelines,
+    std::shared_ptr<void> &resources) {
   const ScatterReduceBinds *const bindings = BindingsFor<ScatterReduceBinds>(
       step, rund::kernel::NodeKind::ScatterReduce);
   const auto *active = OperationFor<operation::ScatterReduce>(step);
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanScatterReduce(pick, active->plan, *bindings, mode,
-                                          resources);
+                                          resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanPartitionStep(const rund::AccelDevice &pick, const BoundStep &step,
                            const KernelPreparationMode mode,
+                           const VulkanKernelImmutablePipelines *const pipelines,
                            std::shared_ptr<void> &resources) {
   (void)mode;
   const PartitionBinds *const bindings =
@@ -182,7 +194,7 @@ PrepareVulkanPartitionStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanPartition(pick, active->desc, active->plan,
-                                      *bindings, resources);
+                                      *bindings, resources, pipelines);
 }
 
 #include "prepare/collective.hpp"

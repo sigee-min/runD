@@ -3,6 +3,7 @@
 
 #include "../../stencil/shape.hpp"
 #include "../collective/execute.hpp"
+#include "../kernel/pipeline/template.hpp"
 #include "encode/barrier.hpp"
 #include "local.hpp"
 #include "resources/buffers.hpp"
@@ -31,7 +32,9 @@ rund::AccelCheck PrepareVulkanStencil(const rund::AccelDevice &pick,
                                       const rund::kernel::StencilPlan &plan,
                                       const rund::kernel::ComputeDomain domain,
                                       const StencilBinds &bindings,
-                                      std::shared_ptr<void> &resources) {
+                                      std::shared_ptr<void> &resources,
+                                      const VulkanKernelImmutablePipelines
+                                          *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -60,7 +63,11 @@ rund::AccelCheck PrepareVulkanStencil(const rund::AccelDevice &pick,
       VulkanStorageBindingFor(lookup.input.device_buffer, lookup.input.ref);
   raw->output_binding =
       VulkanStorageBindingFor(lookup.output.device_buffer, lookup.output.ref);
-  raw->pipeline = AcquireStencilPipeline(*adapter, desc, domain);
+  raw->pipeline =
+      pipelines == nullptr
+          ? AcquireStencilPipeline(*adapter, desc, domain)
+          : pipelines->borrow(rund::kernel::NodeKind::Stencil, 1u, 0u,
+                              kStencilDescriptorCount, 1u);
   const StencilParams params_value{plan.element_count, plan.radius};
   if (raw->input_binding.buffer == nullptr ||
       raw->output_binding.buffer == nullptr || raw->pipeline == nullptr ||
@@ -77,6 +84,7 @@ rund::AccelCheck PrepareVulkanStencil(const rund::AccelDevice &pick,
   (void)domain;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }
@@ -109,7 +117,15 @@ rund::AccelCheck ExecuteVulkanStencil(const rund::AccelDevice &pick,
                                       const StencilBinds &bindings) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanDomainCollective(
-      pick, desc, plan, domain, bindings, PrepareVulkanStencil,
+      pick, desc, plan, domain, bindings,
+      [](const rund::AccelDevice &device,
+         const rund::kernel::StencilDesc &operation,
+         const rund::kernel::StencilPlan &prepared,
+         const rund::kernel::ComputeDomain active_domain,
+         const StencilBinds &resident, std::shared_ptr<void> &resources) {
+        return PrepareVulkanStencil(device, operation, prepared, active_domain,
+                                    resident, resources, nullptr);
+      },
       EncodeVulkanStencil, FinishVulkanStencil);
 #else
   (void)domain;

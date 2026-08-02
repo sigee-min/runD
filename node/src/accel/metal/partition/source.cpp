@@ -1,12 +1,14 @@
 #include "local.hpp"
 #include "source/wide.hpp"
+#include "../../kernel/backend/source_recipe.hpp"
 
 #include <string>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
-std::string MetalPartitionSource() {
-  return std::string{R"MSL(
+namespace {
+inline constexpr std::string_view SourcePrefix = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -68,7 +70,23 @@ kernel void rund_compute_partition_scatter_u64(
   output[target] = values[gid];
 }
 
-)MSL"} + MetalPartitionWideSource();
+)MSL";
+
+template <typename Sink>
+[[nodiscard]] bool EmitMetalPartitionSource(Sink &sink) {
+  return sink.append(SourcePrefix) && sink.append(MetalPartitionWideSource());
+}
+} // namespace
+
+std::string MetalPartitionSource() {
+  return backend_source_recipe::materialize(
+      [](auto &sink) { return EmitMetalPartitionSource(sink); });
+}
+
+bool MetalPartitionSourceUpperBytes(std::uint64_t &upper) noexcept {
+  return backend_source_recipe::bytes(
+      [](auto &sink) noexcept { return EmitMetalPartitionSource(sink); },
+      upper);
 }
 
 } // namespace rund::node::accel::detail

@@ -99,13 +99,20 @@ struct DeviceOps final {
                        JobDone, void *) noexcept = nullptr;
   Result<RunState> (*finish_job)(const std::shared_ptr<JobState> &,
                                  const rund::AccelEvidence &) = nullptr;
+  node::accel::detail::PreparedKernelPipelineReservation (
+      *plan_pipeline_preparation)(
+      const DeviceState &,
+      std::span<const node::accel::detail::PreparedKernelProgramRoute>,
+      node::accel::detail::PreparedKernelPipelineShape,
+      node::accel::detail::PreparedKernelTemplateRegistry &) noexcept = nullptr;
   node::accel::detail::PreparedKernelPipeline (*prepare_pipeline)(
       const DeviceState &,
       std::span<const node::accel::detail::PreparedKernelRun *const>,
       std::span<const std::uint8_t>, std::span<const std::uint32_t>,
       std::span<const node::accel::detail::BackendRecurrence>,
       std::span<const node::accel::detail::BackendPublish>, std::uint32_t,
-      std::uint32_t, bool) = nullptr;
+      std::uint32_t, bool,
+      node::accel::detail::PreparedKernelTemplateRegistry *) = nullptr;
   node::accel::detail::PreparedPipelineEvidence (*run_pipeline)(
       const DeviceState &,
       const node::accel::detail::PreparedKernelPipeline &) = nullptr;

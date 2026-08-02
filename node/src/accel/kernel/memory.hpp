@@ -30,6 +30,20 @@ inline void accumulate_memory(PreparedMemory &total,
   total.budget = std::max(total.budget, value.budget);
 }
 
+// Compose retained owners whose cold preparation phases cannot overlap. Every
+// final current owner coexists, while only the largest owner-local transient
+// excess over current can contribute to the aggregate preparation peak.
+inline void accumulate_serial_memory(PreparedMemory &total,
+                                     const PreparedMemory value) noexcept {
+  const std::uint64_t total_transient =
+      total.peak > total.current ? total.peak - total.current : 0u;
+  const std::uint64_t value_transient =
+      value.peak > value.current ? value.peak - value.current : 0u;
+  accumulate_memory(total, value);
+  total.peak = ::rund::detail::counter::SaturatingAdd(
+      total.current, std::max(total_transient, value_transient));
+}
+
 class PreparedMemoryMeter final {
 public:
   void add(const PreparedMemory value) noexcept {

@@ -31,6 +31,7 @@ struct MetalHistogramEncodeResources {
 
 void DestroyMetalHistogramEncodeResources(void *raw);
 [[nodiscard]] std::string MetalHistogramSource();
+[[nodiscard]] std::uint64_t MetalHistogramSourceUpperBytes() noexcept;
 [[nodiscard]] bool CompileMetalHistogramPipelines(MetalAdapter &adapter,
                                                   MetalHistogramPipelines &out);
 

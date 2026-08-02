@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <string_view>
 
 namespace rund::node::accel::detail {
 
@@ -22,6 +21,12 @@ namespace rund::node::accel::detail {
 inline constexpr std::uint32_t kSegmentedScanDescriptorCount = 7u;
 inline constexpr std::uint32_t kSegmentedScanPushBytes =
     sizeof(rund::kernel::u64);
+
+enum class VulkanSegmentedScanStage : std::uint8_t {
+  Block,
+  Prefix,
+  Offset,
+};
 
 struct VulkanSegmentedScanEncodeResources {
   VulkanAdapter *adapter = nullptr;
@@ -49,10 +54,14 @@ void DestroyVulkanSegmentedScanEncodeResources(void *raw);
 [[nodiscard]] std::string
 VulkanSegmentedScanSource(rund::kernel::SegmentedScanElement element,
                           rund::kernel::ComputeDomain domain,
-                          std::string_view phase);
+                          VulkanSegmentedScanStage stage);
+[[nodiscard]] bool VulkanSegmentedScanSourceBytes(
+    rund::kernel::SegmentedScanElement element,
+    rund::kernel::ComputeDomain domain, VulkanSegmentedScanStage stage,
+    std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *AcquireSegmentedScanPipeline(
     VulkanAdapter &adapter, const rund::kernel::SegmentedScanDesc &desc,
-    rund::kernel::ComputeDomain domain, std::string_view phase);
+    rund::kernel::ComputeDomain domain, VulkanSegmentedScanStage stage);
 [[nodiscard]] bool CreateVulkanSegmentedScanDescriptorSet(
     VulkanAdapter &adapter, VulkanSegmentedScanEncodeResources &resources);
 #endif

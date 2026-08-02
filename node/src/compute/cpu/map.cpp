@@ -17,7 +17,10 @@ namespace rund::compute::detail {
 
 Status prepare_cpu_map_bindings(
     CpuProgram &program, const std::shared_ptr<DeviceState> &device,
-    CpuMapRun &run, const std::span<BufferState *const> inputs,
+    CpuMapRun &run, CpuMapRoute &route,
+    const std::span<node::accel::cpu_simd_detail::CpuSimdReadBinding> reads,
+    const std::span<node::accel::cpu_simd_detail::CpuSimdWriteBinding> writes,
+    const std::span<BufferState *const> inputs,
     const std::span<BufferState *const> outputs,
     const std::span<const JobBufferView> input_views,
     const std::span<const JobBufferView> output_views) noexcept {
@@ -25,11 +28,12 @@ Status prepare_cpu_map_bindings(
   kernel::u64 scalar_bytes = 0u;
   kernel::u64 summed_input_bytes = 0u;
   const std::size_t count = program.tile_plan.count();
-  run.bindings_frozen = false;
+  route.bindings_frozen = false;
   if (device == nullptr || cpu_device(*device) == nullptr || count == 0u ||
       inputs.size() > kernel::kMaxComputeBindingCount || outputs.empty() ||
       outputs.size() > MaxOutputs || inputs.size() != map.input_buffer_count ||
       outputs.size() != map.output_buffer_count ||
+      reads.size() != inputs.size() || writes.size() != outputs.size() ||
       input_views.size() != inputs.size() ||
       output_views.size() != outputs.size() ||
       program.input_bytes.size() != inputs.size() ||
@@ -51,8 +55,15 @@ Status prepare_cpu_map_bindings(
   if (map.input_bytes_per_tile != summed_input_bytes) {
     return Status::fail(Reason::CpuBufferInvalid);
   }
-  if (!run.tiles.prepared() || run.tiles.count() != count) {
+  if (!run.tile_plan.prepared() || run.tile_plan.count() != count) {
     return Status::fail(Reason::TileBackendFailed);
+  }
+  if (run.workers != program.workers || run.simd.size() != run.workers ||
+      run.scratch_words != program.scratch_words ||
+      (run.scratch_words != 0u &&
+       run.workers > run.scratch.size() / run.scratch_words) ||
+      run.workers * run.scratch_words != run.scratch.size()) {
+    return Status::fail(Reason::CpuBufferInvalid);
   }
   for (std::size_t index = 0u; index < inputs.size(); ++index) {
     BufferState *const buffer = inputs[index];
@@ -65,7 +76,7 @@ Status prepare_cpu_map_bindings(
     if (!bound || bound->data == nullptr) {
       return Status::fail(Reason::CpuBufferInvalid);
     }
-    run.reads[index] = node::accel::cpu_simd_detail::CpuSimdReadBinding{
+    reads[index] = node::accel::cpu_simd_detail::CpuSimdReadBinding{
         .data = reinterpret_cast<const unsigned char *>(bound->data),
         .stride = bound->footprint.stride,
     };
@@ -82,36 +93,45 @@ Status prepare_cpu_map_bindings(
     if (!bound || bound->data == nullptr) {
       return Status::fail(Reason::CpuBufferInvalid);
     }
-    run.writes[index] = node::accel::cpu_simd_detail::CpuSimdWriteBinding{
+    writes[index] = node::accel::cpu_simd_detail::CpuSimdWriteBinding{
         .data = reinterpret_cast<unsigned char *>(bound->data),
         .stride = bound->footprint.stride,
     };
   }
-  run.bindings = node::accel::cpu_simd_detail::CpuSimdBindingView{
-      .reads = run.reads.data(),
+  route.bindings = node::accel::cpu_simd_detail::CpuSimdBindingView{
+      .reads = reads.data(),
       .read_count = inputs.size(),
-      .writes = run.writes.data(),
+      .writes = writes.data(),
       .write_count = outputs.size(),
       .tile_count = count,
   };
-  run.tile = CpuMapTileContext{.program = &program, .run = &run};
+  route.tile =
+      CpuMapTileContext{.program = &program, .run = &run, .route = &route};
   return Status::success();
 }
 
-Status begin_cpu_map(CpuProgram &program, CpuMapRun &run,
+Status begin_cpu_map(CpuProgram &program, CpuMapRun &run, CpuMapRoute &route,
                      const std::size_t logical_count,
                      std::uint64_t &overflow_ordinal,
                      const std::atomic_bool *const cancel) noexcept {
   const std::size_t count = program.tile_plan.count();
   if (logical_count > count ||
-      logical_count > std::numeric_limits<kernel::u32>::max()) {
+      logical_count > std::numeric_limits<kernel::u32>::max() ||
+      run.execution == nullptr) {
     return Status::fail(Reason::CpuBufferInvalid);
   }
-  run.tile.cancel = cancel;
-  run.bindings.tile_count = logical_count;
+  run.tiles = run.tile_plan.bind(
+      run.execution->tile_storage(),
+      static_cast<kernel::u32>(logical_count));
+  if (!run.tiles.prepared() || !run.tiles.has_run_storage() ||
+      run.tiles.count() != logical_count) {
+    return Status::fail(Reason::TileRunCapacity);
+  }
+  route.tile.cancel = cancel;
+  route.bindings.tile_count = logical_count;
   const node::accel::cpu_simd_detail::IndexCheck indices =
       node::accel::cpu_simd_detail::ValidateIndices(
-          run.bindings, program.read_routes, logical_count);
+          route.bindings, program.read_routes, logical_count);
   if (!indices.ok()) {
     overflow_ordinal = std::min(overflow_ordinal, indices.ordinal);
     return Status::fail(std::string_view{indices.reason} ==
@@ -128,7 +148,7 @@ run_cpu_map_tile(const void *const raw,
                  const kernel::ComputeTile &tile) noexcept {
   const auto *const context = static_cast<const CpuMapTileContext *>(raw);
   if (context == nullptr || context->program == nullptr ||
-      context->run == nullptr) {
+      context->run == nullptr || context->route == nullptr) {
     return {false, "compute_cpu_buffer_invalid"};
   }
   if (context->cancel != nullptr &&
@@ -137,8 +157,9 @@ run_cpu_map_tile(const void *const raw,
   }
   CpuProgram &cpu = *context->program;
   CpuMapRun &run = *context->run;
+  CpuMapRoute &route = *context->route;
   const auto logical_count = static_cast<kernel::u32>(std::min<std::size_t>(
-      run.bindings.tile_count, std::numeric_limits<kernel::u32>::max()));
+      route.bindings.tile_count, std::numeric_limits<kernel::u32>::max()));
   if (tile.begin >= logical_count) {
     return {};
   }
@@ -148,19 +169,26 @@ run_cpu_map_tile(const void *const raw,
       .begin = tile.begin,
       .end = std::min(tile.end, logical_count),
   };
-  if (tile.worker_index >= run.scratch.size()) {
+  if (tile.worker_index >= run.workers ||
+      tile.worker_index >= run.simd.size() ||
+      (run.scratch_words != 0u &&
+       tile.worker_index >
+           (run.scratch.size() - run.scratch_words) / run.scratch_words)) {
     return {false, "cpu_simd_scratch_invalid"};
   }
+  std::max_align_t *const scratch =
+      run.scratch_words == 0u
+          ? nullptr
+          : run.scratch.data() + tile.worker_index * run.scratch_words;
   const node::accel::CpuSimdRunResult result = cpu.dispatch.run(
       cpu.dispatch.prepared,
       node::accel::cpu_simd_detail::CpuSimdInvocation{
-          .bindings = &run.bindings,
+          .bindings = &route.bindings,
           .begin = logical_tile.begin,
           .count = logical_tile.size(),
       },
       node::accel::cpu_simd_detail::CpuSimdScratch{
-          run.scratch[tile.worker_index].data(),
-          run.scratch[tile.worker_index].size() * sizeof(std::max_align_t)});
+          scratch, run.scratch_words * sizeof(std::max_align_t)});
   record_simd(run, tile.worker_index, result);
   return {result.ok, result.reason};
 }

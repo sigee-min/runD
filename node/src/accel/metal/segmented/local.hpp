@@ -31,6 +31,8 @@ struct MetalSegmentedScanEncodeResources {
 
 void DestroyMetalSegmentedScanEncodeResources(void *raw);
 [[nodiscard]] std::string MetalSegmentedScanSource();
+[[nodiscard]] bool
+MetalSegmentedScanSourceUpperBytes(std::uint64_t &upper) noexcept;
 [[nodiscard]] bool CompileMetalSegmentedScanPipelines(
     MetalAdapter &adapter, rund::kernel::SegmentedScanElement element,
     rund::kernel::ComputeDomain domain, std::shared_ptr<void> &block,

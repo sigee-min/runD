@@ -1,6 +1,7 @@
 #include "src/accel/vulkan/numeric/source.hpp"
 
 #include <array>
+#include <cstdint>
 #include <string>
 
 namespace node_accel_contract {
@@ -48,6 +49,32 @@ namespace {
   using rund::node::accel::detail::TransformSource;
   using rund::node::accel::detail::TransformSource64;
 
+  const std::array<std::string, 10u> sources{
+      MatrixSource(),       MatrixSource64(),   TransformSource(),
+      TransformSource64(),  FactorSource(),     FactorSource64(),
+      SolveSource(),        SolveSource64(),    SpectrumSource(),
+      SpectrumSource64(),
+  };
+  using Bytes = bool (*)(std::uint64_t &) noexcept;
+  const std::array<Bytes, 10u> source_bytes{
+      rund::node::accel::detail::MatrixSourceBytes,
+      rund::node::accel::detail::MatrixSource64Bytes,
+      rund::node::accel::detail::TransformSourceBytes,
+      rund::node::accel::detail::TransformSource64Bytes,
+      rund::node::accel::detail::FactorSourceBytes,
+      rund::node::accel::detail::FactorSource64Bytes,
+      rund::node::accel::detail::SolveSourceBytes,
+      rund::node::accel::detail::SolveSource64Bytes,
+      rund::node::accel::detail::SpectrumSourceBytes,
+      rund::node::accel::detail::SpectrumSource64Bytes,
+  };
+  for (std::size_t index = 0u; index < sources.size(); ++index) {
+    std::uint64_t bytes = 0u;
+    if (!source_bytes[index](bytes) || bytes != sources[index].size()) {
+      return false;
+    }
+  }
+
   const auto tiled_matrix = [](const std::string &source) {
     return Contains(source, "#define RUND_MATRIX_TILE_SIDE 32u") &&
            Contains(source, "#define RUND_MATRIX_TILE_LANES 128u") &&
@@ -66,21 +93,21 @@ namespace {
            Contains(source, "barrier();");
   };
   const std::array<bool, 10u> contracts{
-      tiled_matrix(MatrixSource()),
-      tiled_matrix(MatrixSource64()),
-      IsGlobalTransformSource(TransformSource()),
-      IsGlobalTransformSource(TransformSource64()),
-      IsParallelNumericSource(FactorSource(), "layout(local_size_x = 32) in;",
+      tiled_matrix(sources[0]),
+      tiled_matrix(sources[1]),
+      IsGlobalTransformSource(sources[2]),
+      IsGlobalTransformSource(sources[3]),
+      IsParallelNumericSource(sources[4], "layout(local_size_x = 32) in;",
                               false),
-      IsParallelNumericSource(FactorSource64(), "layout(local_size_x = 32) in;",
+      IsParallelNumericSource(sources[5], "layout(local_size_x = 32) in;",
                               false),
-      IsParallelNumericSource(SolveSource(), "layout(local_size_x = 32) in;",
+      IsParallelNumericSource(sources[6], "layout(local_size_x = 32) in;",
                               false),
-      IsParallelNumericSource(SolveSource64(), "layout(local_size_x = 32) in;",
+      IsParallelNumericSource(sources[7], "layout(local_size_x = 32) in;",
                               false),
-      IsParallelNumericSource(SpectrumSource(), "layout(local_size_x = 32) in;",
+      IsParallelNumericSource(sources[8], "layout(local_size_x = 32) in;",
                               false),
-      IsParallelNumericSource(SpectrumSource64(),
+      IsParallelNumericSource(sources[9],
                               "layout(local_size_x = 32) in;", false),
   };
   for (const bool accepted : contracts) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rund/compute/abi/device.hpp>
+#include <rund/storage.hpp>
 
 #include <accel/context/buffer.hpp>
 #include <accel/context/value.hpp>
@@ -52,10 +53,10 @@ struct MemoryMeter final {
 };
 
 struct DeviceMemory final {
-  // Cold allocation/admission is serialized per Device. Pipeline preparation
-  // holds this recursively while its sealed plan is materialized, so another
-  // buffer or Pipeline cannot consume the capacity proved by the preflight.
-  std::recursive_mutex gate;
+  // Actual backend allocation telemetry is independent of conservative
+  // Pipeline admission. Only one Buffer allocation mutates the meters at a
+  // time; no Pipeline-wide recursive lock or hidden capacity authority exists.
+  std::mutex allocation_gate;
   MemoryMeter host;
   MemoryMeter device;
   MemoryMeter transfer;
@@ -79,12 +80,21 @@ struct DeviceState final {
   Backend backend{Backend::Cpu};
   std::variant<CpuDeviceState, AccelDeviceState> storage;
   const DeviceOps *ops{};
+  // Immutable platform fact captured once while the Device opens. Planning
+  // consumes this value and never re-queries the host page size.
+  std::uint64_t host_page_bytes{};
+  // Sole aggregate admission authority for all Pipelines on this Device.
+  storage::Budget pipeline_memory_budget{};
   DeviceMemory memory;
   std::shared_ptr<CompileService> compile_owner;
   std::weak_ptr<CompileService> compile;
   Compile compile_resources{.workers = 0u, .capacity = 0u};
   std::shared_ptr<DeviceClaims> claims{std::make_shared<DeviceClaims>()};
 };
+
+[[nodiscard]] Status
+initialize_device_state(DeviceState &state,
+                        DevicePipelineMemoryLimit pipeline_memory) noexcept;
 
 struct AlignedDelete final {
   void operator()(std::byte *const data) const noexcept { std::free(data); }

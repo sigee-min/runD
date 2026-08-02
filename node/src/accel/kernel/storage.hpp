@@ -109,6 +109,14 @@ struct InlineIndexedStorage {
                                             : &overflow_values[index];
   }
 
+  [[nodiscard]] const Value* get(const std::size_t index) const noexcept {
+    if (index >= size()) {
+      return nullptr;
+    }
+    return expected_count <= InlineCapacity ? &inline_values[index]
+                                            : &overflow_values[index];
+  }
+
   [[nodiscard]] std::size_t size() const noexcept {
     return expected_count <= InlineCapacity ? expected_count
                                             : overflow_values.size();

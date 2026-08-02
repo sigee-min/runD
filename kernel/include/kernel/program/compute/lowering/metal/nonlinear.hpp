@@ -3,31 +3,47 @@
 #include <kernel/program/compute/lowering/fixed/64/turn.hpp>
 #include <kernel/program/compute/lowering/metal/u128.hpp>
 
+#include <array>
+#include <charconv>
 #include <string>
+#include <string_view>
 
 namespace rund::kernel {
 namespace compute_lowering_detail {
 
-template <std::size_t N>
+template <typename Sink>
+inline void AppendMetalUnsignedDecimal(Sink &out,
+                                       const std::uint64_t value) {
+  std::array<char, 20u> digits{};
+  const auto converted =
+      std::to_chars(digits.data(), digits.data() + digits.size(), value);
+  out += std::string_view{
+      digits.data(),
+      static_cast<std::size_t>(converted.ptr - digits.data())};
+}
+
+template <typename Sink, std::size_t N>
 inline void AppendMetalTurnPoly64(
-    std::string &out, const char *const name,
+    Sink &out, const char *const name,
     const std::array<std::int64_t, N> &coefficients) {
   out += "inline long ";
   out += name;
   out += "(long square) {\n";
   out += "  long acc = RundAsSigned64(";
-  out += std::to_string(static_cast<std::uint64_t>(coefficients.back()));
+  AppendMetalUnsignedDecimal(
+      out, static_cast<std::uint64_t>(coefficients.back()));
   out += "ul);\n";
   for (std::size_t index = N - 1u; index != 0u; --index) {
     out += "  acc = RundAddSat64(RundAsSigned64(";
-    out += std::to_string(
-        static_cast<std::uint64_t>(coefficients[index - 1u]));
+    AppendMetalUnsignedDecimal(
+        out, static_cast<std::uint64_t>(coefficients[index - 1u]));
     out += "ul), RundMulFixedLane64(acc, square));\n";
   }
   out += "  return acc;\n}\n";
 }
 
-inline void AppendMetalFixedLane32NonlinearHelpers(std::string &out) {
+template <typename Sink>
+inline void AppendMetalFixedLane32NonlinearHelpers(Sink &out) {
   out += "inline ulong RundTurnUnsignedDiv32(ulong numerator, "
          "uint denominator) {\n";
   out += "  ulong quotient = 0ul;\n";
@@ -171,7 +187,8 @@ inline void AppendMetalFixedLane32NonlinearHelpers(std::string &out) {
   out += "}\n";
 }
 
-inline void AppendMetalFixedLane64NonlinearHelpers(std::string &out) {
+template <typename Sink>
+inline void AppendMetalFixedLane64NonlinearHelpers(Sink &out) {
   AppendMetalU128Core(out);
   AppendMetalU128Division(out);
   AppendMetalU128IntegerSquareRoot(out);
@@ -185,7 +202,7 @@ inline void AppendMetalFixedLane64NonlinearHelpers(std::string &out) {
   out += "  if (offset == 0ul) { return cosine ? "
          "RundAsSigned64(0x7ffffffffffffffful) : long(0); }\n";
   out += "  if (offset >= 0x2000000000000000ul) { return RundAsSigned64(";
-  out += std::to_string(kTurnSqrtHalf64);
+  AppendMetalUnsignedDecimal(out, kTurnSqrtHalf64);
   out += "ul); }\n";
   out += "  const long unit = RundAsSigned64(offset << 2u);\n";
   out += "  const long square = RundMulFixedLane64(unit, unit);\n";
@@ -262,7 +279,7 @@ inline void AppendMetalFixedLane64NonlinearHelpers(std::string &out) {
   out += "  if (denominator == 0ul) { return false; }\n";
   out += "  const RundU128 left = RundTurnNumerator64(numerator);\n";
   out += "  const RundU128 right = RundMulWide64(denominator, ";
-  out += std::to_string(kTurnTanEighth64);
+  AppendMetalUnsignedDecimal(out, kTurnTanEighth64);
   out += "ul);\n";
   out += "  return RundGeU128(right, left);\n";
   out += "}\n";

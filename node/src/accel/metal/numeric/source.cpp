@@ -4,11 +4,12 @@
 #include <kernel/program/compute/lowering/metal/fixed.hpp>
 
 namespace rund::node::accel::detail {
+namespace {
 
-[[nodiscard]] std::string MetalNumericFixedLane64Source() {
-  std::string out;
-  rund::kernel::compute_lowering_detail::AppendMetalFixedLane64Helpers(out);
-  out += R"MSL(
+template <typename Sink>
+[[nodiscard]] bool EmitMetalNumericFixedLane64SourceImpl(Sink &sink) {
+  rund::kernel::compute_lowering_detail::AppendMetalFixedLane64Helpers(sink);
+  sink += R"MSL(
 
 inline long add_q63(long a, long b) { return RundAddSat64(a, b); }
 inline long sub_q63(long a, long b) { return RundSubSat64(a, b); }
@@ -136,8 +137,10 @@ inline ulong midx64(ulong r, ulong c, ulong rows, ulong cols, ulong layout) {
 #define RUND_MATRIX_MUL(lhs, rhs, params) \
   matrix_mul_i64((lhs), (rhs), (params))
 )MSL";
-  out += MetalNumericProgramSource();
-  out += R"MSL(
+  if (!EmitMetalNumericProgramSource(sink)) {
+    return false;
+  }
+  sink += R"MSL(
 #undef RUND_MATRIX_MUL
 #undef RUND_MATRIX_ADD
 #undef RUND_INDEX
@@ -161,7 +164,45 @@ inline ulong midx64(ulong r, ulong c, ulong rows, ulong cols, ulong layout) {
 #undef RUND_CAT
 #undef RUND_CAT_INNER
 )MSL";
-  return out;
+  return sink.valid();
+}
+
+} // namespace
+
+bool EmitMetalNumericFixedLane64Source(
+    backend_source_recipe::CountSink &sink) noexcept {
+  return EmitMetalNumericFixedLane64SourceImpl(sink);
+}
+
+bool EmitMetalNumericFixedLane64Source(
+    backend_source_recipe::StringSink &sink) {
+  return EmitMetalNumericFixedLane64SourceImpl(sink);
+}
+
+namespace {
+
+template <typename Sink>
+[[nodiscard]] bool EmitMetalNumericSource(Sink &sink) noexcept(
+    noexcept(EmitMetalNumericFixedLane32Source(sink))) {
+  return EmitMetalNumericFixedLane32Source(sink) &&
+         EmitMetalNumericFixedLane64Source(sink) && sink.valid();
+}
+
+} // namespace
+
+std::string MetalNumericSource() {
+  const auto emit = [](auto &sink) noexcept(
+                        noexcept(EmitMetalNumericSource(sink))) {
+    return EmitMetalNumericSource(sink);
+  };
+  return backend_source_recipe::materialize(emit);
+}
+
+bool MetalNumericSourceUpperBytes(std::uint64_t &upper) noexcept {
+  const auto emit = [](backend_source_recipe::CountSink &sink) noexcept {
+    return EmitMetalNumericSource(sink);
+  };
+  return backend_source_recipe::bytes(emit, upper);
 }
 
 } // namespace rund::node::accel::detail

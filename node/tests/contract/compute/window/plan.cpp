@@ -1,13 +1,14 @@
 #include "local.hpp"
 
+#include "../allocation.hpp"
+
 #include <cstdio>
 #include <utility>
 
 namespace rund::node::test_contract::window {
 namespace {
 
-template <class Value>
-[[nodiscard]] int CheckPlanFormat(Device &device) {
+template <class Value> [[nodiscard]] int CheckPlanFormat(Device &device) {
   using namespace rund::compute;
   constexpr std::size_t tile = 8192u;
   constexpr std::size_t maximum = 516096u;
@@ -49,7 +50,15 @@ template <class Value>
       *large_body, rund::compute::window(*large_total),
       read(*large_seed, *large_input), write_final(*large_output));
   const auto large_plan = large.plan();
+  const auto prepared_components_exact = [](const PipelinePlan &plan) {
+    return plan.prepared_bytes ==
+           plan.prepared_buffer_bytes + plan.prepared_host_bytes +
+               plan.prepared_tile_bytes + plan.prepared_native_bytes;
+  };
   if (!single_plan || !large_plan || single_plan->transient_bytes == 0u ||
+      single_plan->prepared_bytes == 0u || large_plan->prepared_bytes == 0u ||
+      !prepared_components_exact(*single_plan) ||
+      !prepared_components_exact(*large_plan) ||
       single_plan->total_bytes !=
           single_plan->persistent_bytes + single_plan->peak_bytes ||
       large_plan->total_bytes !=
@@ -104,12 +113,23 @@ template <class Value>
   if (large_plan->peak_bytes == 0u) {
     return 3;
   }
+  // Default CI freezes the product-scale authority at plan plus a proven
+  // pre-allocation rejection. Actual large materialization and process RSS
+  // observation are isolated behind tools/measure/compute/run
+  // --prepare-memory so an ordinary contract run cannot allocate this plan.
+  node_compute_allocation::Start();
   auto rejected =
       std::move(large)
           .budget(MemoryBudget{.bytes = large_plan->peak_bytes - 1u})
           .prepare();
+  node_compute_allocation::Stop();
+  const std::uint64_t rejected_allocation_count =
+      node_compute_allocation::Count();
+  const std::uint64_t rejected_allocation_bytes =
+      node_compute_allocation::Bytes();
   const MemoryStats after = device.memory();
   if (rejected || rejected.reason() != Reason::PipelineMemoryBudget ||
+      rejected_allocation_count != 0u || rejected_allocation_bytes != 0u ||
       !NoAllocation(before, after)) {
     const auto dump = [](const char *const name, const MemoryCounter &left,
                          const MemoryCounter &right) {
@@ -129,9 +149,12 @@ template <class Value>
                      static_cast<unsigned long long>(right.budget));
       }
     };
-    std::fprintf(stderr, "window plan rejection ok=%u reason=%u\n",
+    std::fprintf(stderr,
+                 "window plan rejection ok=%u reason=%u allocations=%llu/%llu\n",
                  static_cast<unsigned>(rejected.ok()),
-                 static_cast<unsigned>(rejected.reason()));
+                 static_cast<unsigned>(rejected.reason()),
+                 static_cast<unsigned long long>(rejected_allocation_count),
+                 static_cast<unsigned long long>(rejected_allocation_bytes));
     dump("host", before.host, after.host);
     dump("frame", before.frame, after.frame);
     dump("tile", before.tile, after.tile);

@@ -1,8 +1,8 @@
 #include "model.hpp"
 
-#include "allocation.hpp"
+#include "../process.hpp"
 
-#include <sys/resource.h>
+#include "allocation.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -16,26 +16,6 @@
 
 namespace rund::measure::compute {
 namespace {
-
-[[nodiscard]] std::uint64_t MaximumResidentBytes() noexcept {
-  rusage usage{};
-  if (::getrusage(RUSAGE_SELF, &usage) != 0 || usage.ru_maxrss < 0) {
-    return 0u;
-  }
-  const auto rss = static_cast<std::uint64_t>(usage.ru_maxrss);
-#if defined(__APPLE__)
-  return rss;
-#else
-  return rss > std::numeric_limits<std::uint64_t>::max() / 1024u
-             ? std::numeric_limits<std::uint64_t>::max()
-             : rss * 1024u;
-#endif
-}
-
-[[nodiscard]] std::uint64_t Delta(const std::uint64_t after,
-                                  const std::uint64_t before) noexcept {
-  return after >= before ? after - before : 0u;
-}
 
 struct CheckpointObservation final {
   std::vector<double> ticks;
@@ -109,19 +89,19 @@ void PrintObservation(const Backend backend, const char *const path,
       static_cast<unsigned long long>(observed.stats.download_events),
       static_cast<unsigned long long>(observed.stats.downloaded_bytes),
       static_cast<unsigned long long>(
-          Delta(observed.memory_after.staging.cumulative,
-                observed.memory_before.staging.cumulative)),
+          NonnegativeDelta(observed.memory_after.staging.cumulative,
+                           observed.memory_before.staging.cumulative)),
       static_cast<unsigned long long>(observed.memory_after.staging.peak),
       static_cast<unsigned long long>(
-          Delta(observed.memory_after.staging.reused,
-                observed.memory_before.staging.reused)),
+          NonnegativeDelta(observed.memory_after.staging.reused,
+                           observed.memory_before.staging.reused)),
       static_cast<unsigned long long>(observed.stats.buffer_allocations),
       static_cast<unsigned long long>(observed.stats.buffer_reuses),
       static_cast<unsigned long long>(observed.stats.command_submits),
       static_cast<unsigned long long>(observed.rss_before),
       static_cast<unsigned long long>(observed.rss_after),
       static_cast<unsigned long long>(
-          Delta(observed.rss_after, observed.rss_before)));
+          NonnegativeDelta(observed.rss_after, observed.rss_before)));
 }
 
 } // namespace
@@ -220,7 +200,7 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
     return false;
   }
   latest_observation.memory_before = latest_pipeline->memory();
-  latest_observation.rss_before = MaximumResidentBytes();
+  latest_observation.rss_before = ProcessMaximumResidentBytes();
   for (std::size_t sample = 0u; sample < samples; ++sample) {
     node_compute_allocation::Start();
     const auto begin = Clock::now();
@@ -237,7 +217,7 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
     latest_observation.run_allocation_bytes.push_back(
         static_cast<double>(node_compute_allocation::Bytes()));
   }
-  latest_observation.rss_after = MaximumResidentBytes();
+  latest_observation.rss_after = ProcessMaximumResidentBytes();
   latest_observation.memory_after = latest_pipeline->memory();
   latest_observation.stats = latest_pipeline->stats();
   latest_observation.checkpoint = latest_pipeline->checkpoint_stats();
@@ -261,7 +241,7 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
   reusable_observation.path_allocation_bytes.reserve(samples);
   const CheckpointStats reusable_before = reusable_pipeline->checkpoint_stats();
   reusable_observation.memory_before = reusable_pipeline->memory();
-  reusable_observation.rss_before = MaximumResidentBytes();
+  reusable_observation.rss_before = ProcessMaximumResidentBytes();
   for (std::size_t sample = 0u; sample < samples; ++sample) {
     node_compute_allocation::Start();
     const auto run_begin = Clock::now();
@@ -292,20 +272,21 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
     reusable_observation.path_allocation_bytes.push_back(
         static_cast<double>(node_compute_allocation::Bytes()));
   }
-  reusable_observation.rss_after = MaximumResidentBytes();
+  reusable_observation.rss_after = ProcessMaximumResidentBytes();
   reusable_observation.memory_after = reusable_pipeline->memory();
   reusable_observation.stats = reusable_pipeline->stats();
   const CheckpointStats reusable_after = reusable_pipeline->checkpoint_stats();
   reusable_observation.checkpoint = CheckpointStats{
-      .reusable_snapshot_count = Delta(reusable_after.reusable_snapshot_count,
-                                       reusable_before.reusable_snapshot_count),
+      .reusable_snapshot_count =
+          NonnegativeDelta(reusable_after.reusable_snapshot_count,
+                           reusable_before.reusable_snapshot_count),
       .reusable_snapshot_byte_count =
-          Delta(reusable_after.reusable_snapshot_byte_count,
-                reusable_before.reusable_snapshot_byte_count),
+          NonnegativeDelta(reusable_after.reusable_snapshot_byte_count,
+                           reusable_before.reusable_snapshot_byte_count),
       .reusable_snapshot_hash = reusable_after.reusable_snapshot_hash,
       .reusable_snapshot_transfer_count =
-          Delta(reusable_after.reusable_snapshot_transfer_count,
-                reusable_before.reusable_snapshot_transfer_count),
+          NonnegativeDelta(reusable_after.reusable_snapshot_transfer_count,
+                           reusable_before.reusable_snapshot_transfer_count),
   };
   reusable_observation.fingerprint = storage.fingerprint();
   reusable_observation.generation = storage.generation();
@@ -339,7 +320,7 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
   const std::uint64_t immutable_snapshot_bytes_before =
       immutable_pipeline->stats().publication.snapshot_byte_count;
   immutable_observation.memory_before = immutable_pipeline->memory();
-  immutable_observation.rss_before = MaximumResidentBytes();
+  immutable_observation.rss_before = ProcessMaximumResidentBytes();
   for (std::size_t sample = 0u; sample < samples; ++sample) {
     node_compute_allocation::Start();
     const auto run_begin = Clock::now();
@@ -372,7 +353,7 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
     immutable_observation.path_allocation_bytes.push_back(
         static_cast<double>(node_compute_allocation::Bytes()));
   }
-  immutable_observation.rss_after = MaximumResidentBytes();
+  immutable_observation.rss_after = ProcessMaximumResidentBytes();
   immutable_observation.memory_after = immutable_pipeline->memory();
   immutable_observation.stats = immutable_pipeline->stats();
   immutable_observation.checkpoint = immutable_pipeline->checkpoint_stats();
@@ -383,8 +364,9 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
       retained.size() == samples &&
       immutable_observation.generation == samples + 1u &&
       immutable_observation.hash != 0u &&
-      Delta(immutable_observation.stats.publication.snapshot_byte_count,
-            immutable_snapshot_bytes_before) == payload_bytes * samples &&
+      NonnegativeDelta(
+          immutable_observation.stats.publication.snapshot_byte_count,
+          immutable_snapshot_bytes_before) == payload_bytes * samples &&
       immutable_observation.stats.uploaded_bytes == 0u &&
       immutable_observation.stats.downloaded_bytes ==
           (backend == Backend::Cpu ? 0u : payload_bytes) &&

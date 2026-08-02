@@ -12,7 +12,8 @@ inline rund::AccelCheck BuildVulkanSortResources(
     VulkanAdapter *const adapter, const rund::AccelDevice &pick,
     const rund::kernel::SortDesc &desc, const rund::kernel::SortPlan &plan,
     const rund::kernel::ComputeDomain domain, const SortBinds &bindings,
-    std::shared_ptr<void> &resources) {
+    std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *const pipelines) {
   VulkanSortPrepareShape shape{};
   const rund::AccelCheck shape_check =
       ValidateVulkanSortPrepareShape(*adapter, desc, plan, bindings, shape);
@@ -32,7 +33,8 @@ inline rund::AccelCheck BuildVulkanSortResources(
   raw->adapter = adapter;
   raw->logical_count = buffers.logical_count;
   const rund::AccelCheck allocated =
-      AllocateVulkanSortSharedResources(*adapter, desc, plan, shape, *raw);
+      AllocateVulkanSortSharedResources(*adapter, desc, plan, shape, *raw,
+                                        pipelines);
   if (!allocated.ok) {
     return allocated;
   }

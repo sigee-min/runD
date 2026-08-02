@@ -1,10 +1,10 @@
 #pragma once
 
-#include <string>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
-[[nodiscard]] inline std::string MetalPartitionWideSource() {
+[[nodiscard]] inline constexpr std::string_view MetalPartitionWideSource() {
   return R"MSL(
 kernel void rund_compute_partition_classify_u64(
     device const ulong* flags [[buffer(0)]],

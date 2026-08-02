@@ -2,12 +2,17 @@
 
 #include <rund/compute/abi/model.hpp>
 #include <rund/compute/compile.hpp>
+#include <rund/compute/device/pipeline_memory.hpp>
 #include <rund/compute/target.hpp>
 #include <span>
 namespace rund::compute::detail {
 [[nodiscard]] Result<std::shared_ptr<DeviceState>> open_target(Target target);
 [[nodiscard]] Result<std::shared_ptr<DeviceState>>
+open_target(Target target, DevicePipelineMemoryLimit limit);
+[[nodiscard]] Result<std::shared_ptr<DeviceState>>
 open_target(Target target, Compile resources);
+[[nodiscard]] Result<std::shared_ptr<DeviceState>>
+open_target(Target target, Compile resources, DevicePipelineMemoryLimit limit);
 [[nodiscard]] Result<std::shared_ptr<DeviceState>>
 open_cpu(std::uint32_t workers);
 [[nodiscard]] Status own_compile(const std::shared_ptr<DeviceState> &device,

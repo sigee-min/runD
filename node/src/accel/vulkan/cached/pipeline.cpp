@@ -90,7 +90,7 @@ bool VulkanCachedPipelineMatches(
 VulkanCachedPipeline *
 AcquireVulkanCachedPipeline(VulkanAdapter &adapter,
                             const rund::kernel::ComputePlan &plan,
-                            const rund::kernel::LoweringArtifact &artifact) {
+                            rund::kernel::LoweringArtifact artifact) {
   const std::uint64_t source_hash = SourceHash(artifact.source_text);
   const auto [begin, end] =
       adapter.pipeline_index->entries.equal_range(source_hash);
@@ -110,7 +110,7 @@ AcquireVulkanCachedPipeline(VulkanAdapter &adapter,
     if (!CompileVulkanShader(adapter, plan, artifact, shader)) {
       return nullptr;
     }
-    if (!CreateVulkanCachedPipeline(adapter, plan, artifact, shader,
+    if (!CreateVulkanCachedPipeline(adapter, plan, std::move(artifact), shader,
                                     pipeline)) {
       return nullptr;
     }
@@ -133,13 +133,13 @@ AcquireVulkanCachedPipeline(VulkanAdapter &adapter,
 
 bool CreateVulkanCachedPipeline(VulkanAdapter &adapter,
                                 const rund::kernel::ComputePlan &plan,
-                                const rund::kernel::LoweringArtifact &artifact,
+                                rund::kernel::LoweringArtifact artifact,
                                 const VulkanShader &shader,
                                 VulkanCachedPipeline &pipeline) {
   VulkanModule module{};
   pipeline.device = adapter.device;
   pipeline.key = artifact.key;
-  pipeline.source = artifact.source_text;
+  pipeline.source = std::move(artifact.source_text);
   pipeline.input_buffer_count = plan.input_buffer_count;
   pipeline.output_buffer_count = plan.output_buffer_count;
   pipeline.shader_hash = shader.hash;

@@ -6,6 +6,7 @@
 #include <bit>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 namespace rund::node::accel::detail {
@@ -29,25 +30,32 @@ namespace rund::node::accel::detail {
 }
 
 template <class Row>
-[[nodiscard]] bool grow_rows(std::vector<Row> &rows,
-                             const std::size_t additional) {
+[[nodiscard]] bool
+append_within_frozen_capacity(const std::vector<Row> &rows,
+                              const std::size_t additional,
+                              const std::size_t frozen_capacity) noexcept {
   if (additional > rows.max_size() - rows.size()) {
     return false;
   }
   const std::size_t required = rows.size() + additional;
-  if (required <= rows.capacity()) {
+  return required <= frozen_capacity && required <= rows.capacity();
+}
+
+[[nodiscard]] bool grow_parameter_rows(MetalCapture &capture,
+                                       const std::size_t required) {
+  if (required > capture.parameter_capacity) {
+    return false;
+  }
+  if (required <= capture.parameters.capacity()) {
     return true;
   }
-  std::size_t capacity = std::max<std::size_t>(rows.capacity(), 8u);
-  while (capacity < required) {
-    if (capacity > rows.max_size() / 2u) {
-      capacity = required;
-      break;
-    }
-    capacity *= 2u;
+  const MetalCaptureRowCapacity planned = PlanMetalParameterCapacity(
+      capture.parameters.capacity(), required, capture.parameter_capacity);
+  if (!planned.ok) {
+    return false;
   }
-  rows.reserve(capacity);
-  return true;
+  capture.parameters.reserve(static_cast<std::size_t>(planned.rows));
+  return capture.parameters.capacity() == planned.rows;
 }
 
 [[nodiscard]] MetalWork
@@ -119,27 +127,20 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
     return;
   }
   const std::size_t binding_begin = capture.command_bindings.size();
-  const std::size_t threadgroup_begin = capture.command_threadgroups.size();
   const std::size_t binding_count =
       std::popcount(capture.binding_mask) +
       static_cast<std::size_t>(!capture.unguarded);
-  const std::size_t threadgroup_count = std::popcount(capture.threadgroup_mask);
-  if (!capture.unguarded) {
-    capture.highest_binding = std::max<NSUInteger>(
-        capture.highest_binding, kMetalPipelineGuardBinding + 1u);
-  }
   if (binding_count > capture.command_bindings.max_size() - binding_begin ||
-      threadgroup_count >
-          capture.command_threadgroups.max_size() - threadgroup_begin ||
       capture.commands.size() == capture.commands.max_size()) {
     capture.capacity_failed = true;
     capture.failed = true;
     return;
   }
   try {
-    if (!grow_rows(capture.command_bindings, binding_count) ||
-        !grow_rows(capture.command_threadgroups, threadgroup_count) ||
-        !grow_rows(capture.commands, 1u)) {
+    if (!append_within_frozen_capacity(capture.command_bindings, binding_count,
+                                       capture.binding_capacity) ||
+        !append_within_frozen_capacity(capture.commands, 1u,
+                                       capture.command_capacity)) {
       capture.capacity_failed = true;
       capture.failed = true;
       return;
@@ -152,7 +153,6 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
       if (!binding.bound) {
         capture.failed = true;
         capture.command_bindings.resize(binding_begin);
-        capture.command_threadgroups.resize(threadgroup_begin);
         return;
       }
       capture.command_bindings.push_back(MetalCommandBinding{
@@ -173,22 +173,10 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
           .index = kMetalPipelineGuardBinding,
       });
     }
-    std::uint32_t threadgroups = capture.threadgroup_mask;
-    while (threadgroups != 0u) {
-      const NSUInteger index =
-          static_cast<NSUInteger>(std::countr_zero(threadgroups));
-      capture.command_threadgroups.push_back(MetalThreadgroupBinding{
-          .length = capture.threadgroup[index],
-          .index = index,
-      });
-      threadgroups &= threadgroups - 1u;
-    }
     MetalCommand command{
         .pipeline = capture.pipeline,
         .binding_begin = binding_begin,
         .binding_count = binding_count,
-        .threadgroup_begin = threadgroup_begin,
-        .threadgroup_count = threadgroup_count,
         .grid = grid,
         .threads = threads,
         .kind = kind,
@@ -197,15 +185,14 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
     capture.commands.push_back(std::move(command));
   } catch (const std::bad_alloc &) {
     capture.command_bindings.resize(binding_begin);
-    capture.command_threadgroups.resize(threadgroup_begin);
     capture.capacity_failed = true;
     capture.failed = true;
     return;
-  }
-  if (kind == MetalGrid::Groups) {
-    capture.types |= MTLIndirectCommandTypeConcurrentDispatch;
-  } else if (kind == MetalGrid::Threads) {
-    capture.types |= MTLIndirectCommandTypeConcurrentDispatchThreads;
+  } catch (const std::length_error &) {
+    capture.command_bindings.resize(binding_begin);
+    capture.capacity_failed = true;
+    capture.failed = true;
+    return;
   }
 }
 
@@ -217,7 +204,6 @@ using rund::node::accel::detail::kMetalArgumentCapacity;
 using rund::node::accel::detail::MetalBinding;
 using rund::node::accel::detail::MetalCapture;
 using rund::node::accel::detail::MetalGrid;
-using rund::node::accel::detail::MetalReplacement;
 
 @implementation RUNDMetalPipelineCapture
 - (instancetype)initWithCapture:(MetalCapture *)capture {
@@ -233,27 +219,32 @@ using rund::node::accel::detail::MetalReplacement;
 - (void)setBuffer:(id<MTLBuffer>)buffer
            offset:(NSUInteger)offset
           atIndex:(NSUInteger)index {
-  if (index >= kMetalArgumentCapacity) {
+  if (index >= kMetalArgumentCapacity ||
+      index >= _capture->producer_binding_slot_upper) {
     _capture->failed = true;
     return;
   }
-  for (const MetalReplacement &replacement : _capture->replacements) {
-    if (buffer != replacement.source) {
+  for (const auto &replacement : _capture->replacements) {
+    const auto &binding = replacement.binding;
+    if (!binding.replace || buffer != (__bridge id<MTLBuffer>)binding.buffer) {
       continue;
     }
-    if (offset < replacement.source_offset ||
-        offset - replacement.source_offset >= replacement.source_bytes) {
+    if (offset < binding.offset || offset - binding.offset >= binding.bytes) {
       continue;
     }
-    if (replacement.target == nil ||
-        offset - replacement.source_offset >
+    static_assert(sizeof(NSUInteger) >= sizeof(std::uint64_t));
+    if (_capture->replacement_target == nil ||
+        offset - binding.offset >
             std::numeric_limits<NSUInteger>::max() -
-                replacement.target_offset) {
+                static_cast<NSUInteger>(replacement.raw_offset) *
+                    sizeof(std::uint32_t)) {
       _capture->failed = true;
       return;
     }
-    buffer = replacement.target;
-    offset = offset - replacement.source_offset + replacement.target_offset;
+    buffer = _capture->replacement_target;
+    offset =
+        offset - binding.offset +
+        static_cast<NSUInteger>(replacement.raw_offset) * sizeof(std::uint32_t);
     break;
   }
   _capture->bindings[index] =
@@ -264,12 +255,13 @@ using rund::node::accel::detail::MetalReplacement;
   } else {
     _capture->binding_mask |= bit;
   }
-  _capture->highest_binding = std::max(_capture->highest_binding, index + 1u);
 }
 - (void)setBytes:(const void *)bytes
           length:(NSUInteger)length
          atIndex:(NSUInteger)index {
-  if (index >= kMetalArgumentCapacity || bytes == nullptr || length == 0u) {
+  if (index >= kMetalArgumentCapacity ||
+      index >= _capture->producer_binding_slot_upper || bytes == nullptr ||
+      length == 0u) {
     _capture->failed = true;
     return;
   }
@@ -282,12 +274,19 @@ using rund::node::accel::detail::MetalReplacement;
   const std::size_t offset = align_parameter(_capture->parameters.size());
   if (length > std::numeric_limits<std::size_t>::max() - offset ||
       offset > _capture->parameters.max_size() ||
-      length > _capture->parameters.max_size() - offset) {
+      length > _capture->parameters.max_size() - offset ||
+      offset > _capture->parameter_capacity ||
+      length > _capture->parameter_capacity - offset) {
     _capture->capacity_failed = true;
     _capture->failed = true;
     return;
   }
   try {
+    if (!grow_parameter_rows(*_capture, offset + length)) {
+      _capture->capacity_failed = true;
+      _capture->failed = true;
+      return;
+    }
     _capture->parameters.resize(offset);
     const auto *const begin = static_cast<const std::byte *>(bytes);
     _capture->parameters.insert(_capture->parameters.end(), begin,
@@ -296,25 +295,14 @@ using rund::node::accel::detail::MetalReplacement;
     _capture->capacity_failed = true;
     _capture->failed = true;
     return;
+  } catch (const std::length_error &) {
+    _capture->capacity_failed = true;
+    _capture->failed = true;
+    return;
   }
   _capture->bindings[index] =
       MetalBinding{.parameter = offset, .uses_parameter = true, .bound = true};
   _capture->binding_mask |= std::uint32_t{1u} << index;
-  _capture->highest_binding = std::max(_capture->highest_binding, index + 1u);
-}
-- (void)setThreadgroupMemoryLength:(NSUInteger)length
-                           atIndex:(NSUInteger)index {
-  if (index >= kMetalArgumentCapacity) {
-    _capture->failed = true;
-    return;
-  }
-  _capture->threadgroup[index] = length;
-  const std::uint32_t bit = std::uint32_t{1u} << index;
-  if (length == 0u) {
-    _capture->threadgroup_mask &= ~bit;
-  } else {
-    _capture->threadgroup_mask |= bit;
-  }
 }
 - (void)dispatchThreadgroups:(MTLSize)groups
        threadsPerThreadgroup:(MTLSize)threads {

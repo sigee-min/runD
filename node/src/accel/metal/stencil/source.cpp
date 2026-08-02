@@ -1,28 +1,25 @@
 #include "local.hpp"
 #include "source/build.hpp"
+#include "../../kernel/backend/source_recipe.hpp"
 
 #include <string>
 
 namespace rund::node::accel::detail {
 
 std::string MetalStencilSource(const rund::kernel::StencilOp op) {
-  std::string source = R"MSL(
-#include <metal_stdlib>
-using namespace metal;
+  const auto emit = [op](auto &sink) noexcept(noexcept(
+      EmitMetalStencilSource(sink, op))) {
+    return EmitMetalStencilSource(sink, op);
+  };
+  return backend_source_recipe::materialize(emit);
+}
 
-struct StencilParams {
-  ulong element_count;
-  ulong radius;
-};
-
-)MSL";
-  AppendMetalStencilKernel(source, op, "uint", "u32");
-  AppendMetalStencilKernel(source, op, "ulong", "u64");
-  AppendMetalStencilKernel(
-      source, op, op == rund::kernel::StencilOp::Sum ? "uint" : "int", "i32");
-  AppendMetalStencilKernel(
-      source, op, op == rund::kernel::StencilOp::Sum ? "ulong" : "long", "i64");
-  return source;
+bool MetalStencilSourceUpperBytes(const rund::kernel::StencilOp op,
+                                  std::uint64_t &upper) noexcept {
+  const auto emit = [op](backend_source_recipe::CountSink &sink) noexcept {
+    return EmitMetalStencilSource(sink, op);
+  };
+  return backend_source_recipe::bytes(emit, upper);
 }
 
 } // namespace rund::node::accel::detail

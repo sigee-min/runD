@@ -11,25 +11,35 @@ namespace rund::node::accel::detail {
 using rund::kernel::ScatterResult;
 namespace {
 
-[[nodiscard]] u32 NextScatterEpoch(CpuScatterScratch &scratch,
-                                   const std::size_t cap) {
-  if (scratch.keys.size() < cap) {
-    scratch.keys.resize(cap);
+template <class Buffer>
+[[nodiscard]] bool EnsureScatterCapacity(Buffer &buffer,
+                                         const std::size_t cap) {
+  if (buffer.size() >= cap) {
+    return true;
   }
-  if (scratch.marks.size() < cap) {
-    scratch.marks.resize(cap);
+  if constexpr (requires { buffer.resize(cap); }) {
+    buffer.resize(cap);
+    return buffer.size() >= cap;
   }
-  if (scratch.epoch == std::numeric_limits<u32>::max()) {
-    std::fill(scratch.marks.begin(), scratch.marks.end(), u32{0u});
-    scratch.epoch = 1u;
-    return scratch.epoch;
-  }
-  ++scratch.epoch;
-  return scratch.epoch;
+  return false;
 }
 
-[[nodiscard]] bool MarkScatterTarget(CpuScatterScratch &scratch,
-                                     const std::size_t cap, const u32 epoch,
+template <class Scratch>
+[[nodiscard]] u32 NextScatterEpoch(Scratch &scratch) noexcept {
+  u32 &epoch = scratch.scatter_epoch();
+  if (epoch == std::numeric_limits<u32>::max()) {
+    const std::span marks = scratch.scatter_marks();
+    std::fill(marks.begin(), marks.end(), u32{0u});
+    epoch = 1u;
+    return epoch;
+  }
+  ++epoch;
+  return epoch;
+}
+
+template <class Scratch>
+[[nodiscard]] bool MarkScatterTarget(Scratch &scratch, const std::size_t cap,
+                                     const u32 epoch,
                                      const u32 target) noexcept {
   const std::size_t mask = cap - 1u;
   std::size_t slot = (static_cast<std::size_t>(target) * 2654435761u) & mask;
@@ -56,9 +66,9 @@ RejectScatter(const u64 element_count, const u64 output_count,
   };
 }
 
-template <typename Element>
+template <typename Scratch, typename Element>
 [[nodiscard]] ScatterResult
-ExecuteLinearScatter(CpuScatterScratch &scratch, const Element *const values,
+ExecuteLinearScatter(Scratch &scratch, const Element *const values,
                      const u32 *const indices, Element *const output,
                      const u64 element_count, const u64 output_count,
                      const std::size_t scratch_slots) {
@@ -66,7 +76,13 @@ ExecuteLinearScatter(CpuScatterScratch &scratch, const Element *const values,
     return RejectScatter(element_count, output_count, 0u,
                          "compute_scatter_temp_overflow");
   }
-  const u32 epoch = NextScatterEpoch(scratch, scratch_slots);
+  if (!scratch.scatter_ready() ||
+      !EnsureScatterCapacity(scratch.keys, scratch_slots) ||
+      !EnsureScatterCapacity(scratch.marks, scratch_slots)) {
+    return RejectScatter(element_count, output_count, 0u,
+                         "compute_scatter_temp_overflow");
+  }
+  const u32 epoch = NextScatterEpoch(scratch);
 
   for (u64 index = 0u; index < element_count; ++index) {
     const u32 target = indices[index];

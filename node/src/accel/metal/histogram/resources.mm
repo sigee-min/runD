@@ -6,6 +6,7 @@
 #include "../../histogram/shape.hpp"
 
 #include "../buffer/resident/batch.hpp"
+#include "../pipeline/template.hpp"
 
 #include <cstring>
 #include <utility>
@@ -28,7 +29,8 @@ PrepareMetalHistogram(const rund::AccelDevice &pick,
                       const rund::kernel::HistogramDesc &desc,
                       const rund::kernel::HistogramPlan &plan,
                       const HistogramBinds &bindings,
-                      std::shared_ptr<void> &resources) {
+                      std::shared_ptr<void> &resources,
+                      const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -61,8 +63,15 @@ PrepareMetalHistogram(const rund::AccelDevice &pick,
   }
   raw->status = AcquireMetalBuffer(*adapter, plan.status_bytes,
                                    MetalBufferUsage::Output);
-  if (MetalBufferContents(raw->status) == nullptr ||
-      !CompileMetalHistogramPipelines(*adapter, raw->pipelines)) {
+  bool pipeline_ready = false;
+  if (pipelines == nullptr) {
+    pipeline_ready = CompileMetalHistogramPipelines(*adapter, raw->pipelines);
+  } else if (pipelines->ready(2u)) {
+    raw->pipelines.clear = pipelines->stages[0u];
+    raw->pipelines.count = pipelines->stages[1u];
+    pipeline_ready = true;
+  }
+  if (MetalBufferContents(raw->status) == nullptr || !pipeline_ready) {
     SetMetalLastError(*adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
@@ -74,6 +83,7 @@ PrepareMetalHistogram(const rund::AccelDevice &pick,
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

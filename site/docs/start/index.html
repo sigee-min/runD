@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#eee9dc">
-    <meta name="description" content="Verify, install, link, and run the runD 1.0.3 Alpha Darwin ARM64 SDK.">
+    <meta name="description" content="Verify, install, link, and run the runD 1.0.4 Alpha Darwin ARM64 SDK.">
     <title>Quick Start — runD Docs</title>
     <link rel="canonical" href="https://sigee-min.github.io/runD/docs/start/">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Quick Start — runD Docs">
-    <meta property="og:description" content="Verify, install, link, and run the runD 1.0.3 Alpha Darwin ARM64 SDK.">
+    <meta property="og:description" content="Verify, install, link, and run the runD 1.0.4 Alpha Darwin ARM64 SDK.">
     <meta property="og:url" content="https://sigee-min.github.io/runD/docs/start/">
     <meta name="twitter:card" content="summary">
     <link rel="stylesheet" href="/assets/styles.css">
@@ -19,7 +19,7 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <div class="container header-inner">
-        <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.3 Alpha</span></a>
+        <a class="brand" href="/runD/" aria-label="runD home"><span class="brand-mark" aria-hidden="true">rD</span><span>runD</span><span class="brand-version">1.0.4 Alpha</span></a>
         <button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu" data-menu-button><span class="menu-lines" aria-hidden="true"></span></button>
         <nav class="site-nav" id="site-menu" aria-label="Primary navigation" data-menu data-open="false">
           <a class="nav-link" href="/runD/">Overview</a>
@@ -45,7 +45,7 @@
             Install the sealed Darwin SDK, build the checked consumer example, and verify its exact
             result. Every command below uses the prefix created by the verifier.
           </p>
-          <div class="doc-meta"><span class="meta-chip">1.0.3 Alpha</span><span class="meta-chip">Darwin ARM64</span><span class="meta-chip">C++20</span><span class="meta-chip">Exact output check</span></div>
+          <div class="doc-meta"><span class="meta-chip">1.0.4 Alpha</span><span class="meta-chip">Darwin ARM64</span><span class="meta-chip">C++20</span><span class="meta-chip">Exact output check</span></div>
 
           <nav class="doc-toc" aria-label="On this page">
             <strong>On this page</strong>
@@ -62,9 +62,9 @@
               <table class="docs-table">
                 <thead><tr><th scope="col">Need</th><th scope="col">Current release boundary</th></tr></thead>
                 <tbody>
-                  <tr><td>Host and toolchain</td><td>Every field in the <a href="/runD/docs/platforms/#darwin-1-0-2-host-tuple">exact Darwin 1.0.3 host tuple</a>.</td></tr>
+                  <tr><td>Host and toolchain</td><td>Every field in the <a href="/runD/docs/platforms/#darwin-1-0-4-host-tuple">exact Darwin 1.0.4 host tuple</a>.</td></tr>
                   <tr><td>Backend dependencies</td><td>The exact Homebrew versions in that same tuple; the SDK does not bundle MoltenVK.</td></tr>
-                  <tr><td>Install location</td><td>An existing destination directory with no <code>rund-sdk-1.0.3-darwin-arm64</code> child.</td></tr>
+                  <tr><td>Install location</td><td>An existing destination directory with no <code>rund-sdk-1.0.4-darwin-arm64</code> child.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -76,7 +76,7 @@
             <div class="callout callout-warning">
               <strong>Run the host preflight before downloading</strong>
               Copy the inspection block on
-              <a href="/runD/docs/platforms/#darwin-1-0-2-host-tuple">Platforms</a>. If any field
+              <a href="/runD/docs/platforms/#darwin-1-0-4-host-tuple">Platforms</a>. If any field
               differs, stop there and follow that page's supported resolution; do not unpack or patch
               the binary.
             </div>
@@ -86,21 +86,21 @@
             <h2>2. Verify and install</h2>
             <p>
               Create an empty working directory. Download these three adjacent files from the
-              <a href="https://github.com/sigee-min/runD/releases/tag/1.0.3">1.0.3 release</a> into it:
+              <a href="https://github.com/sigee-min/runD/releases/tag/1.0.4">1.0.4 release</a> into it:
             </p>
-            <div class="doc-code"><pre class="code"><code>rund-sdk-1.0.3-darwin-arm64.tar.gz
-rund-sdk-1.0.3-darwin-arm64.sha256
+            <div class="doc-code"><pre class="code"><code>rund-sdk-1.0.4-darwin-arm64.tar.gz
+rund-sdk-1.0.4-darwin-arm64.sha256
 rund-verify</code></pre></div>
             <div class="doc-code">
               <div class="code-toolbar"><span class="code-file">shell</span><button class="copy-button" type="button" data-copy="#verify-code" aria-live="polite">Copy</button></div>
               <pre class="code" id="verify-code"><code>chmod +x ./rund-verify
 ./rund-verify \
-  ./rund-sdk-1.0.3-darwin-arm64.tar.gz \
-  ./rund-sdk-1.0.3-darwin-arm64.sha256 \
+  ./rund-sdk-1.0.4-darwin-arm64.tar.gz \
+  ./rund-sdk-1.0.4-darwin-arm64.sha256 \
   "$PWD"</code></pre>
             </div>
             <p>
-              Success creates <code>$PWD/rund-sdk-1.0.3-darwin-arm64</code>. Failure creates no
+              Success creates <code>$PWD/rund-sdk-1.0.4-darwin-arm64</code>. Failure creates no
               usable prefix; keep the typed diagnostic and use
               <a href="/runD/docs/troubleshooting/">Troubleshooting</a> instead of bypassing it.
             </p>
@@ -113,7 +113,7 @@ rund-verify</code></pre></div>
               <pre class="code" id="cmake-code"><code>cmake_minimum_required(VERSION 3.20)
 project(rund_first_flow LANGUAGES CXX)
 
-find_package(runD 1.0.3 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.4 EXACT CONFIG REQUIRED)
 
 add_executable(rund_first_flow main.cpp)
 target_link_libraries(rund_first_flow PRIVATE runD::sdk)</code></pre>
@@ -160,7 +160,7 @@ int main() {
             <div class="doc-code">
               <div class="code-toolbar"><span class="code-file">shell</span><button class="copy-button" type="button" data-copy="#build-code" aria-live="polite">Copy</button></div>
               <pre class="code" id="build-code"><code>cmake -S . -B build \
-  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.3-darwin-arm64"
+  -DCMAKE_PREFIX_PATH="$PWD/rund-sdk-1.0.4-darwin-arm64"
 cmake --build build
 ./build/rund_first_flow</code></pre>
             </div>
@@ -308,6 +308,6 @@ int main() {
         </article>
       </div>
     </main>
-    <footer class="site-footer"><div class="container footer-bottom"><span>MIT License · runD 1.0.3 Alpha</span><span><a href="/runD/docs/troubleshooting/">Installation help →</a></span></div></footer>
+    <footer class="site-footer"><div class="container footer-bottom"><span>MIT License · runD 1.0.4 Alpha</span><span><a href="/runD/docs/troubleshooting/">Installation help →</a></span></div></footer>
   </body>
 </html>

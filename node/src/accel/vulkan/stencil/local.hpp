@@ -36,6 +36,9 @@ void DestroyVulkanStencilEncodeResources(void *raw);
 VulkanStencilSource(rund::kernel::StencilOp op,
                     rund::kernel::StencilElement element,
                     rund::kernel::ComputeDomain domain);
+[[nodiscard]] bool VulkanStencilSourceBytes(
+    rund::kernel::StencilOp op, rund::kernel::StencilElement element,
+    rund::kernel::ComputeDomain domain, std::uint64_t &bytes) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireStencilPipeline(VulkanAdapter &adapter,
                        const rund::kernel::StencilDesc &desc,

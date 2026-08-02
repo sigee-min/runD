@@ -1,12 +1,15 @@
 #pragma once
 
 #include <rund/compute/abi/model.hpp>
+#include <rund/compute/device/pipeline_memory.hpp>
 #include <rund/compute/stats.hpp>
 #include <span>
 namespace rund::compute::detail {
 [[nodiscard]] Stats job_stats(const std::shared_ptr<JobState> &state) noexcept;
 [[nodiscard]] MemoryStats
 device_memory(const std::shared_ptr<DeviceState> &state) noexcept;
+[[nodiscard]] DevicePipelineMemoryReport
+device_pipeline_memory(const std::shared_ptr<DeviceState> &state) noexcept;
 [[nodiscard]] MemoryStats
 job_memory(const std::shared_ptr<JobState> &state) noexcept;
 [[nodiscard]] MemoryStats

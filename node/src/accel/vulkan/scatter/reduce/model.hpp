@@ -45,6 +45,9 @@ struct VulkanScatterReduceResources final {
 [[nodiscard]] std::string
 VulkanScatterReduceSource(const rund::kernel::ScatterReducePlan &plan,
                           VulkanScatterReduceStage stage);
+[[nodiscard]] bool VulkanScatterReduceSourceBytes(
+    const rund::kernel::ScatterReducePlan &plan,
+    VulkanScatterReduceStage stage, std::uint64_t &bytes) noexcept;
 
 [[nodiscard]] VulkanCollectivePipeline *
 AcquireVulkanScatterReducePipeline(VulkanAdapter &adapter,

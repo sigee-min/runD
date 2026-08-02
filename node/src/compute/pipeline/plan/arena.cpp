@@ -35,6 +35,7 @@ struct View final {
   std::uint64_t element_bytes{};
   std::uint64_t count{};
   std::uint64_t alignment{};
+  std::uint32_t usage{};
   std::size_t words{};
   std::size_t alignment_words{1u};
 };
@@ -79,6 +80,9 @@ Status plan_pipeline_views(const DeviceState &device,
     return Status::fail(Reason::PipelineInvalid);
   }
   try {
+    if (plan.job_owners.size() != steps.size()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
     std::uint64_t logical = 0u;
     std::vector<View> active;
     for (std::size_t pipeline_step = 0u; pipeline_step < steps.size();
@@ -87,33 +91,22 @@ Status plan_pipeline_views(const DeviceState &device,
       if (declared.program == nullptr) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      const std::uint32_t reusable_from =
-          declared.route == PipelineRoute::NestedAction ? 2u : 3u;
-      if (declared.iteration_bound > 1u &&
-          declared.iteration >= reusable_from) {
-        if (pipeline_step < declared.iteration) {
+      const std::size_t owner = plan.job_owners[pipeline_step];
+      if (owner != pipeline_step) {
+        // job_owners is the sole recurrence-route reuse authority. A reused
+        // occurrence consumes its canonical Job's frozen View layout; a
+        // binding-distinct occurrence remains its own owner and is planned
+        // below.
+        if (owner >= pipeline_step || owner >= plan.views.size() ||
+            !same_recurrence_phase(declared, steps[owner])) {
           return Status::fail(Reason::PipelineInvalid);
         }
-        const std::size_t first = pipeline_step - declared.iteration;
-        const std::size_t phase =
-            declared.route == PipelineRoute::NestedAction
-                ? first + (declared.iteration & 1u)
-                : first + ((declared.iteration & 1u) != 0u ? 1u : 2u);
-        if (phase >= pipeline_step) {
-          return Status::fail(Reason::PipelineInvalid);
+        if (!kernel::checked::add(
+                logical, static_cast<std::uint64_t>(plan.views[owner].size()),
+                logical)) {
+          return Status::fail(Reason::PipelineCapacity);
         }
-        // Only exact two-bank phases share the prepared Job that consumes this
-        // layout. Resident window controls carry an iteration-specific view;
-        // those occurrences remain valid but must be planned below instead of
-        // being rejected as a malformed recurrence.
-        if (same_recurrence_phase(declared, steps[phase])) {
-          if (!kernel::checked::add(
-                  logical, static_cast<std::uint64_t>(plan.views[phase].size()),
-                  logical)) {
-            return Status::fail(Reason::PipelineCapacity);
-          }
-          continue;
-        }
+        continue;
       }
       const ProgramState &program = *declared.program;
       if (program.graph_info.nodes.empty()) {
@@ -215,6 +208,17 @@ Status plan_pipeline_views(const DeviceState &device,
                 words64 > std::numeric_limits<std::size_t>::max()) {
               return Status::fail(Reason::PipelineCapacity);
             }
+            std::uint32_t usage = 0u;
+            switch (access.mode) {
+            case resource::AccessMode::Read:
+              usage = kernel::kResidentUsageRead;
+              break;
+            case resource::AccessMode::Write:
+              usage = kernel::kResidentUsageWrite;
+              break;
+            default:
+              return Status::fail(Reason::GraphBindingInvalid);
+            }
             active.push_back(
                 View{.binding = binding,
                      .bytes = bytes,
@@ -225,6 +229,7 @@ Status plan_pipeline_views(const DeviceState &device,
                      .element_bytes = view->element_bytes,
                      .count = view->count,
                      .alignment = view->alignment,
+                     .usage = usage,
                      .words = static_cast<std::size_t>(words64),
                      .alignment_words = std::max<std::size_t>(
                          1u, view->element_bytes / sizeof(std::uint32_t))});
@@ -253,7 +258,12 @@ Status plan_pipeline_views(const DeviceState &device,
               node::accel::detail::KernelViewSlot{
                   .binding = view.binding,
                   .slot = rank,
-                  .bytes = view.bytes,
+                  .backing_bytes = view.backing_bytes,
+                  .offset_bytes = view.offset_bytes,
+                  .count = view.count,
+                  .stride_bytes = view.stride_bytes,
+                  .element_bytes = view.element_bytes,
+                  .usage = view.usage,
               });
           if (!kernel::checked::add(logical, 1u, logical)) {
             return Status::fail(Reason::PipelineCapacity);
@@ -367,8 +377,8 @@ Status plan_pipeline_views(const DeviceState &device,
       if (!kernel::checked::mul(
               static_cast<std::uint64_t>(words),
               static_cast<std::uint64_t>(sizeof(std::uint32_t)), bytes) ||
-          !kernel::checked::add(plan.summary.prepared_bytes, bytes,
-                                plan.summary.prepared_bytes)) {
+          !kernel::checked::add(plan.summary.prepared_buffer_bytes, bytes,
+                                plan.summary.prepared_buffer_bytes)) {
         return Status::fail(Reason::PipelineCapacity);
       }
     }

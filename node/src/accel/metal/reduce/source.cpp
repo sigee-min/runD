@@ -2,6 +2,7 @@
 #include "local.hpp"
 #include "source/op.hpp"
 #include "source/wide.hpp"
+#include "../../kernel/backend/source_recipe.hpp"
 
 #include <kernel/program/compute/reduce/wide.hpp>
 
@@ -11,7 +12,8 @@
 namespace rund::node::accel::detail {
 namespace {
 
-void AppendCanonicalWideReduce(std::string &source,
+template <typename Sink>
+void AppendCanonicalWideReduce(Sink &source,
                                const rund::kernel::ReduceOp op,
                                const char *const op_name,
                                const char *const type, const char *const suffix,
@@ -120,18 +122,24 @@ void AppendCanonicalWideReduce(std::string &source,
                 : "(rund_wide_low32(acc));\n}\n";
 }
 
-[[nodiscard]] std::string
-MetalCanonicalWideReduceSource(const rund::kernel::ReduceOp op,
-                               const bool signed_domain,
-                               const rund::kernel::u64 block_size) {
+template <typename Sink>
+[[nodiscard]] bool EmitMetalCanonicalWideReduceSource(
+    Sink &source, const rund::kernel::ReduceOp op, const bool signed_domain,
+    const rund::kernel::u64 block_size) noexcept(
+    noexcept(source += std::string_view{})) {
   const char *const op_name = MetalReduceOpName(op);
-  std::string source = R"MSL(
+  source += R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 #define RUND_REDUCE_BLOCK_SIZE )MSL";
-  source += std::to_string(block_size);
+  if (!backend_source_recipe::append_decimal(source, block_size)) {
+    return false;
+  }
   source += "\n#define RUND_REDUCE_NARROW_CHUNK ";
-  source += std::to_string(rund::kernel::kReduceNarrowChunkItems);
+  if (!backend_source_recipe::append_decimal(
+          source, rund::kernel::kReduceNarrowChunkItems)) {
+    return false;
+  }
   source += R"MSL(
 #define RUND_REDUCE_I64 long
 #define RUND_REDUCE_U64 ulong
@@ -145,32 +153,39 @@ struct ReduceParams {
   uint count_words;
 };
 )MSL";
-  source.append(rund::kernel::ReduceWideSource);
+  if (!source.append(rund::kernel::ReduceWideSource)) {
+    return false;
+  }
   AppendCanonicalWideReduce(source, op, op_name, signed_domain ? "int" : "uint",
                             "u32", signed_domain);
   AppendCanonicalWideReduce(source, op, op_name,
                             signed_domain ? "long" : "ulong", "u64",
                             signed_domain);
-  return source;
+  return source.valid();
 }
 
 } // namespace
 
-std::string MetalReduceSource(const rund::kernel::ReduceOp op,
-                              const rund::kernel::u64 block_size,
-                              const rund::kernel::ComputeDomain domain) {
+template <typename Sink>
+[[nodiscard]] bool EmitMetalReduceSource(
+    Sink &source, const rund::kernel::ReduceOp op,
+    const rund::kernel::u64 block_size,
+    const rund::kernel::ComputeDomain domain) noexcept(
+    noexcept(source += std::string_view{})) {
   const bool signed_domain = IsSignedDomain(domain);
   if (op == rund::kernel::ReduceOp::Sum ||
       op == rund::kernel::ReduceOp::CountNonzero) {
-    return MetalCanonicalWideReduceSource(op, signed_domain, block_size);
+    return EmitMetalCanonicalWideReduceSource(source, op, signed_domain,
+                                              block_size);
   }
-  const std::string block = std::to_string(block_size);
   const char *const op_name = MetalReduceOpName(op);
-  std::string source = R"MSL(
+  source += R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 #define RUND_REDUCE_BLOCK_SIZE )MSL";
-  source += block;
+  if (!backend_source_recipe::append_decimal(source, block_size)) {
+    return false;
+  }
   source += R"MSL(
 struct ReduceParams {
   ulong input_offset;
@@ -239,7 +254,28 @@ kernel void )MSL";
 }
 kernel void )MSL";
   AppendMetalReduceU64(source, op, signed_domain, op_name);
-  return source;
+  return source.valid();
+}
+
+std::string MetalReduceSource(const rund::kernel::ReduceOp op,
+                              const rund::kernel::u64 block_size,
+                              const rund::kernel::ComputeDomain domain) {
+  const auto emit = [op, block_size, domain](auto &sink) noexcept(noexcept(
+      EmitMetalReduceSource(sink, op, block_size, domain))) {
+    return EmitMetalReduceSource(sink, op, block_size, domain);
+  };
+  return backend_source_recipe::materialize(emit);
+}
+
+bool MetalReduceSourceUpperBytes(const rund::kernel::ReduceOp op,
+                                 const rund::kernel::u64 block_size,
+                                 const rund::kernel::ComputeDomain domain,
+                                 std::uint64_t &upper) noexcept {
+  const auto emit = [op, block_size, domain](
+                        backend_source_recipe::CountSink &sink) noexcept {
+    return EmitMetalReduceSource(sink, op, block_size, domain);
+  };
+  return backend_source_recipe::bytes(emit, upper);
 }
 
 } // namespace rund::node::accel::detail

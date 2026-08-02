@@ -12,6 +12,28 @@
 namespace rund_node_test_pipeline {
 namespace {
 
+[[nodiscard]] std::size_t CpuViewTransferCount(
+    const rund::compute::detail::JobState &job) noexcept {
+  return job.cpu_view_inputs.size() + job.cpu_view_outputs.size();
+}
+
+[[nodiscard]] const rund::compute::detail::BufferState *
+FirstCpuViewBuffer(const rund::compute::detail::JobState &job) noexcept {
+  if (!job.cpu_view_inputs.empty()) {
+    const auto &transfer = job.cpu_view_inputs.front();
+    return transfer.binding < job.inputs.size()
+               ? job.inputs[transfer.binding].get()
+               : nullptr;
+  }
+  if (!job.cpu_view_outputs.empty()) {
+    const auto &transfer = job.cpu_view_outputs.front();
+    return transfer.binding < job.outputs.size()
+               ? job.outputs[transfer.binding].get()
+               : nullptr;
+  }
+  return nullptr;
+}
+
 template <class T>
 [[nodiscard]] bool CheckStridedReset(rund::compute::Device &device,
                                      const Backend backend) {
@@ -229,9 +251,9 @@ template <class T>
   const std::uint64_t input_bytes = 4u * sizeof(std::int32_t);
   const bool vulkan_output_dense =
       backend == Backend::Vulkan && sizeof(std::int32_t) % view_alignment != 0u;
-  const std::uint64_t expected_prepared =
-      backend == Backend::Cpu     ? 0u
-      : backend == Backend::Metal ? input_bytes
+  const std::uint64_t expected_view_buffer =
+      backend == Backend::Cpu || backend == Backend::Metal
+          ? input_bytes
       : vulkan_output_dense
           ? ((input_bytes + view_alignment - 1u) & ~(view_alignment - 1u)) +
                 sizeof(std::int32_t)
@@ -242,22 +264,24 @@ template <class T>
                                                                     : 1u;
   const std::size_t expected_owners = backend == Backend::Cpu ? 0u : 1u;
   if (!reduced_plan ||
-      reduced_plan->prepared_bytes !=
-          expected_prepared + reduced_plan->scratch_bytes ||
-      reduced_plan->view_bytes !=
-          (backend == Backend::Cpu ? 0u : 4u * sizeof(std::int32_t)) ||
-      (backend != Backend::Cpu &&
-       (reduced_plan->view_span_bytes != 7u * sizeof(std::int32_t) ||
-        reduced_plan->view_backing_bytes !=
-            source_values.size() * sizeof(std::int32_t) ||
-        reduced_plan->view_offset_bytes != sizeof(std::int32_t) ||
-        reduced_plan->view_stride_bytes != 2u * sizeof(std::int32_t) ||
-        reduced_plan->view_element_bytes != sizeof(std::int32_t) ||
-        reduced_plan->view_count != 4u ||
-        reduced_plan->view_alignment != sizeof(std::int32_t) ||
-        reduced_plan->view_step != 0u || reduced_plan->view_iteration != 0u ||
-        reduced_plan->view_binding ==
-            std::numeric_limits<std::size_t>::max())) ||
+      reduced_plan->prepared_buffer_bytes !=
+          expected_view_buffer + reduced_plan->scratch_bytes ||
+      reduced_plan->prepared_bytes != reduced_plan->prepared_buffer_bytes +
+                                          reduced_plan->prepared_host_bytes +
+                                          reduced_plan->prepared_tile_bytes +
+                                          reduced_plan->prepared_native_bytes ||
+      reduced_plan->view_bytes != 4u * sizeof(std::int32_t) ||
+      reduced_plan->view_span_bytes != 7u * sizeof(std::int32_t) ||
+      reduced_plan->view_backing_bytes !=
+          source_values.size() * sizeof(std::int32_t) ||
+      reduced_plan->view_offset_bytes != sizeof(std::int32_t) ||
+      reduced_plan->view_stride_bytes != 2u * sizeof(std::int32_t) ||
+      reduced_plan->view_element_bytes != sizeof(std::int32_t) ||
+      reduced_plan->view_count != 4u ||
+      reduced_plan->view_alignment != sizeof(std::int32_t) ||
+      reduced_plan->view_step != 0u || reduced_plan->view_iteration != 0u ||
+      reduced_plan->view_binding ==
+          std::numeric_limits<std::size_t>::max() ||
       reduced_plan->peak_bytes != reduced_plan->state_bytes +
                                       reduced_plan->transient_bytes +
                                       reduced_plan->prepared_bytes ||
@@ -265,15 +289,13 @@ template <class T>
           reduced_plan->persistent_bytes + reduced_plan->peak_bytes) {
     return 8;
   }
-  if (expected_prepared != 0u) {
-    auto rejected =
-        pipeline(device)
-            .then(*reduce, read(*reduce_input), write(*reduce_output))
-            .budget(MemoryBudget{.bytes = reduced_plan->peak_bytes - 1u})
-            .prepare();
-    if (rejected || rejected.reason() != Reason::PipelineMemoryBudget) {
-      return 8;
-    }
+  auto rejected =
+      pipeline(device)
+          .then(*reduce, read(*reduce_input), write(*reduce_output))
+          .budget(MemoryBudget{.bytes = reduced_plan->peak_bytes - 1u})
+          .prepare();
+  if (rejected || rejected.reason() != Reason::PipelineMemoryBudget) {
+    return 8;
   }
   auto reduced = std::move(reduced_builder).prepare();
   const std::shared_ptr<detail::PipelineState> reduced_state =
@@ -294,8 +316,14 @@ template <class T>
        reduced_state->steps.front().job->workspace->arena != nullptr)) {
     return 8;
   }
-  if (expected_owners != 0u &&
-      reduced_state->prepared_buffers.front()->bytes != expected_prepared) {
+  if ((expected_owners != 0u &&
+       reduced_state->prepared_buffers.front()->bytes !=
+           expected_view_buffer) ||
+      (backend == Backend::Cpu &&
+       (CpuViewTransferCount(*reduced_state->steps.front().job) != 1u ||
+        FirstCpuViewBuffer(*reduced_state->steps.front().job) == nullptr ||
+        FirstCpuViewBuffer(*reduced_state->steps.front().job)->bytes !=
+            expected_view_buffer))) {
     return 8;
   }
   if (backend == Backend::Vulkan) {
@@ -305,7 +333,8 @@ template <class T>
     const std::uint64_t input_end =
         input.offset_bytes + input.count * input.element_bytes;
     if (input.offset_bytes % view_alignment != 0u ||
-        input.offset_bytes >= input_end || input.bytes != expected_prepared) {
+        input.offset_bytes >= input_end ||
+        input.bytes != expected_view_buffer) {
       return 8;
     }
     if (expected_bindings == 2u) {
@@ -317,7 +346,7 @@ template <class T>
           output.offset_bytes >= output_end ||
           !(input_end <= output.offset_bytes ||
             output_end <= input.offset_bytes) ||
-          output.bytes != expected_prepared) {
+          output.bytes != expected_view_buffer) {
         return 8;
       }
     }
@@ -386,8 +415,15 @@ template <class T>
           .then(*reduce, read(*reduce_input), write(*reduce_output))
           .then(*reduce, read(*reduce_input), write(*shared_output));
   const auto shared_plan = shared_builder.plan();
-  if (!shared_plan ||
-      shared_plan->prepared_bytes != reduced_plan->prepared_bytes) {
+  if (!shared_plan) {
+    return 11;
+  }
+  const std::uint64_t expected_shared_buffer =
+      backend == Backend::Cpu
+          ? 2u * input_bytes + shared_plan->scratch_bytes
+          : reduced_plan->prepared_buffer_bytes;
+  if (shared_plan->prepared_buffer_bytes != expected_shared_buffer ||
+      shared_plan->prepared_host_bytes <= reduced_plan->prepared_host_bytes) {
     return 11;
   }
   auto shared_views = std::move(shared_builder).prepare();
@@ -407,6 +443,16 @@ template <class T>
             shared_state->steps[1u].job->workspace->arena ||
         shared_state->steps[0u].job->workspace->arena->binds.size() !=
             expected_bindings + shared_plan->scratch_count))) {
+    return 11;
+  }
+  if (backend == Backend::Cpu &&
+      (shared_state->steps[0u].job == nullptr ||
+       shared_state->steps[1u].job == nullptr ||
+       CpuViewTransferCount(*shared_state->steps[0u].job) != 1u ||
+       CpuViewTransferCount(*shared_state->steps[1u].job) != 1u ||
+       FirstCpuViewBuffer(*shared_state->steps[0u].job) == nullptr ||
+       FirstCpuViewBuffer(*shared_state->steps[0u].job) ==
+           FirstCpuViewBuffer(*shared_state->steps[1u].job))) {
     return 11;
   }
 

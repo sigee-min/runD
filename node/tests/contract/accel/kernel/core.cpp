@@ -44,6 +44,8 @@ namespace node_accel_contract {
 [[nodiscard]] bool BackendParameterModelsMatchSources();
 [[nodiscard]] bool ResetModelContract();
 [[nodiscard]] bool AuthorityContract();
+[[nodiscard]] bool MetalTemplateMemoryContract();
+[[nodiscard]] bool MetalIcbCalibrationContract();
 
 } // namespace node_accel_contract
 
@@ -262,6 +264,8 @@ int RunAccelKernelCoreContract() {
   TEST_ASSERT(InputWindowPlansRejectMixedAddressing());
   TEST_ASSERT(node_accel_contract::ResetModelContract());
   TEST_ASSERT(node_accel_contract::AuthorityContract());
+  TEST_ASSERT(node_accel_contract::MetalTemplateMemoryContract());
+  TEST_ASSERT(node_accel_contract::MetalIcbCalibrationContract());
   TEST_ASSERT(node_accel_contract::BackendParameterModelsMatchSources());
   const rund::AccelDevice cpu_pick = rund::node::accel::PickAccel(
       node_accel_contract::cpu_context::CpuPolicy());

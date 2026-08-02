@@ -7,6 +7,55 @@
 
 namespace rund_node_test_pipeline {
 
+[[nodiscard]] bool CheckDistinctScatterPrograms(rund::compute::Device &device) {
+  using namespace rund::compute;
+  constexpr std::array<std::int32_t, 3u> small_values{10, 20, 30};
+  constexpr std::array<std::uint32_t, 3u> small_indices{0u, 1u, 2u};
+  constexpr std::array<std::int32_t, 9u> large_values{40, 41, 42, 43, 44,
+                                                      45, 46, 47, 48};
+  constexpr std::array<std::uint32_t, 9u> large_indices{0u, 1u, 2u, 3u, 4u,
+                                                        5u, 6u, 7u, 8u};
+  auto small =
+      on(device)
+          .map<std::int32_t>("pipeline-scatter-small", small_values.size(),
+                             [](auto value) { return value; })
+          .scatter(small_indices.size(), {.count = 4u})
+          .compile();
+  auto large =
+      on(device)
+          .map<std::int32_t>("pipeline-scatter-large", large_values.size(),
+                             [](auto value) { return value; })
+          .scatter(large_indices.size(), {.count = 16u})
+          .compile();
+  auto small_value_buffer = Upload(device, small_values);
+  auto small_index_buffer = Upload(device, small_indices);
+  auto large_value_buffer = Upload(device, large_values);
+  auto large_index_buffer = Upload(device, large_indices);
+  auto small_output = device.buffer<std::int32_t>(4u);
+  auto large_output = device.buffer<std::int32_t>(16u);
+  if (!small || !large || !small_value_buffer || !small_index_buffer ||
+      !large_value_buffer || !large_index_buffer || !small_output ||
+      !large_output) {
+    return false;
+  }
+  auto prepared =
+      pipeline(device)
+          .then(*small, read(*small_value_buffer, *small_index_buffer),
+                write(*small_output))
+          .then(*large, read(*large_value_buffer, *large_index_buffer),
+                write(*large_output))
+          .prepare();
+  std::array<std::int32_t, 4u> observed_small{};
+  std::array<std::int32_t, 16u> observed_large{};
+  constexpr std::array<std::int32_t, 4u> expected_small{10, 20, 30, 0};
+  constexpr std::array<std::int32_t, 16u> expected_large{
+      40, 41, 42, 43, 44, 45, 46, 47, 48, 0, 0, 0, 0, 0, 0, 0};
+  return prepared && prepared->run() &&
+         ReadExact(*prepared, *small_output, observed_small) &&
+         ReadExact(*prepared, *large_output, observed_large) &&
+         observed_small == expected_small && observed_large == expected_large;
+}
+
 [[nodiscard]] bool FailureEvidence(Pipeline &pipeline, const Backend backend,
                                    const Reason reason,
                                    const std::uint64_t status_entries) {
@@ -17,8 +66,9 @@ namespace rund_node_test_pipeline {
          stats.pipeline.failed_step_index == 1u &&
          stats.pipeline.status_entry_count == status_entries &&
          stats.command_submits == (backend == Backend::Cpu ? 0u : 1u) &&
-         (backend == Backend::Cpu ? stats.pipeline.control_byte_count == 0u
-                                  : stats.pipeline.control_byte_count == 128u) &&
+         (backend == Backend::Cpu
+              ? stats.pipeline.control_byte_count == 0u
+              : stats.pipeline.control_byte_count == 128u) &&
          stats.pipeline.control_command_count == control_commands &&
          pipeline.run().reason() == Reason::PipelinePoisoned &&
          reason != Reason::Ok;
@@ -321,6 +371,9 @@ namespace rund_node_test_pipeline {
                  static_cast<unsigned long long>(
                      ordered_stats.control.overflow_ordinal));
     return 27;
+  }
+  if (!CheckDistinctScatterPrograms(device)) {
+    return 28;
   }
   (void)zero;
   return 0;

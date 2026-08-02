@@ -5,23 +5,57 @@
 
 namespace rund::compute::detail {
 
+enum class CpuPrimitiveScratchShape : std::uint8_t {
+  None,
+  Sort,
+  Scatter,
+  ScatterReduce,
+  Transform,
+  FactorQr,
+  SolveQrFactor,
+  SolveLu,
+  SolveCholesky,
+  SolveQrMatrix,
+  SpectrumEigen,
+  SpectrumSvdValues,
+  SpectrumSvdVectors,
+};
+
+// Frozen request descriptor shared by Pipeline preflight and the allocator.
+// `counts` is shape-specific. CpuExecutionStoragePlan is the sole aggregate
+// byte authority; the materializer may only consume these exact element
+// counts.
+struct CpuPrimitiveScratchPlan final {
+  CpuPrimitiveScratchShape shape{CpuPrimitiveScratchShape::None};
+  std::array<std::size_t, 5u> counts{};
+  std::uint64_t host_bytes{};
+  std::uint8_t element_bytes{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const CpuPrimitiveScratchPlan &) const noexcept = default;
+};
+
 template <class Scratch>
 [[nodiscard]] Scratch *
 cpu_primitive_scratch(CpuPrimitiveScratch &scratch) noexcept {
-  auto *const owner = std::get_if<std::unique_ptr<Scratch>>(&scratch);
-  return owner == nullptr ? nullptr : owner->get();
+  auto *const prepared = std::get_if<Scratch *>(&scratch);
+  return prepared == nullptr ? nullptr : *prepared;
 }
 
 template <class Scratch>
 [[nodiscard]] const Scratch *
 cpu_primitive_scratch(const CpuPrimitiveScratch &scratch) noexcept {
-  const auto *const owner = std::get_if<std::unique_ptr<Scratch>>(&scratch);
-  return owner == nullptr ? nullptr : owner->get();
+  const auto *const prepared = std::get_if<Scratch *>(&scratch);
+  return prepared == nullptr ? nullptr : *prepared;
 }
 
 [[nodiscard]] inline CpuPrimitiveScratch &
 cpu_step_scratch(CpuGraphRun &run, const std::size_t step) noexcept {
-  return run.scratch.empty() ? run.empty_scratch : run.scratch[step];
+  return run.storage == nullptr || run.storage->scratch.empty() ||
+                 step >= run.storage->scratch.size()
+             ? (run.storage == nullptr ? run.empty_scratch
+                                       : run.storage->empty_scratch)
+             : run.storage->scratch[step];
 }
 
 template <class Lane>
@@ -171,6 +205,13 @@ cpu_spectrum_scratch(CpuPrimitiveScratch &scratch,
 }
 
 [[nodiscard]] Result<CpuPrimitiveScratch>
-prepare_cpu_scratch(const CpuRuntimePrimitive &primitive);
+prepare_cpu_scratch(const CpuRuntimePrimitive &primitive,
+                    const CpuPrimitiveScratchPlan &plan,
+                    CpuPreparedArena &arena);
+[[nodiscard]] Result<CpuPrimitiveScratchPlan>
+plan_cpu_scratch(const CpuRuntimePrimitive &primitive) noexcept;
+[[nodiscard]] Status append_cpu_primitive_arena_plan(
+    CpuExecutionStoragePlan &arena,
+    const CpuPrimitiveScratchPlan &scratch) noexcept;
 
 } // namespace rund::compute::detail

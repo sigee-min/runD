@@ -17,13 +17,16 @@ namespace {
     const PreparedPipelineStatusLayout &status, const std::uint32_t owner,
     const std::uint64_t work_items, const std::uint64_t workgroups,
     const std::uint64_t physical_dispatches,
-    std::vector<PreparedPipelineStepEvidence> &rows) noexcept {
+    std::vector<PreparedPipelineStepEvidence> &rows,
+    PreparedPipelineFailureContext &failure_context) noexcept {
+  failure_context.clear_route();
   if (templates.size() != status.active_step_count ||
       rows.size() != status.declared_step_count || owner >= rows.size()) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
   std::fill(rows.begin(), rows.end(), PreparedPipelineStepEvidence{});
   for (std::size_t index = 0u; index < templates.size(); ++index) {
+    failure_context.template_route(static_cast<std::uint32_t>(index));
     const BackendRun *const run = templates[index].run;
     const std::uint32_t declared = status.declared_steps[index];
     const std::uint64_t occurrences = aggregate.authored_occurrences(index);
@@ -96,7 +99,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
       const rund::AccelCheck projected = PopulateAggregateProfile(
           aggregates.front(), templates, status, aggregate_profile_owner,
           native_aggregate.work_item_count, native_aggregate.workgroup_count,
-          pipeline->dispatch_count, pipeline->step_evidence);
+          pipeline->dispatch_count, pipeline->step_evidence, failure_context);
       if (!projected.ok) {
         return projected;
       }
@@ -169,7 +172,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
           *pipeline->adapter, pipeline->uses_status_arena, needs_reset,
           needs_import, !pipeline->telemetry.empty(), profile_steps,
           reset_owner, import_owner, reduce_owner, complete_owner,
-          telemetry_owner, !native_publications.empty(), publish_owner,
+          telemetry_owner, native_publication_count != 0u, publish_owner,
           !native_windows.empty(), advance_owner)) {
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
@@ -185,7 +188,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
                              kMetalPipelineReductionWidth)) ||
       (needs_reset && reset == nil) || (needs_import && import == nil) ||
       complete == nil || (!pipeline->telemetry.empty() && telemetry == nil) ||
-      (!native_publications.empty() && publish == nil) ||
+      (native_publication_count != 0u && publish == nil) ||
       (!native_windows.empty() && advance == nil)) {
     return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
   }

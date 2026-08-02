@@ -5,8 +5,10 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-[[nodiscard]] inline std::string VulkanSortDispatchSource() {
-  std::string source;
+template <typename Sink>
+[[nodiscard]] bool AppendVulkanSortDispatchSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink source{sink};
   source += "layout(set = 0, binding = 0, std430) buffer DispatchArgs {\n";
   source += "  uint dispatch_args[];\n};\n";
   source += "layout(set = 0, binding = 4, std430) buffer Status {\n";
@@ -28,7 +30,7 @@ namespace rund::node::accel::detail {
   source += "  }\n";
   source += "  status[0] = range.invalid ? 2u : 0u;\n";
   source += "}\n";
-  return source;
+  return source.ok();
 }
 #endif
 

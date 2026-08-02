@@ -40,9 +40,12 @@ internal_buffers(const JobState &state) noexcept {
   bytes = add_cpu_memory_bytes(bytes, vector_memory(state.output_views));
   bytes = add_cpu_memory_bytes(bytes, vector_memory(state.cpu_view_inputs));
   bytes = add_cpu_memory_bytes(bytes, vector_memory(state.cpu_view_outputs));
-  bytes = add_cpu_memory_bytes(bytes, vector_memory(state.cpu_view_buffers));
   if (state.workspace != nullptr) {
-    bytes = add_cpu_memory_bytes(bytes, sizeof(JobWorkspace));
+    const bool arena_workspace = state.workspace->buffers.borrowed() &&
+                                 state.workspace->offsets.borrowed();
+    if (!arena_workspace) {
+      bytes = add_cpu_memory_bytes(bytes, sizeof(JobWorkspace));
+    }
     bytes =
         add_cpu_memory_bytes(bytes, vector_memory(state.workspace->buffers));
     bytes =

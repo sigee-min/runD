@@ -29,6 +29,35 @@ namespace {
   };
 }
 
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+[[nodiscard]] bool CalibrateMetalPipelineIcbs(
+    id<MTLDevice> const device,
+    MetalIcbCalibration &calibration) noexcept {
+  calibration = {};
+  if (device == nil) {
+    return false;
+  }
+  for (std::uint32_t index = 0u; index < MetalPipelineIcbClassCount;
+       ++index) {
+    @autoreleasepool {
+      const NSUInteger capacity = NSUInteger{1u} << index;
+      id<MTLIndirectCommandBuffer> const probe =
+          AllocateMetalPipelineIcb(device, capacity);
+      const std::uint64_t bytes =
+          probe == nil ? 0u : static_cast<std::uint64_t>(probe.allocatedSize);
+      if (probe == nil || probe.size != capacity || bytes == 0u ||
+          (index != 0u &&
+           bytes < calibration.allocated_bytes[index - 1u])) {
+        calibration = {};
+        return false;
+      }
+      calibration.allocated_bytes[index] = bytes;
+    }
+  }
+  return ValidMetalIcbCalibration(calibration);
+}
+#endif
+
 } // namespace
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
@@ -48,11 +77,17 @@ rund::AccelDevice PickMetal() {
     if (queue == nil) {
       return RejectMetal("accel_metal_queue_unavailable");
     }
+    MetalIcbCalibration pipeline_icb_calibration{};
+    // Standalone Metal execution does not require an ICB. Preserve that
+    // capability if calibration is unavailable and reject only Pipeline
+    // planning at the narrower authority boundary.
+    (void)CalibrateMetalPipelineIcbs(device, pipeline_icb_calibration);
 
     try {
       std::shared_ptr<MetalAdapter> adapter = std::make_shared<MetalAdapter>();
       adapter->device = RetainMetalObject((__bridge void *)device);
       adapter->queue = RetainMetalObject((__bridge void *)queue);
+      adapter->pipeline_icb_calibration = pipeline_icb_calibration;
       const std::uint64_t working_set =
           static_cast<std::uint64_t>(device.recommendedMaxWorkingSetSize);
       const std::uint64_t buffer_limit =

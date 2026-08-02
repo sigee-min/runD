@@ -17,12 +17,12 @@ inline constexpr std::uint32_t kVulkanCachedPipelineInlineDescriptorCount = 4u;
 
 [[nodiscard]] VulkanCachedPipeline *AcquireVulkanCachedPipeline(
     VulkanAdapter &adapter, const rund::kernel::ComputePlan &plan,
-    const rund::kernel::LoweringArtifact &artifact);
+    rund::kernel::LoweringArtifact artifact);
 
 [[nodiscard]] bool CreateVulkanCachedPipeline(
     VulkanAdapter& adapter,
     const rund::kernel::ComputePlan& plan,
-    const rund::kernel::LoweringArtifact& artifact,
+    rund::kernel::LoweringArtifact artifact,
     const VulkanShader& shader,
     VulkanCachedPipeline& pipeline);
 #endif

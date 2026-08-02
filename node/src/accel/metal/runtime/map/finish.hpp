@@ -13,7 +13,8 @@ ObserveMetalMapFailure(const std::shared_ptr<void> &resources,
   const auto *const map =
       static_cast<const MetalMapEncodeResources *>(resources.get());
   const auto *const status =
-      map == nullptr || map->checks.empty()
+      map == nullptr || map->prepared == nullptr ||
+              map->prepared->checks.empty()
           ? nullptr
           : static_cast<const std::uint32_t *>(
                 MetalBufferContents(map->control_status));

@@ -17,6 +17,12 @@ void BeginVulkanCollectiveDescriptorEpoch(VulkanAdapter &adapter) noexcept;
 void PrepareVulkanCollectiveDescriptorSlots(
     VulkanAdapter &adapter, VulkanCollectivePipeline &pipeline) noexcept;
 
+// Bulk-admit one manifest dependency before individual route leases. At most
+// one descriptor pool is grown for the dependency's missing slots.
+[[nodiscard]] bool ReserveVulkanCollectiveDescriptorDemand(
+    VulkanAdapter &adapter, VulkanCollectivePipeline &pipeline,
+    std::uint32_t descriptor_count, std::uint64_t set_count);
+
 #endif
 
 } // namespace rund::node::accel::detail

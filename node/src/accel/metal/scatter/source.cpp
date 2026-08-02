@@ -1,11 +1,12 @@
 #include "local.hpp"
 
 #include <string>
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
-std::string MetalScatterSource() {
-  return R"MSL(
+namespace {
+inline constexpr std::string_view Source = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -69,6 +70,10 @@ kernel void rund_compute_scatter_u64(
   }
 }
 )MSL";
-}
+} // namespace
+
+std::string MetalScatterSource() { return std::string{Source}; }
+
+std::uint64_t MetalScatterSourceUpperBytes() noexcept { return Source.size(); }
 
 } // namespace rund::node::accel::detail

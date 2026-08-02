@@ -1,11 +1,12 @@
 #include "../source.hpp"
 
-#include <string>
-
 namespace rund::node::accel::detail {
+namespace {
 
-[[nodiscard]] std::string SpectrumSource() {
-  return NumericBaseSource() + R"GLSL(
+template <typename Sink>
+[[nodiscard]] bool EmitSpectrumSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return EmitNumericBaseSource(sink, false) && sink.append(R"GLSL(
 layout(local_size_x = 32) in;
 layout(set = 0, binding = 1, std430) readonly buffer Input { int input_values[]; };
 layout(set = 0, binding = 2, std430) buffer Values { int value_values[]; };
@@ -316,7 +317,28 @@ void main() {
   uint code = spectrum_batch(batch);
   if (gl_LocalInvocationID.x == 0u) { status_values[ix(batch)] = code; }
 }
-)GLSL";
+)GLSL");
+}
+
+} // namespace
+
+[[nodiscard]] std::string SpectrumSource() {
+  std::uint64_t exact_bytes = 0u;
+  const auto emit = [](auto &sink)
+      noexcept(noexcept(EmitSpectrumSource(sink))) {
+    return EmitSpectrumSource(sink);
+  };
+  return backend_source_recipe::bytes(emit, exact_bytes)
+             ? backend_source_recipe::materialize(emit, exact_bytes)
+             : std::string{};
+}
+
+bool SpectrumSourceBytes(std::uint64_t &bytes) noexcept {
+  return backend_source_recipe::bytes(
+      [](backend_source_recipe::CountSink &sink) noexcept {
+        return EmitSpectrumSource(sink);
+      },
+      bytes);
 }
 
 } // namespace rund::node::accel::detail

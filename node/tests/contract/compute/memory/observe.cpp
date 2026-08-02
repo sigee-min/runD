@@ -43,8 +43,41 @@ namespace rund_node_memory_contract {
     return false;
   }
 
+  rund::node::accel::detail::PreparedMemory serial{
+      .current = 100u,
+      .peak = 180u,
+      .cumulative = 190u,
+      .reused = 11u,
+      .budget = 220u,
+  };
+  rund::node::accel::detail::accumulate_serial_memory(
+      serial, rund::node::accel::detail::PreparedMemory{
+                  .current = 40u,
+                  .peak = 55u,
+                  .cumulative = 60u,
+                  .reused = 7u,
+                  .budget = 200u,
+              });
+  if (serial.current != 140u || serial.peak != 220u ||
+      serial.cumulative != 250u || serial.reused != 18u ||
+      serial.budget != 220u) {
+    return false;
+  }
+  rund::node::accel::detail::PreparedMemory serial_saturated{
+      .current = kCounterMaximum - 4u,
+      .peak = kCounterMaximum - 1u,
+  };
+  rund::node::accel::detail::accumulate_serial_memory(
+      serial_saturated,
+      rund::node::accel::detail::PreparedMemory{.current = 10u, .peak = 20u});
+  if (serial_saturated.current != kCounterMaximum ||
+      serial_saturated.peak != kCounterMaximum) {
+    return false;
+  }
+
   CpuMapRun simd{};
-  simd.simd.resize(2u);
+  std::array<CpuSimdCount, 2u> simd_counts{};
+  simd.simd = simd_counts;
   simd.simd[0u] = CpuSimdCount{.vectors = kCounterMaximum - 1u,
                                .tails = kCounterMaximum - 1u};
   record_simd(simd, 0u,

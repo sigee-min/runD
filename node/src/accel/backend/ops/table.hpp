@@ -12,10 +12,15 @@
 
 namespace rund {
 struct AccelDevice;
+struct AccelContext;
 struct Buffer;
 struct BufferDesc;
 struct RuntimeStats;
 } // namespace rund
+
+namespace rund::kernel {
+struct ComputePlan;
+}
 
 namespace rund::node::accel {
 struct AccelMemoryStats;
@@ -29,7 +34,18 @@ struct BackendPublish;
 struct TileTransducer;
 struct NestedAggregate;
 struct PreparedMemory;
+struct PreparedPipelineFailure;
 struct PreparedPipelineMemory;
+struct PreparedKernelPipelineReservation;
+struct PreparedKernelRouteReservation;
+struct PreparedKernelProgramRoute;
+struct PreparedKernelTemplateRegistry;
+struct PreparedMapRecurrenceReservation;
+struct MapRecurrencePreparationPlan;
+struct KernelExecution;
+struct KernelExecutionStep;
+struct BoundStep;
+struct PreparedBackendManifest;
 class PreparedMemoryMeter;
 struct PreparedPipelineStatusLayout;
 
@@ -69,6 +85,29 @@ struct BackendOps final {
   rund::AccelCheck (*run)(const BackendRun &) = nullptr;
   rund::AccelCheck (*prepare)(const BackendRun &, std::shared_ptr<void> &,
                               PreparedMemory &) = nullptr;
+  rund::AccelCheck (*plan_pipeline_private)(
+      const BackendRun &, PreparedKernelRouteReservation &) noexcept = nullptr;
+  rund::AccelCheck (*plan_pipeline_program)(
+      const KernelExecution &, const PreparedKernelProgramRoute &,
+      PreparedKernelRouteReservation &) noexcept = nullptr;
+  rund::AccelCheck (*plan_pipeline_recurrence)(
+      const MapRecurrencePreparationPlan &,
+      PreparedMapRecurrenceReservation &) noexcept = nullptr;
+  rund::AccelCheck (*plan_pipeline_structure)(
+      const rund::AccelContext &,
+      PreparedKernelPipelineReservation &) noexcept = nullptr;
+  PreparedBackendManifest (*build_step_manifest)(
+      const KernelExecutionStep &, const rund::kernel::ComputePlan &,
+      const BoundStep *, std::uint64_t) noexcept = nullptr;
+  bool (*same_pipeline_program_template)(
+      const KernelExecution &, const PreparedKernelProgramRoute &,
+      const PreparedKernelProgramRoute &) noexcept = nullptr;
+  bool (*same_pipeline_template)(const BackendRun &,
+                                 const BackendRun &) noexcept = nullptr;
+  // Exact runD-owned host structure retained by one immutable registry entry.
+  // Adapter-global source caches and opaque driver allocations keep their own
+  // device/cache authority and are deliberately not guessed here.
+  PreparedMemory (*observe_pipeline_template)(const void *) noexcept = nullptr;
   rund::AccelCheck (*prepare_pipeline_private)(const BackendRun &,
                                                std::shared_ptr<void> &,
                                                PreparedMemory &) = nullptr;
@@ -81,8 +120,9 @@ struct BackendOps final {
       std::span<const BackendBatchEntry>, std::span<const BackendBatchEntry>,
       std::span<const std::uint8_t>, std::span<const TileTransducer>,
       std::span<const NestedAggregate>, std::span<const BackendPublish>,
-      PreparedPipelineStatusLayout &, bool, std::shared_ptr<void> &,
-      PreparedPipelineMemory &) = nullptr;
+      PreparedKernelTemplateRegistry &, PreparedPipelineStatusLayout &, bool,
+      std::shared_ptr<void> &, PreparedPipelineMemory &,
+      PreparedPipelineFailure &) = nullptr;
   rund::AccelCheck (*seed_prepared_pipeline_generation)(
       const std::shared_ptr<void> &, std::uint32_t) noexcept = nullptr;
   rund::AccelCheck (*submit_prepared_pipeline)(const std::shared_ptr<void> &,

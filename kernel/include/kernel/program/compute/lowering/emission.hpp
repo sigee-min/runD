@@ -20,6 +20,7 @@ struct ComputeArtifactEmission {
   LoweringArtifactKind kind = LoweringArtifactKind::None;
   ExecutionMetadata metadata{};
   std::string source_text{};
+  u64 source_text_upper_bytes = 0u;
   u32 emission_count = 0u;
   bool ok = false;
   const char *reason = "compute_lowering_invalid";

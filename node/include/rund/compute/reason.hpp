@@ -46,7 +46,7 @@ namespace detail {
   case Code::Unavailable:
     return value <= ordinal(Reason::ProfileUnavailable);
   case Code::Capacity:
-    return value <= ordinal(Reason::PipelineMemoryBudget);
+    return value <= ordinal(Reason::DevicePipelineMemoryCapacity);
   case Code::Compile:
     return value <= ordinal(Reason::ProgramCompileException);
   case Code::Binding:

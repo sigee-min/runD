@@ -44,6 +44,7 @@ function(rund_node_component id name)
 endfunction()
 
 rund_node_component(NUMERIC numeric sources/evidence.cmake)
+rund_node_component(STORAGE storage sources/storage.cmake)
 rund_node_component(TELEMETRY telemetry sources/telemetry.cmake)
 rund_node_component(ACCEL_SIMD accel-simd sources/accel/simd.cmake)
 rund_node_component(ACCEL_CORE accel-core sources/accel/core.cmake)
@@ -90,6 +91,7 @@ set(RUND_NODE_NATIVE_COMPONENTS
 # above CPU Accel and never enter a CPU-only exact build.
 set(RUND_NODE_SCCS
   NUMERIC
+  STORAGE
   TELEMETRY
   WORKER_BACKEND
   CPU_SIMD
@@ -102,6 +104,8 @@ set(RUND_NODE_SCCS
   RUNTIME_PRODUCT)
 set(RUND_NODE_SCC_NUMERIC_COMPONENTS NUMERIC)
 set(RUND_NODE_SCC_NUMERIC_DEPENDS)
+set(RUND_NODE_SCC_STORAGE_COMPONENTS STORAGE)
+set(RUND_NODE_SCC_STORAGE_DEPENDS)
 set(RUND_NODE_SCC_TELEMETRY_COMPONENTS TELEMETRY)
 set(RUND_NODE_SCC_TELEMETRY_DEPENDS)
 set(RUND_NODE_SCC_WORKER_BACKEND_COMPONENTS WORKER_BACKEND)
@@ -120,7 +124,11 @@ set(RUND_NODE_SCC_ACCEL_EXECUTION_COMPONENTS
   ACCEL_VULKAN)
 set(RUND_NODE_SCC_ACCEL_EXECUTION_DEPENDS CPU_ACCEL)
 set(RUND_NODE_SCC_CPU_COMPUTE_COMPONENTS COMPUTE_CPU)
-set(RUND_NODE_SCC_CPU_COMPUTE_DEPENDS CPU_SIMD TELEMETRY WORKER_BACKEND)
+set(RUND_NODE_SCC_CPU_COMPUTE_DEPENDS
+  CPU_SIMD
+  STORAGE
+  TELEMETRY
+  WORKER_BACKEND)
 set(RUND_NODE_SCC_COMPUTE_EXECUTION_COMPONENTS COMPUTE_ACCEL)
 set(RUND_NODE_SCC_COMPUTE_EXECUTION_DEPENDS
   CPU_COMPUTE
@@ -138,7 +146,11 @@ set(RUND_NODE_SCC_RUNTIME_BASE_COMPONENTS
   SCHEDULER_PROGRESS
   SCHEDULER_STATE
   PLATFORM)
-set(RUND_NODE_SCC_RUNTIME_BASE_DEPENDS NUMERIC TELEMETRY WORKER_BACKEND)
+set(RUND_NODE_SCC_RUNTIME_BASE_DEPENDS
+  NUMERIC
+  STORAGE
+  TELEMETRY
+  WORKER_BACKEND)
 set(RUND_NODE_SCC_CPU_RUNTIME_PRODUCT_COMPONENTS RUNTIME_COMPUTE)
 set(RUND_NODE_SCC_CPU_RUNTIME_PRODUCT_DEPENDS RUNTIME_BASE CPU_COMPUTE)
 # The full product is a zero-object DAG join. Runtime Compute is materialized
@@ -374,6 +386,7 @@ endif()
 set(rund_node_expected_cpu_compute_components
   ACCEL_SIMD
   COMPUTE_CPU
+  STORAGE
   TELEMETRY
   WORKER_BACKEND)
 set(rund_node_sorted_cpu_compute_components
@@ -383,7 +396,7 @@ list(SORT rund_node_sorted_cpu_compute_components)
 if(NOT "${rund_node_sorted_cpu_compute_components}" STREQUAL
        "${rund_node_expected_cpu_compute_components}")
   message(FATAL_ERROR
-    "Node CPU Compute profile must own only SIMD, telemetry, CPU Compute, and worker components")
+    "Node CPU Compute profile must own only SIMD, storage, telemetry, CPU Compute, and worker components")
 endif()
 foreach(component IN LISTS rund_node_cpu_simd_profile_components)
   list(FIND rund_node_cpu_compute_profile_components "${component}"
@@ -415,12 +428,14 @@ list(LENGTH RUND_NODE_COMPONENT_COMPUTE_ACCEL_SOURCES
   rund_node_compute_accel_source_count)
 list(LENGTH RUND_NODE_COMPONENT_WORKER_BACKEND_SOURCES
   rund_node_worker_backend_source_count)
+list(LENGTH RUND_NODE_COMPONENT_STORAGE_SOURCES
+  rund_node_storage_source_count)
 list(LENGTH RUND_NODE_COMPONENT_TELEMETRY_SOURCES
   rund_node_telemetry_source_count)
 math(EXPR rund_node_expected_compute_profile_source_count
-  "${rund_node_accel_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_compute_accel_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
+  "${rund_node_accel_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_compute_accel_source_count} + ${rund_node_storage_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
 math(EXPR rund_node_expected_cpu_compute_profile_source_count
-  "${rund_node_cpu_simd_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
+  "${rund_node_cpu_simd_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_storage_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
 if(rund_node_accel_profile_source_count EQUAL 0 OR
    NOT rund_node_compute_profile_source_count EQUAL
        rund_node_expected_compute_profile_source_count OR

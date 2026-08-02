@@ -3,6 +3,7 @@
 #include "../local/api.hpp"
 
 #include "../../collective/chunk.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include <limits>
 
@@ -12,7 +13,8 @@ namespace rund::node::accel::detail {
 rund::AccelCheck AllocateVulkanSortSharedResources(
     VulkanAdapter &adapter, const rund::kernel::SortDesc &desc,
     const rund::kernel::SortPlan &plan, const VulkanSortPrepareShape &shape,
-    VulkanSortEncodeResources &resources) {
+    VulkanSortEncodeResources &resources,
+    const VulkanKernelImmutablePipelines *const pipelines) {
   resources.plan = plan;
   resources.block_count = shape.block_count;
   resources.chunk_count = shape.chunk_count;
@@ -32,14 +34,30 @@ rund::AccelCheck AllocateVulkanSortSharedResources(
   resources.dispatch_count = SortDispatches(
       resources.pass_count, resources.block_count, adapter.max_dispatch_groups);
   resources.dispatch_pipeline =
-      AcquireSortPipeline(adapter, desc, SortStage::Dispatch);
+      pipelines == nullptr
+          ? AcquireSortPipeline(adapter, desc, SortStage::Dispatch)
+          : pipelines->borrow(rund::kernel::NodeKind::Sort, 5u, 0u,
+                              kSortDescriptorCount, 1u);
   resources.classify_pipeline =
-      AcquireSortPipeline(adapter, desc, SortStage::Classify);
+      pipelines == nullptr
+          ? AcquireSortPipeline(adapter, desc, SortStage::Classify)
+          : pipelines->borrow(rund::kernel::NodeKind::Sort, 5u, 1u,
+                              kSortDescriptorCount, plan.radix_pass_count);
   resources.prefix_pipeline =
-      AcquireSortPipeline(adapter, desc, SortStage::Prefix);
-  resources.base_pipeline = AcquireSortPipeline(adapter, desc, SortStage::Base);
+      pipelines == nullptr
+          ? AcquireSortPipeline(adapter, desc, SortStage::Prefix)
+          : pipelines->borrow(rund::kernel::NodeKind::Sort, 5u, 2u,
+                              kSortDescriptorCount, plan.radix_pass_count);
+  resources.base_pipeline =
+      pipelines == nullptr
+          ? AcquireSortPipeline(adapter, desc, SortStage::Base)
+          : pipelines->borrow(rund::kernel::NodeKind::Sort, 5u, 3u,
+                              kSortDescriptorCount, plan.radix_pass_count);
   resources.scatter_pipeline =
-      AcquireSortPipeline(adapter, desc, SortStage::Scatter);
+      pipelines == nullptr
+          ? AcquireSortPipeline(adapter, desc, SortStage::Scatter)
+          : pipelines->borrow(rund::kernel::NodeKind::Sort, 5u, 4u,
+                              kSortDescriptorCount, plan.radix_pass_count);
   if (resources.dispatch_count == 0u ||
       resources.dispatch_pipeline == nullptr ||
       resources.classify_pipeline == nullptr ||

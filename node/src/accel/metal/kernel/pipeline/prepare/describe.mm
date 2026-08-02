@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <new>
+#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -20,6 +21,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       const NestedAggregate &aggregate = aggregates.front();
       const auto status_count = [&](const std::uint32_t template_index,
                                     std::uint32_t &out) {
+        failure_context.template_route(template_index);
         if (template_index >= templates.size()) {
           return false;
         }
@@ -31,11 +33,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         if (resources == nullptr) {
           return false;
         }
-        std::vector<MetalPipelineStatusBindingRecord> bindings;
-        std::vector<MetalPipelineStatusSourceMeta> sources;
-        std::uint32_t raw = 0u;
         out = 0u;
-        return CollectMetalStatus(*resources, 0u, bindings, sources, raw, out);
+        return CountMetalDirectAggregateStatus(*resources, out);
       };
       std::uint32_t seed_status = 0u;
       std::uint32_t action_status = 0u;
@@ -60,15 +59,62 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       return rund::AccelCheck{true, "ok"};
     } catch (const std::bad_alloc &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    } catch (const std::length_error &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
+  std::size_t template_step_capacity = 0u;
+  for (const BackendBatchEntry &entry : templates) {
+    const auto *const resources =
+        entry.prepared == nullptr
+            ? nullptr
+            : static_cast<const MetalKernelResources *>(entry.prepared->get());
+    if (resources == nullptr || resources->size() == 0u) {
+      return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+    }
+    if (resources->size() >
+        std::numeric_limits<std::size_t>::max() - template_step_capacity) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    template_step_capacity += resources->size();
+  }
+  if (!template_registry.limit.ok ||
+      template_step_capacity >
+          template_registry.limit.backend_step_description_count) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
+  const PreparedKernelPipelineReservation &limit = template_registry.limit;
+  if (limit.backend_step_description_count >
+          std::numeric_limits<std::size_t>::max() ||
+      limit.backend_status_source_count >
+          std::numeric_limits<std::size_t>::max() ||
+      limit.backend_status_entry_count >
+          std::numeric_limits<std::uint32_t>::max() ||
+      limit.backend_telemetry_count > std::numeric_limits<std::size_t>::max()) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
+  const std::size_t status_source_capacity =
+      static_cast<std::size_t>(limit.backend_status_source_count);
+  const std::uint32_t status_entry_capacity =
+      static_cast<std::uint32_t>(limit.backend_status_entry_count);
+  const std::size_t telemetry_capacity =
+      static_cast<std::size_t>(limit.backend_telemetry_count);
   try {
-    const std::size_t binding_capacity =
-        templates.size() * kMetalPipelineStatusBindingCapacity;
-    status_bindings.reserve(binding_capacity);
-    status_sources.reserve(binding_capacity);
-    status_resets.reserve(binding_capacity);
+    status_bindings.reserve(status_source_capacity);
+    status_sources.reserve(status_source_capacity);
+    status_resets.reserve(status_source_capacity);
+    telemetry_steps.reserve(template_step_capacity);
+    pipeline->telemetry.reserve(telemetry_capacity);
+    if (status_bindings.capacity() != status_source_capacity ||
+        status_sources.capacity() != status_source_capacity ||
+        status_resets.capacity() != status_source_capacity ||
+        telemetry_steps.capacity() != template_step_capacity ||
+        pipeline->telemetry.capacity() != telemetry_capacity) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
   } catch (const std::bad_alloc &) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   // Describe immutable status and telemetry ownership exactly once per compact
@@ -77,6 +123,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
   for (std::size_t template_index = 0u; template_index < templates.size();
        ++template_index) {
     const BackendBatchEntry &entry = templates[template_index];
+    failure_context.template_route(static_cast<std::uint32_t>(template_index));
     auto *const resources =
         entry.prepared == nullptr
             ? nullptr
@@ -97,6 +144,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     const std::size_t telemetry_begin = telemetry_steps.size();
     for (std::size_t step_index = 0u; step_index < resources->size();
          ++step_index) {
+      failure_context.template_node_route(entry, step_index);
       MetalKernelEntry *const step = resources->entry(step_index);
       if (step == nullptr) {
         return rund::AccelCheck{false, "accel_kernel_run_invalid"};
@@ -114,6 +162,9 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         }
       }
       if (source.kind != MetalPipelineTelemetryKind::None) {
+        if (pipeline->telemetry.size() >= telemetry_capacity) {
+          return rund::AccelCheck{false, "compute_pipeline_capacity"};
+        }
         try {
           pipeline->telemetry.push_back(MetalPipelineTelemetryRecord{
               .source = source,
@@ -121,15 +172,23 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
           });
         } catch (const std::bad_alloc &) {
           return rund::AccelCheck{false, "compute_pipeline_capacity"};
+        } catch (const std::length_error &) {
+          return rund::AccelCheck{false, "compute_pipeline_capacity"};
         }
         slice.count = 1u;
+      }
+      if (telemetry_steps.size() >= template_step_capacity) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
       try {
         telemetry_steps.push_back(slice);
       } catch (const std::bad_alloc &) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      } catch (const std::length_error &) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
     }
+    failure_context.template_route(static_cast<std::uint32_t>(template_index));
     const std::size_t telemetry_count =
         telemetry_steps.size() - telemetry_begin;
     if (telemetry_begin > std::numeric_limits<std::uint32_t>::max() ||
@@ -142,13 +201,20 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     };
     const std::size_t binding_begin = status_bindings.size();
     const std::uint32_t status_begin = status_entry_count;
+    bool status_capacity_failed = false;
     try {
       if (!CollectMetalStatus(*resources, declared_step, status_bindings,
                               status_sources, raw_status_count,
-                              status_entry_count)) {
-        return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
+                              status_entry_count, status_source_capacity,
+                              status_entry_capacity, status_capacity_failed)) {
+        return rund::AccelCheck{false,
+                                status_capacity_failed
+                                    ? "compute_pipeline_capacity"
+                                    : "accel_kernel_primitive_unsupported"};
       }
     } catch (const std::bad_alloc &) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    } catch (const std::length_error &) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     const std::size_t binding_size = status_bindings.size() - binding_begin;
@@ -169,6 +235,7 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
   for (std::size_t entry_index = 0u; entry_index < entries.size();
        ++entry_index) {
     const BackendBatchEntry &entry = entries[entry_index];
+    failure_context.occurrence_route(entry);
     if (entry.template_index >= templates.size() ||
         entry.occurrence_index != entry_index ||
         entry.run != templates[entry.template_index].run ||
@@ -235,7 +302,13 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     }
   }
   if (profile_steps) {
-    std::vector<std::uint64_t> occurrence_counts(transducers.size(), 0u);
+    if (transducers.size() > PreparedPipelineStepCapacity) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    // Transducer identity is already bounded by the frozen compact route
+    // table. Profiling only needs one counter per identity, so a heap mirror
+    // would add a cold owner without adding information.
+    std::array<std::uint64_t, PreparedPipelineStepCapacity> occurrence_counts{};
     for (const BackendBatchEntry &entry : entries) {
       if (entry.transducer != NoTileTransducer) {
         occurrence_counts[entry.transducer] =
@@ -248,6 +321,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       for (std::uint32_t offset = 1u; offset < transducer.template_count;
            ++offset) {
         const std::size_t template_index = transducer.template_first + offset;
+        failure_context.template_route(
+            static_cast<std::uint32_t>(template_index));
         const BackendBatchEntry &entry = templates[template_index];
         const std::uint32_t declared = status.declared_steps[template_index];
         if (entry.run == nullptr || declared >= status.declared_step_count) {
@@ -278,6 +353,9 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     }
     record.raw_offset = private_raw_count;
     private_raw_count += record.raw_count;
+    if (status_resets.size() >= status_source_capacity) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
     status_resets.push_back(MetalPipelineResetMeta{
         .raw_offset = record.raw_offset,
         .reset = record.binding.reset,
@@ -295,14 +373,26 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
   for (std::size_t index = 0u; index < status_bindings.size(); ++index) {
     status_sources[index].raw_offset = status_bindings[index].raw_offset;
   }
+  if (status_entry_count > status_entry_capacity ||
+      status_sources.size() > status_source_capacity ||
+      telemetry_steps.size() > template_step_capacity ||
+      pipeline->telemetry.size() > telemetry_capacity) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
   try {
     status_entries.resize(status_entry_count);
+    if (status_entries.capacity() != status_entry_count) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
   } catch (const std::bad_alloc &) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   std::size_t status_index = 0u;
   for (std::size_t template_index = 0u; template_index < templates.size();
        ++template_index) {
+    failure_context.template_route(static_cast<std::uint32_t>(template_index));
     const PreparedProgramStatusSlice bindings = binding_slices[template_index];
     const std::size_t binding_end =
         static_cast<std::size_t>(bindings.first) + bindings.count;

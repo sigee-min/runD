@@ -1,5 +1,6 @@
 #include "../resource.hpp"
 #include "../source.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include "../../../factor/shape.hpp"
 
@@ -15,7 +16,9 @@ rund::AccelCheck PrepareVulkanFactor(const rund::AccelDevice &pick,
                                      const rund::kernel::FactorPlan &plan,
                                      const FactorBinds &bindings,
                                      const KernelPreparationMode mode,
-                                     std::shared_ptr<void> &out) {
+                                     std::shared_ptr<void> &out,
+                                     const VulkanKernelImmutablePipelines
+                                         *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   out.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -68,13 +71,21 @@ rund::AccelCheck PrepareVulkanFactor(const rund::AccelDevice &pick,
                        0u,
                        static_cast<rund::kernel::u32>(plan.output),
                        static_cast<rund::kernel::u32>(plan.pivot)};
-  const auto hash = rund::kernel::HashFactor(desc);
-  check = FinalizePrepared(
-      *raw, params, 5u,
-      NumericPseudoPlan(hash, wide ? rund::kernel::ComputeScalar::Lane64
-                                   : rund::kernel::ComputeScalar::Lane32),
-      wide ? FactorSource64() : FactorSource(), FixedPolicy(plan.fixed_format),
-      mode);
+  const auto hash = rund::kernel::HashFactor(
+      rund::kernel::FactorDesc{.element_bytes = desc.element_bytes});
+  VulkanCollectivePipeline *const pipeline =
+      pipelines == nullptr
+          ? AcquireNumericPipeline(
+                *adapter, 5u, 0u,
+                NumericPseudoPlan(
+                    hash,
+                    wide ? rund::kernel::ComputeScalar::Lane64
+                         : rund::kernel::ComputeScalar::Lane32,
+                    rund::kernel::ComputeDomain::Fixed, plan.fixed_format),
+                wide ? FactorSource64() : FactorSource(),
+                FixedPolicy(plan.fixed_format))
+          : pipelines->borrow(rund::kernel::NodeKind::Factor, 1u, 0u, 5u, 1u);
+  check = FinalizePrepared(*raw, params, 5u, pipeline, mode);
   if (!check.ok) {
     return check;
   }
@@ -87,6 +98,7 @@ rund::AccelCheck PrepareVulkanFactor(const rund::AccelDevice &pick,
   (void)bindings;
   (void)mode;
   (void)out;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

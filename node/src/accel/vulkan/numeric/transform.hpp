@@ -2,15 +2,18 @@
 
 #include <kernel/program/compute/transform/stage.hpp>
 
-#include <string>
+#include "../kernel/source_recipe.hpp"
 #include <string_view>
 
 namespace rund::node::accel::detail {
 
-[[nodiscard]] inline std::string
-TransformProgramSource(std::string base, const std::string_view dialect) {
+template <typename Sink>
+[[nodiscard]] bool AppendTransformProgramSource(
+    Sink &sink, const std::string_view dialect)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink base{sink};
   base += "#define RUND_TRANSFORM_LANES ";
-  base += std::to_string(kernel::transform_stage::Lanes);
+  base.decimal(kernel::transform_stage::Lanes);
   base += "u\n";
   base.append(dialect);
   base.append(R"GLSL(
@@ -214,7 +217,7 @@ void main() {
   out_i[d] = second_d_i;
 }
 )GLSL");
-  return base;
+  return base.ok();
 }
 
 } // namespace rund::node::accel::detail

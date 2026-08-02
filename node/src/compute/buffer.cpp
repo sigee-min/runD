@@ -64,7 +64,7 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
   if (device == nullptr) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::DeviceInvalid);
   }
-  std::lock_guard memory_lock{device->memory.gate};
+  std::lock_guard memory_lock{device->memory.allocation_gate};
   const std::size_t bytes = type_bytes(type);
   std::size_t byte_count = 0u;
   if (bytes == 0u || !size::multiply(count, bytes, byte_count)) {

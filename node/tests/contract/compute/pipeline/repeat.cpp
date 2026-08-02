@@ -58,6 +58,7 @@ namespace rund_node_test_pipeline {
   }
   std::array<const detail::JobState *, 3u> recurrence_owners{};
   std::size_t recurrence_owner_count = 0u;
+  const bool needs_workspace = !body_state->chunks.empty();
   const detail::JobWorkspace *recurrence_workspace = nullptr;
   for (std::size_t iteration = 0u; iteration < loop_state->steps.size();
        ++iteration) {
@@ -66,27 +67,31 @@ namespace rund_node_test_pipeline {
     if (owner == nullptr) {
       return 10;
     }
-    if (owner->workspace == nullptr ||
-        owner->workspace->program != body_state ||
-        !owner->graph_buffers.empty() ||
-        owner->workspace->offsets.size() != owner->workspace->buffers.size() ||
-        (owner->cpu != nullptr && owner->cpu->graph != nullptr &&
-         !owner->cpu->graph->owned_buffers.empty())) {
+    if (!owner->graph_buffers.empty() ||
+        (needs_workspace && (owner->workspace == nullptr ||
+                             owner->workspace->program != body_state ||
+                             owner->workspace->offsets.size() !=
+                                 owner->workspace->buffers.size())) ||
+        (!needs_workspace && owner->workspace != nullptr)) {
       return 10;
     }
-    for (std::size_t rank = 0u; rank < body_state->chunk_order.size(); ++rank) {
+    for (std::size_t rank = 0u;
+         needs_workspace && rank < body_state->chunk_order.size(); ++rank) {
       const std::size_t chunk = body_state->chunk_order[rank];
-      if (loop_state->shared_buffers.size() != 1u ||
-          chunk >= owner->workspace->buffers.size() ||
-          owner->workspace->buffers[chunk] !=
-              loop_state->shared_buffers.front()) {
+      if (chunk >= owner->workspace->buffers.size() ||
+          owner->workspace->buffers[chunk] == nullptr ||
+          (rank != 0u &&
+           owner->workspace->buffers[chunk] !=
+               owner->workspace->buffers[body_state->chunk_order.front()])) {
         return 10;
       }
     }
-    if (recurrence_workspace == nullptr) {
-      recurrence_workspace = owner->workspace.get();
-    } else if (recurrence_workspace != owner->workspace.get()) {
-      return 10;
+    if (needs_workspace) {
+      if (recurrence_workspace == nullptr) {
+        recurrence_workspace = owner->workspace.get();
+      } else if (recurrence_workspace != owner->workspace.get()) {
+        return 10;
+      }
     }
     if (iteration >= 3u &&
         owner != loop_state->steps[iteration - 2u].job.get()) {
@@ -242,12 +247,12 @@ namespace rund_node_test_pipeline {
       !reference_remaining_count || !active_body) {
     return 7;
   }
-  auto active_loop = pipeline(device)
-                         .profile(PipelineProfile::Steps)
-                         .repeat<6u>(
-                             *active_body, read(*active_values, *count),
-                             write_final(*remaining_values, *remaining_count))
-                         .prepare();
+  auto active_loop =
+      pipeline(device)
+          .profile(PipelineProfile::Steps)
+          .repeat<6u>(*active_body, read(*active_values, *count),
+                      write_final(*remaining_values, *remaining_count))
+          .prepare();
   auto reference_builder = pipeline(device).profile(PipelineProfile::Steps);
   reference_builder
       .then(*active_body, read(*reference_values, *reference_count),

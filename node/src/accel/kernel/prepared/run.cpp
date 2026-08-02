@@ -25,6 +25,7 @@ PreparedKernelRun PrepareKernelRun(const rund::AccelContext &context,
     return {};
   }
   state->mode = mode;
+  state->tile_count = run.tile_count;
   state->execution = AdmitKernelForExecution(context, kernel);
   if (!state->execution.admission.check.ok ||
       !RunRequestShapeOk(context, state->execution, run)) {
@@ -73,10 +74,21 @@ PreparedKernelRun PrepareKernelRun(const rund::AccelContext &context,
       state->bound.run.ops->submit_prepared == nullptr) {
     return PreparedKernelRun{.reason = "accel_kernel_prepared_incomplete"};
   }
+  // Pipeline-private preparation stops at the immutable host route. The
+  // enclosing Pipeline must preflight every route/template contribution as
+  // one checked reservation before any backend or native owner is created.
+  if (IsPipelinePrivatePreparation(mode)) {
+    if (state->bound.run.ops->plan_pipeline_private == nullptr ||
+        state->bound.run.ops->same_pipeline_template == nullptr ||
+        state->bound.run.ops->prepare_pipeline_private == nullptr) {
+      return PreparedKernelRun{.reason = "accel_kernel_prepared_incomplete"};
+    }
+    return PreparedKernelRun{.owner = std::static_pointer_cast<void>(state),
+                             .ok = true,
+                             .reason = "ok"};
+  }
   PreparedMemory memory{};
-  const auto prepare = IsPipelinePrivatePreparation(mode)
-                           ? state->bound.run.ops->prepare_pipeline_private
-                           : state->bound.run.ops->prepare;
+  const auto prepare = state->bound.run.ops->prepare;
   if (prepare == nullptr) {
     return PreparedKernelRun{.reason = "accel_kernel_prepared_incomplete"};
   }

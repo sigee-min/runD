@@ -161,24 +161,20 @@ void add_tiles(Stats &stats, const kernel::ComputeTileRunResult &tiles,
 } // namespace
 
 kernel::ComputeTileExecutor *active_tiles(JobState &job) noexcept {
-  if (job.cpu == nullptr || job.cpu->graph == nullptr) {
+  if (job.cpu == nullptr || job.cpu->graph == nullptr ||
+      job.cpu->graph->storage == nullptr) {
     return nullptr;
   }
   CpuRun &run = *job.cpu;
   if (run.pass == CpuPass::Map) {
-    if (run.step >= run.graph->maps.size() ||
-        run.graph->maps[run.step] == nullptr) {
-      return nullptr;
-    }
-    return &run.graph->maps[run.step]->tiles;
+    CpuMapRun *const map = cpu_map_run(*run.graph->storage, run.step);
+    return map == nullptr ? nullptr : &map->tiles;
   }
   if (run.pass == CpuPass::ScanLocal || run.pass == CpuPass::ScanCorrect ||
       run.pass == CpuPass::ReduceLocal) {
-    if (run.step >= run.graph->collectives.size() ||
-        run.graph->collectives[run.step] == nullptr) {
-      return nullptr;
-    }
-    return &run.graph->collectives[run.step]->tiles;
+    CpuCollectiveRun *const collective =
+        cpu_collective_run(*run.graph->storage, run.step);
+    return collective == nullptr ? nullptr : &collective->tiles;
   }
   return nullptr;
 }
@@ -195,10 +191,11 @@ std::uint64_t active_tile_size(const JobState &job) noexcept {
                ? job.program->cpu_graph->maps[run.step]->tile_size
                : 0u;
   }
-  return run.step < run.graph->collectives.size() &&
-                 run.graph->collectives[run.step] != nullptr
-             ? run.graph->collectives[run.step]->tile_size
-             : 0u;
+  const CpuCollectiveRun *const collective =
+      run.graph->storage == nullptr
+          ? nullptr
+          : cpu_collective_run(*run.graph->storage, run.step);
+  return collective == nullptr ? 0u : collective->tile_size;
 }
 
 Status submit_graph_pass(JobState &job, const kernel::WorkerBackend backend,
@@ -213,8 +210,12 @@ Status submit_graph_pass(JobState &job, const kernel::WorkerBackend backend,
     return Status::fail(Reason::CpuStepInvalid);
   }
   if (run.pass == CpuPass::Map) {
-    CpuMapRun &map = *run.graph->maps[run.step];
-    return submit_tiles(map.tiles, backend, &map.tile, run_cpu_map_tile,
+    CpuMapRun &map = *cpu_map_run(*run.graph->storage, run.step);
+    CpuMapRoute *const route = cpu_map_route(*run.graph, run.step);
+    if (route == nullptr) {
+      return Status::fail(Reason::CpuStepInvalid);
+    }
+    return submit_tiles(map.tiles, backend, &route->tile, run_cpu_map_tile,
                         ready_context, ready);
   }
   return submit_tiles(*tiles, backend, &run.tile, collective_tile,
@@ -228,9 +229,13 @@ kernel::ComputeTileRunResult run_graph_pass(JobState &job) {
     return {.reason = "compute_cpu_step_invalid"};
   }
   if (run.pass == CpuPass::Map) {
-    CpuMapRun &map = *run.graph->maps[run.step];
+    CpuMapRun &map = *cpu_map_run(*run.graph->storage, run.step);
+    CpuMapRoute *const route = cpu_map_route(*run.graph, run.step);
+    if (route == nullptr) {
+      return {.reason = "compute_cpu_step_invalid"};
+    }
     return map.tiles.run([&](const kernel::ComputeTile &tile) {
-      return run_cpu_map_tile(&map.tile, tile);
+      return run_cpu_map_tile(&route->tile, tile);
     });
   }
   return tiles->run([&](const kernel::ComputeTile &tile) {
@@ -272,7 +277,8 @@ PassResult finish_graph_pass(JobState &job,
   const std::uint64_t tile_size = active_tile_size(job);
   if (run.pass == CpuPass::Map) {
     add_tiles(run.stats, *tiles, dispatches, tile_size);
-    const CpuSimdCount simd = sum_simd(*run.graph->maps[run.step]);
+    const CpuSimdCount simd =
+        sum_simd(*cpu_map_run(*run.graph->storage, run.step));
     ::rund::detail::counter::Accumulate(run.stats.vector_chunks, simd.vectors);
     ::rund::detail::counter::Accumulate(run.stats.tail_chunks, simd.tails);
     ++run.step;

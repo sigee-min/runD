@@ -14,8 +14,8 @@
 #include <memory>
 #include <new>
 #include <span>
+#include <stdexcept>
 #include <utility>
-#include <vector>
 
 namespace rund::compute::detail {
 namespace {
@@ -64,7 +64,18 @@ resolve_view(const PipelineState &state,
 
 } // namespace
 
-Status prepare_backend(PipelineState &value) noexcept {
+Reason project_pipeline_preparation_reason(
+    const std::string_view reason) noexcept {
+  const Reason boundary =
+      reason == node::accel::detail::
+                    PreparedPipelineTemplateStepCapacityReasonKey
+          ? Reason::PipelineCapacity
+          : Reason::LoweringInvalid;
+  return project_reason(reason, boundary);
+}
+
+Status prepare_backend(PipelineState &value, Location &location) noexcept {
+  location = {};
   if (value.device == nullptr) {
     return Status::fail(Reason::DeviceInvalid);
   }
@@ -79,32 +90,25 @@ Status prepare_backend(PipelineState &value) noexcept {
     }
     const auto prepare_stream = [&](const bool alternate)
         -> Result<node::accel::detail::PreparedKernelPipeline> {
-      std::vector<const node::accel::detail::PreparedKernelRun *> prepared;
-      std::vector<std::uint8_t> barriers;
-      std::vector<std::uint32_t> declared_steps;
-      std::vector<node::accel::detail::BackendRecurrence> recurrences;
+      // Pipeline step capacity is a public admission bound.  Keep the cold
+      // projection in fixed storage so primary/alternate preparation cannot
+      // create an unplanned vector layer before the backend budget gate.
+      constexpr std::size_t capacity =
+          node::accel::detail::PreparedPipelineStepCapacity;
+      std::array<const node::accel::detail::PreparedKernelRun *, capacity>
+          prepared{};
+      std::array<std::uint8_t, capacity> barriers{};
+      std::array<std::uint32_t, capacity> declared_steps{};
+      std::array<node::accel::detail::BackendRecurrence, capacity>
+          recurrences{};
+      std::array<node::accel::detail::BackendWindow, capacity> windows{};
       std::array<node::accel::detail::BackendPublish, PipelineLeafCapacity>
           publications{};
-      prepared.reserve(state->steps.size());
-      barriers.reserve(state->steps.size());
-      declared_steps.reserve(state->steps.size());
-      recurrences.reserve(state->steps.size());
-      std::size_t window_count = 0u;
-      for (std::size_t index = 0u; index < state->steps.size(); ++index) {
-        const PipelineStep &step = state->steps[index];
-        if (step.program->empty() || step.window == 0u) {
-          continue;
-        }
-        const std::shared_ptr<JobState> &job =
-            alternate ? step.alternate_job : step.job;
-        if (job == nullptr) {
-          return Result<node::accel::detail::PreparedKernelPipeline>::fail(
-              Reason::PipelineInvalid);
-        }
-        ++window_count;
+      if (state->steps.size() > capacity ||
+          state->publications.size() > publications.size()) {
+        return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+            Reason::PipelineCapacity);
       }
-      std::vector<node::accel::detail::BackendWindow> windows;
-      windows.reserve(window_count);
       if (!state->publications.empty() &&
           (state->device->ops == nullptr ||
            state->device->ops->resolve_buffer == nullptr)) {
@@ -146,8 +150,9 @@ Status prepare_backend(PipelineState &value) noexcept {
                    resolve_view(*state, job->outputs[output],
                                 job->output_views[output],
                                 kernel::kResidentUsageRead, resolved);
-          };
+      };
       std::size_t active = 0u;
+      std::size_t window_count = 0u;
       bool pending_barrier = false;
       for (std::size_t index = 0u; index < state->steps.size(); ++index) {
         pending_barrier = pending_barrier || state->barriers[index] != 0u;
@@ -161,8 +166,12 @@ Status prepare_backend(PipelineState &value) noexcept {
           return Result<node::accel::detail::PreparedKernelPipeline>::fail(
               Reason::PipelineInvalid);
         }
-        prepared.push_back(&job->prepared);
-        declared_steps.push_back(static_cast<std::uint32_t>(index));
+        if (active == capacity) {
+          return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+              Reason::PipelineCapacity);
+        }
+        prepared[active] = &job->prepared;
+        declared_steps[active] = static_cast<std::uint32_t>(index);
         const PipelineStep &step = state->steps[index];
         const node::accel::detail::BackendWindow *window = nullptr;
         if (step.window != 0u) {
@@ -241,7 +250,11 @@ Status prepare_backend(PipelineState &value) noexcept {
                   : 1u;
           const std::uint32_t route =
               step.route == PipelineRoute::NestedFold ? step.iteration : 0u;
-          windows.push_back(node::accel::detail::BackendWindow{
+          if (window_count == windows.size()) {
+            return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                Reason::PipelineCapacity);
+          }
+          windows[window_count] = node::accel::detail::BackendWindow{
               .count = std::move(count),
               .terminal = std::move(terminal),
               .maximum = declared.maximum,
@@ -261,18 +274,18 @@ Status prepare_backend(PipelineState &value) noexcept {
               .route = route,
               .phase = phase,
               .has_terminal = has_terminal,
-          });
-          window = &windows.back();
+          };
+          window = &windows[window_count++];
         }
-        recurrences.push_back(node::accel::detail::BackendRecurrence{
+        recurrences[active] = node::accel::detail::BackendRecurrence{
             .logical_step = state->steps[index].logical_step,
             .iteration = state->steps[index].iteration,
             .bound = state->steps[index].iteration_bound,
             .window = window,
             .writes_each_iteration = state->steps[index].writes_each_iteration,
-        });
-        barriers.push_back(
-            active == 0u ? 0u : static_cast<std::uint8_t>(pending_barrier));
+        };
+        barriers[active] =
+            active == 0u ? 0u : static_cast<std::uint8_t>(pending_barrier);
         pending_barrier = false;
         ++active;
       }
@@ -368,9 +381,12 @@ Status prepare_backend(PipelineState &value) noexcept {
         }
         publications[index] = node::accel::detail::BackendPublish{
             .sources = std::move(sources),
+            .source_ordinals = publication.ordinals.sources,
             .count = std::move(resident_count),
+            .count_ordinal = publication.ordinals.count,
             .target = target.source,
             .target_handle = std::move(target.handle),
+            .target_ordinal = publication.ordinals.target,
             .state = static_cast<std::uint32_t>(publication.window - 1u),
             .final =
                 window_publish
@@ -404,10 +420,27 @@ Status prepare_backend(PipelineState &value) noexcept {
           std::span<const node::accel::detail::BackendPublish>{
               publications.data(), state->publications.size()},
           static_cast<std::uint32_t>(state->steps.size()),
-          state->transactional ? 2u : 1u, state->profile != nullptr);
+          state->transactional ? 2u : 1u, state->profile != nullptr,
+          &state->accel_templates);
       if (!prepared_pipeline.ok) {
+        const node::accel::detail::PreparedPipelineFailure &failure =
+            prepared_pipeline.failure;
+        location.template_index = failure.template_index;
+        location.occurrence_index = failure.occurrence_index;
+        location.node = failure.node;
+        location.outer_iteration = failure.outer_iteration;
+        location.inner_iteration = failure.inner_iteration;
+        location.nested_phase = failure.nested_phase;
+        location.native_reason_key = failure.native_reason_key;
+        if (failure.template_index < active) {
+          const std::uint32_t physical = declared_steps[failure.template_index];
+          if (physical < state->steps.size()) {
+            location.step = state->steps[physical].logical_step;
+            location.iteration = state->steps[physical].iteration;
+          }
+        }
         return Result<node::accel::detail::PreparedKernelPipeline>::fail(
-            project_reason(prepared_pipeline.reason, Reason::LoweringInvalid));
+            project_pipeline_preparation_reason(failure.native_reason_key));
       }
       state->active_step_count = static_cast<std::uint32_t>(active);
       return Result<node::accel::detail::PreparedKernelPipeline>::success(
@@ -427,6 +460,8 @@ Status prepare_backend(PipelineState &value) noexcept {
     }
     return seed_pipeline_generations(*state, 0u, 0u);
   } catch (const std::bad_alloc &) {
+    return Status::fail(Reason::PipelineCapacity);
+  } catch (const std::length_error &) {
     return Status::fail(Reason::PipelineCapacity);
   }
 }

@@ -1,5 +1,6 @@
 #include "../resource.hpp"
 #include "../source.hpp"
+#include "../../kernel/pipeline/template.hpp"
 
 #include "../../../matrix/shape.hpp"
 
@@ -16,7 +17,9 @@ rund::AccelCheck PrepareVulkanMatrix(const rund::AccelDevice &pick,
                                      const rund::kernel::MatrixPlan &plan,
                                      const MatrixBinds &bindings,
                                      const KernelPreparationMode mode,
-                                     std::shared_ptr<void> &out) {
+                                     std::shared_ptr<void> &out,
+                                     const VulkanKernelImmutablePipelines
+                                         *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   out.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -63,13 +66,32 @@ rund::AccelCheck PrepareVulkanMatrix(const rund::AccelDevice &pick,
                        plan.inner,
                        plan.batch_count};
   params.mode = static_cast<rund::kernel::u32>(plan.arithmetic);
-  const auto hash = rund::kernel::HashMatrix(desc);
-  check = FinalizePrepared(
-      *raw, params, 4u,
-      NumericPseudoPlan(hash, wide ? rund::kernel::ComputeScalar::Lane64
-                                   : rund::kernel::ComputeScalar::Lane32),
-      wide ? MatrixSource64() : MatrixSource(),
-      MatrixPolicy(plan.arithmetic, plan.fixed_format), mode);
+  const auto hash = rund::kernel::HashMatrix(
+      rund::kernel::MatrixDesc{.element_bytes = desc.element_bytes});
+  const rund::kernel::ComputeDomain executable_domain =
+      plan.arithmetic == rund::kernel::MatrixArithmetic::Fixed
+          ? rund::kernel::ComputeDomain::Fixed
+          : (plan.arithmetic == rund::kernel::MatrixArithmetic::SignedWrap
+                 ? (wide ? rund::kernel::ComputeDomain::I64
+                         : rund::kernel::ComputeDomain::I32)
+                 : (wide ? rund::kernel::ComputeDomain::U64
+                         : rund::kernel::ComputeDomain::U32));
+  VulkanCollectivePipeline *const pipeline =
+      pipelines == nullptr
+          ? AcquireNumericPipeline(
+                *adapter, 4u, 0u,
+                NumericPseudoPlan(
+                    hash,
+                    wide ? rund::kernel::ComputeScalar::Lane64
+                         : rund::kernel::ComputeScalar::Lane32,
+                    executable_domain,
+                    plan.arithmetic == rund::kernel::MatrixArithmetic::Fixed
+                        ? plan.fixed_format
+                        : rund::kernel::ComputeFixedFormat{}),
+                wide ? MatrixSource64() : MatrixSource(),
+                MatrixPolicy(plan.arithmetic, plan.fixed_format))
+          : pipelines->borrow(rund::kernel::NodeKind::Matrix, 1u, 0u, 4u, 1u);
+  check = FinalizePrepared(*raw, params, 4u, pipeline, mode);
   if (!check.ok) {
     return check;
   }
@@ -82,6 +104,7 @@ rund::AccelCheck PrepareVulkanMatrix(const rund::AccelDevice &pick,
   (void)bindings;
   (void)mode;
   (void)out;
+  (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

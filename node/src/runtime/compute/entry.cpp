@@ -41,8 +41,9 @@ struct SessionDeviceAccess final {
   }
 };
 
-Result<std::shared_ptr<DeviceState>> open_session(::rund::Session &session,
-                                                  const Target target) {
+[[nodiscard]] Result<std::shared_ptr<DeviceState>>
+open_session_config(::rund::Session &session, const Target target,
+                    const DevicePipelineMemoryLimit pipeline_memory) {
   std::shared_ptr<node::runtime_detail::ComputeHostState> host =
       SessionDeviceAccess::host(session);
   if (host == nullptr) {
@@ -72,7 +73,8 @@ Result<std::shared_ptr<DeviceState>> open_session(::rund::Session &session,
   }
 
   auto device = open_target(
-      target.backend() == Backend::Cpu ? Target::cpu(host_workers) : target);
+      target.backend() == Backend::Cpu ? Target::cpu(host_workers) : target,
+      pipeline_memory);
   if (!device) {
     return device;
   }
@@ -112,6 +114,17 @@ Result<std::shared_ptr<DeviceState>> open_session(::rund::Session &session,
   const Status bound = bind_compile(*device, service);
   return bound ? device
                : Result<std::shared_ptr<DeviceState>>::fail(bound.reason());
+}
+
+Result<std::shared_ptr<DeviceState>> open_session(::rund::Session &session,
+                                                  const Target target) {
+  return open_session_config(session, target, DevicePipelineMemoryLimit{});
+}
+
+Result<std::shared_ptr<DeviceState>>
+open_session(::rund::Session &session, const Target target,
+             const DevicePipelineMemoryLimit pipeline_memory) {
+  return open_session_config(session, target, pipeline_memory);
 }
 
 } // namespace rund::compute::detail

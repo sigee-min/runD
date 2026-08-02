@@ -29,7 +29,7 @@ ExecuteMetal(void *context, const rund::kernel::ComputePlan &plan,
 
 [[nodiscard]] std::shared_ptr<void>
 MetalPipelineForArtifact(MetalAdapter &adapter,
-                         const rund::kernel::LoweringArtifact &artifact);
+                         rund::kernel::LoweringArtifact artifact);
 
 [[nodiscard]] MetalRuntimeBuffer AcquireMetalBuffer(MetalAdapter &adapter,
                                                     rund::kernel::u64 bytes,

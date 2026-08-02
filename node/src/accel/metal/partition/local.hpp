@@ -49,6 +49,8 @@ struct MetalPartitionEncodeResources {
 
 void DestroyMetalPartitionEncodeResources(void *raw);
 [[nodiscard]] std::string MetalPartitionSource();
+[[nodiscard]] bool MetalPartitionSourceUpperBytes(
+    std::uint64_t &upper) noexcept;
 [[nodiscard]] bool CompileMetalPartitionPipelines(MetalAdapter &adapter,
                                                   rund::kernel::u64 flag_bytes,
                                                   rund::kernel::u64 value_bytes,

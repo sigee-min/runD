@@ -1,5 +1,6 @@
 #include "evidence.hpp"
 
+#include "../../../kernel/recurrence.hpp"
 #include "../../map/api.hpp"
 #include "../../map/local.hpp"
 #include "../view.hpp"
@@ -23,9 +24,10 @@ namespace rund::node::accel::detail {
 // complete Program row unavailable instead of publishing a partial estimate.
 bool AccumulateVulkanWork(const VulkanMapEncodeResources &map,
                           VulkanPipelineWork &work) noexcept {
-  if (map.control.has_count() || map.control.has_predicate() ||
-      map.windows.empty() || map.descriptor_sets.size() != map.windows.size() ||
-      map.plan.dispatch_count != map.windows.size()) {
+  if (map.prepared == nullptr || map.control.has_count() ||
+      map.control.has_predicate() || map.windows.empty() ||
+      map.descriptor_sets.count != map.windows.size() ||
+      map.prepared->plan.dispatch_count != map.windows.size()) {
     return false;
   }
   for (const rund::kernel::ComputeDispatchWindow &window : map.windows) {
@@ -71,17 +73,20 @@ VulkanRecurrenceHostBytes(const VulkanPipeline &pipeline) noexcept {
   const auto account = [&](const std::shared_ptr<void> &resource) {
     const auto *const map =
         static_cast<const VulkanMapEncodeResources *>(resource.get());
-    if (map == nullptr) {
+    if (map == nullptr || map->prepared == nullptr) {
       return;
     }
     bytes = ::rund::detail::counter::SaturatingAdd(
         bytes, sizeof(VulkanMapEncodeResources));
     for (const std::uint64_t allocation :
-         {vector_bytes(map->input_plans), vector_bytes(map->checks),
-          vector_bytes(map->windows), vector_bytes(map->resident.inputs),
-          vector_bytes(map->resident.outputs),
-          vector_bytes(map->descriptor_sets)}) {
+         {vector_bytes(map->check_bases), vector_bytes(map->windows),
+          vector_bytes(map->resident.inputs),
+          vector_bytes(map->resident.outputs)}) {
       bytes = ::rund::detail::counter::SaturatingAdd(bytes, allocation);
+    }
+    if (map->history_recurrence && map->binding_owner != nullptr) {
+      bytes = ::rund::detail::counter::SaturatingAdd(
+          bytes, sizeof(MapRecurrenceHistory));
     }
   };
   account(pipeline.recurrence);

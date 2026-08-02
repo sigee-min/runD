@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/compact/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -8,11 +9,13 @@ namespace {
 
 [[nodiscard]] rund::kernel::ComputePlan
 PseudoCompactPlan(const rund::kernel::CompactDesc &desc,
-                  const rund::kernel::ComputeApi api) noexcept {
+                  const rund::kernel::ComputeApi api,
+                  const CompactStage stage) noexcept {
   const rund::kernel::CompactHash hash = rund::kernel::HashCompact(desc);
+  const std::uint64_t salt = static_cast<std::uint64_t>(stage) + 1u;
   return rund::kernel::ComputePlan{
-      .op_hash_hi = hash.hi,
-      .op_hash_lo = hash.lo,
+      .op_hash_hi = hash.hi ^ (0x434f4d5041435400ull + salt),
+      .op_hash_lo = hash.lo ^ (salt * 0x9e3779b97f4a7c15ull),
       .api = api,
       .scalar = rund::kernel::ComputeScalar::Lane32,
       .ok = true,
@@ -27,12 +30,14 @@ AcquireCompactPipeline(VulkanAdapter &adapter,
                        const rund::kernel::CompactDesc &desc,
                        const CompactStage stage) {
   const rund::kernel::ComputePlan pseudo =
-      PseudoCompactPlan(desc, rund::kernel::ComputeApi::Vulkan);
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = VulkanCompactSource(stage);
-  artifact.ok = true;
-  artifact.reason = "ok";
+      PseudoCompactPlan(desc, rund::kernel::ComputeApi::Vulkan, stage);
+  std::string source = VulkanCompactSource(stage);
+  const std::uint64_t source_bytes = source.size();
+  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
+      pseudo, std::move(source), source_bytes);
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(adapter, kCompactDescriptorCount, 0u,
                                          pseudo, artifact);
 }

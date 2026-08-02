@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <thread>
+#include <unistd.h>
 
 namespace rund::compute::detail {
 namespace {
@@ -70,13 +71,56 @@ Result<std::shared_ptr<DeviceState>> open_cpu(const std::uint32_t workers) {
   return open_cpu_config(workers);
 }
 
+Status initialize_device_state(
+    DeviceState &state,
+    const DevicePipelineMemoryLimit pipeline_memory) noexcept {
+  const long page_bytes = ::sysconf(_SC_PAGESIZE);
+  if (page_bytes <= 0) {
+    return Status::fail(Reason::DeviceCapacity);
+  }
+  storage::Budget budget{pipeline_memory.bytes};
+  if (!budget) {
+    return Status::fail(Reason::DevicePipelineMemoryCapacity);
+  }
+  state.host_page_bytes = static_cast<std::uint64_t>(page_bytes);
+  state.pipeline_memory_budget = std::move(budget);
+  return Status::success();
+}
+
 Result<std::shared_ptr<DeviceState>> open_target(const Target target) {
-  return TargetAccess::open(target)(target.workers());
+  return open_target(target, DevicePipelineMemoryLimit{});
+}
+
+Result<std::shared_ptr<DeviceState>>
+open_target(const Target target,
+            const DevicePipelineMemoryLimit pipeline_memory) {
+  auto device = TargetAccess::open(target)(target.workers());
+  if (!device) {
+    return device;
+  }
+  const Status initialized = initialize_device_state(**device, pipeline_memory);
+  if (!initialized) {
+    return Result<std::shared_ptr<DeviceState>>::fail(initialized.reason());
+  }
+  return device;
 }
 
 Result<std::shared_ptr<DeviceState>> open_target(const Target target,
                                                  const Compile resources) {
   auto device = open_target(target);
+  if (!device) {
+    return device;
+  }
+  const Status configured = own_compile(*device, resources);
+  return configured
+             ? device
+             : Result<std::shared_ptr<DeviceState>>::fail(configured.reason());
+}
+
+Result<std::shared_ptr<DeviceState>>
+open_target(const Target target, const Compile resources,
+            const DevicePipelineMemoryLimit pipeline_memory) {
+  auto device = open_target(target, pipeline_memory);
   if (!device) {
     return device;
   }

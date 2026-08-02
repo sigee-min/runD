@@ -98,7 +98,7 @@ namespace {
          OneLayout(
              VulkanSegmentedScanSource(rund::kernel::SegmentedScanElement::U32,
                                        rund::kernel::ComputeDomain::U32,
-                                       "block"),
+                                       VulkanSegmentedScanStage::Block),
              "layout(set = 0, binding = 0, std430) readonly buffer Params {\n"
              "  uint64_t element_count; uint64_t block_size;\n"
              "  uint64_t block_count; uint inclusive; uint reserved;\n"
@@ -106,7 +106,8 @@ namespace {
          OneLayout(
              VulkanSegmentedScanSource(
                  rund::kernel::SegmentedScanElement::U32,
-                 rund::kernel::ComputeDomain::U32, "block"),
+                 rund::kernel::ComputeDomain::U32,
+                 VulkanSegmentedScanStage::Block),
              "    if (bad != 0u) { atomicMax(segment_status, bad); }\n"
              "    barrier();\n"
              "    if (lane == 0u) {\n") &&

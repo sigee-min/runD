@@ -5,8 +5,10 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-[[nodiscard]] inline std::string VulkanSortPrefixSource() {
-  std::string source;
+template <typename Sink>
+[[nodiscard]] bool AppendVulkanSortPrefixSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink source{sink};
   source += "layout(set = 0, binding = 1, std430) buffer BlockCounts {\n";
   source += "  uint block_counts[];\n};\n";
   source += "layout(set = 0, binding = 5, std430) buffer BlockOffsets {\n";
@@ -55,11 +57,13 @@ namespace rund::node::accel::detail {
   source += "    block_counts[totals + bucket] = local_carry;\n";
   source += "  }\n";
   source += "}\n";
-  return source;
+  return source.ok();
 }
 
-[[nodiscard]] inline std::string VulkanSortBaseOffsetSource() {
-  std::string source;
+template <typename Sink>
+[[nodiscard]] bool AppendVulkanSortBaseOffsetSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink source{sink};
   source += "layout(set = 0, binding = 1, std430) buffer BlockCounts {\n";
   source += "  uint block_counts[];\n};\n";
   source += "shared uint local_values[kSortBucketCount];\n";
@@ -79,7 +83,7 @@ namespace rund::node::accel::detail {
   source += "  }\n";
   source += "  block_counts[totals + tid] = local_values[tid] - value;\n";
   source += "}\n";
-  return source;
+  return source.ok();
 }
 #endif
 

@@ -202,9 +202,9 @@ driver, and driver-details identity to remain the same; a driver-path change is
 a new environment, not a performance regression sample.
 
 The optional current-source `--resident`, `--collective`, `--sort`, `--bulk`,
-`--batch`, `--pipeline`, `--pipeline-profile`, `--recurrence`, and
-`--window-repeat` diagnostics are intentionally outside the installed-Release
-baseline route. `--resident`
+`--batch`, `--pipeline`, `--checkpoint`, `--pipeline-profile`, `--recurrence`,
+`--window-repeat`, `--plan-memory`, and `--prepare-memory` diagnostics are
+intentionally outside the installed-Release baseline route. `--resident`
 isolates resident creation at 1,024 and 1,048,576 elements, validates the first
 execution and output, and reports CPU plus one selected backend without
 changing the canonical algorithm or memory placement. `--bulk` compiles one canonical
@@ -222,6 +222,67 @@ only to the monorepo `RUND_COMPUTE_FOCUS` target that owns focused modes; the
 installed executable does not accept focused modes. This keeps private Kernel
 headers out of the SDK consumer boundary and makes a stale internal include a
 compile failure instead of an undeclared package dependency.
+
+`tools/measure/compute/run --plan-memory <backend>` fixes
+`Max = 516096`, `Tile = 8192`, and `K = 63`, then compiles a Seed graph with
+500 alternating Scan/Map pairs and freezes the issue-shaped sequence: an
+`N = 64` nested window group, a later consumer of its published result, an
+ordinary 64-iteration recurrence, an `N = 1` nested window group, and a final
+publish/commit. The reduced public reproducer has exactly 140 compact route
+templates and 4,413 authored commands. The issue reports 243/4,454 for its
+full consumer graph; the checked-in reduced harness exercises the named
+interactions but does not claim exact graph equivalence or invent work whose
+source and binding topology were not published. Its only `prepare()` call uses
+a budget one byte
+below `peak_bytes` and must fail with `PipelineMemoryBudget` without a device
+allocation; the mode never materializes a Pipeline. Its CSV reports all
+four disjoint preparation byte components, logical `peak_bytes`, exact CPU
+`arena_extent_bytes`, page-rounded Device `committed_peak_bytes`,
+logical/live/physical reports, structural counts, planning status, and both
+process current RSS and process maximum RSS before/after. Current residency is
+sampled at each boundary; maximum RSS remains diagnostic process high-water
+evidence rather than an ownership attribution.
+
+`tools/measure/compute/run --prepare-memory <backend>` is the sole focused
+route allowed to materialize that same product-scale builder. It applies
+`MemoryBudget{plan.peak_bytes}`, requires exact prepared-plan identity, and
+reports Pipeline Host, Tile, Resident, Staging, and Device current/peak rows,
+preparation wall time, process current/maximum RSS, and the complete public
+failure location if the backend rejects. A successful row proves the product
+owner stayed inside the frozen structural gates by comparing the consumed
+logical host/native bytes, source-transient bound, descriptor/command/native
+object counts, and semantic fingerprint with the frozen accelerator limit.
+Separate backend Host/Device/Staging rows reconcile into the complete public
+counters. A fixed, allocation-free `memory_snapshot()` walk also reports the
+largest nonzero retained group as category/use/index/current bytes with the
+explicit `pipeline` lifetime. Plan-only and failed rows instead say
+`not_materialized`; their existing `largest_*` columns remain plan workspace
+coordinates and are not mislabeled as observed retained owners. The acceptance
+row also records the number and cumulative requested bytes of C++
+`operator new` calls during the preparation interval. Those two fields expose
+allocation topology and requested payload; they are diagnostic totals, not a
+simultaneous high-water, and do not claim visibility into C/Objective-C or
+driver-private allocation.
+The acceptance gate sets a ceiling at preparation-start current RSS plus
+`committed_peak_bytes`. The caller buffers and compiled Programs in
+`persistent_bytes` already exist at that baseline and cannot be added again.
+Preparation-end current RSS must fit that ceiling. A newly established process
+maximum must also fit it; an unchanged earlier maximum is not attributed to
+preparation. This is the sole RSS acceptance comparison. `peak_bytes` remains
+the exact logical `MemoryBudget` authority, while `arena_extent_bytes` exposes
+the unrounded CPU mapping span after internal alignment. Process RSS also includes allocator
+metadata, runtime stacks, and backend-private storage that neither field may
+relabel as exact runD payload; if the whole observation crosses the committed
+envelope after every owned preparation contract passes, the row is
+`process_rss_contract_failed`. It remains a failed product contract instead of
+hiding the gap in a persistent-byte allowance.
+This measurement prevents an earlier compiler/setup peak from hiding a later
+multi-gigabyte preparation spike without relabeling opaque allocator or driver
+bytes as an exact `PipelinePlan` component; physical Device and process RSS
+rows remain separately named telemetry. An unavailable
+backend is reported as unavailable, while any other rejection is admissible
+only with the public Capacity code or a known stable native preparation
+location.
 
 `tools/measure/compute/run --sort <backend>` uses the same dense and bounded
 sparse Sort workloads, result-hash parity, resident preparation, and zero-warm
@@ -493,22 +554,39 @@ lower to more than one native dispatch. The wall ratio therefore measures
 submission, control, and backend command-path effects for this declared
 workload; it is not an algebraic claim about every Action body.
 
-Metal rows on Apple identify the reusable ICB path. Vulkan rows whose
-environment reports MoltenVK prove the Vulkan API, SPIR-V, descriptor,
+Metal rows on Apple identify the calibrated size-class ICB path. Vulkan rows
+whose environment reports MoltenVK prove the Vulkan API, SPIR-V, descriptor,
 push-constant, command-buffer, and barrier path over that translation layer;
 they are not native Vulkan throughput evidence.
 The Metal wall time includes the hard-cut executor's remaining host envelope:
 one outer command-buffer/encoder lifecycle, one bulk resource-residency call,
-one full-ICB range call, commit/completion, and fixed control observation. It
-contains no runD command/range/binding/state traversal. The canonical stream
-still includes the device cost of frozen commands whose inactive payload
-threads return through uniform guards. The exact aggregate stream instead
-contains one `K`-threadgroup tile dispatch, one ICB Buffer barrier, and one
-ordered finalize dispatch; it has no inactive guard commands but still pays
-fixed-capacity tile work and the same host envelope. One nested submit and zero
-binding mutation must therefore be interpreted with both the selected
-structural path and the measured wall result, not as literally zero host or
-inactive-device cost.
+`C = ceil(D / 65,536)` retained ICB range calls, commit/completion, and fixed
+control observation. It contains no runD command/binding/indirect-grid/state
+traversal; its only host stream walk is the `C` compact 16-byte chunk records.
+The preparation-memory row must report the frozen/consumed chunk counts and the
+sum of device-calibrated `allocatedSize` bytes, not a coefficient or guessed
+driver allocation. The canonical stream still includes the device cost of
+frozen commands whose inactive payload threads return through uniform guards.
+The exact aggregate stream instead contains one `K`-threadgroup tile dispatch,
+one ICB Buffer barrier, and one ordered finalize dispatch in a two-command
+size-class chunk; it has no inactive guard commands but still pays
+fixed-capacity tile work and the same host envelope with `C = 1`. One nested
+submit and zero binding mutation must therefore be interpreted with both the
+selected structural path and the measured wall result, not as literally zero
+host or inactive-device cost.
+
+The explicit native chunk-boundary contract is
+`tools/measure/compute/run --metal-icb-boundary`. It is Apple-only,
+`EXCLUDE_FROM_ALL`, and absent from CTest, so default verification retains only
+the allocation-free size-class cases. The probe must encode and execute 65,537
+real ICB dispatches as capacities `65,536 + 1`, place a fixed-value write at
+the last full-chunk command and its read at the first tail command, call the
+same chunk-loop helper as production, and complete through exactly one outer
+command-buffer submit. Its CSV row is admissible only when `chunks=2`,
+`boundary=65536`, `boundary_barriers=1`, `command_submits=1`, and `result`
+equals unsigned `0x13579bdf`; `full_bytes` and `tail_bytes` are the device's
+actual `allocatedSize` values, while `elapsed_us` is diagnostic rather than a
+baseline speed claim.
 
 ### Input-Sealed Repetition Throughput
 

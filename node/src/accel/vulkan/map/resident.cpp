@@ -77,16 +77,17 @@ bool ValidateVulkanMapHistoryOutputs(const VulkanMapEncodeResources &map,
   if (!map.history_recurrence) {
     return true;
   }
-  if (map.adapter == nullptr || map.plan.output_buffer_count == 0u ||
+  if (map.adapter == nullptr || map.prepared == nullptr ||
+      map.prepared->plan.output_buffer_count == 0u ||
       map.bindings.resident_outputs.count !=
-          map.plan.output_buffer_count ||
+          map.prepared->plan.output_buffer_count ||
       map.windows.empty()) {
     reason = "compute_pipeline_recurrence_history_invalid";
     return false;
   }
   for (const rund::kernel::ComputeDispatchWindow &window : map.windows) {
     for (std::uint64_t output = 0u;
-         output < map.plan.output_buffer_count; ++output) {
+         output < map.prepared->plan.output_buffer_count; ++output) {
       const rund::kernel::ResidentBufferRef *const ref =
           map.bindings.resident_outputs.ref(output);
       VkDeviceSize offset = 0u;

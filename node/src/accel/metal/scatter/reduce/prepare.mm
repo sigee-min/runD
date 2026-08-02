@@ -5,6 +5,7 @@
 #include "../../adapter.hpp"
 #include "../../buffer/owner.hpp"
 #include "../../buffer/resident/batch.hpp"
+#include "../../pipeline/template.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -31,7 +32,8 @@ void DestroyMetalScatterReduce(void *const raw) {
 
 rund::AccelCheck PrepareMetalScatterReduce(
     const rund::AccelDevice &pick, const rund::kernel::ScatterReducePlan &plan,
-    const ScatterReduceBinds &bindings, std::shared_ptr<void> &resources) {
+    const ScatterReduceBinds &bindings, std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   MetalAdapter *const adapter = MetalAdapterFromPick(pick);
@@ -70,11 +72,19 @@ rund::AccelCheck PrepareMetalScatterReduce(
   raw->counts =
       AcquireMetalBuffer(*adapter, plan.output_count * sizeof(std::uint32_t),
                          MetalBufferUsage::Scratch);
+  bool pipeline_ready = false;
+  if (pipelines == nullptr) {
+    pipeline_ready = AcquireMetalScatterReducePipelines(
+        *adapter, plan, raw->control_pipeline, raw->init_pipeline,
+        raw->fold_pipeline);
+  } else if (pipelines->ready(3u)) {
+    raw->control_pipeline = pipelines->stages[0u];
+    raw->init_pipeline = pipelines->stages[1u];
+    raw->fold_pipeline = pipelines->stages[2u];
+    pipeline_ready = true;
+  }
   if (raw->status.buffer == nullptr || raw->indirect.buffer == nullptr ||
-      raw->counts.buffer == nullptr ||
-      !AcquireMetalScatterReducePipelines(*adapter, plan, raw->control_pipeline,
-                                          raw->init_pipeline,
-                                          raw->fold_pipeline)) {
+      raw->counts.buffer == nullptr || !pipeline_ready) {
     return {false, "accel_metal_pipeline_unavailable"};
   }
   resources = std::move(owned);
@@ -84,6 +94,7 @@ rund::AccelCheck PrepareMetalScatterReduce(
   (void)plan;
   (void)bindings;
   (void)resources;
+  (void)pipelines;
   return {false, "accel_metal_unavailable"};
 #endif
 }

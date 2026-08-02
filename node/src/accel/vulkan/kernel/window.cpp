@@ -4,6 +4,7 @@
 
 #include "copy.hpp"
 #include "lease.hpp"
+#include "pipeline/source_artifact.hpp"
 
 #include "../../kernel/footprint.hpp"
 #include "../../kernel/recurrence.hpp"
@@ -22,13 +23,14 @@
 #include <limits>
 #include <mutex>
 #include <new>
+#include <stdexcept>
 #include <string>
 
 namespace rund::node::accel::detail {
 namespace {
 
-[[nodiscard]] const std::string &WindowSource() {
-  static const std::string source = R"GLSL(#version 450
+[[nodiscard]] constexpr std::string_view WindowSource() noexcept {
+  return R"GLSL(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = 256) in;
 layout(set = 0, binding = 0, std430) readonly buffer Terminal0 {
@@ -163,7 +165,6 @@ void main() {
   }
 }
 )GLSL";
-  return source;
 }
 
 struct GateParams final {
@@ -172,10 +173,10 @@ struct GateParams final {
   std::uint32_t target_word{};
 };
 
-static_assert(sizeof(GateParams) == 12u);
+static_assert(sizeof(GateParams) == VulkanGateParameterBytes);
 
-[[nodiscard]] const std::string &GateSource() {
-  static const std::string source = R"GLSL(#version 450
+[[nodiscard]] constexpr std::string_view GateSource() noexcept {
+  return R"GLSL(#version 450
 layout(local_size_x = 1) in;
 layout(set = 0, binding = 0, std430) readonly buffer Source {
   uint source_words[];
@@ -200,7 +201,6 @@ void main() {
       enabled ? source_words[p.source_word + 2u] : 0u;
 }
 )GLSL";
-  return source;
 }
 
 [[nodiscard]] VulkanCollectivePipeline *
@@ -213,11 +213,11 @@ AcquireWindowPipeline(VulkanAdapter &adapter) {
       .ok = true,
       .reason = "ok",
   };
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = WindowSource();
-  artifact.ok = true;
-  artifact.reason = "ok";
+  const rund::kernel::LoweringArtifact artifact =
+      VulkanFixedSourceArtifact(WindowSource());
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(
       adapter, 8u, sizeof(VulkanWindowParams), plan, artifact);
 }
@@ -232,11 +232,11 @@ AcquireGatePipeline(VulkanAdapter &adapter) {
       .ok = true,
       .reason = "ok",
   };
-  rund::kernel::LoweringArtifact artifact{};
-  artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = GateSource();
-  artifact.ok = true;
-  artifact.reason = "ok";
+  const rund::kernel::LoweringArtifact artifact =
+      VulkanFixedSourceArtifact(GateSource());
+  if (!artifact.ok) {
+    return nullptr;
+  }
   return AcquireVulkanCollectivePipeline(adapter, 3u, sizeof(GateParams), plan,
                                          artifact);
 }
@@ -257,7 +257,8 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
       capture.cursor >= capture.capacity ||
       capture.pipeline == VK_NULL_HANDLE || capture.layout == VK_NULL_HANDLE ||
       capture.descriptor == VK_NULL_HANDLE ||
-      resources->adapter->storage_align == 0u) {
+      resources->adapter->storage_align == 0u ||
+      resources->gates.size() >= resources->gate_capacity) {
     return false;
   }
   const VkDeviceSize base =
@@ -282,6 +283,8 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
             },
     });
   } catch (const std::bad_alloc &) {
+    return false;
+  } catch (const std::length_error &) {
     return false;
   }
   VulkanGateRoute &route = resources->gates.back();
@@ -366,9 +369,13 @@ void EncodeDispatchBarrier(const VkCommandBuffer command) noexcept {
 
 } // namespace
 
+std::string_view VulkanWindowSourceText() noexcept { return WindowSource(); }
+
+std::string_view VulkanGateSourceText() noexcept { return GateSource(); }
+
 rund::AccelCheck PrepareVulkanWindow(
     VulkanAdapter &adapter, const std::span<const BackendBatchEntry> entries,
-    const std::uint64_t dispatch_capacity,
+    const std::uint64_t dispatch_capacity, const std::uint64_t gate_capacity,
     const PreparedPipelineStatusLayout &status, const VulkanBuffer &control,
     VulkanWindowResources &resources) {
   resources = {};
@@ -386,10 +393,13 @@ rund::AccelCheck PrepareVulkanWindow(
     state_count = std::max(state_count, window->state + 1u);
   }
   if (route_count == 0u) {
-    return rund::AccelCheck{true, "ok"};
+    return gate_capacity == 0u
+               ? rund::AccelCheck{true, "ok"}
+               : rund::AccelCheck{false, "compute_dispatch_count_mismatch"};
   }
   if (dispatch_capacity == 0u || control.buffer == VK_NULL_HANDLE ||
       control.bytes < sizeof(PreparedPipelineControl) ||
+      gate_capacity > dispatch_capacity ||
       dispatch_capacity > std::numeric_limits<std::uint32_t>::max() ||
       dispatch_capacity > std::numeric_limits<std::uint32_t>::max() / 3u ||
       dispatch_capacity > std::numeric_limits<std::size_t>::max() /
@@ -399,6 +409,7 @@ rund::AccelCheck PrepareVulkanWindow(
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   resources.adapter = &adapter;
+  resources.gate_capacity = gate_capacity;
   resources.state_count = state_count;
   const std::uint64_t state_bytes =
       static_cast<std::uint64_t>(state_count) * sizeof(ResidentState);
@@ -431,8 +442,11 @@ rund::AccelCheck PrepareVulkanWindow(
   try {
     resources.original.resize(static_cast<std::size_t>(dispatch_capacity));
     resources.routes.reserve(route_count);
-    resources.descriptor_leases.reserve(state_count);
+    resources.gates.reserve(static_cast<std::size_t>(gate_capacity));
   } catch (const std::bad_alloc &) {
+    DestroyVulkanWindow(resources);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     DestroyVulkanWindow(resources);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
@@ -572,37 +586,63 @@ rund::AccelCheck PrepareVulkanWindow(
 
   bool ready = false;
   try {
-    std::vector<std::size_t> descriptor_owners(
-        state_count, std::numeric_limits<std::size_t>::max());
-    VulkanLeaseScope lease_scope{adapter, resources.descriptor_leases};
+    constexpr std::size_t no_owner = std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> descriptor_owners(state_count, no_owner);
+    std::size_t unique_state_count = 0u;
+    for (std::size_t index = 0u; index < resources.routes.size(); ++index) {
+      const VulkanWindowRoute &route = resources.routes[index];
+      if (route.params.state >= descriptor_owners.size()) {
+        DestroyVulkanWindow(resources);
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
+      std::size_t &owner = descriptor_owners[route.params.state];
+      if (owner == no_owner) {
+        owner = index;
+        ++unique_state_count;
+        continue;
+      }
+      const VulkanWindowRoute &first = resources.routes[owner];
+      bool same = SameBinding(route.count_binding, first.count_binding);
+      for (std::size_t bank = 0u; same && bank < route.terminal_bindings.size();
+           ++bank) {
+        same = SameBinding(route.terminal_bindings[bank],
+                           first.terminal_bindings[bank]);
+      }
+      if (!same) {
+        DestroyVulkanWindow(resources);
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
+    }
+    if (gate_capacity >
+        std::numeric_limits<std::size_t>::max() - unique_state_count) {
+      DestroyVulkanWindow(resources);
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    resources.descriptor_leases.reserve(
+        unique_state_count + static_cast<std::size_t>(gate_capacity));
     resources.pipeline = AcquireWindowPipeline(adapter);
-    resources.gate_pipeline = AcquireGatePipeline(adapter);
-    ready = resources.pipeline != nullptr && resources.gate_pipeline != nullptr;
+    resources.gate_pipeline =
+        gate_capacity == 0u ? nullptr : AcquireGatePipeline(adapter);
+    ready = resources.pipeline != nullptr &&
+            (gate_capacity == 0u || resources.gate_pipeline != nullptr) &&
+            ReserveVulkanCollectiveDescriptorDemand(
+                adapter, *resources.pipeline, 8u, unique_state_count) &&
+            (gate_capacity == 0u ||
+             ReserveVulkanCollectiveDescriptorDemand(
+                 adapter, *resources.gate_pipeline, 3u, gate_capacity));
+    VulkanLeaseScope lease_scope{adapter, resources.descriptor_leases};
     for (std::size_t index = 0u; ready && index < resources.routes.size();
          ++index) {
       VulkanWindowRoute &route = resources.routes[index];
-      if (route.params.state >= descriptor_owners.size()) {
-        ready = false;
-        break;
-      }
       const std::size_t owner = descriptor_owners[route.params.state];
-      if (owner != std::numeric_limits<std::size_t>::max()) {
+      if (owner != index) {
         const VulkanWindowRoute &first = resources.routes[owner];
-        bool same = SameBinding(route.count_binding, first.count_binding);
-        for (std::size_t bank = 0u;
-             same && bank < route.terminal_bindings.size(); ++bank) {
-          same = SameBinding(route.terminal_bindings[bank],
-                             first.terminal_bindings[bank]);
-        }
-        if (!same || first.descriptor == VK_NULL_HANDLE) {
-          ready = false;
-          break;
-        }
+        ready = first.descriptor != VK_NULL_HANDLE;
         route.descriptor = first.descriptor;
         continue;
       }
-      ready = ready && AcquireVulkanCollectiveDescriptorSet(
-                           adapter, *resources.pipeline, 8u, route.descriptor);
+      ready = AcquireVulkanCollectiveDescriptorSet(adapter, *resources.pipeline,
+                                                   8u, route.descriptor);
       if (!ready) {
         break;
       }
@@ -617,12 +657,11 @@ rund::AccelCheck PrepareVulkanWindow(
           VulkanStorageBindingFor(control)};
       ready =
           WriteVulkanStorageDescriptorSet(adapter, route.descriptor, bindings);
-      if (!ready) {
-        break;
-      }
-      descriptor_owners[route.params.state] = index;
     }
   } catch (const std::bad_alloc &) {
+    DestroyVulkanWindow(resources);
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  } catch (const std::length_error &) {
     DestroyVulkanWindow(resources);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }

@@ -2,6 +2,39 @@
 
 #include <vector>
 
+enum class MetalKernelTemplateKind : std::uint8_t {
+  Program,
+  MapRecurrence,
+};
+
+struct MetalKernelProgramStepTemplate final {
+  MetalKernelOps ops{};
+  // Immutable, kind-specific pipeline/source recipe owner. Route state may
+  // borrow it but never places buffer identity or mutable execution state in
+  // this Program-level slot.
+  std::shared_ptr<const void> immutable{};
+  PreparedBackendManifest manifest{};
+};
+
+struct MetalKernelProgramTemplate final {
+  // Every Metal owner published through the type-erased common registry starts
+  // with this discriminator. Collision callbacks inspect it before casting.
+  MetalKernelTemplateKind kind{MetalKernelTemplateKind::Program};
+  const BackendRun *signature{};
+  BackendTemplateRouteDemand route_demand{};
+  std::vector<MetalKernelProgramStepTemplate> steps{};
+};
+
+static_assert(std::is_standard_layout_v<MetalKernelProgramTemplate>);
+
+[[nodiscard]] inline MetalKernelTemplateKind
+MetalKernelTemplateKindOf(const void *const prepared) noexcept {
+  // A standard-layout object and its first member are pointer-interconvertible.
+  return prepared == nullptr
+             ? MetalKernelTemplateKind::Program
+             : *reinterpret_cast<const MetalKernelTemplateKind *>(prepared);
+}
+
 struct MetalKernelEntry final {
   std::shared_ptr<void> resource{};
   std::shared_ptr<MetalViewLowering> view{};
@@ -17,6 +50,7 @@ struct MetalReset final {
 
 struct MetalKernelResources final {
   MetalAdapter *adapter{};
+  std::shared_ptr<MetalKernelProgramTemplate> program{};
   InlineIndexedStorage<MetalKernelEntry, kInlineBoundStepCapacity> entries{};
   std::vector<MetalReset> resets{};
   std::shared_ptr<void> reset_pipeline{};

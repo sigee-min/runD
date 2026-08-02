@@ -13,7 +13,9 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
+struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
 ExecuteMetalCompact(const rund::AccelDevice &pick,
@@ -24,7 +26,9 @@ ExecuteMetalCompact(const rund::AccelDevice &pick,
                                         const rund::kernel::CompactDesc &desc,
                                         const rund::kernel::CompactPlan &plan,
                                         const CompactBinds &bindings,
-                                        std::shared_ptr<void> &resources);
+                                        std::shared_ptr<void> &resources,
+                                        const MetalKernelImmutablePipelines *pipelines =
+                                            nullptr);
 [[nodiscard]] rund::AccelCheck EncodeMetalCompact(MetalAdapter &adapter,
                                        const std::shared_ptr<void> &resources,
                                        void *command_encoder);
@@ -39,7 +43,8 @@ ExecuteVulkanCompact(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck PrepareVulkanCompact(
     const rund::AccelDevice &pick, const rund::kernel::CompactDesc &desc,
     const rund::kernel::CompactPlan &plan,
-    const CompactBinds &bindings, std::shared_ptr<void> &resources);
+    const CompactBinds &bindings, std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck EncodeVulkanCompact(VulkanAdapter &adapter,
                                         const std::shared_ptr<void> &resources,
                                         void *command_buffer);

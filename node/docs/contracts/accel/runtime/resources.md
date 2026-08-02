@@ -161,6 +161,38 @@ No borrowed buffer can enter this path. Command-buffer completion therefore
 precedes the last possible release of every encoded pipeline, buffer, and
 parameter owner by construction rather than by an API fallback.
 
+Metal Pipeline cold capture has one producer-owned binding-prefix contract.
+Operation manifests publish their maximum non-guard argument index plus one;
+View, status, telemetry, window, publication, and recurrence control encoders
+contribute only when active, and stream composition takes their maximum. The
+guard adds one binding row per guarded command. Command and binding vectors are
+reserved once to the checked public-plan upper before encoding. The parameter
+snapshot vector grows by deterministic exact-capacity reserves that may never
+exceed the same frozen `backend_parameter_bytes` payload/capacity upper.
+Encoder calls outside the frozen prefix fail closed, and appends cannot grow
+beyond those reservations. No current Pipeline encoder authors dynamic threadgroup-memory
+bindings, so no host threadgroup snapshot or ICB replay owner is retained.
+
+Metal Pipeline command storage has one adapter-calibrated size-class authority.
+Adapter opening allocates the exact Pipeline descriptor at capacities
+`1, 2, ..., 65,536`, freezes every nonzero monotonic `allocatedSize`, and then
+releases each probe. The descriptor admits both concurrent dispatch command
+types, inherits neither pipeline state nor Buffers, exposes 31 kernel Buffer
+bindings and zero dynamic threadgroup-memory bindings where supported, and
+uses Shared storage. Because the SDK defines `maxKernelBufferBindCount` as a
+maximum index but native execution rejects index 30 at descriptor value 30,
+the calibrated descriptor retains the empirically required value 31 for
+indices `0..30`. Pipeline planning and cold materialization call the same
+chunk decomposition and allocation helper: full chunks contain 65,536
+commands, the optional tail uses its smallest power-of-two class, and every
+materialized native size must match the frozen calibration row. A calibration
+failure leaves standalone Metal execution available and rejects only Pipeline
+planning. The prepared owner retains one 16-byte record per actual chunk;
+warm submission walks only those fixed records and the bulk residency slice,
+never capture descriptors or logical steps. A hazard crossing a native chunk
+boundary is carried by the next record and emitted as one direct Buffer-scope
+barrier before that ICB range.
+
 Vulkan owns one adapter-local envelope of eight command slots. Each slot owns
 exactly one command pool, primary command buffer, fence, and optional two-query
 timestamp pool. Preparation creates the complete ring before publishing a Job;
@@ -388,7 +420,10 @@ where `logical_index` is the dispatch lane for a direct binding and the
 validated index value for an indexed source. Thus native descriptor base plus
 the specialized address equals the authored byte address bit for bit. Runtime
 specialization replaces one base declaration and one stride declaration per
-binding; it never searches for backend-source use patterns. This covers
+binding; it never searches for backend-source use patterns. The edit plan is a
+fixed stack array bounded by twice `kMaxComputeBindingCount`, and the shared
+count/materialize recipe allocates only the retained final source, so Map
+specialization owns no heap scratch or source-transient memory. This covers
 ordinary and wide writes as well as both the index and source sides of
 `ReadAt`, while every bound range remains within the device limit. No copy,
 extra dispatch, runtime size strategy, or backend graph is introduced. A

@@ -16,13 +16,15 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
   auto *const map = static_cast<MetalMapEncodeResources *>(resources.get());
   id<MTLComputeCommandEncoder> encoder =
       (__bridge id<MTLComputeCommandEncoder>)command_encoder;
-  if (map == nullptr || map->adapter != &adapter || encoder == nil ||
-      map->windows.empty()) {
+  if (map == nullptr || map->adapter != &adapter || map->prepared == nullptr ||
+      encoder == nil || map->windows.empty()) {
     SetMetalLastError(adapter, "compute_plan_invalid");
     return rund::AccelCheck{false, "compute_plan_invalid"};
   }
   id<MTLComputePipelineState> pipeline =
-      (__bridge id<MTLComputePipelineState>)map->pipeline.get();
+      map->prepared == nullptr
+          ? nil
+          : (__bridge id<MTLComputePipelineState>)map->prepared->pipeline.get();
   if (pipeline == nil || map->param.buffer == nullptr) {
     SetMetalLastError(adapter, "accel_metal_command_unavailable");
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
@@ -35,8 +37,8 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
     [encoder setBytes:&map->iterations
                length:sizeof(map->iterations)
               atIndex:static_cast<NSUInteger>(
-                          map->plan.input_buffer_count +
-                          map->plan.output_buffer_count + 1u)];
+                          map->prepared->plan.input_buffer_count +
+                          map->prepared->plan.output_buffer_count + 1u)];
   }
   id<MTLBuffer> indirect_args = nil;
   if (map->controlled()) {
@@ -62,7 +64,7 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
       SetMetalLastError(adapter, "accel_metal_command_unavailable");
       return rund::AccelCheck{false, "accel_metal_command_unavailable"};
     }
-    if (!map->checks.empty()) {
+    if (!map->prepared->checks.empty()) {
       id<MTLComputePipelineState> const check_pipeline =
           (__bridge id<MTLComputePipelineState>)map->check_pipeline.get();
       if (check_pipeline == nil) {
@@ -80,8 +82,9 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
                              map->control_predicate.ref.offset_bytes +
                              map->control.predicate_byte_offset)
                  atIndex:1u];
-      for (std::size_t index = 0u; index < map->checks.size(); ++index) {
-        const MetalMapCheck check = map->checks[index];
+      for (std::size_t index = 0u; index < map->prepared->checks.size();
+           ++index) {
+        const MetalMapCheck check = map->prepared->checks[index];
         const auto *const ref =
             map->bindings.resident_inputs.ref(check.binding);
         const MetalResidentBufferResult &resident =
@@ -97,10 +100,12 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
       }
       [encoder setBuffer:control_params
                   offset:static_cast<NSUInteger>(map->control_config_offset)
-                 atIndex:static_cast<NSUInteger>(map->checks.size() + 2u)];
+                 atIndex:static_cast<NSUInteger>(map->prepared->checks.size() +
+                                                 2u)];
       [encoder setBuffer:control_status
                   offset:0u
-                 atIndex:static_cast<NSUInteger>(map->checks.size() + 3u)];
+                 atIndex:static_cast<NSUInteger>(map->prepared->checks.size() +
+                                                 3u)];
       [encoder dispatchThreads:MTLSizeMake(256u, 1u, 1u)
           threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
       [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
@@ -137,8 +142,9 @@ rund::AccelCheck EncodeMetalMap(MetalAdapter &adapter,
   }
   std::size_t window_index = 0u;
   for (const rund::kernel::ComputeDispatchWindow &window : map->windows) {
-    if (!EncodeResidentWindow(adapter, encoder, pipeline, map->plan, window,
-                              map->bindings, map->resident, map->input_plans,
+    if (!EncodeResidentWindow(adapter, encoder, pipeline,
+                              map->prepared->plan, window, map->bindings,
+                              map->resident, map->prepared->input_plans,
                               indirect_args,
                               static_cast<NSUInteger>(window_index * 4u *
                                                       sizeof(std::uint32_t)))) {

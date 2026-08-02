@@ -4,7 +4,7 @@
 
 namespace rund::kernel::compute_lowering_detail {
 
-inline void AppendMetalU128Core(std::string &out) {
+template <typename Sink> inline void AppendMetalU128Core(Sink &out) {
   out += R"METAL(
 struct RundU128 {
   ulong hi;
@@ -60,7 +60,7 @@ inline RundU128 RundMulWide64(ulong lhs, ulong rhs) {
 )METAL";
 }
 
-inline void AppendMetalU128Division(std::string &out) {
+template <typename Sink> inline void AppendMetalU128Division(Sink &out) {
   out += R"METAL(
 inline ulong RundUnsignedDivU128ByU64(RundU128 numerator, ulong denominator) {
   if (denominator == 0ul) { return 0xfffffffffffffffful; }
@@ -84,7 +84,8 @@ inline ulong RundUnsignedDivU128ByU64(RundU128 numerator, ulong denominator) {
 )METAL";
 }
 
-inline void AppendMetalU128IntegerSquareRoot(std::string &out) {
+template <typename Sink>
+inline void AppendMetalU128IntegerSquareRoot(Sink &out) {
   out += R"METAL(
 inline ulong RundUnsignedSqrtU128ToU64(RundU128 value) {
   RundU128 result = RundMakeU128(0ul, 0ul);

@@ -1,6 +1,7 @@
 #include "model.hpp"
 
 #include "../../../domain.hpp"
+#include "../../kernel/source_recipe.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -44,19 +45,20 @@ bool rund_wide_fits_u64(RundWide value) {
 )GLSL";
 }
 
-[[nodiscard]] std::string Header() {
-  std::string source =
-      "#version 450\n"
-      "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n";
-  AppendSegmentedReduceShaderModel(source);
-  return source;
+template <typename Sink>
+[[nodiscard]] bool EmitHeader(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return sink.append("#version 450\n") &&
+         sink.append("#extension "
+                     "GL_EXT_shader_explicit_arithmetic_types_int64 : "
+                     "require\n") &&
+         AppendSegmentedReduceShaderModel(sink);
 }
 
-} // namespace
-
-std::string VulkanSegmentedClassifySource() {
-  std::string source = Header();
-  source += R"GLSL(
+template <typename Sink>
+[[nodiscard]] bool EmitSegmentedClassifySource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return EmitHeader(sink) && sink.append(R"GLSL(
 layout(local_size_x = RUND_SEGMENT_INDEX_WIDTH) in;
 layout(set = 0, binding = 0, std430) readonly buffer Params {
   uint64_t count;
@@ -87,13 +89,13 @@ void main() {
     if (lane == 0u) { counts[block] = partial[0]; }
   }
 }
-)GLSL";
-  return source;
+)GLSL");
 }
 
-std::string VulkanSegmentedPrefixSource() {
-  std::string source = Header();
-  source += R"GLSL(
+template <typename Sink>
+[[nodiscard]] bool EmitSegmentedPrefixSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return EmitHeader(sink) && sink.append(R"GLSL(
 layout(local_size_x = RUND_SEGMENT_INDEX_WIDTH) in;
 layout(set = 0, binding = 0, std430) readonly buffer Params {
   uint64_t count;
@@ -154,13 +156,13 @@ void main() {
     dispatch[2] = 1u;
   }
 }
-)GLSL";
-  return source;
+)GLSL");
 }
 
-std::string VulkanSegmentedScatterSource() {
-  std::string source = Header();
-  source += R"GLSL(
+template <typename Sink>
+[[nodiscard]] bool EmitSegmentedScatterSource(Sink &sink)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  return EmitHeader(sink) && sink.append(R"GLSL(
 layout(local_size_x = RUND_SEGMENT_INDEX_WIDTH) in;
 layout(set = 0, binding = 0, std430) readonly buffer Params {
   uint64_t count;
@@ -204,19 +206,23 @@ void main() {
     barrier();
   }
 }
-)GLSL";
-  return source;
+)GLSL");
 }
 
-std::string
-VulkanSegmentedReduceSource(const rund::kernel::SegmentedReducePlan &plan,
-                            const rund::kernel::ComputeDomain domain) {
+template <typename Sink>
+[[nodiscard]] bool EmitSegmentedReduceSource(
+    Sink &sink, const rund::kernel::SegmentedReducePlan &plan,
+    const rund::kernel::ComputeDomain domain)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
   const bool wide = plan.element_bytes == sizeof(rund::kernel::u64);
   const bool signed_domain = IsSignedDomain(domain);
   const char *const storage = wide ? "uint64_t" : "uint";
   const char *const value = wide ? (signed_domain ? "int64_t" : "uint64_t")
                                  : (signed_domain ? "int" : "uint");
-  std::string source = Header();
+  if (!EmitHeader(sink)) {
+    return false;
+  }
+  VulkanSourceTextSink source{sink};
   source += R"GLSL(
 layout(local_size_x = RUND_SEGMENT_INDEX_WIDTH) in;
 )GLSL";
@@ -299,7 +305,7 @@ void main() {
   }
 }
 )GLSL";
-    return source;
+    return source.ok();
   }
   const char *const maximum =
       wide ? (signed_domain ? "int64_t(0x7fffffffffffffffUL)"
@@ -361,7 +367,55 @@ void main() {
   }
 }
 )GLSL";
-  return source;
+  return source.ok();
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanSegmentedReduceSource(
+    Sink &sink, const rund::kernel::SegmentedReducePlan &plan,
+    const rund::kernel::ComputeDomain domain,
+    const VulkanSegmentedReduceStage stage)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  switch (stage) {
+  case VulkanSegmentedReduceStage::Classify:
+    return EmitSegmentedClassifySource(sink);
+  case VulkanSegmentedReduceStage::Prefix:
+    return EmitSegmentedPrefixSource(sink);
+  case VulkanSegmentedReduceStage::Scatter:
+    return EmitSegmentedScatterSource(sink);
+  case VulkanSegmentedReduceStage::Reduce:
+    return EmitSegmentedReduceSource(sink, plan, domain);
+  }
+  return false;
+}
+
+} // namespace
+
+std::string VulkanSegmentedReduceSource(
+    const rund::kernel::SegmentedReducePlan &plan,
+    const rund::kernel::ComputeDomain domain,
+    const VulkanSegmentedReduceStage stage) {
+  std::uint64_t exact_bytes = 0u;
+  const auto emit = [&](auto &sink)
+      noexcept(noexcept(EmitVulkanSegmentedReduceSource(sink, plan, domain,
+                                                         stage))) {
+    return EmitVulkanSegmentedReduceSource(sink, plan, domain, stage);
+  };
+  return backend_source_recipe::bytes(emit, exact_bytes)
+             ? backend_source_recipe::materialize(emit, exact_bytes)
+             : std::string{};
+}
+
+bool VulkanSegmentedReduceSourceBytes(
+    const rund::kernel::SegmentedReducePlan &plan,
+    const rund::kernel::ComputeDomain domain,
+    const VulkanSegmentedReduceStage stage, std::uint64_t &bytes) noexcept {
+  const auto emit = [&](auto &sink)
+      noexcept(noexcept(EmitVulkanSegmentedReduceSource(sink, plan, domain,
+                                                         stage))) {
+    return EmitVulkanSegmentedReduceSource(sink, plan, domain, stage);
+  };
+  return backend_source_recipe::bytes(emit, bytes);
 }
 
 #endif

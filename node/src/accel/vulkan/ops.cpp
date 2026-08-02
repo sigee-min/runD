@@ -7,6 +7,7 @@
 #include "buffer/create/telemetry.hpp"
 #include "buffer/resident/model.hpp"
 #include "kernel.hpp"
+#include "kernel/manifest.hpp"
 #include "ops.hpp"
 
 #include <node/accel/buffer.hpp>
@@ -206,6 +207,14 @@ const BackendOps Operations{
     .memory = Memory,
     .run = RunVulkanKernel,
     .prepare = PrepareVulkanKernel,
+    .plan_pipeline_private = PlanVulkanPipelinePrivateKernel,
+    .plan_pipeline_program = PlanVulkanPipelineProgram,
+    .plan_pipeline_recurrence = PlanVulkanPipelineRecurrence,
+    .plan_pipeline_structure = PlanVulkanPipelineStructure,
+    .build_step_manifest = BuildVulkanBackendManifest,
+    .same_pipeline_program_template = SameVulkanPipelineProgramTemplate,
+    .same_pipeline_template = SameVulkanPipelineTemplate,
+    .observe_pipeline_template = ObserveVulkanPipelineTemplate,
     .prepare_pipeline_private = PrepareVulkanPipelinePrivateKernel,
     .traffic = VulkanKernelTraffic,
     .run_batch = RunPreparedVulkanBatch,

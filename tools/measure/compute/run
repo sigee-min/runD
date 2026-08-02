@@ -15,6 +15,9 @@ usage() {
     "       tools/measure/compute/run --pipeline-profile <metal|vulkan>" \
     "       tools/measure/compute/run --recurrence <metal|vulkan>" \
     "       tools/measure/compute/run --window-repeat <metal|vulkan>" \
+    "       tools/measure/compute/run --plan-memory <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --prepare-memory <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --metal-icb-boundary" \
     "       -h, --help  Show this help."
 }
 
@@ -24,7 +27,10 @@ if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
 fi
 mode=full
 backend=
-if [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
+if [ "$#" -eq 1 ] && [ "$1" = "--metal-icb-boundary" ]; then
+  mode=metal-icb-boundary
+  backend=metal
+elif [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--collective" ] ||
   [ "$1" = "--sort" ] || [ "$1" = "--bulk" ] ||
   [ "$1" = "--batch" ] ||
@@ -32,7 +38,9 @@ if [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--checkpoint" ] ||
   [ "$1" = "--pipeline-profile" ] ||
   [ "$1" = "--recurrence" ] ||
-  [ "$1" = "--window-repeat" ]; }; then
+  [ "$1" = "--window-repeat" ] ||
+  [ "$1" = "--plan-memory" ] ||
+  [ "$1" = "--prepare-memory" ]; }; then
   case "$2" in
     cpu|metal|vulkan)
       mode=${1#--}
@@ -64,10 +72,22 @@ if [ "$mode" != full ]; then
     exec sh "$root/tools/internal/state/lock" "$root" "$focus" \
       "$0" "$@"
   fi
+  if [ "$mode" = metal-icb-boundary ] && [ "$(uname -s)" != Darwin ]; then
+    printf '%s\n' "--metal-icb-boundary requires native Apple Metal." >&2
+    exit 1
+  fi
   sh "$root/tools/internal/configure/contracts" \
     "$root" "$focus" local Release compute.pipeline \
     -DRUND_NODE_TEST_TAG:STRING= \
     -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend"
+  if [ "$mode" = metal-icb-boundary ]; then
+    sh "$root/tools/internal/state/ninja" -C "$focus" \
+      runD-metal-icb-boundary
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/process/run" 900 \
+      compute.metal-icb-boundary \
+      "$focus/tools/measure/compute/runD-metal-icb-boundary"
+  fi
   sh "$root/tools/internal/state/ninja" -C "$focus" \
     runD-compute-focus
   if [ "$backend" = cpu ]; then

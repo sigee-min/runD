@@ -471,8 +471,8 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   constexpr std::size_t maximum = 6u;
   constexpr std::size_t tile = 2u;
   constexpr std::uint32_t sentinel = 0xA5A55A5Au;
-  constexpr std::array<std::uint32_t, maximum> values{3u, 5u, 7u,
-                                                       11u, 13u, 17u};
+  constexpr std::array<std::uint32_t, maximum> values{3u,  5u,  7u,
+                                                      11u, 13u, 17u};
   constexpr std::array<std::uint32_t, tile> lanes{0u, 1u};
   constexpr std::array<std::uint32_t, 1u> outer_seed{19u};
   constexpr std::array<std::uint32_t, 1u> count_value{5u};
@@ -491,9 +491,9 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
                         "pipeline-installed-window-index", current.base(),
                         [](auto local, auto base) { return local + base; });
                     auto selected = source.gather(indices);
-                    auto active = current.count().map(
-                        "pipeline-installed-window-count",
-                        [](auto value) { return value; });
+                    auto active =
+                        current.count().map("pipeline-installed-window-count",
+                                            [](auto value) { return value; });
                     return rund::compute::outputs(selected, active);
                   })
                   .compile();
@@ -510,8 +510,7 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
                     auto masked = selected.combine(
                         "pipeline-installed-window-mask", enabled,
                         [](auto value, auto active) {
-                          return rund::compute::select(active != 0u, value,
-                                                       0u);
+                          return rund::compute::select(active != 0u, value, 0u);
                         });
                     auto sum = masked.reduce(rund::compute::Reduce::Sum);
                     auto next = outer.combine(
@@ -533,11 +532,10 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
 
   const auto body = rund::compute::tile_repeat<0u>(*seed, *fold);
   auto builder = rund::compute::pipeline(device);
-  builder.windows<maximum, tile>(
-      body, rund::compute::window(*count),
-      rund::compute::read(*outer, *source, *lane),
-      rund::compute::write_final(*final),
-      rund::compute::write_window(*windows));
+  builder.windows<maximum, tile>(body, rund::compute::window(*count),
+                                 rund::compute::read(*outer, *source, *lane),
+                                 rund::compute::write_final(*final),
+                                 rund::compute::write_window(*windows));
   const auto plan = builder.plan();
   if (!plan || plan->outer_window_count != 3u ||
       plan->inner_iteration_count != 0u ||
@@ -557,8 +555,8 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   }
   return observed_final[0] == 58u &&
                  observed_windows ==
-                     std::array<std::uint32_t, maximum>{3u, 5u, 7u, 11u,
-                                                        13u, sentinel} &&
+                     std::array<std::uint32_t, maximum>{3u,  5u,  7u,
+                                                        11u, 13u, sentinel} &&
                  prepared->stats().pipeline.executed_outer_window_count == 3u &&
                  prepared->stats().pipeline.executed_inner_iteration_count == 0u
              ? 0
@@ -640,6 +638,9 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   constexpr std::size_t maximum = 5u;
   constexpr std::size_t tile = 2u;
   constexpr std::size_t inner = 3u;
+  constexpr std::size_t outer_windows = (maximum + tile - 1u) / tile;
+  constexpr std::size_t prepared_templates = outer_windows + 2u + 3u;
+  constexpr std::size_t prepared_commands = outer_windows * (inner + 2u);
   constexpr std::array<std::uint32_t, 1u> outer_seed{10u};
   constexpr std::array<std::uint32_t, 1u> count_value{maximum};
 
@@ -678,10 +679,10 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
                                  rund::compute::read(*outer),
                                  rund::compute::write_final(*output));
   const auto plan = builder.plan();
-  if (!plan || plan->outer_window_count != 3u || plan->tile_capacity != tile ||
-      plan->inner_iteration_count != inner ||
-      plan->prepared_template_count != 9u ||
-      plan->prepared_command_count != 15u) {
+  if (!plan || plan->outer_window_count != outer_windows ||
+      plan->tile_capacity != tile || plan->inner_iteration_count != inner ||
+      plan->prepared_template_count != prepared_templates ||
+      plan->prepared_command_count != prepared_commands) {
     return 2;
   }
 
@@ -692,8 +693,10 @@ static_assert(WritesMutableView<Buffer<std::int32_t>>);
   std::array<std::uint32_t, 1u> actual{};
   const auto read = prepared->read(*output, actual);
   return read && actual[0] == 25u &&
-                 prepared->stats().pipeline.executed_outer_window_count == 3u &&
-                 prepared->stats().pipeline.executed_inner_iteration_count == 9u
+                 prepared->stats().pipeline.executed_outer_window_count ==
+                     outer_windows &&
+                 prepared->stats().pipeline.executed_inner_iteration_count ==
+                     outer_windows * inner
              ? 0
              : 4;
 }

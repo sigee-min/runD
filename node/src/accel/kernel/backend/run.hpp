@@ -24,6 +24,7 @@
 namespace rund::node::accel::detail {
 
 struct BackendOps;
+struct PreparedKernelTemplateRegistry;
 
 struct BoundReset final {
   rund::kernel::ResidentBufferRef ref{};
@@ -107,6 +108,28 @@ static_assert(sizeof(BoundStep) <= 512u,
 static_assert(sizeof(BoundStepStorage) <= 2048u,
               "inline canonical step storage exceeded its footprint budget");
 
+// Exact shared-template route demand frozen by Pipeline preparation before
+// the first private backend route is materialized. `owner_count` counts unique
+// prepared route owners in one stream and `route_copies` is the public
+// generation stride (one ordinary stream or two transactional streams).
+// `capacity` is their checked product and therefore sizes the complete shared
+// template pool once, independent of which route observes the first miss.
+struct BackendTemplateRouteDemand final {
+  std::uint32_t owner_count{};
+  std::uint32_t route_copies{};
+  std::uint32_t capacity{};
+
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    return owner_count == 0u && route_copies == 0u && capacity == 0u;
+  }
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return owner_count != 0u &&
+           (route_copies == 1u || route_copies == 2u) && capacity != 0u &&
+           static_cast<std::uint64_t>(owner_count) * route_copies == capacity;
+  }
+};
+
 struct BackendRun final {
   const rund::AccelDevice *pick = nullptr;
   const BackendOps *ops = nullptr;
@@ -120,6 +143,12 @@ struct BackendRun final {
   const KernelViewLayout *views = nullptr;
   const RunBinds *view_binds = nullptr;
   const KernelScratchLayout *scratch = nullptr;
+  // Non-owning cold-preparation cursor. Prepared route resources retain any
+  // immutable template owners they acquire from this registry.
+  PreparedKernelTemplateRegistry *templates = nullptr;
+  // Non-owning scalar cursor valid only during one private route
+  // materialization. The cursor clears it before returning to the caller.
+  BackendTemplateRouteDemand template_route_demand{};
   std::uint32_t *failed_node = nullptr;
 };
 
@@ -232,9 +261,15 @@ enum class BackendPublishKind : std::uint8_t {
 
 struct BackendPublish final {
   std::array<BackendRead, 3u> sources{};
+  std::array<std::uint32_t, 3u> source_ordinals{
+      std::numeric_limits<std::uint32_t>::max(),
+      std::numeric_limits<std::uint32_t>::max(),
+      std::numeric_limits<std::uint32_t>::max()};
   BackendRead count{};
+  std::uint32_t count_ordinal{std::numeric_limits<std::uint32_t>::max()};
   rund::kernel::ResidentBufferRef target{};
   std::shared_ptr<void> target_handle{};
+  std::uint32_t target_ordinal{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t final{};
   std::uint32_t maximum{};

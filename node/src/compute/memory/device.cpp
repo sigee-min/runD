@@ -25,6 +25,31 @@ MemoryStats device_memory(const std::shared_ptr<DeviceState> &state) noexcept {
   return stats;
 }
 
+DevicePipelineMemoryReport
+device_pipeline_memory(const std::shared_ptr<DeviceState> &state) noexcept {
+  if (state == nullptr) {
+    return {};
+  }
+  const storage::Report report = state->pipeline_memory_budget.report();
+  if (!report) {
+    return {};
+  }
+  return DevicePipelineMemoryReport{
+      .backend = state->backend,
+      .capacity_bytes = report.capacity_bytes,
+      .committed_bytes = report.allocated_bytes,
+      .preparing_bytes = report.reserved_bytes,
+      .available_bytes = report.available_bytes,
+      .peak_committed_bytes = report.peak_allocated_bytes,
+      .peak_preparing_bytes = report.peak_reserved_bytes,
+      .peak_used_bytes = report.peak_used_bytes,
+      .admission_count = report.reservation_count,
+      .commit_count = report.commit_count,
+      .release_count = report.refund_count,
+      .rejection_count = report.rejection_count,
+  };
+}
+
 MemorySnapshot
 device_memory_snapshot(const std::shared_ptr<DeviceState> &state,
                        const std::span<MemoryEntry> entries) noexcept {

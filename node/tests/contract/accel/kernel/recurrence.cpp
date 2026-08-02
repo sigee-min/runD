@@ -1,11 +1,17 @@
 #include "src/accel/kernel/recurrence.hpp"
+#include "src/accel/kernel/backend/execute.hpp"
+#include "src/accel/kernel/recurrence/plan.hpp"
+#include "src/accel/kernel/recurrence/source.hpp"
 #include "src/accel/context/internal/execution.hpp"
+#include "src/accel/kernel/step/map/stride.hpp"
+#include "src/accel/metal/pipeline/guard.hpp"
 
 #include <kernel/program/compute/lowering/text.hpp>
 
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -27,9 +33,11 @@ using rund::node::accel::detail::BuildMapRecurrence;
 using rund::node::accel::detail::BuildNestedMapRecurrence;
 using rund::node::accel::detail::KernelExecutionStep;
 using rund::node::accel::detail::MapRecurrence;
+using rund::node::accel::detail::MapRecurrencePreparationPlan;
 using rund::node::accel::detail::MapRecurrenceState;
 using rund::node::accel::detail::PlannedStep;
 using rund::node::accel::detail::RunBinds;
+using rund::node::accel::detail::SameMapRecurrenceTemplate;
 using rund::node::accel::detail::StepBinds;
 
 [[nodiscard]] std::size_t Count(const std::string_view text,
@@ -128,6 +136,7 @@ using rund::node::accel::detail::StepBinds;
 
 struct Occurrence final {
   KernelExecutionStep step{};
+  rund::node::accel::detail::KernelExecution execution{};
   PlannedStep planned{};
   RunBinds refs{};
   StepBinds binds{};
@@ -191,6 +200,10 @@ struct Fixture final {
       artifact.metadata.ok = true;
       artifact.metadata.reason = "ok";
       artifact.source_text = Source(api, scalar, hash, uniform_invariant);
+      // Preserve a nonzero canonical constant-literal envelope so recurrence
+      // proves that its exact edit recipe carries the upstream upper rather
+      // than collapsing it to the currently materialized byte count.
+      artifact.source_text_upper_bytes = artifact.source_text.size() + 37u;
       artifact.ok = true;
       artifact.reason = "ok";
       item.step.map_semantic = rund::node::accel::detail::MapSemantic{
@@ -261,6 +274,11 @@ struct Fixture final {
       item.bound.map_windows.window_count = 1u;
       item.run.steps = &item.bound;
       item.run.step_count = 1u;
+      item.execution.steps =
+          std::span<const KernelExecutionStep>{&item.step, 1u};
+      item.execution.admission.frozen_caps.storage_alignment =
+          api == ComputeApi::Metal ? 1u : 256u;
+      item.run.execution = &item.execution;
       item.entry = BackendBatchEntry{
           .run = &item.run,
           .prepared = &item.prepared,
@@ -288,10 +306,20 @@ struct Fixture final {
       writes_history
           ? rund::kernel::LoweringArtifactVariant::HistoryRecurrence
           : rund::kernel::LoweringArtifactVariant::Recurrence;
-  if (!recurrence.ready() || recurrence.iterations != 2u ||
-      recurrence.plan.op_hash_hi != recurrence.artifact.key.op_hash_hi ||
-      recurrence.bindings.op_hash_hi != recurrence.artifact.key.op_hash_hi ||
-      recurrence.artifact.key.variant != expected_variant ||
+  const std::span<const std::uint64_t> history_pitches =
+      recurrence.history == nullptr
+          ? std::span<const std::uint64_t>{}
+          : recurrence.history->pitches();
+  rund::kernel::LoweringArtifact artifact{};
+  if (!recurrence.ready() || recurrence.canonical_artifact == nullptr ||
+      !recurrence.source_plan.ok ||
+      !rund::node::accel::detail::MaterializeMapRecurrenceArtifact(
+          *recurrence.canonical_artifact, recurrence.source_plan, 2u, 1u,
+          history_pitches, artifact) ||
+      recurrence.iterations != 2u ||
+      recurrence.plan.op_hash_hi != artifact.key.op_hash_hi ||
+      recurrence.bindings.op_hash_hi != artifact.key.op_hash_hi ||
+      artifact.key.variant != expected_variant ||
       recurrence.writes_each_iteration() != writes_history) {
     return false;
   }
@@ -323,8 +351,25 @@ struct Fixture final {
                                        : "rund_next_0 = int(node_3.lo);")
                                : (wide ? "rund_next_0 = node_3.lo;"
                                        : "rund_next_0 = uint(node_3.lo);");
-  const std::string &source = recurrence.artifact.source_text;
+  const std::string &source = artifact.source_text;
   const std::uint64_t bytes = wide ? 8u : 4u;
+  std::uint64_t specialized_upper = 0u;
+  constexpr std::uint64_t DecimalLiteralGrowthPerBinding = 38u;
+  constexpr std::uint64_t BindingCount = 3u;
+  if (artifact.source_text_upper_bytes != source.size() + 37u ||
+      recurrence.source_plan.exact_source_bytes != source.size() ||
+      recurrence.source_plan.source_upper_bytes !=
+          artifact.source_text_upper_bytes ||
+      !rund::node::accel::detail::MapSpecializedSourceUpperBytes(
+          artifact, recurrence.plan, specialized_upper) ||
+      specialized_upper != artifact.source_text_upper_bytes +
+                               BindingCount *
+                                   DecimalLiteralGrowthPerBinding ||
+      artifact.retained_dynamic_memory_bytes() <
+          rund::kernel::compute_retained_detail::StringExternalStorageBytes(
+              source)) {
+    return false;
+  }
   constexpr std::string_view result = "write_726573756c74";
   const std::string history_address =
       "RundBase_" + std::string{result} + " + rund_iteration * " +
@@ -333,7 +378,7 @@ struct Fixture final {
   const bool history_matches =
       writes_history
           ? recurrence.history != nullptr &&
-                recurrence.history->outputs.size() == 1u &&
+                recurrence.history->count == 1u &&
                 recurrence.history->outputs[0].count == 8u &&
                 recurrence.history->pitch_bytes[0] == bytes * 4u &&
                 source.find(history_address) != std::string::npos &&
@@ -352,6 +397,26 @@ struct Fixture final {
                          ? "rund_iteration < rund_iterations"
                          : "rund_iteration < rund_dispatch.iterations") !=
              std::string::npos;
+}
+
+[[nodiscard]] bool TransformFailureIsTransactional() {
+  Fixture fixture{ComputeApi::Metal, ComputeScalar::Lane32};
+  auto &artifact = fixture.occurrences.front().step.artifact;
+  artifact.source_text += "// artifact_variant=canonical\n";
+  artifact.source_text_upper_bytes = artifact.source_text.size() + 19u;
+  const auto key_before = artifact.key;
+  const std::string source_before = artifact.source_text;
+  const std::uint64_t upper_before = artifact.source_text_upper_bytes;
+  const std::uint64_t retained_before =
+      artifact.retained_dynamic_memory_bytes();
+  const std::uint64_t map_hi_before = artifact.metadata.map.op_hash_hi;
+  const std::uint64_t map_lo_before = artifact.metadata.map.op_hash_lo;
+  return !rund::node::accel::detail::TransformSource(artifact, 2u, 1u) &&
+         artifact.key == key_before && artifact.source_text == source_before &&
+         artifact.source_text_upper_bytes == upper_before &&
+         artifact.retained_dynamic_memory_bytes() == retained_before &&
+         artifact.metadata.map.op_hash_hi == map_hi_before &&
+         artifact.metadata.map.op_hash_lo == map_lo_before;
 }
 
 [[nodiscard]] bool HistoryMarkerContract() {
@@ -431,6 +496,289 @@ struct Fixture final {
   return true;
 }
 
+[[nodiscard]] bool PreparationPlanContract() {
+  Fixture terminal{ComputeApi::Metal, ComputeScalar::Lane32};
+  const MapRecurrence terminal_recurrence =
+      BuildMapRecurrence(terminal.entries, terminal.barriers);
+  const MapRecurrencePreparationPlan terminal_plan =
+      rund::node::accel::detail::PlanMapRecurrencePreparation(
+          terminal.occurrences.front().run, 1u, 0u);
+  if (!terminal_recurrence.ready() || !terminal_plan.eligible() ||
+      terminal_plan.group_count != 1u ||
+      terminal_plan.history_group_count != 0u ||
+      terminal_plan.terminal_group_count() != 1u ||
+      terminal_plan.input_count != 2u || terminal_plan.output_count != 1u ||
+      terminal_plan.window_count != 1u ||
+      terminal_plan.terminal_source.exact_source_bytes !=
+          terminal_recurrence.source_plan.exact_source_bytes ||
+      terminal_plan.terminal_source.source_upper_bytes !=
+          terminal_recurrence.source_plan.source_upper_bytes) {
+    return false;
+  }
+
+  Fixture history{ComputeApi::Vulkan, ComputeScalar::Lane64, false, true};
+  const MapRecurrence history_recurrence =
+      BuildMapRecurrence(history.entries, history.barriers);
+  const MapRecurrencePreparationPlan history_plan =
+      rund::node::accel::detail::PlanMapRecurrencePreparation(
+          history.occurrences.front().run, 1u, 1u);
+  if (!history_recurrence.ready() || !history_plan.eligible() ||
+      history_plan.group_count != 1u ||
+      history_plan.history_group_count != 1u ||
+      history_plan.terminal_group_count() != 0u ||
+      history_plan.history_source.exact_source_bytes !=
+          history_recurrence.source_plan.exact_source_bytes ||
+      history_plan.history_source.source_upper_bytes !=
+          history_recurrence.source_plan.source_upper_bytes) {
+    return false;
+  }
+
+  MapRecurrencePreparationPlan terminal_peer = terminal_plan;
+  terminal_peer.group_count = 7u;
+  terminal_peer.terminal_template_group_capacity = 14u;
+  terminal_peer.outputs[0u].offset_bytes += 4096u;
+  if (!SameMapRecurrenceTemplate(terminal_plan, terminal_peer, false)) {
+    return false;
+  }
+  terminal_peer.outputs[0u].stride_bytes += 4u;
+  if (SameMapRecurrenceTemplate(terminal_plan, terminal_peer, false)) {
+    return false;
+  }
+  MapRecurrencePreparationPlan history_peer = history_plan;
+  history_peer.group_count = 7u;
+  history_peer.history_group_count = 7u;
+  history_peer.history_template_group_capacity = 14u;
+  history_peer.outputs[0u].offset_bytes += history_peer.binding_alignment;
+  if (!SameMapRecurrenceTemplate(history_plan, history_peer, true)) {
+    return false;
+  }
+  ++history_peer.outputs[0u].count;
+  if (SameMapRecurrenceTemplate(history_plan, history_peer, true)) {
+    return false;
+  }
+
+  const MapRecurrencePreparationPlan invalid =
+      rund::node::accel::detail::PlanMapRecurrencePreparation(
+          terminal.occurrences.front().run, 0u, 1u);
+  if (invalid.ok) {
+    return false;
+  }
+  terminal.occurrences.front().step.map_semantic.recurrence_total = false;
+  const MapRecurrencePreparationPlan ineligible =
+      rund::node::accel::detail::PlanMapRecurrencePreparation(
+          terminal.occurrences.front().run, 1u, 0u);
+  return ineligible.ok && !ineligible.eligible() &&
+         ineligible.group_count == 0u;
+}
+
+[[nodiscard]] bool VulkanPreparationReservationContract() {
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  using rund::node::accel::detail::PlanVulkanPipelineRecurrence;
+  using rund::node::accel::detail::PreparedMapRecurrenceReservation;
+
+  Fixture fixture{ComputeApi::Vulkan, ComputeScalar::Lane32};
+  MapRecurrencePreparationPlan plan =
+      rund::node::accel::detail::PlanMapRecurrencePreparation(
+          fixture.occurrences.front().run, 7u, 2u);
+  if (!plan.eligible()) {
+    return false;
+  }
+  plan.terminal_template_group_capacity = 10u;
+  plan.history_template_group_capacity = 6u;
+  PreparedMapRecurrenceReservation reservation{};
+  constexpr std::uint64_t descriptor_sets = 16u;
+  constexpr std::uint64_t descriptors_per_set = 4u;
+  if (!PlanVulkanPipelineRecurrence(plan, reservation).ok ||
+      reservation.group_count != 7u ||
+      reservation.history_group_count != 2u ||
+      reservation.terminal_template_group_capacity != 10u ||
+      reservation.history_template_group_capacity != 6u ||
+      reservation.descriptor_set_count != descriptor_sets ||
+      reservation.descriptor_count !=
+          descriptor_sets * descriptors_per_set ||
+      reservation.template_native_allocation_count != descriptor_sets + 8u) {
+    return false;
+  }
+  plan.history_template_group_capacity = 1u;
+  return !PlanVulkanPipelineRecurrence(plan, reservation).ok;
+#else
+  return true;
+#endif
+}
+
+[[nodiscard]] bool MetalPreparationReservationContract() {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+  using rund::node::accel::detail::PlanMetalPipelineRecurrence;
+  using rund::node::accel::detail::PreparedMapRecurrenceReservation;
+
+  Fixture fixture{ComputeApi::Metal, ComputeScalar::Lane32};
+  const auto plan = [&](const std::uint64_t groups,
+                        const std::uint64_t history_groups) {
+    return rund::node::accel::detail::PlanMapRecurrencePreparation(
+        fixture.occurrences.front().run, groups, history_groups);
+  };
+  const MapRecurrencePreparationPlan terminal_seven = plan(7u, 0u);
+  const MapRecurrencePreparationPlan terminal_seventy = plan(70u, 0u);
+  const MapRecurrencePreparationPlan mixed_seven = plan(7u, 2u);
+  const MapRecurrencePreparationPlan mixed_seventy = plan(70u, 20u);
+  if (!terminal_seven.eligible() || !terminal_seventy.eligible() ||
+      !mixed_seven.eligible() || !mixed_seventy.eligible()) {
+    return false;
+  }
+
+  PreparedMapRecurrenceReservation terminal{};
+  PreparedMapRecurrenceReservation terminal_scaled{};
+  PreparedMapRecurrenceReservation mixed{};
+  PreparedMapRecurrenceReservation mixed_scaled{};
+  if (!PlanMetalPipelineRecurrence(terminal_seven, terminal).ok ||
+      !PlanMetalPipelineRecurrence(terminal_seventy, terminal_scaled).ok ||
+      !PlanMetalPipelineRecurrence(mixed_seven, mixed).ok ||
+      !PlanMetalPipelineRecurrence(mixed_seventy, mixed_scaled).ok) {
+    return false;
+  }
+
+  const auto same_template_budget =
+      [](const PreparedMapRecurrenceReservation &left,
+         const PreparedMapRecurrenceReservation &right) {
+        return left.template_host_bytes == right.template_host_bytes &&
+               left.template_native_bytes == right.template_native_bytes &&
+               left.template_source_bytes == right.template_source_bytes &&
+               left.source_transient_bytes == right.source_transient_bytes &&
+               left.template_count == right.template_count &&
+               left.template_step_count == right.template_step_count &&
+               left.template_native_allocation_count ==
+                   right.template_native_allocation_count;
+      };
+  if (terminal.group_count != 7u || terminal.history_group_count != 0u ||
+      terminal.terminal_template_group_capacity != 7u ||
+      terminal.history_template_group_capacity != 0u ||
+      terminal.route_step_count != 7u || terminal.template_count != 1u ||
+      terminal.template_step_count != 1u ||
+      terminal.route_native_allocation_count != 7u ||
+      terminal.template_native_allocation_count != 2u ||
+      terminal_scaled.group_count != 70u ||
+      terminal_scaled.terminal_template_group_capacity != 70u ||
+      terminal_scaled.history_template_group_capacity != 0u ||
+      terminal_scaled.route_step_count != 70u ||
+      terminal_scaled.route_native_allocation_count != 70u ||
+      !same_template_budget(terminal, terminal_scaled) ||
+      terminal_scaled.route_host_bytes != terminal.route_host_bytes * 10u ||
+      terminal_scaled.route_native_bytes !=
+          terminal.route_native_bytes * 10u) {
+    return false;
+  }
+
+  if (mixed.group_count != 7u || mixed.history_group_count != 2u ||
+      mixed.terminal_template_group_capacity != 5u ||
+      mixed.history_template_group_capacity != 2u ||
+      mixed.route_step_count != 7u || mixed.template_count != 2u ||
+      mixed.template_step_count != 2u ||
+      mixed.route_native_allocation_count != 7u ||
+      mixed.template_native_allocation_count != 4u ||
+      mixed.route_host_bytes !=
+          terminal.route_host_bytes +
+              2u * static_cast<std::uint64_t>(sizeof(MapRecurrenceHistory)) ||
+      mixed.route_native_bytes != terminal.route_native_bytes ||
+      mixed_scaled.group_count != 70u ||
+      mixed_scaled.history_group_count != 20u ||
+      mixed_scaled.terminal_template_group_capacity != 50u ||
+      mixed_scaled.history_template_group_capacity != 20u ||
+      mixed_scaled.route_step_count != 70u ||
+      mixed_scaled.route_native_allocation_count != 70u ||
+      !same_template_budget(mixed, mixed_scaled) ||
+      mixed_scaled.route_host_bytes != mixed.route_host_bytes * 10u ||
+      mixed_scaled.route_native_bytes != mixed.route_native_bytes * 10u) {
+    return false;
+  }
+
+  MapRecurrencePreparationPlan invalid = mixed_seven;
+  invalid.history_group_count = invalid.group_count + 1u;
+  PreparedMapRecurrenceReservation rejected{
+      .route_host_bytes = 1u,
+      .template_host_bytes = 1u,
+      .group_count = 1u,
+  };
+  if (PlanMetalPipelineRecurrence(invalid, rejected).ok ||
+      rejected.route_host_bytes != 0u ||
+      rejected.template_host_bytes != 0u || rejected.group_count != 0u) {
+    return false;
+  }
+  invalid = mixed_seven;
+  invalid.terminal_template_group_capacity =
+      invalid.terminal_group_count() - 1u;
+  rejected = PreparedMapRecurrenceReservation{
+      .route_host_bytes = 1u,
+      .template_host_bytes = 1u,
+      .group_count = 1u,
+  };
+  return !PlanMetalPipelineRecurrence(invalid, rejected).ok &&
+         rejected.route_host_bytes == 0u &&
+         rejected.template_host_bytes == 0u && rejected.group_count == 0u;
+#else
+  return true;
+#endif
+}
+
+[[nodiscard]] bool MetalRecurrenceSourceHasOneStorageOwner() {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+  using rund::node::accel::detail::KernelPreparationMode;
+  using rund::node::accel::detail::KernelPreparationScope;
+  using rund::node::accel::detail::PipelinePrivateMetalSource;
+  using rund::node::accel::detail::PipelinePrivateMetalSourceUpperBytes;
+  using rund::node::accel::detail::SpecializeMapInPlace;
+
+  Fixture fixture{ComputeApi::Metal, ComputeScalar::Lane32};
+  const MapRecurrence recurrence =
+      BuildMapRecurrence(fixture.entries, fixture.barriers);
+  std::uint64_t specialized_upper = 0u;
+  std::uint64_t final_upper = 0u;
+  std::uint64_t final_storage_upper = 0u;
+  if (!recurrence.ready() || recurrence.canonical_artifact == nullptr ||
+      recurrence.source_plan.metadata_storage_upper_bytes == 0u ||
+      !rund::node::accel::detail::MapSpecializedSourceUpperBytes(
+          recurrence.source_plan.exact_source_bytes,
+          recurrence.source_plan.source_upper_bytes, recurrence.plan,
+          specialized_upper) ||
+      !PipelinePrivateMetalSourceUpperBytes(specialized_upper, 1u, true,
+                                            final_upper) ||
+      !rund::node::accel::detail::backend_source_recipe::
+          string_external_storage_upper_bytes(final_upper,
+                                              final_storage_upper)) {
+    return false;
+  }
+
+  rund::kernel::LoweringArtifact artifact{};
+  if (!rund::node::accel::detail::MaterializeMapRecurrenceArtifact(
+          *recurrence.canonical_artifact, recurrence.source_plan,
+          recurrence.plan.input_buffer_count,
+          recurrence.plan.output_buffer_count, {}, artifact, final_upper)) {
+    return false;
+  }
+  const char *const storage = artifact.source_text.data();
+  const std::size_t capacity = artifact.source_text.capacity();
+  rund::kernel::LoweringArtifact specialized = SpecializeMapInPlace(
+      std::move(artifact), recurrence.plan, recurrence.bindings, 1u,
+      final_upper);
+  if (!specialized.ok || specialized.source_text.data() != storage ||
+      specialized.source_text.capacity() != capacity ||
+      specialized.metadata.retained_dynamic_memory_bytes() != 0u ||
+      specialized.retained_dynamic_memory_bytes() >
+          final_storage_upper) {
+    return false;
+  }
+
+  const KernelPreparationScope preparation{
+      KernelPreparationMode::PipelinePrivate};
+  std::string guarded =
+      PipelinePrivateMetalSource(std::move(specialized.source_text),
+                                 final_upper);
+  return !guarded.empty() && guarded.size() <= final_upper &&
+         guarded.data() == storage && guarded.capacity() == capacity;
+#else
+  return true;
+#endif
+}
+
 } // namespace
 
 [[nodiscard]] bool MapRecurrenceSourceContract() {
@@ -442,6 +790,10 @@ struct Fixture final {
     return false;
   }
   return NestedMarkerContract() && HistoryMarkerContract() &&
+         PreparationPlanContract() && MetalPreparationReservationContract() &&
+         VulkanPreparationReservationContract() &&
+         MetalRecurrenceSourceHasOneStorageOwner() &&
+         TransformFailureIsTransactional() &&
          SourceMatches(ComputeApi::Metal, ComputeScalar::Lane32) &&
          SourceMatches(ComputeApi::Metal, ComputeScalar::Lane64) &&
          SourceMatches(ComputeApi::Vulkan, ComputeScalar::Lane32) &&

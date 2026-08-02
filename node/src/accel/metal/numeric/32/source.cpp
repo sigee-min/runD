@@ -4,14 +4,16 @@
 #include <kernel/program/compute/lowering/metal/fixed.hpp>
 
 namespace rund::node::accel::detail {
+namespace {
 
-[[nodiscard]] std::string MetalNumericFixedLane32Source() {
-  std::string out = R"MSL(
+template <typename Sink>
+[[nodiscard]] bool EmitMetalNumericFixedLane32SourceImpl(Sink &sink) {
+  sink += R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 )MSL";
-  rund::kernel::compute_lowering_detail::AppendMetalFixedLane32Helpers(out);
-  out += R"MSL(
+  rund::kernel::compute_lowering_detail::AppendMetalFixedLane32Helpers(sink);
+  sink += R"MSL(
 
 struct NumericParams {
   ulong op;
@@ -158,8 +160,10 @@ inline void rund_numeric_sync() {
 #define RUND_MATRIX_MUL(lhs, rhs, params) \
   matrix_mul_i32((lhs), (rhs), (params))
 )MSL";
-  out += MetalNumericProgramSource();
-  out += R"MSL(
+  if (!EmitMetalNumericProgramSource(sink)) {
+    return false;
+  }
+  sink += R"MSL(
 #undef RUND_MATRIX_MUL
 #undef RUND_MATRIX_ADD
 #undef RUND_INDEX
@@ -183,7 +187,19 @@ inline void rund_numeric_sync() {
 #undef RUND_CAT
 #undef RUND_CAT_INNER
 )MSL";
-  return out;
+  return sink.valid();
+}
+
+} // namespace
+
+bool EmitMetalNumericFixedLane32Source(
+    backend_source_recipe::CountSink &sink) noexcept {
+  return EmitMetalNumericFixedLane32SourceImpl(sink);
+}
+
+bool EmitMetalNumericFixedLane32Source(
+    backend_source_recipe::StringSink &sink) {
+  return EmitMetalNumericFixedLane32SourceImpl(sink);
 }
 
 } // namespace rund::node::accel::detail

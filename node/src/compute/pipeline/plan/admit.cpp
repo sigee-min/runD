@@ -26,6 +26,10 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   if (build->memory == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
+  const std::size_t resource_count = build->memory->hazards.lifetimes.size();
+  if (resource_count > PipelineResourceCapacity) {
+    return Status::fail(Reason::PipelineCapacity);
+  }
   state->plan = build->memory->summary;
   state->steps.resize(build->steps.size());
   state->windows.reserve(build->logical_step_count);
@@ -37,19 +41,17 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   }
   std::vector<PipelinePlanStep> plan_steps(build->steps.size());
   std::vector<PipelineResourceAdmission> resource_admissions;
-  resource_admissions.reserve(
-      std::min(build->binding_count, PipelineResourceCapacity));
+  resource_admissions.reserve(resource_count);
   std::vector<PhysicalOutputProjection> physical_outputs(build->steps.size());
   for (PhysicalOutputProjection &projection : physical_outputs) {
     projection.sources.fill(PhysicalOutputProjection::unassigned);
   }
   std::vector<std::uint16_t> nested_windows(build->nested_windows.size());
-  state->resources.reserve(
-      std::min(build->binding_count, PipelineResourceCapacity));
+  state->resources.reserve(resource_count);
   state->barriers.resize(build->steps.size());
 
   std::unordered_map<const BufferState *, std::uint32_t> ordinals;
-  ordinals.reserve(std::min(build->binding_count, PipelineResourceCapacity));
+  ordinals.reserve(resource_count);
   PipelineHash hash{};
   hash.number(build->sealed_repetitions);
   hash.number(build->steps.size());
@@ -546,8 +548,17 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     return Status::fail(Reason::PipelineInvalid);
   }
   state->publications.reserve(build->publications.size());
+  if (build->memory->publication_ordinals.size() !=
+      build->publications.size()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
   hash.number(build->publications.size());
-  for (const PipelineBuildPublish &declared : build->publications) {
+  for (std::size_t publication_index = 0u;
+       publication_index < build->publications.size(); ++publication_index) {
+    const PipelineBuildPublish &declared =
+        build->publications[publication_index];
+    const PipelinePublicationOrdinals &planned_ordinals =
+        build->memory->publication_ordinals[publication_index];
     if (declared.step >= state->steps.size() ||
         state->steps[declared.step].window == 0u ||
         declared.output >= PipelineLeafCapacity) {
@@ -587,6 +598,13 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         declared.source.element_bytes != declared.target.element_bytes) {
       return Status::fail(Reason::PipelineInvalid);
     }
+    const bool planned_source = std::find(planned_ordinals.sources.begin(),
+                                          planned_ordinals.sources.end(),
+                                          source_ordinal) !=
+                                planned_ordinals.sources.end();
+    if (!planned_source || planned_ordinals.target != *target) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
     const PipelineWindow &publication_window =
         state->windows[state->steps[declared.step].window - 1u];
     if (window_publish) {
@@ -603,9 +621,16 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
           declared.target.stride != 1u) {
         return Status::fail(Reason::PipelineInvalid);
       }
+      const auto count_ordinal = ordinals.find(declared.count.buffer.get());
+      if (count_ordinal == ordinals.end() ||
+          planned_ordinals.count != count_ordinal->second) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
     } else if (declared.source.count != declared.target.count ||
                declared.count.buffer != nullptr || declared.maximum != 0u ||
-               declared.tile != 0u) {
+               declared.tile != 0u ||
+               planned_ordinals.count !=
+                   std::numeric_limits<std::uint32_t>::max()) {
       return Status::fail(Reason::PipelineInvalid);
     }
     PipelineResource &target_resource = state->resources[*target];
@@ -636,6 +661,7 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         .resident_count_offset = declared.count.offset,
         .maximum = static_cast<std::uint32_t>(declared.maximum),
         .tile = static_cast<std::uint32_t>(declared.tile),
+        .ordinals = planned_ordinals,
     });
     hash.number(source_ordinal);
     hash.number(*target);
@@ -719,7 +745,15 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     hash.number(published_resource.count);
     hash.number(published_resource.bytes);
   }
-  state->resources.shrink_to_fit();
+  // The frozen hazard plan is the canonical distinct-resource authority.
+  // Admission must reproduce it exactly; reserving from binding_count would
+  // over-allocate for heavily reused window/repeat bindings and a terminal
+  // shrink_to_fit would add an avoidable allocation/copy on the cold path.
+  if (state->resources.size() != resource_count ||
+      resource_admissions.size() != resource_count ||
+      ordinals.size() != resource_count) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
 
   prepare.state = std::move(state);
   prepare.steps = std::move(plan_steps);

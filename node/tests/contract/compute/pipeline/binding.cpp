@@ -4,9 +4,9 @@
 
 #include "src/compute/cpu/state.hpp"
 #include "src/compute/job/local.hpp"
+#include "src/compute/pipeline/state.hpp"
 
 #include <memory>
-#include <utility>
 #include <vector>
 
 namespace rund_node_test_pipeline {
@@ -24,38 +24,42 @@ namespace rund_node_test_pipeline {
   if (!program || !source || !output) {
     return 1;
   }
-  std::vector<std::shared_ptr<BufferState>> inputs{
-      BufferAccess::state(*source)};
-  std::vector<std::shared_ptr<BufferState>> outputs{
-      BufferAccess::state(*output)};
-  auto prepared = prepare_pipeline_job_buffers(
-      ProgramAccess::state(*program), std::move(inputs), std::move(outputs));
-  if (!prepared || prepared.value() == nullptr ||
-      prepared.value()->cpu == nullptr ||
-      prepared.value()->cpu->graph == nullptr ||
-      prepared.value()->cpu->graph->maps.size() != 1u ||
-      prepared.value()->cpu->graph->maps.front() == nullptr) {
+  auto prepared_pipeline =
+      pipeline(device).then(*program, read(*source), write(*output)).prepare();
+  const std::shared_ptr<PipelineState> pipeline_state =
+      prepared_pipeline ? PipelineStateAccess::state(*prepared_pipeline)
+                        : std::shared_ptr<PipelineState>{};
+  const std::shared_ptr<JobState> prepared =
+      pipeline_state != nullptr && pipeline_state->steps.size() == 1u
+          ? pipeline_state->steps.front().job
+          : std::shared_ptr<JobState>{};
+  if (prepared == nullptr || prepared->cpu == nullptr ||
+      prepared->cpu->graph == nullptr ||
+      prepared->cpu->graph->storage == nullptr ||
+      prepared->cpu->graph->maps.size() != 1u ||
+      prepared->cpu->graph->storage->maps.size() != 1u ||
+      cpu_map_run(*prepared->cpu->graph->storage, 0u) == nullptr) {
     return 2;
   }
-  CpuMapRun &map = *prepared.value()->cpu->graph->maps.front();
-  const auto *const read_data = map.reads.front().data;
-  auto *const write_data = map.writes.front().data;
-  const std::size_t read_stride = map.reads.front().stride;
-  const std::size_t write_stride = map.writes.front().stride;
-  if (!map.bindings_frozen || map.bindings.reads != map.reads.data() ||
-      map.bindings.writes != map.writes.data() || read_data == nullptr ||
+  CpuGraphRun &graph = *prepared->cpu->graph;
+  CpuMapRoute &route = graph.maps.front();
+  const auto *const read_data = graph.reads.front().data;
+  auto *const write_data = graph.writes.front().data;
+  const std::size_t read_stride = graph.reads.front().stride;
+  const std::size_t write_stride = graph.writes.front().stride;
+  if (!route.bindings_frozen || route.bindings.reads != graph.reads.data() ||
+      route.bindings.writes != graph.writes.data() || read_data == nullptr ||
       write_data == nullptr || read_stride != sizeof(std::int32_t) ||
       write_stride != sizeof(std::int32_t)) {
     return 3;
   }
-  if (!run_pipeline_job(prepared.value()) ||
-      !run_pipeline_job(prepared.value()) || !map.bindings_frozen ||
-      map.bindings.reads != map.reads.data() ||
-      map.bindings.writes != map.writes.data() ||
-      map.reads.front().data != read_data ||
-      map.writes.front().data != write_data ||
-      map.reads.front().stride != read_stride ||
-      map.writes.front().stride != write_stride) {
+  if (!run_pipeline_job(prepared) || !run_pipeline_job(prepared) ||
+      !route.bindings_frozen || route.bindings.reads != graph.reads.data() ||
+      route.bindings.writes != graph.writes.data() ||
+      graph.reads.front().data != read_data ||
+      graph.writes.front().data != write_data ||
+      graph.reads.front().stride != read_stride ||
+      graph.writes.front().stride != write_stride) {
     return 4;
   }
   auto resident = program->resident(input);
@@ -65,20 +69,22 @@ namespace rund_node_test_pipeline {
   const std::shared_ptr<JobState> resident_state = JobAccess::state(*resident);
   if (resident_state == nullptr || resident_state->cpu == nullptr ||
       resident_state->cpu->graph == nullptr ||
+      resident_state->cpu->graph->storage == nullptr ||
       resident_state->cpu->graph->maps.size() != 1u ||
-      resident_state->cpu->graph->maps.front() == nullptr) {
+      resident_state->cpu->graph->storage->maps.size() != 1u ||
+      cpu_map_run(*resident_state->cpu->graph->storage, 0u) == nullptr) {
     return 6;
   }
   CpuGraphRun &resident_graph = *resident_state->cpu->graph;
-  CpuMapRun &resident_map = *resident_graph.maps.front();
-  const auto *const first_input = resident_map.reads.front().data;
+  CpuMapRoute &resident_route = resident_graph.maps.front();
+  const auto *const first_input = resident_graph.reads.front().data;
   constexpr std::array<std::int32_t, 4u> next{5, 6, 7, 8};
-  if (!resident_map.bindings_frozen || !resident->run() ||
+  if (!resident_route.bindings_frozen || !resident->run() ||
       !resident->write(next) ||
       resident_graph.bound_inputs == resident_state->inputs.data() ||
       !resident->run() ||
       resident_graph.bound_inputs != resident_state->inputs.data() ||
-      resident_map.reads.front().data == first_input) {
+      resident_graph.reads.front().data == first_input) {
     return 7;
   }
   const auto observed = resident->read();

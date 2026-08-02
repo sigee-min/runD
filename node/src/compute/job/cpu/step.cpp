@@ -125,22 +125,28 @@ Status prepare_graph_step(JobState &job,
   }
   const CpuRuntimeStep &step = graph.steps[run.step];
   if (std::holds_alternative<CpuRuntimeMap>(step)) {
-    if (run.step >= run.graph->maps.size() || run.step >= program.maps.size() ||
-        run.graph->maps[run.step] == nullptr ||
+    CpuMapRun *const stored_map =
+        run.graph->storage == nullptr
+            ? nullptr
+            : cpu_map_run(*run.graph->storage, run.step);
+    CpuMapRoute *const stored_route = cpu_map_route(*run.graph, run.step);
+    if (run.graph->storage == nullptr || run.step >= program.maps.size() ||
+        stored_map == nullptr || stored_route == nullptr ||
         program.maps[run.step] == nullptr) {
       return Status::fail(Reason::GraphBindingInvalid);
     }
-    CpuMapRun &map = *run.graph->maps[run.step];
+    CpuMapRun &map = *stored_map;
+    CpuMapRoute &route = *stored_route;
     CpuProgram &kernel = *program.maps[run.step];
     const std::size_t count =
         run.controlled_count_valid
             ? static_cast<std::size_t>(run.controlled_count)
             : kernel.tile_plan.count();
-    if (!map.bindings_frozen) {
+    if (!route.bindings_frozen) {
       return Status::fail(Reason::GraphBindingInvalid);
     }
-    const Status bound =
-        begin_cpu_map(kernel, map, count, run.graph->overflow_ordinal, cancel);
+    const Status bound = begin_cpu_map(kernel, map, route, count,
+                                       run.graph->overflow_ordinal, cancel);
     if (!bound) {
       return bound;
     }
@@ -156,7 +162,10 @@ Status prepare_graph_step(JobState &job,
         output == nullptr ? JobBufferView{} : view(scan->output);
     const std::optional<CpuView> source = cpu_view(input, input_view);
     const std::optional<CpuView> target = cpu_view(output, output_view);
-    CpuCollectiveRun *const collective = run.graph->collectives[run.step].get();
+    CpuCollectiveRun *const collective =
+        run.graph->storage == nullptr
+            ? nullptr
+            : cpu_collective_run(*run.graph->storage, run.step);
     const Type input_type = graph.values[scan->input - 1u].type;
     const Type output_type = graph.values[scan->output - 1u].type;
     if (!source || !target || source->data == nullptr ||
@@ -166,18 +175,23 @@ Status prepare_graph_step(JobState &job,
         output_view.element_bytes != type_bytes(output_type)) {
       return Status::fail(Reason::CpuBufferInvalid);
     }
+    kernel::u32 logical = 0u;
     if (scan->count != 0u) {
-      kernel::u32 logical = 0u;
       const Status count =
           read_bounded_count(buffer(scan->count), view(scan->count),
                              type(scan->count), input_view.count, logical);
       if (!count) {
         return count;
       }
-      const Status prepared = prepare_bounded_collective(*collective, logical);
-      if (!prepared) {
-        return prepared;
-      }
+    } else if (input_view.count >
+               std::numeric_limits<kernel::u32>::max()) {
+      return Status::fail(Reason::TileRunCapacity);
+    } else {
+      logical = static_cast<kernel::u32>(input_view.count);
+    }
+    const Status prepared = prepare_bounded_collective(*collective, logical);
+    if (!prepared) {
+      return prepared;
     }
     run.tile = CpuCollectiveTileContext{
         .run = collective,
@@ -208,7 +222,10 @@ Status prepare_graph_step(JobState &job,
       output == nullptr ? JobBufferView{} : view(primitive->output);
   const std::optional<CpuView> source = cpu_view(input, input_view);
   const std::optional<CpuView> target = cpu_view(output, output_view);
-  CpuCollectiveRun *const collective = run.graph->collectives[run.step].get();
+  CpuCollectiveRun *const collective =
+      run.graph->storage == nullptr
+          ? nullptr
+          : cpu_collective_run(*run.graph->storage, run.step);
   const Type input_type = graph.values[primitive->inputs.front() - 1u].type;
   const Type output_type = graph.values[primitive->output - 1u].type;
   if (!source || !target || source->data == nullptr ||
@@ -218,8 +235,8 @@ Status prepare_graph_step(JobState &job,
       output_view.element_bytes != type_bytes(output_type)) {
     return Status::fail(Reason::CpuBufferInvalid);
   }
+  kernel::u32 logical = 0u;
   if (primitive->inputs.size() == 2u) {
-    kernel::u32 logical = 0u;
     const Status count = read_bounded_count(
         buffer(primitive->inputs[1u]), view(primitive->inputs[1u]),
         type(primitive->inputs[1u]), input_view.count, logical);
@@ -232,10 +249,14 @@ Status prepare_graph_step(JobState &job,
                           operation == kernel::ReduceOp::Max)) {
       return Status::fail(Reason::ReduceCountZero);
     }
-    const Status prepared = prepare_bounded_collective(*collective, logical);
-    if (!prepared) {
-      return prepared;
-    }
+  } else if (input_view.count > std::numeric_limits<kernel::u32>::max()) {
+    return Status::fail(Reason::TileRunCapacity);
+  } else {
+    logical = static_cast<kernel::u32>(input_view.count);
+  }
+  const Status prepared = prepare_bounded_collective(*collective, logical);
+  if (!prepared) {
+    return prepared;
   }
   run.tile = CpuCollectiveTileContext{
       .run = collective,

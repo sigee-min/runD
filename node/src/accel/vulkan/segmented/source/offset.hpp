@@ -4,8 +4,9 @@
 
 namespace rund::node::accel::detail {
 
+template <typename Source>
 inline void
-AppendSegmentedOffset(std::string &source,
+AppendSegmentedOffset(Source &source,
                       const rund::kernel::SegmentedScanElement element) {
   const char *const type = VulkanSegmentedType(element);
   source += "  const uint64_t block = segmented_dispatch.base_block + "

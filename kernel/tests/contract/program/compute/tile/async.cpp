@@ -15,6 +15,8 @@ namespace {
 using rund::kernel::ComputeTile;
 using rund::kernel::ComputeTileCallbackResult;
 using rund::kernel::ComputeTileExecutor;
+using rund::kernel::ComputeTileRunStorage;
+using rund::kernel::ComputeTileRunStorageView;
 using rund::kernel::Partition;
 using rund::kernel::u32;
 using rund::kernel::WorkerBackend;
@@ -27,10 +29,43 @@ constexpr u32 kWorkers = 4u;
 constexpr u32 kTileUnits = 8u;
 constexpr u32 kCount = 65u;
 constexpr u32 kTiles = 9u;
+constexpr u32 kBoundedCount = 34u;
+constexpr u32 kBoundedTiles = 5u;
+
+struct ExternalRunStorage final {
+  ComputeTileRunStorage state{};
+  std::array<const char *, kTiles> failures{};
+  std::array<u32, kWorkers> worker_tiles{};
+  std::array<u32, kWorkers> worker_stats_partitions{};
+  std::array<rund::kernel::u64, kWorkers> worker_stats_start_offset_ns{};
+  std::array<rund::kernel::u64, kWorkers> worker_stats_elapsed_ns{};
+  std::array<rund::kernel::u64, kWorkers> worker_stats_tail_wait_ns{};
+
+  [[nodiscard]] ComputeTileRunStorageView view() noexcept {
+    return ComputeTileRunStorageView{
+        .state = &state,
+        .failure_slots = failures,
+        .worker_tiles = worker_tiles,
+        .worker_stats_partitions = worker_stats_partitions,
+        .worker_stats_start_offset_ns = worker_stats_start_offset_ns,
+        .worker_stats_elapsed_ns = worker_stats_elapsed_ns,
+        .worker_stats_tail_wait_ns = worker_stats_tail_wait_ns,
+    };
+  }
+};
 
 struct Immediate final {
   kernel_contract_test::FakePool pool =
       kernel_contract_test::BuildStaticPool(kWorkers);
+};
+
+struct Deferred final {
+  kernel_contract_test::FakePool pool =
+      kernel_contract_test::BuildStaticPool(kWorkers);
+  const Partition *partitions = nullptr;
+  u32 partition_count = 0u;
+  WorkerTask task{};
+  WorkerSubmission *submission = nullptr;
 };
 
 WorkerBackendCapabilities Capabilities(void *const raw) {
@@ -79,6 +114,78 @@ bool Submit(void *const raw, const Partition *const partitions,
       .execute_partitions = kernel_contract_test::FakeExecutePartitions,
       .submit_partitions = Submit,
   };
+}
+
+u32 DeferredWorkers(void *const raw) {
+  auto *const state = static_cast<Deferred *>(raw);
+  return kernel_contract_test::FakeWorkerCount(&state->pool);
+}
+
+rund::kernel::WorkerAffinityPolicy DeferredAffinity(void *const raw) {
+  auto *const state = static_cast<Deferred *>(raw);
+  return kernel_contract_test::FakeAffinityPolicy(&state->pool);
+}
+
+WorkerBackendCapabilities DeferredCapabilities(void *const raw) {
+  auto *const state = static_cast<Deferred *>(raw);
+  WorkerBackendCapabilities caps =
+      kernel_contract_test::FakeCapabilities(&state->pool);
+  caps.supports_async_partitions = true;
+  return caps;
+}
+
+bool DeferredNested(void *const raw) {
+  auto *const state = static_cast<Deferred *>(raw);
+  return kernel_contract_test::FakeIsNested(&state->pool);
+}
+
+bool DeferredExecute(void *const raw, const Partition *const partitions,
+                     const u32 partition_count, const WorkerTask task,
+                     WorkerStats *const stats) {
+  auto *const state = static_cast<Deferred *>(raw);
+  return kernel_contract_test::FakeExecutePartitions(
+      &state->pool, partitions, partition_count, task, stats);
+}
+
+bool SubmitDeferred(void *const raw, const Partition *const partitions,
+                    const u32 partition_count, const WorkerTask task,
+                    WorkerStats *const,
+                    WorkerSubmission *const submission) noexcept {
+  auto *const state = static_cast<Deferred *>(raw);
+  if (state == nullptr || partitions == nullptr || !task ||
+      submission == nullptr || submission->completion.invoke == nullptr ||
+      state->submission != nullptr) {
+    return false;
+  }
+  state->partitions = partitions;
+  state->partition_count = partition_count;
+  state->task = task;
+  state->submission = submission;
+  return true;
+}
+
+[[nodiscard]] WorkerBackend Backend(Deferred &state) noexcept {
+  return WorkerBackend{
+      .context = &state,
+      .worker_count = DeferredWorkers,
+      .affinity_policy = DeferredAffinity,
+      .capabilities = DeferredCapabilities,
+      .is_nested = DeferredNested,
+      .execute_partitions = DeferredExecute,
+      .submit_partitions = SubmitDeferred,
+  };
+}
+
+void Complete(Deferred &state) noexcept {
+  for (u32 index = 0u; index < state.partition_count; ++index) {
+    state.task.invoke(state.task.context, state.partitions[index]);
+  }
+  WorkerSubmission *const submission = state.submission;
+  state.partitions = nullptr;
+  state.partition_count = 0u;
+  state.task = {};
+  state.submission = nullptr;
+  submission->completion.invoke(submission->completion.context, true);
 }
 
 void Ready(void *const raw) noexcept {
@@ -174,10 +281,71 @@ int test_async_reuses_sync_projection_without_stale_failure_state() {
   return 0;
 }
 
+int test_ready_run_blocks_rebind_until_finish_and_invalidates_old_view() {
+  Deferred deferred{};
+  const WorkerBackend backend = Backend(deferred);
+  ComputeTileExecutor source{
+      backend, kWorkers,
+      rund::kernel::physical_tiles(2u, kTileUnits, kTileUnits)};
+  TEST_ASSERT(source.prepare(kCount).ok);
+  const auto plan = source.run_plan();
+  ExternalRunStorage external{};
+  ComputeTileExecutor run = plan.bind(external.view(), kBoundedCount);
+  TEST_ASSERT(run.prepared());
+  TEST_ASSERT(run.count() == kBoundedCount);
+  TEST_ASSERT(run.tile_count() == kBoundedTiles);
+
+  std::atomic<u32> ready{0u};
+  std::array<u32, kCount> visits{};
+  TEST_ASSERT(
+      run.submit_with_erased(backend, &visits, Visit, &ready, Ready).ok);
+  TEST_ASSERT(ready.load(std::memory_order_relaxed) == 0u);
+  TEST_ASSERT(external.state.busy());
+
+  ComputeTileExecutor inflight_rejected = plan.bind(external.view());
+  const auto inflight_busy = inflight_rejected.run(
+      [](const ComputeTile &) { return ComputeTileCallbackResult{}; });
+  TEST_ASSERT(std::string_view{inflight_busy.reason} ==
+              "compute_tile_run_busy");
+
+  Complete(deferred);
+  TEST_ASSERT(ready.load(std::memory_order_relaxed) == 1u);
+  TEST_ASSERT(external.state.busy());
+
+  ComputeTileExecutor rejected = plan.bind(external.view());
+  TEST_ASSERT(!rejected.prepared());
+  const auto busy = rejected.run(
+      [](const ComputeTile &) { return ComputeTileCallbackResult{}; });
+  TEST_ASSERT(std::string_view{busy.reason} == "compute_tile_run_busy");
+  const auto bounded = run.finish();
+  TEST_ASSERT(bounded.ok);
+  TEST_ASSERT(bounded.completed_tile_count == kBoundedTiles);
+  TEST_ASSERT(bounded.worker_tile_count == kBoundedTiles);
+  TEST_ASSERT(bounded.last_tile_units == 2u);
+  for (u32 index = 0u; index < kBoundedCount; ++index) {
+    TEST_ASSERT(visits[index] == 1u);
+  }
+  for (u32 index = kBoundedCount; index < kCount; ++index) {
+    TEST_ASSERT(visits[index] == 0u);
+  }
+  TEST_ASSERT(!external.state.busy());
+
+  ComputeTileExecutor rebound = plan.bind(external.view());
+  TEST_ASSERT(rebound.prepared());
+  TEST_ASSERT(!run.prepared());
+  const auto stale =
+      run.run([](const ComputeTile &) { return ComputeTileCallbackResult{}; });
+  TEST_ASSERT(std::string_view{stale.reason} == "compute_tile_run_rebound");
+  return 0;
+}
+
 } // namespace
 
 int RunComputeTileAsyncContract() {
-  return test_async_reuses_sync_projection_without_stale_failure_state();
+  if (test_async_reuses_sync_projection_without_stale_failure_state() != 0) {
+    return 1;
+  }
+  return test_ready_run_blocks_rebind_until_finish_and_invalidates_old_view();
 }
 
 } // namespace program_compute_contract

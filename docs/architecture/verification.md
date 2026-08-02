@@ -24,6 +24,8 @@ bytes.
 | `tools/measure/scheduler/run` | Installed scheduler latency, scaling, and memory workloads. |
 | `tools/measure/compute/run [--pipeline\|--recurrence\|--window-repeat metal\|vulkan]` | Installed Compute execution, scaling, parity, and warm-cost workloads; focused modes build one physical backend projection while retaining its CPU oracle. |
 | `tools/measure/compute/run --checkpoint cpu\|metal\|vulkan` | Compare live device publication, reusable host storage, and immutable host snapshots, including fused copy/hash latency, process allocations, transfer, staging, and RSS high-water observations. |
+| `tools/measure/compute/run --plan-memory cpu\|metal\|vulkan` | Plan the product-scale `Max=516096`, `Tile=8192`, `N=64` Pipeline without materializing it; report every preparation component, structural count, plan wall time, and process RSS high-water delta. |
+| `tools/measure/compute/run --prepare-memory cpu\|metal\|vulkan` | Explicit dedicated materialization of the same product-scale Pipeline; reconcile the frozen plan with Pipeline memory rows, preparation failure coordinates, wall time, and process RSS high-water delta. |
 | `tools/measure/flow/run` | Installed Flow construction and C++ frontend workloads. |
 | `tools/measure/graph/services/run` | Installed Program-cache, async-coalescing, and bounded-graph workloads. |
 | `tools/measure/telemetry/run` | Installed Disabled, Basic, and Detail Replay telemetry cost and parity. |
@@ -398,6 +400,30 @@ reusable and immutable probes cover only their export calls. These values
 intentionally include loader/driver allocation, such as a Vulkan translation
 layer's native queue submission, rather than relabeling it as runD memory.
 
+Product-scale memory verification is plan-only by default. `--plan-memory`
+constructs the heavy graph and freezes its `PipelinePlan`, then makes only a
+one-byte-short `prepare()` attempt that must fail with
+`PipelineMemoryBudget` before any device allocation. It never materializes a
+Pipeline; `--prepare-memory` is the sole focused route that materializes the
+same shape. Both report the fixed dimensions, all four disjoint
+`prepared_*_bytes` components, logical `peak_bytes`, CPU
+`arena_extent_bytes`, Device `committed_peak_bytes`, structural counts, wall
+time, and process RSS maximum before/after. The explicit row also reports C++
+allocation-call count and cumulative requested bytes during preparation; those
+are diagnostic totals, not retained high-water and not native-allocation
+visibility. The RSS delta is diagnostic process high-water evidence, not a
+current-resident or runD-owned byte count. The explicit preparation row
+also reports the Pipeline Host/Tile/Resident/Staging/Device current and peak
+groups plus stable public failure coordinates. Contract success requires plan
+identity, checked component reconciliation, budget admission before allocation,
+materialized runD-owned high-water no greater than its corresponding frozen
+reservation, and the prepare-interval current/maximum-RSS increase no greater
+than `committed_peak_bytes`; caller-owned `persistent_bytes` already exists at
+the preparation baseline and cannot be added a second time. `peak_bytes`
+remains the one logical `MemoryBudget` comparison and is never inflated to make
+RSS pass. Opaque driver-private bytes remain labeled telemetry rather than
+being assigned to a false exact component.
+
 `tools.compute-focus` compiles that conditional diagnostic surface in the
 complete contract matrix and executes its CPU sort projection. This prevents a
 Release-only edit-loop entry from remaining outside compiler verification;
@@ -436,7 +462,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.3 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.4 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

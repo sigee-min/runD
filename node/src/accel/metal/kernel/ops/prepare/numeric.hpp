@@ -5,6 +5,7 @@
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalTransformStep(const rund::AccelDevice &pick, const BoundStep &step,
+                          const MetalKernelImmutablePipelines *pipelines,
                           std::shared_ptr<void> &resources) {
   const TransformBinds *const bindings =
       BindingsFor<TransformBinds>(step, rund::kernel::NodeKind::Transform);
@@ -12,10 +13,11 @@ PrepareMetalTransformStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalTransform(pick, active->desc, active->plan,
-                                     *bindings, resources);
+                                     *bindings, resources, pipelines);
 }
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalMatrixStep(const rund::AccelDevice &pick, const BoundStep &step,
+                       const MetalKernelImmutablePipelines *pipelines,
                        std::shared_ptr<void> &resources) {
   const MatrixBinds *const bindings =
       BindingsFor<MatrixBinds>(step, rund::kernel::NodeKind::Matrix);
@@ -23,11 +25,12 @@ PrepareMetalMatrixStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalMatrix(pick, active->desc, active->plan, *bindings,
-                                  resources);
+                                  resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalFactorStep(const rund::AccelDevice &pick, const BoundStep &step,
+                       const MetalKernelImmutablePipelines *pipelines,
                        std::shared_ptr<void> &resources) {
   const FactorBinds *const bindings =
       BindingsFor<FactorBinds>(step, rund::kernel::NodeKind::Factor);
@@ -35,11 +38,12 @@ PrepareMetalFactorStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalFactor(pick, active->desc, active->plan, *bindings,
-                                  resources);
+                                  resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalSolveStep(const rund::AccelDevice &pick, const BoundStep &step,
+                      const MetalKernelImmutablePipelines *pipelines,
                       std::shared_ptr<void> &resources) {
   const SolveBinds *const bindings =
       BindingsFor<SolveBinds>(step, rund::kernel::NodeKind::Solve);
@@ -47,11 +51,12 @@ PrepareMetalSolveStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalSolve(pick, active->desc, active->plan, *bindings,
-                                 resources);
+                                 resources, pipelines);
 }
 
 [[nodiscard]] inline rund::AccelCheck
 PrepareMetalSpectrumStep(const rund::AccelDevice &pick, const BoundStep &step,
+                         const MetalKernelImmutablePipelines *pipelines,
                          std::shared_ptr<void> &resources) {
   const SpectrumBinds *const bindings =
       BindingsFor<SpectrumBinds>(step, rund::kernel::NodeKind::Spectrum);
@@ -59,5 +64,5 @@ PrepareMetalSpectrumStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalSpectrum(pick, active->desc, active->plan, *bindings,
-                                    resources);
+                                    resources, pipelines);
 }

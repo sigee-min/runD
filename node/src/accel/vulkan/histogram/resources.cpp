@@ -7,6 +7,7 @@
 
 #include "../buffer/resident/batch.hpp"
 #include "../collective/execute.hpp"
+#include "../kernel/pipeline/template.hpp"
 
 #include <utility>
 
@@ -29,7 +30,9 @@ rund::AccelCheck PrepareVulkanHistogram(const rund::AccelDevice &pick,
                                         const rund::kernel::HistogramDesc &desc,
                                         const rund::kernel::HistogramPlan &plan,
                                         const HistogramBinds &bindings,
-                                        std::shared_ptr<void> &resources) {
+                                        std::shared_ptr<void> &resources,
+                                        const VulkanKernelImmutablePipelines
+                                            *const pipelines) {
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
   if (adapter == nullptr) {
@@ -63,8 +66,16 @@ rund::AccelCheck PrepareVulkanHistogram(const rund::AccelDevice &pick,
   raw->bins_binding = VulkanStorageBindingFor(bins.device_buffer, bins.ref);
   raw->counts_binding =
       VulkanStorageBindingFor(counts.device_buffer, counts.ref);
-  raw->clear_pipeline = AcquireHistogramPipeline(*adapter, desc, true);
-  raw->count_pipeline = AcquireHistogramPipeline(*adapter, desc, false);
+  raw->clear_pipeline =
+      pipelines == nullptr
+          ? AcquireHistogramPipeline(*adapter, desc, true)
+          : pipelines->borrow(rund::kernel::NodeKind::Histogram, 2u, 0u,
+                              kHistogramDescriptorCount, 1u);
+  raw->count_pipeline =
+      pipelines == nullptr
+          ? AcquireHistogramPipeline(*adapter, desc, false)
+          : pipelines->borrow(rund::kernel::NodeKind::Histogram, 2u, 1u,
+                              kHistogramDescriptorCount, 1u);
   const HistogramParams params_value{plan.element_count, plan.bin_count};
   if (raw->bins_binding.buffer == nullptr ||
       raw->counts_binding.buffer == nullptr || raw->clear_pipeline == nullptr ||

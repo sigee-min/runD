@@ -7,7 +7,8 @@
 namespace rund::kernel {
 namespace compute_lowering_detail {
 
-inline void AppendMetalFixedLane32Helpers(std::string &out) {
+template <typename Sink>
+inline void AppendMetalFixedLane32Helpers(Sink &out) {
   out += "inline int RundClamp32(long value) {\n";
   out += "  return value > 2147483647l ? int(uint(0x7fffffffu)) : "
          "(value < (-2147483647l - 1l) ? int(uint(0x80000000u)) : "
@@ -55,7 +56,8 @@ inline void AppendMetalFixedLane32Helpers(std::string &out) {
   AppendMetalFixedLane32NonlinearHelpers(out);
 }
 
-inline void AppendMetalFixedLane64Helpers(std::string &out) {
+template <typename Sink>
+inline void AppendMetalFixedLane64Helpers(Sink &out) {
   out += "inline long RundAsSigned64(ulong value) {\n";
   out += "  return as_type<long>(value);\n";
   out += "}\n";

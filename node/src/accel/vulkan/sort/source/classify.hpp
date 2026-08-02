@@ -5,9 +5,11 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-[[nodiscard]] inline std::string
-VulkanSortClassifySource(const std::string &key_type) {
-  std::string source;
+template <typename Sink>
+[[nodiscard]] bool AppendVulkanSortClassifySource(
+    Sink &sink, const std::string_view key_type)
+    noexcept(noexcept(sink.append(std::string_view{}))) {
+  VulkanSourceTextSink source{sink};
   source += "layout(set = 0, binding = 0, std430) readonly buffer ";
   source += "SourceKeys {\n  ";
   source += key_type;
@@ -37,7 +39,7 @@ VulkanSortClassifySource(const std::string &key_type) {
   source += "  block_counts[tid * params.block_count + block] = "
             "local_counts[tid];\n";
   source += "}\n";
-  return source;
+  return source.ok();
 }
 #endif
 

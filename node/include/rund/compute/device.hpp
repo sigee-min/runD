@@ -26,7 +26,10 @@ class ProgramCache;
 namespace detail {
 [[nodiscard]] Result<std::shared_ptr<DeviceState>>
 open_session(::rund::Session &session, Target target);
-}
+[[nodiscard]] Result<std::shared_ptr<DeviceState>>
+open_session(::rund::Session &session, Target target,
+             DevicePipelineMemoryLimit limit);
+} // namespace detail
 
 class Device final {
 public:
@@ -48,6 +51,9 @@ public:
   }
   [[nodiscard]] MemoryStats memory() const noexcept {
     return detail::device_memory(state_);
+  }
+  [[nodiscard]] DevicePipelineMemoryReport pipeline_memory() const noexcept {
+    return detail::device_pipeline_memory(state_);
   }
   [[nodiscard]] MemorySnapshot
   memory_snapshot(const std::span<MemoryEntry> entries) const noexcept {
@@ -79,8 +85,12 @@ private:
   friend Result<ProgramCache> program_cache(const Device &, std::size_t);
   friend FlowBuilder on(const Device &, const ProgramCache &) noexcept;
   friend Result<Device> open(Target);
+  friend Result<Device> open(Target, DevicePipelineMemoryLimit);
   friend Result<Device> open(Target, Compile);
+  friend Result<Device> open(Target, Compile, DevicePipelineMemoryLimit);
   friend Result<Device> open(::rund::Session &, Target);
+  friend Result<Device> open(::rund::Session &, Target,
+                             DevicePipelineMemoryLimit);
   friend FlowBuilder on(const Device &) noexcept;
 
   explicit Device(std::shared_ptr<detail::DeviceState> state)
@@ -97,6 +107,15 @@ private:
   return Result<Device>::success(Device{std::move(result).value()});
 }
 
+[[nodiscard]] inline Result<Device>
+open(const Target target, const DevicePipelineMemoryLimit limit) {
+  auto result = detail::open_target(target, limit);
+  if (!result) {
+    return Result<Device>::fail(result.reason());
+  }
+  return Result<Device>::success(Device{std::move(result).value()});
+}
+
 [[nodiscard]] inline Result<Device> open(const Target target,
                                          const Compile resources) {
   auto result = detail::open_target(target, resources);
@@ -106,9 +125,29 @@ private:
   return Result<Device>::success(Device{std::move(result).value()});
 }
 
+[[nodiscard]] inline Result<Device>
+open(const Target target, const Compile resources,
+     const DevicePipelineMemoryLimit limit) {
+  auto result = detail::open_target(target, resources, limit);
+  if (!result) {
+    return Result<Device>::fail(result.reason());
+  }
+  return Result<Device>::success(Device{std::move(result).value()});
+}
+
 [[nodiscard]] inline Result<Device> open(::rund::Session &session,
                                          const Target target) {
   auto result = detail::open_session(session, target);
+  if (!result) {
+    return Result<Device>::fail(result.reason());
+  }
+  return Result<Device>::success(Device{std::move(result).value()});
+}
+
+[[nodiscard]] inline Result<Device>
+open(::rund::Session &session, const Target target,
+     const DevicePipelineMemoryLimit limit) {
+  auto result = detail::open_session(session, target, limit);
   if (!result) {
     return Result<Device>::fail(result.reason());
   }

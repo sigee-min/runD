@@ -86,4 +86,21 @@ rund::AccelCheck DescribeVulkanScatterReducePipelineTelemetry(
 #endif
 }
 
+rund::AccelCheck DescribeVulkanScatterReduceCaptureDemand(
+    const std::shared_ptr<void> &resources,
+    std::uint64_t &indirect_dispatch_count) noexcept {
+  indirect_dispatch_count = 0u;
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  if (static_cast<const VulkanScatterReduceResources *>(resources.get()) ==
+      nullptr) {
+    return {false, "compute_scatter_reduce_buffer_invalid"};
+  }
+  indirect_dispatch_count = 2u;
+  return {true, "ok"};
+#else
+  (void)resources;
+  return {false, "accel_vulkan_loader_unavailable"};
+#endif
+}
+
 } // namespace rund::node::accel::detail

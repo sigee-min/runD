@@ -1,5 +1,6 @@
 #include <kernel/program/compute/lowering/entry.hpp>
 
+#include <kernel/core/checked.hpp>
 #include <kernel/program/compute/lowering/admission.hpp>
 #include <kernel/program/compute/lowering/cpu.hpp>
 #include <kernel/program/compute/lowering/emission.hpp>
@@ -7,10 +8,71 @@
 #include <kernel/program/compute/lowering/metal/source.hpp>
 #include <kernel/program/compute/lowering/vulkan.hpp>
 
+#include <limits>
 #include <utility>
 
 namespace rund::kernel {
 namespace compute_lowering_detail {
+
+namespace {
+
+[[nodiscard]] constexpr u64 DecimalDigits(u64 value) noexcept {
+  u64 digits = 1u;
+  while (value >= 10u) {
+    value /= 10u;
+    ++digits;
+  }
+  return digits;
+}
+
+// AppendNodeLayout and the backend expression emitters are the only owners of
+// canonical Constant decimal spellings. Derive their maximum width while the
+// admitted ParsedIR is still available, then freeze the result beside the
+// source. Public Pipeline planning consumes this scalar and never reparses or
+// regenerates source text.
+[[nodiscard]] bool SourceTextUpperBytes(const ParsedIR &parsed,
+                                        const ArtifactKey &key,
+                                        const std::string &source,
+                                        u64 &upper) noexcept {
+  constexpr u64 Lane32DecimalWidth =
+      std::numeric_limits<u32>::digits10 + 1u;
+  constexpr u64 Lane64DecimalWidth =
+      std::numeric_limits<u64>::digits10 + 1u;
+  if (source.size() > std::numeric_limits<u64>::max()) {
+    return false;
+  }
+  upper = static_cast<u64>(source.size());
+  const bool source_backend = key.api == ComputeApi::Metal ||
+                              key.api == ComputeApi::Vulkan;
+  const u64 lane_width = key.scalar == ComputeScalar::Lane64
+                             ? Lane64DecimalWidth
+                             : Lane32DecimalWidth;
+  for (const ParsedNode &node : parsed.nodes) {
+    if (static_cast<IrOp>(node.op) != IrOp::Constant) {
+      continue;
+    }
+    const u64 bits = static_cast<u64>(node.lhs) |
+                     (static_cast<u64>(node.rhs) << 32u);
+    u64 growth = Lane32DecimalWidth - DecimalDigits(node.lhs);
+    if (key.scalar == ComputeScalar::Lane64) {
+      if (!checked::add(growth,
+                        Lane32DecimalWidth - DecimalDigits(node.rhs),
+                        growth)) {
+        return false;
+      }
+    }
+    if (source_backend &&
+        !checked::add(growth, lane_width - DecimalDigits(bits), growth)) {
+      return false;
+    }
+    if (!checked::add(upper, growth, upper)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
 
 [[nodiscard]] ComputeArtifactEmission
 RejectComputeArtifactEmission(const ArtifactKey &key, const char *const reason,
@@ -51,11 +113,19 @@ EmitComputeArtifactTransient(const ComputeInputAdmission &input,
                                          1u);
   }
 
+  u64 source_text_upper_bytes = 0u;
+  if (!SourceTextUpperBytes(input.parsed, input.key, text,
+                            source_text_upper_bytes)) {
+    return RejectComputeArtifactEmission(input.key, "compute_lowering_invalid",
+                                         1u);
+  }
+
   return ComputeArtifactEmission{
       .key = input.key,
       .kind = kind,
       .metadata = std::move(metadata),
       .source_text = std::move(text),
+      .source_text_upper_bytes = source_text_upper_bytes,
       .emission_count = 1u,
       .ok = true,
       .reason = "ok",
@@ -82,6 +152,7 @@ MaterializeComputeArtifact(ComputeArtifactEmission emission,
       .kind = emission.kind,
       .metadata = std::move(emission.metadata),
       .source_text = std::move(emission.source_text),
+      .source_text_upper_bytes = emission.source_text_upper_bytes,
       .canonical_ir_bytes = std::move(canonical_bytes),
       .ok = emission.ok,
       .reason = emission.reason,
