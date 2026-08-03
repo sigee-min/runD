@@ -121,7 +121,7 @@ plan_pipeline(const std::shared_ptr<PipelineBuildState> &build) noexcept {
   if (build->memory == nullptr) {
     auto planned = plan_memory(*build);
     if (!planned) {
-      return Result<PipelinePlan>::fail(planned.reason());
+      return Result<PipelinePlan>::fail(planned.reason(), planned.location());
     }
     build->memory = std::move(planned).value();
   }
@@ -184,7 +184,7 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
   auto planned_memory = plan_pipeline(build);
   if (!planned_memory) {
     return Result<std::shared_ptr<PipelineState>>::fail(
-        planned_memory.reason());
+        planned_memory.reason(), planned_memory.location());
   }
   if (build->has_budget && planned_memory->peak_bytes > build->budget) {
     return Result<std::shared_ptr<PipelineState>>::fail(

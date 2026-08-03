@@ -62,6 +62,25 @@ resolve_view(const PipelineState &state,
                       view.element_bytes, usage, resolved);
 }
 
+[[nodiscard]] bool
+supports_window_route(const JobState &job, const PipelineRoute route,
+                      const std::uint32_t recurrent_output_count) noexcept {
+  if (job.outputs.empty() || job.output_views.size() != job.outputs.size()) {
+    return false;
+  }
+  // Seed and Action own tile intermediates. Only Ordinary recurrence and the
+  // nested Fold carry the recurrent prefix; trailing Fold outputs are Window
+  // publications and deliberately have no corresponding input coordinate.
+  if (route == PipelineRoute::NestedSeed ||
+      route == PipelineRoute::NestedAction) {
+    return true;
+  }
+  return recurrent_output_count != 0u &&
+         recurrent_output_count <= job.inputs.size() &&
+         recurrent_output_count <= job.input_views.size() &&
+         recurrent_output_count <= job.outputs.size();
+}
+
 } // namespace
 
 Reason project_pipeline_preparation_reason(
@@ -175,25 +194,14 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
         const PipelineStep &step = state->steps[index];
         const node::accel::detail::BackendWindow *window = nullptr;
         if (step.window != 0u) {
-          if (step.window > state->windows.size() || job->outputs.empty() ||
-              job->outputs.size() > job->inputs.size() ||
-              job->input_views.size() < job->outputs.size() ||
-              job->output_views.size() != job->outputs.size()) {
+          if (step.window > state->windows.size()) {
             return Result<node::accel::detail::PreparedKernelPipeline>::fail(
                 Reason::PipelineInvalid);
           }
           const PipelineWindow &declared = state->windows[step.window - 1u];
-          if (declared.first_step >= state->steps.size()) {
-            return Result<node::accel::detail::PreparedKernelPipeline>::fail(
-                Reason::PipelineInvalid);
-          }
-          const PipelineStep &resident = state->steps[declared.first_step];
-          const std::shared_ptr<JobState> &resident_job =
-              alternate ? resident.alternate_job : resident.job;
-          if (resident_job == nullptr ||
-              declared.recurrent_output_count == 0u ||
-              declared.recurrent_output_count > resident_job->inputs.size() ||
-              declared.recurrent_output_count > resident_job->outputs.size()) {
+          if (declared.first_step >= state->steps.size() ||
+              !supports_window_route(*job, step.route,
+                                     declared.recurrent_output_count)) {
             return Result<node::accel::detail::PreparedKernelPipeline>::fail(
                 Reason::PipelineInvalid);
           }
@@ -293,7 +301,8 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
            ++index) {
         const PipelinePublish &publication = state->publications[index];
         if (publication.window == 0u ||
-            publication.window > state->windows.size()) {
+            publication.window > state->windows.size() ||
+            publication.state != publication.window - 1u) {
           return Result<node::accel::detail::PreparedKernelPipeline>::fail(
               Reason::PipelineInvalid);
         }
@@ -302,7 +311,10 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
         const bool window_publish =
             publication.kind == PipelinePublishKind::Window;
         if (published_window.first_step >= state->steps.size() ||
-            state->steps[published_window.first_step].iteration_bound == 0u) {
+            state->steps[published_window.first_step].iteration_bound == 0u ||
+            (window_publish ? publication.final != 0u
+                            : publication.final < PipelineWindow::first ||
+                                  publication.final > PipelineWindow::second)) {
           return Result<node::accel::detail::PreparedKernelPipeline>::fail(
               Reason::PipelineInvalid);
         }
@@ -387,17 +399,8 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
             .target = target.source,
             .target_handle = std::move(target.handle),
             .target_ordinal = publication.ordinals.target,
-            .state = static_cast<std::uint32_t>(publication.window - 1u),
-            .final =
-                window_publish
-                    ? 0u
-                    : 1u + (((published_window.nested
-                                  ? static_cast<std::uint32_t>(
-                                        published_window.seed_count)
-                                  : state->steps[published_window.first_step]
-                                        .iteration_bound) -
-                             1u) &
-                            1u),
+            .state = publication.state,
+            .final = publication.final,
             .maximum = publication.maximum,
             .tile = publication.tile,
             .kind = window_publish

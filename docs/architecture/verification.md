@@ -232,6 +232,16 @@ accelerator SCC root and lock. `compute.flow-primitives` is already a CPU-only
 semantic oracle in the unlocked group, so it has no backend selector or
 accelerator link edge. Untagged cases reject the selector before configuration.
 
+`compute.window` owns the Fold-publication structural boundary in addition to
+runtime count and failure cases. Its one parameterized fixture crosses the
+physical-output/input-count boundary at `|W| = |T| - 1`, `|T|`, and `|T| + 1`
+for both action-free and positive-inner-repeat declarations. The installed
+package consumer retains a public `|W| > |T|` declaration so source-tree and
+SDK release gates cannot share an accidentally narrower publication shape.
+An internal Terminal control proves that only Terminal publication may resolve
+a physical output into an input bank and that a rejection preserves its Fold
+location.
+
 The operator selector `telemetry:detail` is a namespaced registry-tag
 projection, not a copied case list or regular-expression alias. Its isolated
 focus tree and CMake/Ninja identifiers join the same segments with dots because

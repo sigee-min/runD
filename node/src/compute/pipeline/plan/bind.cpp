@@ -262,7 +262,7 @@ Status bind_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   std::vector<PipelineResourceAdmission>{}.swap(resource_admissions);
   std::vector<PipelineBuildStep>{}.swap(build->steps);
   std::vector<PipelineBuildStatePair>{}.swap(build->state_pairs);
-  std::vector<PipelineBuildPublish>{}.swap(build->publications);
+  std::vector<PipelineBuildPublication>{}.swap(build->publications);
   std::vector<PipelineInternal>{}.swap(build->internals);
   std::vector<PipelineBuildNestedWindow>{}.swap(build->nested_windows);
   build->memory.reset();

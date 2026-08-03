@@ -548,89 +548,114 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     return Status::fail(Reason::PipelineInvalid);
   }
   state->publications.reserve(build->publications.size());
-  if (build->memory->publication_ordinals.size() !=
-      build->publications.size()) {
+  if (build->memory->publications.size() != build->publications.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }
   hash.number(build->publications.size());
   for (std::size_t publication_index = 0u;
        publication_index < build->publications.size(); ++publication_index) {
-    const PipelineBuildPublish &declared =
+    const PipelineBuildPublication &declared =
         build->publications[publication_index];
-    const PipelinePublicationOrdinals &planned_ordinals =
-        build->memory->publication_ordinals[publication_index];
-    if (declared.step >= state->steps.size() ||
-        state->steps[declared.step].window == 0u ||
-        declared.output >= PipelineLeafCapacity) {
+    const PipelinePublicationPlan &planned =
+        build->memory->publications[publication_index];
+    const auto *declared_window =
+        std::get_if<PipelineBuildWindowPublication>(&declared);
+    const auto *planned_window =
+        std::get_if<PipelineWindowPublicationPlan>(&planned);
+    if ((declared_window == nullptr) != (planned_window == nullptr)) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    auto projection = project_outputs(build->steps[declared.step]);
-    if (!projection ||
-        declared.output >= build->steps[declared.step].outputs.size()) {
-      return Status::fail(projection ? Reason::PipelineInvalid
-                                     : projection.reason());
+    const PipelineBuildPublicationEdge &edge =
+        pipeline_publication_edge(declared);
+    if (edge.step.value >= state->steps.size() ||
+        state->steps[edge.step.value].window == 0u ||
+        edge.output.value >= PipelineLeafCapacity) {
+      return Status::fail(Reason::PipelineInvalid);
     }
-    const std::uint32_t physical =
-        projection->logical_to_physical[declared.output];
-    if (physical >= projection->physical_count ||
+    const auto *planned_terminal =
+        std::get_if<PipelineTerminalPublicationPlan>(&planned);
+    const std::uint32_t physical = planned_window != nullptr
+                                       ? planned_window->output.value
+                                       : planned_terminal->output.value;
+    if (physical >= PipelineLeafCapacity ||
         physical > std::numeric_limits<std::uint16_t>::max()) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const auto source = ordinals.find(declared.source.buffer.get());
+    const auto source = ordinals.find(edge.source.buffer.get());
     if (source == ordinals.end()) {
       return Status::fail(Reason::PipelineInvalid);
     }
     const std::uint32_t source_ordinal = source->second;
     const Type source_type = state->resources[source_ordinal].type;
     const FixedFormat source_format = state->resources[source_ordinal].format;
-    const bool window_publish = declared.kind == PipelinePublishKind::Window;
+    const bool window_publish = declared_window != nullptr;
+    const std::size_t maximum = window_publish ? planned_window->maximum : 0u;
+    const std::size_t tile = window_publish ? planned_window->tile : 0u;
     const std::size_t target_slot_count =
-        window_publish ? declared.maximum : declared.source.count;
+        window_publish ? maximum : edge.source.count;
     auto target =
-        admit(declared.target, source_type, target_slot_count, source_format);
+        admit(edge.target, source_type, target_slot_count, source_format);
     if (!target) {
       return Status::fail(target.reason());
     }
-    if (source_ordinal == *target ||
-        declared.source.type != declared.target.type ||
-        declared.source.format != declared.target.format ||
-        declared.source.stride != 1u || declared.source.offset != 0u ||
-        declared.source.element_bytes != declared.target.element_bytes) {
+    if (source_ordinal == *target || edge.source.type != edge.target.type ||
+        edge.source.format != edge.target.format || edge.source.stride != 1u ||
+        edge.source.offset != 0u ||
+        edge.source.element_bytes != edge.target.element_bytes) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const bool planned_source = std::find(planned_ordinals.sources.begin(),
-                                          planned_ordinals.sources.end(),
-                                          source_ordinal) !=
-                                planned_ordinals.sources.end();
-    if (!planned_source || planned_ordinals.target != *target) {
+    PipelinePublicationOrdinals planned_ordinals{};
+    planned_ordinals.sources.fill(std::numeric_limits<std::uint32_t>::max());
+    std::uint32_t planned_state = std::numeric_limits<std::uint32_t>::max();
+    std::uint8_t planned_final = 0u;
+    if (planned_window != nullptr) {
+      planned_ordinals.sources.fill(planned_window->source);
+      planned_ordinals.count = planned_window->count;
+      planned_ordinals.target = planned_window->target;
+      planned_state = planned_window->state;
+    } else {
+      planned_ordinals.sources = planned_terminal->sources;
+      planned_ordinals.target = planned_terminal->target;
+      planned_state = planned_terminal->state;
+      planned_final = planned_terminal->final;
+    }
+    const bool planned_source =
+        std::find(planned_ordinals.sources.begin(),
+                  planned_ordinals.sources.end(),
+                  source_ordinal) != planned_ordinals.sources.end();
+    if (!planned_source || planned_ordinals.target != *target ||
+        planned_state != state->steps[edge.step.value].window - 1u) {
       return Status::fail(Reason::PipelineInvalid);
     }
     const PipelineWindow &publication_window =
-        state->windows[state->steps[declared.step].window - 1u];
+        state->windows[state->steps[edge.step.value].window - 1u];
     if (window_publish) {
-      if (declared.count.buffer == nullptr ||
-          declared.count.buffer != publication_window.count ||
-          declared.count.offset != publication_window.count_offset ||
-          declared.count.type != Type::U32 || declared.count.count != 1u ||
-          declared.count.stride != 1u ||
-          declared.count.element_bytes != sizeof(std::uint32_t) ||
-          declared.maximum != publication_window.maximum ||
-          declared.tile != publication_window.tile ||
-          declared.source.count != declared.tile ||
-          declared.target.count != declared.maximum ||
-          declared.target.stride != 1u) {
+      if (declared_window->count.buffer == nullptr ||
+          declared_window->count.buffer != publication_window.count ||
+          declared_window->count.offset != publication_window.count_offset ||
+          declared_window->count.type != Type::U32 ||
+          declared_window->count.count != 1u ||
+          declared_window->count.stride != 1u ||
+          declared_window->count.element_bytes != sizeof(std::uint32_t) ||
+          declared_window->maximum != maximum ||
+          declared_window->tile != tile ||
+          maximum != publication_window.maximum ||
+          tile != publication_window.tile || edge.source.count != tile ||
+          edge.target.count != maximum || edge.target.stride != 1u ||
+          planned_window->source != source_ordinal) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      const auto count_ordinal = ordinals.find(declared.count.buffer.get());
+      const auto count_ordinal =
+          ordinals.find(declared_window->count.buffer.get());
       if (count_ordinal == ordinals.end() ||
           planned_ordinals.count != count_ordinal->second) {
         return Status::fail(Reason::PipelineInvalid);
       }
-    } else if (declared.source.count != declared.target.count ||
-               declared.count.buffer != nullptr || declared.maximum != 0u ||
-               declared.tile != 0u ||
+    } else if (edge.source.count != edge.target.count ||
                planned_ordinals.count !=
-                   std::numeric_limits<std::uint32_t>::max()) {
+                   std::numeric_limits<std::uint32_t>::max() ||
+               planned_final >= planned_ordinals.sources.size() ||
+               planned_ordinals.sources[planned_final] != source_ordinal) {
       return Status::fail(Reason::PipelineInvalid);
     }
     PipelineResource &target_resource = state->resources[*target];
@@ -645,38 +670,45 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
             : (build->steps.empty() ? 0u : build->steps.size() - 1u));
     ++output_count;
     state->publications.push_back(PipelinePublish{
-        .source = declared.source.buffer,
-        .target = declared.target.buffer,
-        .resident_count = declared.count.buffer,
-        .type = declared.source.type,
+        .source = edge.source.buffer,
+        .target = edge.target.buffer,
+        .resident_count =
+            window_publish ? declared_window->count.buffer : nullptr,
+        .type = edge.source.type,
         .format = source_format,
-        .source_offset = declared.source.offset,
-        .target_offset = declared.target.offset,
-        .count = declared.source.count,
-        .target_stride = declared.target.stride,
-        .element_bytes = declared.source.element_bytes,
-        .window = state->steps[declared.step].window,
+        .source_offset = edge.source.offset,
+        .target_offset = edge.target.offset,
+        .count = edge.source.count,
+        .target_stride = edge.target.stride,
+        .element_bytes = edge.source.element_bytes,
+        .window = state->steps[edge.step.value].window,
         .output = static_cast<std::uint16_t>(physical),
-        .kind = declared.kind,
-        .resident_count_offset = declared.count.offset,
-        .maximum = static_cast<std::uint32_t>(declared.maximum),
-        .tile = static_cast<std::uint32_t>(declared.tile),
+        .kind = window_publish ? PipelinePublishKind::Window
+                               : PipelinePublishKind::Terminal,
+        .final = planned_final,
+        .state = planned_state,
+        .resident_count_offset =
+            window_publish ? declared_window->count.offset : 0u,
+        .maximum = static_cast<std::uint32_t>(maximum),
+        .tile = static_cast<std::uint32_t>(tile),
         .ordinals = planned_ordinals,
     });
     hash.number(source_ordinal);
     hash.number(*target);
-    hash.number(static_cast<std::uint64_t>(declared.source.type));
+    hash.number(static_cast<std::uint64_t>(edge.source.type));
     hash.format(source_format);
-    hash.number(declared.source.count);
-    hash.number(declared.target.offset);
-    hash.number(declared.target.stride);
-    hash.number(declared.source.element_bytes);
-    hash.number(state->steps[declared.step].window);
+    hash.number(edge.source.count);
+    hash.number(edge.target.offset);
+    hash.number(edge.target.stride);
+    hash.number(edge.source.element_bytes);
+    hash.number(state->steps[edge.step.value].window);
     hash.number(physical);
-    hash.byte(static_cast<std::uint8_t>(declared.kind));
-    hash.number(declared.count.offset);
-    hash.number(declared.maximum);
-    hash.number(declared.tile);
+    hash.byte(static_cast<std::uint8_t>(window_publish
+                                            ? PipelinePublishKind::Window
+                                            : PipelinePublishKind::Terminal));
+    hash.number(window_publish ? declared_window->count.offset : 0u);
+    hash.number(maximum);
+    hash.number(tile);
   }
   state->transactional = build->commit;
   state->publication->state_pairs.reserve(build->state_pairs.size());

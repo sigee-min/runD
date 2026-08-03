@@ -93,8 +93,10 @@ bind(const std::uint32_t owner, const PipelineInternal &resource,
                            const ResourceView &view,
                            PipelineBinding &result) noexcept {
   result = bind(view);
-  for (const PipelineBuildPublish &publication : build.publications) {
-    const PipelineBinding &target = publication.target;
+  for (const PipelineBuildPublication &publication : build.publications) {
+    const PipelineBuildPublicationEdge &edge =
+        pipeline_publication_edge(publication);
+    const PipelineBinding &target = edge.target;
     if (target.buffer != view.buffer) {
       continue;
     }
@@ -112,7 +114,7 @@ bind(const std::uint32_t owner, const PipelineInternal &resource,
       }
       continue;
     }
-    if (publication.kind == PipelinePublishKind::Window) {
+    if (std::holds_alternative<PipelineBuildWindowPublication>(publication)) {
       if (view.access != ResourceAccess::Read) {
         // The append-only target has one writer for the complete Pipeline.
         return Status::fail(Reason::BindingAliasUnsupported);
@@ -123,7 +125,7 @@ bind(const std::uint32_t owner, const PipelineInternal &resource,
       // resource analysis then owns the exact publication-to-read barrier.
       return Status::success();
     }
-    const PipelineBinding &source = publication.source;
+    const PipelineBinding &source = edge.source;
     if (target.type != view.type || target.format != view.format ||
         target.element_bytes != view.element_bytes || target.stride == 0u ||
         view.offset < target.offset) {
@@ -472,12 +474,14 @@ void append_recurrence(const std::shared_ptr<PipelineBuildState> &build,
     }
     if (resident != nullptr) {
       for (std::size_t index = 0u; index < outputs.size(); ++index) {
-        build->publications.push_back(PipelineBuildPublish{
-            .source = current[index],
-            .target = final[index],
-            .count = {},
-            .step = first,
-            .output = static_cast<std::uint32_t>(index),
+        build->publications.push_back(PipelineBuildTerminalPublication{
+            .edge =
+                {
+                    .source = current[index],
+                    .target = final[index],
+                    .step = {.value = first},
+                    .output = {.value = static_cast<std::uint32_t>(index)},
+                },
         });
       }
     }
@@ -956,24 +960,29 @@ void append_pipeline_window_repeat(
         (outer & 1u) != 0u ? std::span<const PipelineBinding>{outer_first}
                            : std::span<const PipelineBinding>{outer_second};
     for (std::size_t index = 0u; index < recurrent_count; ++index) {
-      build->publications.push_back(PipelineBuildPublish{
-          .source = final_bank[index],
-          .target = final[index],
-          .count = {},
-          .step = fold_first,
-          .output = static_cast<std::uint32_t>(index),
+      build->publications.push_back(PipelineBuildTerminalPublication{
+          .edge =
+              {
+                  .source = final_bank[index],
+                  .target = final[index],
+                  .step = {.value = fold_first},
+                  .output = {.value = static_cast<std::uint32_t>(index)},
+              },
       });
     }
     for (std::size_t index = 0u; index < window_count; ++index) {
-      build->publications.push_back(PipelineBuildPublish{
-          .source = window_tile[index],
-          .target = window_target[index],
+      build->publications.push_back(PipelineBuildWindowPublication{
+          .edge =
+              {
+                  .source = window_tile[index],
+                  .target = window_target[index],
+                  .step = {.value = fold_first},
+                  .output = {.value = static_cast<std::uint32_t>(
+                                 recurrent_count + index)},
+              },
           .count = bind(resident),
-          .step = fold_first,
-          .output = static_cast<std::uint32_t>(recurrent_count + index),
           .maximum = maximum,
           .tile = tile,
-          .kind = PipelinePublishKind::Window,
       });
     }
     build->nested_windows.push_back(PipelineBuildNestedWindow{

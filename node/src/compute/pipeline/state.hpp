@@ -20,6 +20,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <variant>
 #include <vector>
 
 namespace rund::compute::detail {
@@ -31,6 +32,23 @@ struct PipelinePublicationOrdinals final {
   std::array<std::uint32_t, 3u> sources{};
   std::uint32_t count{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
+};
+
+enum class PipelinePublishKind : std::uint8_t {
+  Terminal,
+  Window,
+};
+
+struct PipelinePublicationStepOrdinal final {
+  std::size_t value{};
+};
+
+struct PipelineLogicalOutputOrdinal final {
+  std::uint32_t value{};
+};
+
+struct PipelinePhysicalOutputOrdinal final {
+  std::uint32_t value{};
 };
 
 enum class PipelinePhase : unsigned char {
@@ -83,6 +101,27 @@ struct PipelineInternal final {
   std::size_t count{};
   PipelineFill fill{PipelineFill::None};
 };
+
+struct PipelineTerminalPublicationPlan final {
+  std::array<std::uint32_t, 3u> sources{};
+  std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
+  PipelinePhysicalOutputOrdinal output{};
+  std::uint8_t final{};
+};
+
+struct PipelineWindowPublicationPlan final {
+  std::uint32_t source{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t count{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
+  PipelinePhysicalOutputOrdinal output{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+};
+
+using PipelinePublicationPlan = std::variant<PipelineTerminalPublicationPlan,
+                                             PipelineWindowPublicationPlan>;
 
 struct PipelineMemoryPlan final {
   struct ViewSlot final {
@@ -149,11 +188,10 @@ struct PipelineMemoryPlan final {
   // Exact dense CPU View transfers for each canonical private Job. Reused
   // recurrence entries are empty because they borrow their owner's Job.
   std::vector<CpuViewTransferLayout> cpu_view_layouts;
-  // Canonical resource admission is the sole publication-ordinal authority.
-  // The semantic fingerprint is consumed by public accelerator planning;
-  // bind carries only these ordinals so private preparation can hash the
-  // actual ResidentBufferRef shapes without pointer/handle identity.
-  std::vector<PipelinePublicationOrdinals> publication_ordinals;
+  // Canonical typed publication authority. Window and Terminal plans contain
+  // only their valid coordinates; admission consumes this ordered projection
+  // without re-deriving output/input relationships from authored bindings.
+  std::vector<PipelinePublicationPlan> publications;
   std::uint64_t publication_fingerprint_hi{};
   std::uint64_t publication_fingerprint_lo{};
   // Frozen accelerator preparation admission. The public plan owns this
@@ -216,32 +254,53 @@ struct PipelineBuildStatePair final {
   PipelineBinding pending;
 };
 
-enum class PipelinePublishKind : std::uint8_t {
-  Terminal,
-  Window,
-};
-
 // Recurrent state and append-only window output both compute into private
 // storage. Terminal publication is gated on complete Pipeline success. Window
 // publication is count-gated after each successful Fold and is intentionally
 // non-rollback: a later failure poisons a destination that may contain an
 // already published prefix.
-struct PipelineBuildPublish final {
+struct PipelineBuildPublicationEdge final {
   PipelineBinding source;
   PipelineBinding target;
+  PipelinePublicationStepOrdinal step{};
+  PipelineLogicalOutputOrdinal output{};
+};
+
+struct PipelineBuildTerminalPublication final {
+  PipelineBuildPublicationEdge edge;
+};
+
+struct PipelineBuildWindowPublication final {
+  PipelineBuildPublicationEdge edge;
   PipelineBinding count;
-  std::size_t step{};
-  std::uint32_t output{};
   std::size_t maximum{};
   std::size_t tile{};
-  PipelinePublishKind kind{PipelinePublishKind::Terminal};
 };
+
+using PipelineBuildPublication = std::variant<PipelineBuildTerminalPublication,
+                                              PipelineBuildWindowPublication>;
+
+[[nodiscard]] inline const PipelineBuildPublicationEdge &
+pipeline_publication_edge(const PipelineBuildPublication &publication) {
+  return std::visit(
+      [](const auto &typed) -> const PipelineBuildPublicationEdge & {
+        return typed.edge;
+      },
+      publication);
+}
+
+[[nodiscard]] inline PipelineBuildPublicationEdge &
+pipeline_publication_edge(PipelineBuildPublication &publication) {
+  return std::visit(
+      [](auto &typed) -> PipelineBuildPublicationEdge & { return typed.edge; },
+      publication);
+}
 
 struct PipelineBuildState final {
   std::shared_ptr<DeviceState> device;
   std::vector<PipelineBuildStep> steps;
   std::vector<PipelineBuildStatePair> state_pairs;
-  std::vector<PipelineBuildPublish> publications;
+  std::vector<PipelineBuildPublication> publications;
   std::vector<PipelineInternal> internals;
   std::vector<PipelineBuildNestedWindow> nested_windows;
   std::shared_ptr<const PipelineMemoryPlan> memory;
@@ -350,6 +409,8 @@ struct PipelineStatePair final {
   std::size_t bytes{};
 };
 
+// Backend-ready execution descriptor derived from PipelinePublicationPlan.
+// Its flat shape is a warm-path encoding, never a second admission authority.
 struct PipelinePublish final {
   std::shared_ptr<BufferState> source;
   std::shared_ptr<BufferState> target;
@@ -364,6 +425,8 @@ struct PipelinePublish final {
   std::uint16_t window{};
   std::uint16_t output{};
   PipelinePublishKind kind{PipelinePublishKind::Terminal};
+  std::uint8_t final{};
+  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
   std::size_t resident_count_offset{};
   std::uint32_t maximum{};
   std::uint32_t tile{};

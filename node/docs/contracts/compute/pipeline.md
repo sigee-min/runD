@@ -813,6 +813,36 @@ runtime-owned trailing Seed inputs and never appear in the caller read pack.
 If Action needs either value, Seed must place it in `Q`; there is no hidden
 Action input.
 
+Publication lowering preserves that separation structurally. Authored
+Terminal and Window publications are distinct closed alternatives, and the
+cold planner replaces them with distinct resolved alternatives before hazard
+analysis or backend preparation. A Window plan contains its private Fold
+source, count, target, state, maximum, and tile; it has no input-binding
+coordinate. A Terminal plan alone resolves a physical Fold output to the
+corresponding recurrent input bank. Logical output ordinal, physical output
+ordinal, and input-binding ordinal are different coordinate domains and no
+generic integer guard may compare them outside that Terminal resolver. The
+ordered resolved publication vector is the sole physical authority consumed
+by admission and backend descriptor construction; those later stages do not
+project authored outputs again.
+
+Backend route admission follows the same typed boundary. `NestedSeed` and
+`NestedAction` own their intermediates, while only `Ordinary` recurrence and
+the leading `NestedFold` recurrent prefix require matching input banks.
+Trailing Fold outputs are Window publications and deliberately have no input
+coordinate. Backend preparation therefore validates the frozen recurrent
+prefix on the applicable routes; it must not compare complete output and input
+arities.
+
+Let `|O|`, `|T|`, and `|W|` be the flattened leaf counts. The last Window
+physical output ordinal is `|O| + |W| - 1`, while Fold input count is
+`|O| + |T|`. No contract requires `|W| <= |T|`. The structural contract matrix
+therefore admits `|W| = |T| - 1`, `|T|`, and `|T| + 1` for both action-free and
+positive-inner-repeat forms. A plan-time publication rejection retains the
+logical Pipeline step, physical recurrence iteration, and nested Fold phase in
+its `Result<T>` location; forwarding through `plan()` and `prepare()` preserves
+that evidence unchanged.
+
 Every `W` Program leaf has compile-time element count `Tile`, while its
 corresponding `write_window` destination has exact logical element count
 `Max`. Fold writes `W` into one private `O(Tile)` bank. Only after Fold status

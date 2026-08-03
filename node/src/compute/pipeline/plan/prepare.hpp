@@ -15,6 +15,7 @@ namespace rund::compute::detail {
 struct PipelineBuildState;
 struct PipelineMemoryPlan;
 struct PipelineState;
+struct PipelineScheduleSuccess final {};
 
 struct PipelinePrepare final {
   std::shared_ptr<PipelineState> state;
@@ -31,8 +32,9 @@ struct PipelinePrepare final {
 [[nodiscard]] Status
 admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                PipelinePrepare &prepare);
-[[nodiscard]] Status plan_pipeline_schedule(const PipelineBuildState &build,
-                                            PipelineMemoryPlan &plan);
+[[nodiscard]] Result<PipelineScheduleSuccess>
+plan_pipeline_schedule(const PipelineBuildState &build,
+                       PipelineMemoryPlan &plan);
 [[nodiscard]] Status
 schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                   PipelinePrepare &prepare);

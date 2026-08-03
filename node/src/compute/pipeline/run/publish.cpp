@@ -22,7 +22,10 @@ Status publish_cpu_pipeline(PipelineState &state) noexcept {
     }
     if (publication.source == publication.target || publication.window == 0u ||
         publication.window > state.windows.size() ||
+        publication.state != publication.window - 1u ||
         publication.kind != PipelinePublishKind::Terminal ||
+        publication.final < PipelineWindow::first ||
+        publication.final > PipelineWindow::second ||
         publication.resident_count != nullptr || publication.maximum != 0u ||
         publication.tile != 0u) {
       return Status::fail(Reason::PipelineInvalid);
@@ -86,7 +89,8 @@ Status publish_cpu_pipeline_window(PipelineState &state,
     if (publication.source == nullptr || publication.target == nullptr ||
         publication.resident_count == nullptr ||
         publication.source == publication.target ||
-        publication.maximum != descriptor.maximum ||
+        publication.state != publication.window - 1u ||
+        publication.final != 0u || publication.maximum != descriptor.maximum ||
         publication.tile != descriptor.tile ||
         publication.count != publication.tile ||
         publication.target_stride != 1u || publication.element_bytes == 0u) {

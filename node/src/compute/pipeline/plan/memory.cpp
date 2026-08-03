@@ -80,8 +80,8 @@ pipeline_output_count(const PipelineBuildState &build) {
       }
     }
   }
-  for (const PipelineBuildPublish &publication : build.publications) {
-    if (!admit(publication.target)) {
+  for (const PipelineBuildPublication &publication : build.publications) {
+    if (!admit(pipeline_publication_edge(publication).target)) {
       return Result<std::size_t>::fail(
           count == std::numeric_limits<std::size_t>::max()
               ? Reason::PipelineCapacity
@@ -116,14 +116,13 @@ job_view(const PipelineBinding &binding) noexcept {
                             stride_bytes)) {
     return Status::fail(Reason::PipelineCapacity);
   }
-  out.push_back(
-      node::accel::detail::PreparedKernelProgramBindingIdentity{
-          .offset_bytes = offset_bytes,
-          .element_bytes = binding.element_bytes,
-          .stride_bytes = stride_bytes,
-          .count = binding.count,
-          .usage = usage,
-      });
+  out.push_back(node::accel::detail::PreparedKernelProgramBindingIdentity{
+      .offset_bytes = offset_bytes,
+      .element_bytes = binding.element_bytes,
+      .stride_bytes = stride_bytes,
+      .count = binding.count,
+      .usage = usage,
+  });
   return Status::success();
 }
 
@@ -150,9 +149,9 @@ job_view(const PipelineBinding &binding) noexcept {
     const std::uint32_t usage =
         graph_binding.role == kernel::BufferRole::Read
             ? kernel::kResidentUsageRead
-            : graph_binding.role == kernel::BufferRole::Write
-                  ? kernel::kResidentUsageWrite
-                  : 0u;
+        : graph_binding.role == kernel::BufferRole::Write
+            ? kernel::kResidentUsageWrite
+            : 0u;
     if (usage == 0u) {
       return Status::fail(Reason::GraphBindingInvalid);
     }
@@ -215,14 +214,13 @@ job_view(const PipelineBinding &binding) noexcept {
                               offset_bytes)) {
       return Status::fail(Reason::PipelineCapacity);
     }
-    out.push_back(
-        node::accel::detail::PreparedKernelProgramBindingIdentity{
-            .offset_bytes = offset_bytes,
-            .element_bytes = route.element_bytes,
-            .stride_bytes = route.element_bytes,
-            .count = route.count,
-            .usage = usage,
-        });
+    out.push_back(node::accel::detail::PreparedKernelProgramBindingIdentity{
+        .offset_bytes = offset_bytes,
+        .element_bytes = route.element_bytes,
+        .stride_bytes = route.element_bytes,
+        .count = route.count,
+        .usage = usage,
+    });
   }
   return out.size() == program->graph_bindings.size()
              ? Status::success()
@@ -450,9 +448,9 @@ plan_pipeline_cpu_prepared_storage(const PipelineBuildState &build,
       continue;
     }
     const PipelineBuildStep &step = build.steps[index];
-    const bool needs_workspace =
-        !step.program->chunks.empty() || !plan.views[index].empty() ||
-        (has_job_arena && !step.program->empty());
+    const bool needs_workspace = !step.program->chunks.empty() ||
+                                 !plan.views[index].empty() ||
+                                 (has_job_arena && !step.program->empty());
     if (needs_workspace &&
         !append_cpu_workspace_slice(plan.cpu_prepared_arena,
                                     step.program->chunks.size(),
@@ -488,9 +486,8 @@ plan_pipeline_cpu_prepared_storage(const PipelineBuildState &build,
     if (!append_cpu_job_binding_slice(plan.cpu_prepared_arena, counts,
                                       plan.cpu_job_slices[index]) ||
         (transactional &&
-         !append_cpu_job_binding_slice(
-             plan.cpu_prepared_arena, counts,
-             plan.cpu_alternate_job_slices[index]))) {
+         !append_cpu_job_binding_slice(plan.cpu_prepared_arena, counts,
+                                       plan.cpu_alternate_job_slices[index]))) {
       return Status::fail(Reason::PipelineCapacity);
     }
   }
@@ -576,10 +573,9 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
         const PipelineBuildNestedWindow &nested =
             build.nested_windows[nested_index];
         const std::uint64_t outer = nested.seed_count;
-        if (outer == 0u || nested.seed_count >
-                               std::numeric_limits<std::uint32_t>::max() ||
-            nested.action_count >
-                std::numeric_limits<std::uint32_t>::max() ||
+        if (outer == 0u ||
+            nested.seed_count > std::numeric_limits<std::uint32_t>::max() ||
+            nested.action_count > std::numeric_limits<std::uint32_t>::max() ||
             nested.maximum > std::numeric_limits<std::uint32_t>::max() ||
             nested.tile > std::numeric_limits<std::uint32_t>::max()) {
           return Status::fail(Reason::PipelineInvalid);
@@ -587,10 +583,8 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
         identity.maximum = static_cast<std::uint32_t>(nested.maximum);
         identity.tile = static_cast<std::uint32_t>(nested.tile);
         identity.expected = nested.expected;
-        identity.outer_bound =
-            static_cast<std::uint32_t>(nested.seed_count);
-        identity.inner_bound =
-            static_cast<std::uint32_t>(nested.action_count);
+        identity.outer_bound = static_cast<std::uint32_t>(nested.seed_count);
+        identity.inner_bound = static_cast<std::uint32_t>(nested.action_count);
         identity.has_window = true;
         identity.has_terminal = nested.terminal != NoWindowTerminal;
         switch (step.route) {
@@ -647,8 +641,8 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
           return Status::fail(Reason::PipelineInvalid);
         }
         identity.state = state;
-        window_state_count =
-            std::max(window_state_count, static_cast<std::uint64_t>(state) + 1u);
+        window_state_count = std::max(window_state_count,
+                                      static_cast<std::uint64_t>(state) + 1u);
         if (active_window_states[state] == 0u) {
           active_window_states[state] = 1u;
           ++window_descriptor_state_count;
@@ -685,9 +679,8 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
         }
         const std::size_t action_owner = plan.job_owners[nested.action_first];
         if (action_owner >= build.steps.size() ||
-            !kernel::checked::add(
-                map_recurrence_group_counts[action_owner], 1u,
-                map_recurrence_group_counts[action_owner])) {
+            !kernel::checked::add(map_recurrence_group_counts[action_owner], 1u,
+                                  map_recurrence_group_counts[action_owner])) {
           return Status::fail(action_owner >= build.steps.size()
                                   ? Reason::PipelineInvalid
                                   : Reason::PipelineCapacity);
@@ -699,18 +692,17 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
     // therefore one candidate group at most, never one group per iteration or
     // parity route. Runtime proves bindings/artifact eligibility against this
     // same authored marker before materializing any native recurrence owner.
-    bool top_level_recurrence = build.steps.size() > 1u &&
-                                build.steps.size() <=
-                                    std::numeric_limits<std::uint32_t>::max();
+    bool top_level_recurrence =
+        build.steps.size() > 1u &&
+        build.steps.size() <= std::numeric_limits<std::uint32_t>::max();
     const PipelineBuildStep *const top =
         top_level_recurrence ? &build.steps.front() : nullptr;
-    for (std::size_t index = 0u; top_level_recurrence &&
-                                 index < build.steps.size();
-         ++index) {
+    for (std::size_t index = 0u;
+         top_level_recurrence && index < build.steps.size(); ++index) {
       const PipelineBuildStep &step = build.steps[index];
       top_level_recurrence =
-          step.program == top->program && step.logical_step == top->logical_step &&
-          step.iteration == index &&
+          step.program == top->program &&
+          step.logical_step == top->logical_step && step.iteration == index &&
           step.iteration_bound == build.steps.size() && step.nested == 0u &&
           step.route == PipelineRoute::Ordinary && step.window_tile == 0u &&
           step.writes_each_iteration == top->writes_each_iteration;
@@ -721,9 +713,8 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
           !kernel::checked::add(map_recurrence_group_counts[owner], 1u,
                                 map_recurrence_group_counts[owner]) ||
           (top->writes_each_iteration &&
-           !kernel::checked::add(
-               map_recurrence_history_group_counts[owner], 1u,
-               map_recurrence_history_group_counts[owner]))) {
+           !kernel::checked::add(map_recurrence_history_group_counts[owner], 1u,
+                                 map_recurrence_history_group_counts[owner]))) {
         return Status::fail(owner >= build.steps.size()
                                 ? Reason::PipelineInvalid
                                 : Reason::PipelineCapacity);
@@ -731,8 +722,8 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
     }
 
     std::vector<node::accel::detail::PreparedKernelProgramRoute> routes;
-    std::vector<std::vector<
-        node::accel::detail::PreparedKernelProgramBindingIdentity>>
+    std::vector<
+        std::vector<node::accel::detail::PreparedKernelProgramBindingIdentity>>
         route_program_bindings;
     routes.reserve(build.steps.size());
     route_program_bindings.reserve(build.steps.size());
@@ -763,8 +754,7 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
           .occurrence_count = occurrence_counts[index],
           .window_count = window_counts[index],
           .nested_group_count = nested_group_counts[index],
-          .map_recurrence_group_count =
-              map_recurrence_group_counts[index],
+          .map_recurrence_group_count = map_recurrence_group_counts[index],
           .map_recurrence_history_group_count =
               map_recurrence_history_group_counts[index],
           .recurrence_fingerprint_hi = recurrence_hi[index],
@@ -786,15 +776,18 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
     node::accel::detail::PreparedKernelTemplateRegistry templates{};
     std::uint64_t terminal_publication_count = 0u;
     std::uint64_t publication_command_count = 0u;
-    for (const PipelineBuildPublish &publication : build.publications) {
-      const bool window = publication.kind == PipelinePublishKind::Window;
+    for (const PipelineBuildPublication &publication : build.publications) {
+      const auto *window =
+          std::get_if<PipelineBuildWindowPublication>(&publication);
       std::uint64_t contribution = 0u;
       if (!node::accel::detail::PreparedKernelPublicationCommandContribution(
-              window, publication.maximum, publication.tile, contribution) ||
+              window != nullptr, window == nullptr ? 0u : window->maximum,
+              window == nullptr ? 0u : window->tile, contribution) ||
           !kernel::checked::add(publication_command_count, contribution,
                                 publication_command_count) ||
-          (!window && !kernel::checked::add(terminal_publication_count, 1u,
-                                            terminal_publication_count))) {
+          (window == nullptr &&
+           !kernel::checked::add(terminal_publication_count, 1u,
+                                 terminal_publication_count))) {
         return Status::fail(Reason::PipelineCapacity);
       }
     }
@@ -918,9 +911,9 @@ plan_pipeline_host_preparation(const PipelineBuildState &build,
     if (plan.workspace_owners[index] != index) {
       continue;
     }
-    const bool workspace =
-        !step.program->chunks.empty() || !plan.views[index].empty() ||
-        (has_arena && !step.program->empty());
+    const bool workspace = !step.program->chunks.empty() ||
+                           !plan.views[index].empty() ||
+                           (has_arena && !step.program->empty());
     if (!workspace) {
       continue;
     }
@@ -968,7 +961,7 @@ plan_pipeline_host_preparation(const PipelineBuildState &build,
                            sizeof(JobBufferView)) ||
                !add_extent(job, plan.views[index].size(),
                            sizeof(node::accel::detail::KernelViewSlot))) {
-        return Status::fail(Reason::PipelineCapacity);
+      return Status::fail(Reason::PipelineCapacity);
     }
     std::uint64_t all_jobs = 0u;
     if (!kernel::checked::mul(job, copies, all_jobs) ||
@@ -1012,17 +1005,16 @@ plan_memory(const PipelineBuildState &build) {
       }
       if (programs.insert(step.program.get()).second) {
         unique_programs.push_back(step.program.get());
-        if (!kernel::checked::add(
-                summary.node_count,
-                static_cast<std::uint64_t>(
-                    step.program->graph_info.nodes.size()),
-                summary.node_count)) {
+        if (!kernel::checked::add(summary.node_count,
+                                  static_cast<std::uint64_t>(
+                                      step.program->graph_info.nodes.size()),
+                                  summary.node_count)) {
           return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
               Reason::PipelineCapacity);
         }
       }
-      if (build.device->backend == Backend::Cpu &&
-          !step.program->empty() && step.program->cpu_graph != nullptr) {
+      if (build.device->backend == Backend::Cpu && !step.program->empty() &&
+          step.program->cpu_graph != nullptr) {
         const auto [position, inserted] = cpu_programs.emplace(
             step.program.get(), result->cpu_programs.size());
         if (inserted) {
@@ -1036,8 +1028,7 @@ plan_memory(const PipelineBuildState &build) {
           result->cpu_storage_plans.push_back(*storage);
           result->cpu_route_plans.push_back(*route);
           if (!merge_cpu_execution_storage_plan(
-                  result->cpu_prepared_arena.execution,
-                  storage->execution)) {
+                  result->cpu_prepared_arena.execution, storage->execution)) {
             return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
                 Reason::PipelineCapacity);
           }
@@ -1087,10 +1078,9 @@ plan_memory(const PipelineBuildState &build) {
       const CpuRunRoutePlan &route = result->cpu_route_plans[cpu_owner];
       if (!append_cpu_run_route_slice(result->cpu_prepared_arena, route,
                                       result->cpu_route_slices[index]) ||
-          (transactional &&
-           !append_cpu_run_route_slice(
-               result->cpu_prepared_arena, route,
-               result->cpu_alternate_route_slices[index]))) {
+          (transactional && !append_cpu_run_route_slice(
+                                result->cpu_prepared_arena, route,
+                                result->cpu_alternate_route_slices[index]))) {
         return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
             Reason::PipelineCapacity);
       }
@@ -1266,26 +1256,31 @@ plan_memory(const PipelineBuildState &build) {
             Reason::PipelineCapacity);
       }
     }
-    for (const PipelineBuildPublish &publication : build.publications) {
-      if (!admit(publication.source) || !admit(publication.target) ||
-          (publication.kind == PipelinePublishKind::Window &&
-           !admit(publication.count))) {
+    for (const PipelineBuildPublication &publication : build.publications) {
+      const PipelineBuildPublicationEdge &edge =
+          pipeline_publication_edge(publication);
+      const auto *window =
+          std::get_if<PipelineBuildWindowPublication>(&publication);
+      if (!admit(edge.source) || !admit(edge.target) ||
+          (window != nullptr && !admit(window->count))) {
         return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
             Reason::PipelineCapacity);
       }
+      if (window != nullptr && (window->maximum == 0u || window->tile == 0u ||
+                                window->tile > window->maximum)) {
+        return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+            Reason::PipelineInvalid);
+      }
       std::uint64_t bytes = 0u;
       const std::uint64_t elements =
-          publication.kind == PipelinePublishKind::Window
-              ? publication.maximum
-              : publication.source.count;
+          window == nullptr ? edge.source.count : window->maximum;
       const std::uint64_t occurrences =
-          publication.kind == PipelinePublishKind::Window
-              ? (publication.maximum / publication.tile +
-                 (publication.maximum % publication.tile == 0u ? 0u : 1u))
-              : 1u;
-      if (publication.source.element_bytes == 0u ||
-          !kernel::checked::mul(elements, publication.source.element_bytes,
-                                bytes) ||
+          window == nullptr
+              ? 1u
+              : (window->maximum / window->tile +
+                 (window->maximum % window->tile == 0u ? 0u : 1u));
+      if (edge.source.element_bytes == 0u ||
+          !kernel::checked::mul(elements, edge.source.element_bytes, bytes) ||
           !kernel::checked::add(summary.publish_bytes, bytes,
                                 summary.publish_bytes) ||
           !kernel::checked::add(summary.publish_count, occurrences,
@@ -1307,10 +1302,10 @@ plan_memory(const PipelineBuildState &build) {
             Reason::PipelineCapacity);
       }
     }
-    const Status schedule = plan_pipeline_schedule(build, *result);
+    auto schedule = plan_pipeline_schedule(build, *result);
     if (!schedule) {
       return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
-          schedule.reason());
+          schedule.reason(), schedule.location());
     }
 
     const Status arena =
@@ -1435,8 +1430,7 @@ plan_memory(const PipelineBuildState &build) {
         !kernel::checked::add(summary.peak_bytes - arena_payload_bytes,
                               arena_committed_bytes,
                               summary.committed_peak_bytes) ||
-        result->publication_committed_bytes >
-            summary.committed_peak_bytes) {
+        result->publication_committed_bytes > summary.committed_peak_bytes) {
       return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
           Reason::PipelineCapacity);
     }
@@ -1534,10 +1528,12 @@ plan_memory(const PipelineBuildState &build) {
         }
       }
     }
-    for (PipelineBuildPublish &publication : build.publications) {
-      if (!resolve(publication.source) || !resolve(publication.target) ||
-          (publication.kind == PipelinePublishKind::Window &&
-           !resolve(publication.count))) {
+    for (PipelineBuildPublication &publication : build.publications) {
+      PipelineBuildPublicationEdge &edge =
+          pipeline_publication_edge(publication);
+      auto *window = std::get_if<PipelineBuildWindowPublication>(&publication);
+      if (!resolve(edge.source) || !resolve(edge.target) ||
+          (window != nullptr && !resolve(window->count))) {
         return Status::fail(Reason::PipelineInvalid);
       }
     }
