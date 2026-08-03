@@ -55,13 +55,13 @@ struct LoweringArtifact {
   ArtifactKey key{};
   LoweringArtifactKind kind = LoweringArtifactKind::None;
   ExecutionMetadata metadata{};
-  std::string source_text;
+  std::string source_text{};
   // Allocation-free source-generation authority for the largest canonical
   // decimal-literal spelling of this exact admitted IR. Backend preparation
   // may specialize the text further, but must start from this frozen upper
   // rather than rediscovering source semantics from the emitted string.
   u64 source_text_upper_bytes = 0u;
-  std::vector<u8> canonical_ir_bytes;
+  std::vector<u8> canonical_ir_bytes{};
   bool ok = false;
   const char *reason = "compute_lowering_invalid";
 
