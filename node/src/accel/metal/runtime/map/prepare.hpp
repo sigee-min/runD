@@ -17,6 +17,7 @@
 
 namespace rund::node::accel::detail {
 
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 namespace {
 
 [[nodiscard]] bool SameMetalMapTemplateBindings(
@@ -86,14 +87,23 @@ namespace {
 }
 
 } // namespace
+#endif
 
 bool MetalMapTemplateMatches(
     const MetalMapTemplateResources &prepared, const MetalAdapter &adapter,
     const rund::kernel::ComputePlan &plan,
     const rund::kernel::BindingSet &bindings) noexcept {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   return prepared.adapter == &adapter &&
          backend_template_plan::same_plan(prepared.plan, plan) &&
          SameMetalMapTemplateBindings(prepared, bindings);
+#else
+  (void)prepared;
+  (void)adapter;
+  (void)plan;
+  (void)bindings;
+  return false;
+#endif
 }
 
 [[nodiscard]] inline rund::AccelCheck PrepareMetalMapTemplateImpl(
@@ -300,6 +310,7 @@ rund::AccelCheck PrepareMetalMapRoute(
   (void)window_count;
   (void)bindings;
   (void)control;
+  (void)prepared;
   (void)resources;
   (void)iterations;
   return rund::AccelCheck{false, "accel_metal_unavailable"};

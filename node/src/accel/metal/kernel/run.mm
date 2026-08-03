@@ -1070,15 +1070,28 @@ PrepareMetalPipelinePrivateKernel(const BackendRun &run,
 rund::AccelCheck PlanMetalPipelinePrivateKernel(
     const BackendRun &run,
     PreparedKernelRouteReservation &reservation) noexcept {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   return backend_template_plan::plan(run, MetalBackendShape(), reservation);
+#else
+  (void)run;
+  reservation = {};
+  return rund::AccelCheck{false, "accel_metal_unavailable"};
+#endif
 }
 
 rund::AccelCheck
 PlanMetalPipelineProgram(const KernelExecution &execution,
                          const PreparedKernelProgramRoute &route,
                          PreparedKernelRouteReservation &reservation) noexcept {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   return backend_template_plan::plan_program(execution, route,
                                              MetalBackendShape(), reservation);
+#else
+  (void)execution;
+  (void)route;
+  reservation = {};
+  return rund::AccelCheck{false, "accel_metal_unavailable"};
+#endif
 }
 
 rund::AccelCheck PlanMetalPipelineRecurrence(
