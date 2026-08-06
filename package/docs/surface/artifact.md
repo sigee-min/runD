@@ -10,7 +10,9 @@ and must be byte-identical to its checked-in source authority.
 
 The checked-in [`headers.tsv`](./headers.tsv) owns the direct entries and
 private paths. At install time, each direct header is preprocessed as an
-independent C++20 translation unit. The union of its transitive project-local
+independent C++20 translation unit with the producer compiler, target, and
+resolved sysroot. A raw compiler SDK guess is not a substitute for the
+configured producer sysroot. The union of each entry's transitive project-local
 dependencies is installed, sorted, and recorded in
 `share/runD/sdk-headers.tsv`. Duplicate install-relative ownership, symlinks,
 private-path reachability, and any file present outside that inventory fail the

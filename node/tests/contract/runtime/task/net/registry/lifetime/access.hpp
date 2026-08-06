@@ -20,8 +20,7 @@ namespace rund::node::test_contract::net_registry_lifetime {
   if (found == nullptr) {
     return false;
   }
-  std::atomic_ref<std::uint64_t>{found->hot.generation}.store(
-      generation, std::memory_order_release);
+  found->hot.generation.store(generation, std::memory_order_release);
   return true;
 }
 

@@ -238,11 +238,10 @@ bool SubmitVulkanExternal(VulkanAdapter &adapter, const VkCommandBuffer command,
                                     reset, "accel_vulkan_command_unavailable"));
     return false;
   }
-  const VkSubmitInfo submit{
-      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-      .commandBufferCount = 1u,
-      .pCommandBuffers = &command,
-  };
+  VkSubmitInfo submit{};
+  submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submit.commandBufferCount = 1u;
+  submit.pCommandBuffers = &command;
   const std::uint64_t submitted_ns = MonotonicNanoseconds();
   const VkResult submitted =
       vkQueueSubmit(adapter.compute_queue, 1u, &submit, fence);

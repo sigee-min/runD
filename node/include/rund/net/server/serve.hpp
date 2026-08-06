@@ -15,9 +15,8 @@
 
 namespace rund::net::server {
 
-static_assert(std::atomic_ref<std::uint32_t>::is_always_lock_free);
-static_assert(std::atomic_ref<std::uint32_t>::required_alignment <=
-              alignof(std::uint32_t));
+static_assert(__atomic_always_lock_free(sizeof(std::uint32_t), nullptr));
+static_assert(alignof(std::uint32_t) >= sizeof(std::uint32_t));
 
 namespace detail {
 
@@ -51,8 +50,7 @@ unpack_failure(const std::uint64_t value) noexcept {
 }
 
 inline void increment(std::uint32_t &value) noexcept {
-  std::atomic_ref<std::uint32_t>{value}.fetch_add(1u,
-                                                  std::memory_order_relaxed);
+  static_cast<void>(__atomic_fetch_add(&value, 1u, __ATOMIC_RELAXED));
 }
 
 inline void record(Outcomes &outcomes, const std::uint32_t index,

@@ -12,8 +12,6 @@
 namespace node_accel_contract {
 
 [[nodiscard]] bool
-MetalRepeatedStagedRunsReportWarmRuntimeStats(const rund::AccelDevice &pick);
-[[nodiscard]] bool
 MetalResidentBufferRegistryValidatesPrivateRefs(const rund::AccelDevice &pick);
 [[nodiscard]] bool
 RequiredMetalRunsAccelGraphScan(const rund::AccelDevice &pick);

@@ -5,6 +5,7 @@
 #include "../../accel/cpu/scatter/scratch.hpp"
 #include "../../accel/cpu/simd/dispatch.hpp"
 #include "../../accel/kernel/view.hpp"
+#include "../job/binding.hpp"
 #include <rund/counter.hpp>
 
 #include <kernel/program/compute/model.hpp>
@@ -30,9 +31,6 @@
 namespace rund::compute::detail {
 
 struct BufferState;
-struct CpuViewTransfer;
-struct JobBufferView;
-struct JobWorkspace;
 struct CpuBufferState;
 struct CpuDeviceState;
 class CpuPreparedArena;

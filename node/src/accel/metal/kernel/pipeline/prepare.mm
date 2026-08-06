@@ -22,17 +22,9 @@ PrepareMetalPipeline(const std::span<const BackendBatchEntry> templates,
   @autoreleasepool {
     const KernelPreparationScope preparation{
         KernelPreparationMode::PipelinePrivate};
-    MetalPipelineBuild build{
-        .templates = templates,
-        .entries = entries,
-        .barriers = barriers,
-        .transducers = transducers,
-        .aggregates = aggregates,
-        .publications = publications,
-        .template_registry = template_registry,
-        .status = status,
-        .profile_steps = profile_steps,
-    };
+    MetalPipelineBuild build{templates,         entries,    barriers,
+                             transducers,       aggregates, publications,
+                             template_registry, status,     profile_steps};
     build.failure_context.stage(PreparedPipelineFailureStage::BackendAdmission);
     const rund::AccelCheck admitted = build.Admit();
     if (!admitted.ok) {

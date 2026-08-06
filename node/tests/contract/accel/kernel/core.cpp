@@ -36,10 +36,6 @@ namespace node_accel_contract {
 [[nodiscard]] bool BackendRunsReduce(const rund::AccelDevice &pick);
 [[nodiscard]] bool BackendRunsScatter(const rund::AccelDevice &pick);
 [[nodiscard]] bool BackendRunsStencil(const rund::AccelDevice &pick);
-[[nodiscard]] bool BackendRunsSegmentedScan(const rund::AccelDevice &pick);
-[[nodiscard]] bool AvailableBackendsRunSegmentedScan();
-[[nodiscard]] bool BackendRunsSegmentedReduce(const rund::AccelDevice &pick);
-[[nodiscard]] bool AvailableBackendsRunSegmentedReduce();
 [[nodiscard]] bool MapRecurrenceSourceContract();
 [[nodiscard]] bool BackendParameterModelsMatchSources();
 [[nodiscard]] bool ResetModelContract();

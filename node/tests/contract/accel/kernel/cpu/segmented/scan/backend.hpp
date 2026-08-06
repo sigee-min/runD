@@ -9,7 +9,7 @@
 
 namespace node_accel_contract {
 
-bool BackendRunsSegmentedScan(const rund::AccelDevice &pick) {
+[[nodiscard]] bool BackendRunsSegmentedScan(const rund::AccelDevice &pick) {
   if (!pick.check.ok) {
     return false;
   }
@@ -23,7 +23,7 @@ bool BackendRunsSegmentedScan(const rund::AccelDevice &pick) {
       pick, pick.api, submits, dispatches);
 }
 
-bool AvailableBackendsRunSegmentedScan() {
+[[nodiscard]] bool AvailableBackendsRunSegmentedScan() {
   const std::array<rund::AccelApi, 2u> apis{rund::AccelApi::Metal,
                                             rund::AccelApi::Vulkan};
   for (const rund::AccelApi api : apis) {

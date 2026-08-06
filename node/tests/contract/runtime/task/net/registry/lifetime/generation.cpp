@@ -1,6 +1,6 @@
-#include "src/host/net/test/socket.hpp"
 #include "access.hpp"
 #include "local.hpp"
+#include "src/host/net/test/socket.hpp"
 
 #include "test/assert.hpp"
 
@@ -22,8 +22,8 @@ namespace {
   if (first == nullptr || rund::net::registry::activate(*first) != 1u) {
     return false;
   }
-  std::atomic_ref<std::uint64_t>{first->hot.generation}.store(
-      rund::net::registry::exhausted - 1u, std::memory_order_release);
+  first->hot.generation.store(rund::net::registry::exhausted - 1u,
+                              std::memory_order_release);
   if (rund::net::registry::activate(*first) != 0u ||
       rund::net::registry::load(*first) != rund::net::registry::exhausted) {
     return false;

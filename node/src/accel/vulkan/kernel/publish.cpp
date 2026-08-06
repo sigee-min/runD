@@ -426,12 +426,12 @@ bool EncodeVulkanPipelinePublish(
                         &route.params);
     DispatchVulkan(command, route.groups_x, route.groups_y, 1u);
   }
-  const VkMemoryBarrier visible{
-      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-      .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-      .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_SHADER_READ_BIT |
-                       VK_ACCESS_SHADER_WRITE_BIT,
-  };
+  VkMemoryBarrier visible{};
+  visible.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  visible.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  visible.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT |
+                          VK_ACCESS_SHADER_READ_BIT |
+                          VK_ACCESS_SHADER_WRITE_BIT;
   vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                        VK_PIPELINE_STAGE_TRANSFER_BIT |
                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

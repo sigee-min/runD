@@ -98,8 +98,9 @@ rund::AccelCheck EncodeVulkanNumeric(VulkanAdapter &adapter,
                        static_cast<std::uint32_t>(state->output_count),
                        barriers.data(), 0u, nullptr);
   if (status_bytes != 0u && !state->pipeline_private) {
-    const VkBufferCopy copy{.srcOffset = state->status_binding.offset,
-                            .size = status_bytes};
+    VkBufferCopy copy{};
+    copy.srcOffset = state->status_binding.offset;
+    copy.size = status_bytes;
     vkCmdCopyBuffer(command, state->status->buffer,
                     state->status_readback.buffer, 1u, &copy);
     const VkBufferMemoryBarrier readable = VulkanBufferBarrier(

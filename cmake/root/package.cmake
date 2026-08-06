@@ -1,6 +1,15 @@
 # Root-owned package install and export targets.
 set(RUND_PACKAGE_VERSION "1.0.4")
 
+# CMake resolves the active Apple SDK even when CMAKE_OSX_SYSROOT is left
+# empty. Preserve that resolved path for install-time compiler probes instead
+# of allowing a separately invoked compiler to infer a different SDK.
+set(RUND_PACKAGE_PROBE_OSX_SYSROOT "${CMAKE_OSX_SYSROOT}")
+if(APPLE AND DEFINED _CMAKE_OSX_SYSROOT_PATH AND
+   NOT _CMAKE_OSX_SYSROOT_PATH STREQUAL "")
+  set(RUND_PACKAGE_PROBE_OSX_SYSROOT "${_CMAKE_OSX_SYSROOT_PATH}")
+endif()
+
 set(RUND_SDK_INSTALL_SCRIPT
     "${CMAKE_CURRENT_BINARY_DIR}/package/sdk/install.cmake")
 get_filename_component(RUND_SDK_INSTALL_SCRIPT_DIR

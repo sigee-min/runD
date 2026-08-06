@@ -22,10 +22,8 @@ using SocketIndex = std::unordered_map<int, SocketSlot *>;
 
 struct SocketHot final {
   std::atomic<int> native{-1};
-  alignas(std::atomic_ref<std::uint64_t>::required_alignment)
-      std::uint64_t generation = 0u;
-  alignas(std::atomic_ref<std::uint32_t>::required_alignment)
-      std::uint32_t readers = 0u;
+  std::atomic<std::uint64_t> generation{0u};
+  std::atomic<std::uint32_t> readers{0u};
   bool closing = false;
 };
 
@@ -38,9 +36,9 @@ struct SocketSlot {
   std::unique_ptr<SocketSlot> storage{};
 };
 
-static_assert(std::atomic_ref<std::uint64_t>::is_always_lock_free);
+static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
 static_assert(std::atomic<int>::is_always_lock_free);
-static_assert(std::atomic_ref<std::uint32_t>::is_always_lock_free);
+static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
 static_assert(std::is_standard_layout_v<SocketHot>);
 static_assert(sizeof(SocketHot) <= 32u);
 static_assert(sizeof(void *) != 8u || sizeof(SocketSlot) <= 128u);

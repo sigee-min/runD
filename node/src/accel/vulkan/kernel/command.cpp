@@ -39,8 +39,7 @@ rund::AccelCheck EncodeVulkanResets(VulkanKernelResources &resources,
   VulkanKernelEntry *const entry =
       step < resources.size() ? resources.entry(step) : nullptr;
   if (entry == nullptr || entry->resets.begin > resources.resets.size() ||
-      entry->resets.count >
-          resources.resets.size() - entry->resets.begin) {
+      entry->resets.count > resources.resets.size() - entry->resets.begin) {
     return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
   }
   if (entry->resets.empty()) {
@@ -55,13 +54,12 @@ rund::AccelCheck EncodeVulkanResets(VulkanKernelResources &resources,
     transfer = transfer || (clear.range.dense() && !captured);
     compute = compute || !clear.range.dense() || captured;
   }
-  const VkMemoryBarrier writable{
-      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-      .srcAccessMask =
-          VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-      .dstAccessMask = (transfer ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u) |
-                       (compute ? VK_ACCESS_SHADER_WRITE_BIT : 0u),
-  };
+  VkMemoryBarrier writable{};
+  writable.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  writable.srcAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  writable.dstAccessMask = (transfer ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u) |
+                           (compute ? VK_ACCESS_SHADER_WRITE_BIT : 0u);
   vkCmdPipelineBarrier(
       command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       (transfer ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u) |
@@ -103,18 +101,18 @@ rund::AccelCheck EncodeVulkanResets(VulkanKernelResources &resources,
       DispatchVulkan(command, static_cast<std::uint32_t>(groups), 1u, 1u);
     }
   }
-  const VkMemoryBarrier reset_barrier{
-      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-      .srcAccessMask = (transfer ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u) |
-                       (compute ? VK_ACCESS_SHADER_WRITE_BIT : 0u),
-      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-  };
+  VkMemoryBarrier reset_barrier{};
+  reset_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  reset_barrier.srcAccessMask = (transfer ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u) |
+                                (compute ? VK_ACCESS_SHADER_WRITE_BIT : 0u);
+  reset_barrier.dstAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
   vkCmdPipelineBarrier(
       command,
       (transfer ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u) |
           (compute ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : 0u),
-      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 1u, &reset_barrier, 0u,
-      nullptr, 0u, nullptr);
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 1u, &reset_barrier, 0u, nullptr,
+      0u, nullptr);
   return rund::AccelCheck{true, "ok"};
 }
 

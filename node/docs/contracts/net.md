@@ -132,8 +132,9 @@ an inferred OS limit. On a supported 64-bit ABI one stable slot is bounded by
 token is 24 bytes. The lock-free native descriptor, generation, reader count,
 and close bit share one explicitly aligned private hot record of at most 32
 bytes; its alignment does not depend on offsets inside a standard-library
-container type. These are checked layout bounds. Hash-index nodes, buckets,
-and allocator bookkeeping are
+container type. Each lock-free value is its direct `std::atomic` owner; there
+is no plain storage plus `atomic_ref` adapter. These are checked layout bounds.
+Hash-index nodes, buckets, and allocator bookkeeping are
 implementation storage proportional to the concurrent high-water, not
 retired-descriptor churn. Retaining one node handle adds eight slot bytes
 on this ABI and removes one node allocation plus one node deallocation from
@@ -533,8 +534,12 @@ with no second caller-descriptor traversal. Storage remains the configured
 fixed `net_iov_capacity`.
 
 Each parallel peer handler that reaches an outcome performs exactly one
-relaxed atomic counter RMW. A non-success terminal additionally publishes one
-packed candidate through an atomic-min CAS loop:
+lock-free relaxed atomic counter RMW directly on its public `Result` field.
+The supported GCC and Clang platform compilers provide that operation without
+requiring the C++20 library `atomic_ref` adapter. Counter initialization occurs
+before handler dispatch and non-atomic reconciliation occurs only after join,
+so no atomic and non-atomic access overlaps. A non-success terminal
+additionally publishes one packed candidate through an atomic-min CAS loop:
 
 ```text
 p(i, r) = (uint64(i) << 16) | uint16(r)

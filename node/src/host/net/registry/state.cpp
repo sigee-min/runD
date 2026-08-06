@@ -10,8 +10,7 @@ namespace registry {
 namespace {
 
 void store(SocketSlot &slot, const std::uint64_t generation) noexcept {
-  std::atomic_ref<std::uint64_t>{slot.hot.generation}.store(
-      generation, std::memory_order_release);
+  slot.hot.generation.store(generation, std::memory_order_release);
 }
 
 } // namespace
@@ -21,9 +20,7 @@ bool active(const std::uint64_t generation) noexcept {
 }
 
 std::uint64_t load(const SocketSlot &slot) noexcept {
-  return std::atomic_ref<std::uint64_t>{
-      const_cast<std::uint64_t &>(slot.hot.generation)}
-      .load(std::memory_order_acquire);
+  return slot.hot.generation.load(std::memory_order_acquire);
 }
 
 std::uint64_t activate(SocketSlot &slot) noexcept {
@@ -56,19 +53,16 @@ bool retire(SocketSlot &slot, const std::uint64_t generation) noexcept {
     return false;
   }
   std::uint64_t expected = generation;
-  return std::atomic_ref<std::uint64_t>{slot.hot.generation}
-      .compare_exchange_strong(expected, generation + 1u,
-                               std::memory_order_acq_rel,
-                               std::memory_order_acquire);
+  return slot.hot.generation.compare_exchange_strong(expected, generation + 1u,
+                                                     std::memory_order_acq_rel,
+                                                     std::memory_order_acquire);
 }
 
 void wait(const SocketSlot &slot) noexcept {
-  std::atomic_ref<std::uint32_t> readers{
-      const_cast<std::uint32_t &>(slot.hot.readers)};
-  std::uint32_t count = readers.load(std::memory_order_acquire);
+  std::uint32_t count = slot.hot.readers.load(std::memory_order_acquire);
   while (count != 0u) {
-    readers.wait(count, std::memory_order_acquire);
-    count = readers.load(std::memory_order_acquire);
+    slot.hot.readers.wait(count, std::memory_order_acquire);
+    count = slot.hot.readers.load(std::memory_order_acquire);
   }
 }
 
@@ -122,7 +116,7 @@ SocketSlot *SocketRegistry::bind(const int native,
 
   slot->hot.native.store(native, std::memory_order_relaxed);
   slot->identity = identity;
-  slot->hot.readers = 0u;
+  slot->hot.readers.store(0u, std::memory_order_relaxed);
   slot->active_owner = {};
   slot->hot.closing = false;
   try {
@@ -158,7 +152,8 @@ SocketSlot *SocketRegistry::bind(const int native,
 }
 
 void SocketRegistry::release(SocketSlot &slot) noexcept {
-  const auto found = live_.find(slot.hot.native.load(std::memory_order_relaxed));
+  const auto found =
+      live_.find(slot.hot.native.load(std::memory_order_relaxed));
   if (found == live_.end() || found->second != &slot) {
     return;
   }
@@ -206,7 +201,8 @@ Socket MakeAdmittedSocket(SocketSlot &slot,
 
 int detail::SocketAccess::native(const SocketView socket) noexcept {
   const SocketSlot *const slot = detail::SocketAccess::slot(socket);
-  return slot == nullptr ? -1 : slot->hot.native.load(std::memory_order_acquire);
+  return slot == nullptr ? -1
+                         : slot->hot.native.load(std::memory_order_acquire);
 }
 
 bool HasOwner(const SocketRegistryOwner &owner) noexcept {

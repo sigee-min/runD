@@ -33,11 +33,10 @@ void CreateTimestamps(VulkanAdapter &adapter) {
   if (!adapter.timestamp_query_available) {
     return;
   }
-  const VkQueryPoolCreateInfo query{
-      .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
-      .queryType = VK_QUERY_TYPE_TIMESTAMP,
-      .queryCount = 2u,
-  };
+  VkQueryPoolCreateInfo query{};
+  query.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+  query.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  query.queryCount = 2u;
   for (VulkanAdapter::CommandSlot &slot : adapter.commands) {
     if (vkCreateQueryPool(adapter.device, &query, nullptr, &slot.timestamps) !=
             VK_SUCCESS ||
@@ -62,23 +61,21 @@ rund::AccelCheck CreateCommand(const VkDevice device,
   if (!plan.valid) {
     return rund::AccelCheck{false, "accel_vulkan_command_unavailable"};
   }
-  const VkCommandPoolCreateInfo pool{
-      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-      .flags = plan.pool_flags,
-      .queueFamilyIndex = queue_family,
-  };
+  VkCommandPoolCreateInfo pool{};
+  pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  pool.flags = plan.pool_flags;
+  pool.queueFamilyIndex = queue_family;
   if (vkCreateCommandPool(device, &pool, nullptr, &command.pool) !=
           VK_SUCCESS ||
       command.pool == VK_NULL_HANDLE) {
     DestroyCommand(device, command);
     return rund::AccelCheck{false, "accel_vulkan_command_unavailable"};
   }
-  const VkCommandBufferAllocateInfo allocation{
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .commandPool = command.pool,
-      .level = plan.level,
-      .commandBufferCount = 1u,
-  };
+  VkCommandBufferAllocateInfo allocation{};
+  allocation.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  allocation.commandPool = command.pool;
+  allocation.level = plan.level;
+  allocation.commandBufferCount = 1u;
   if (vkAllocateCommandBuffers(device, &allocation, &command.buffer) !=
           VK_SUCCESS ||
       command.buffer == VK_NULL_HANDLE) {
@@ -88,10 +85,9 @@ rund::AccelCheck CreateCommand(const VkDevice device,
   if (!plan.fenced) {
     return rund::AccelCheck{true, "ok"};
   }
-  const VkFenceCreateInfo fence{
-      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-      .flags = plan.fence_flags,
-  };
+  VkFenceCreateInfo fence{};
+  fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fence.flags = plan.fence_flags;
   if (vkCreateFence(device, &fence, nullptr, &command.fence) != VK_SUCCESS ||
       command.fence == VK_NULL_HANDLE) {
     const char *const reason = FenceReason(kind);
@@ -128,11 +124,10 @@ rund::AccelCheck BeginCommand(const VkDevice device, VulkanCommand &command,
   if (plan.inherited) {
     inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
   }
-  const VkCommandBufferBeginInfo begin{
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-      .flags = plan.begin_flags,
-      .pInheritanceInfo = plan.inherited ? &inheritance : nullptr,
-  };
+  VkCommandBufferBeginInfo begin{};
+  begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin.flags = plan.begin_flags;
+  begin.pInheritanceInfo = plan.inherited ? &inheritance : nullptr;
   return vkBeginCommandBuffer(command.buffer, &begin) == VK_SUCCESS
              ? rund::AccelCheck{true, "ok"}
              : rund::AccelCheck{false, "accel_vulkan_command_unavailable"};

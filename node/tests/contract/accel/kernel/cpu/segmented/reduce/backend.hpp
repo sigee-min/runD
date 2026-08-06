@@ -11,7 +11,7 @@
 
 namespace node_accel_contract {
 
-bool BackendRunsSegmentedReduce(const rund::AccelDevice &pick) {
+[[nodiscard]] bool BackendRunsSegmentedReduce(const rund::AccelDevice &pick) {
   if (!pick.check.ok) {
     return false;
   }
@@ -30,7 +30,7 @@ bool BackendRunsSegmentedReduce(const rund::AccelDevice &pick) {
   return true;
 }
 
-bool AvailableBackendsRunSegmentedReduce() {
+[[nodiscard]] bool AvailableBackendsRunSegmentedReduce() {
   const std::array<rund::AccelApi, 2u> apis{rund::AccelApi::Metal,
                                             rund::AccelApi::Vulkan};
   for (const rund::AccelApi api : apis) {

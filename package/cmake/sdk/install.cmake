@@ -67,8 +67,9 @@ if(NOT "@CMAKE_CXX_COMPILER_TARGET@" STREQUAL "")
 endif()
 if(NOT "@CMAKE_SYSROOT@" STREQUAL "")
   list(APPEND toolchain_flags "--sysroot=@CMAKE_SYSROOT@")
-elseif(NOT "@CMAKE_OSX_SYSROOT@" STREQUAL "")
-  list(APPEND toolchain_flags "-isysroot" "@CMAKE_OSX_SYSROOT@")
+elseif(NOT "@RUND_PACKAGE_PROBE_OSX_SYSROOT@" STREQUAL "")
+  list(APPEND toolchain_flags
+       "-isysroot" "@RUND_PACKAGE_PROBE_OSX_SYSROOT@")
 endif()
 
 set(closure_pairs)

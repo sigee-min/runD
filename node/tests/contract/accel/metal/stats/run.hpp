@@ -10,8 +10,8 @@
 
 namespace node_accel_contract {
 
-bool MetalRepeatedStagedRunsReportWarmRuntimeStats(
-    const rund::AccelDevice &pick) {
+[[nodiscard]] bool
+MetalRepeatedStagedRunsReportWarmRuntimeStats(const rund::AccelDevice &pick) {
   if (!pick.check.ok || !pick.caps.ok || !pick.backend) {
     return true;
   }

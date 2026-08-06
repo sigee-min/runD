@@ -1,12 +1,13 @@
 #pragma once
 
-#include "../../array.hpp"
 #include "../../accel/kernel/prepared.hpp"
 #include "../../accel/kernel/scratch.hpp"
 #include "../../accel/kernel/view.hpp"
+#include "../../array.hpp"
 #include "../program/state.hpp"
 #include "../run/state.hpp"
 #include "../type.hpp"
+#include "binding.hpp"
 
 #include <cstddef>
 #include <limits>
@@ -49,24 +50,6 @@ struct JobTerminalState final {
   std::optional<Stats> failed_stats{};
 };
 
-struct JobBufferView final {
-  std::size_t offset{};
-  std::size_t count{};
-  std::size_t stride{1u};
-  std::size_t element_bytes{};
-  std::size_t alignment{};
-};
-
-// CPU maps consume strided views directly.  Reference collectives and
-// primitives require dense ports, so only those external bindings receive a
-// cold-prepared dense staging buffer.  The original owner/view are retained
-// here for allocation-free gather/publish on every execution.
-struct CpuViewTransfer final {
-  std::shared_ptr<BufferState> external;
-  JobBufferView view{};
-  std::uint32_t binding{};
-};
-
 struct CpuViewTransferSlot final {
   std::uint32_t index{};
   std::uint64_t bytes{};
@@ -105,23 +88,6 @@ struct CpuViewTransferLayout final {
 
   [[nodiscard]] bool
   operator==(const CpuViewTransferLayout &) const noexcept = default;
-};
-
-// A recurrence owns one Program-internal value workspace for its complete
-// lifetime.  Its occurrences have distinct external binding routes, but they
-// execute serially behind the owning Pipeline gate and therefore share these
-// dead-after-occurrence buffers without changing value or operation order.
-struct JobWorkspace final {
-  JobWorkspace() noexcept = default;
-  JobWorkspace(const JobWorkspace &) = delete;
-  JobWorkspace &operator=(const JobWorkspace &) = delete;
-  JobWorkspace(JobWorkspace &&) = delete;
-  JobWorkspace &operator=(JobWorkspace &&) = delete;
-
-  std::shared_ptr<ProgramState> program;
-  ::rund::node::detail::PreparedArray<std::shared_ptr<BufferState>> buffers;
-  ::rund::node::detail::PreparedArray<std::size_t> offsets;
-  std::shared_ptr<struct JobArena> arena;
 };
 
 struct JobArenaSlot final {

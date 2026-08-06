@@ -36,7 +36,7 @@ void SocketLease::release() noexcept {
   if (slot_ == nullptr) {
     return;
   }
-  std::atomic_ref<std::uint32_t> readers{slot_->hot.readers};
+  std::atomic<std::uint32_t> &readers = slot_->hot.readers;
   const std::uint32_t previous =
       readers.fetch_sub(1u, std::memory_order_acq_rel);
   if (previous == 1u) {
@@ -54,14 +54,15 @@ SocketLease LeaseSocket(const SocketView socket) noexcept {
     return {};
   }
 
-  std::atomic_ref<std::uint32_t> readers{slot->hot.readers};
+  std::atomic<std::uint32_t> &readers = slot->hot.readers;
   std::uint32_t count = readers.load(std::memory_order_relaxed);
   while (count != std::numeric_limits<std::uint32_t>::max()) {
     if (readers.compare_exchange_weak(count, count + 1u,
                                       std::memory_order_acq_rel,
                                       std::memory_order_relaxed)) {
       if (registry::load(*slot) == generation) {
-        return SocketLease{slot, slot->hot.native.load(std::memory_order_relaxed)};
+        return SocketLease{slot,
+                           slot->hot.native.load(std::memory_order_relaxed)};
       }
       const std::uint32_t previous =
           readers.fetch_sub(1u, std::memory_order_acq_rel);

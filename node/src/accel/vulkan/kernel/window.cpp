@@ -355,12 +355,12 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
 }
 
 void EncodeDispatchBarrier(const VkCommandBuffer command) noexcept {
-  const VkMemoryBarrier barrier{
-      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-      .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
-                       VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
-  };
+  VkMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                          VK_ACCESS_SHADER_WRITE_BIT |
+                          VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
   vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
@@ -744,15 +744,16 @@ bool EncodeVulkanWindowStart(const VkCommandBuffer command,
   }
   vkCmdFillBuffer(command, resources.states.buffer, 0u, resources.states.bytes,
                   0u);
-  const VkBufferCopy copy{.size = resources.arguments.bytes};
+  VkBufferCopy copy{};
+  copy.size = resources.arguments.bytes;
   vkCmdCopyBuffer(command, resources.original_arguments.buffer,
                   resources.arguments.buffer, 1u, &copy);
-  const VkMemoryBarrier barrier{
-      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-      .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
-                       VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
-  };
+  VkMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                          VK_ACCESS_SHADER_WRITE_BIT |
+                          VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
   vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,

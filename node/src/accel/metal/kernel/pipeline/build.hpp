@@ -98,6 +98,21 @@ struct MetalPipelineBuild final {
   std::uint32_t window_publish_count{};
   bool finished{};
 
+  MetalPipelineBuild(const std::span<const BackendBatchEntry> templates_value,
+                     const std::span<const BackendBatchEntry> entries_value,
+                     const std::span<const std::uint8_t> barriers_value,
+                     const std::span<const TileTransducer> transducers_value,
+                     const std::span<const NestedAggregate> aggregates_value,
+                     const std::span<const BackendPublish> publications_value,
+                     PreparedKernelTemplateRegistry &template_registry_value,
+                     PreparedPipelineStatusLayout &status_value,
+                     const bool profile_steps_value) noexcept
+      : templates{templates_value}, entries{entries_value},
+        barriers{barriers_value}, transducers{transducers_value},
+        aggregates{aggregates_value}, publications{publications_value},
+        template_registry{template_registry_value}, status{status_value},
+        profile_steps{profile_steps_value} {}
+
   [[nodiscard]] std::span<MetalPublish> native_publication_rows() noexcept {
     return {native_publications.data(), native_publication_count};
   }
