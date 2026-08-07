@@ -141,17 +141,17 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
   for (std::size_t index = 0u; index < count; ++index) {
     ReactorPlatformOpResult result = ReactorPlatformOpResult::success();
     const ReactorRegistrationChange& change = changes[index];
-    switch (change.kind) {
+    switch (change.kind()) {
       case ReactorRegistrationChange::Kind::Add:
-        result = AddReactorPlatformInterest(platform, change.handle,
-                                            change.interest);
+        result = AddReactorPlatformInterest(platform, change.handle(),
+                                            change.interest());
         break;
       case ReactorRegistrationChange::Kind::Modify:
-        result = ModifyReactorPlatformInterest(platform, change.handle,
-                                               change.interest);
+        result = ModifyReactorPlatformInterest(platform, change.handle(),
+                                               change.interest());
         break;
-      case ReactorRegistrationChange::Kind::Remove:
-        result = RemoveReactorPlatformInterest(platform, change.handle);
+      case ReactorRegistrationChange::Kind::CleanupRemove:
+        result = RemoveReactorPlatformInterest(platform, change.handle());
         break;
     }
     switch (result.disposition()) {

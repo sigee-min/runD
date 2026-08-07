@@ -12,22 +12,16 @@ namespace rund::node {
 namespace {
 
 [[nodiscard]] bool
-BestEffortRemove(const ReactorRegistrationChange &change) noexcept {
-  return change.best_effort &&
-         change.kind == ReactorRegistrationChange::Kind::Remove;
-}
-
-[[nodiscard]] bool
 IgnorableInvalidRemove(const ReactorRegistrationChange &change,
                        const ReactorPlatformBatchResult &result) noexcept {
-  return BestEffortRemove(change) &&
+  return change.is_cleanup_remove() &&
          result.disposition() == ReactorPlatformBatchDisposition::Invalid;
 }
 
 [[nodiscard]] bool
 StrictChangeForHandle(const ReactorRegistrationChange &change,
                       const ReactorHandle handle) noexcept {
-  return change.handle == handle && !BestEffortRemove(change);
+  return change.handle() == handle && !change.is_cleanup_remove();
 }
 
 void RecordApplied(::rund::detail::task::StatStorage &stats,
@@ -42,7 +36,8 @@ ProjectApplyFailure(const ReactorPlatformBatchResult &result,
                     const ReactorRegistrationChange &failed) noexcept {
   switch (result.disposition()) {
   case ReactorPlatformBatchDisposition::Invalid:
-    return ReactorApplyResult::invalid(failed.handle, failed.fd_generation);
+    return ReactorApplyResult::invalid(failed.handle(),
+                                       failed.fd_generation());
   case ReactorPlatformBatchDisposition::BackendUnavailable:
     return ReactorApplyResult::backend_unavailable();
   case ReactorPlatformBatchDisposition::Failed:
@@ -109,7 +104,7 @@ bool ReactorChangeQueueAcknowledgeInvalid(
   }
   const ReactorRegistrationChange &front = reactor.changes.front();
   if (!StrictChangeForHandle(front, token.handle()) ||
-      front.fd_generation != token.fd_generation()) {
+      front.fd_generation() != token.fd_generation()) {
     return false;
   }
   const std::size_t before = reactor.changes.size();

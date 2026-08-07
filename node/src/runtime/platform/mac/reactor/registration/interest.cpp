@@ -59,9 +59,9 @@ bool KqueueReserveBatchInterestStorage(
     const std::size_t count) noexcept {
   for (std::size_t index = 0u; index < count; ++index) {
     const ReactorRegistrationChange& change = changes[index];
-    if ((change.kind == ReactorRegistrationChange::Kind::Add ||
-         change.kind == ReactorRegistrationChange::Kind::Modify) &&
-        !KqueueReserveInterestStorage(platform, change.handle)) {
+    if ((change.kind() == ReactorRegistrationChange::Kind::Add ||
+         change.kind() == ReactorRegistrationChange::Kind::Modify) &&
+        !KqueueReserveInterestStorage(platform, change.handle())) {
       return false;
     }
   }
@@ -73,17 +73,19 @@ void KqueueRememberBatchInterest(ReactorPlatform& platform,
                                  const std::size_t count) noexcept {
   for (std::size_t index = 0u; index < count; ++index) {
     const ReactorRegistrationChange& change = changes[index];
-    switch (change.kind) {
+    switch (change.kind()) {
       case ReactorRegistrationChange::Kind::Add:
-        (void)KqueueRememberInterest(platform, change.handle, change.interest);
+        (void)KqueueRememberInterest(platform, change.handle(),
+                                     change.interest());
         RecordReactorPlatformAdd();
         break;
       case ReactorRegistrationChange::Kind::Modify:
         RecordReactorPlatformModify();
-        (void)KqueueRememberInterest(platform, change.handle, change.interest);
+        (void)KqueueRememberInterest(platform, change.handle(),
+                                     change.interest());
         break;
-      case ReactorRegistrationChange::Kind::Remove:
-        KqueueForgetInterest(platform, change.handle);
+      case ReactorRegistrationChange::Kind::CleanupRemove:
+        KqueueForgetInterest(platform, change.handle());
         RecordReactorPlatformRemove();
         break;
     }

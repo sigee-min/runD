@@ -42,6 +42,40 @@ int RunRuntimeTaskReactorPlatformContract() {
   static_assert(!std::is_aggregate_v<ReactorPlatformPollResult>);
   static_assert(std::is_trivially_copyable_v<ReactorPlatformPollResult>);
 
+  static_assert(!std::is_aggregate_v<ReactorRegistrationChange>);
+  static_assert(!std::is_default_constructible_v<ReactorRegistrationChange>);
+  static_assert(std::is_trivially_copyable_v<ReactorRegistrationChange>);
+  static_assert(sizeof(ReactorRegistrationChange) == 24u);
+
+  constexpr ReactorHandle change_handle = ReactorHandleFromPublic(7);
+  constexpr ReactorRegistrationChange add_change =
+      ReactorRegistrationChange::add(change_handle, ReactorInterest::Read,
+                                     11u);
+  static_assert(add_change.kind() == ReactorRegistrationChange::Kind::Add);
+  static_assert(add_change.handle() == change_handle);
+  static_assert(add_change.interest() == ReactorInterest::Read);
+  static_assert(add_change.fd_generation() == 11u);
+  static_assert(!add_change.is_cleanup_remove());
+
+  constexpr ReactorRegistrationChange modify_change =
+      ReactorRegistrationChange::modify(change_handle,
+                                        ReactorInterest::Write, 13u);
+  static_assert(modify_change.kind() ==
+                ReactorRegistrationChange::Kind::Modify);
+  static_assert(modify_change.handle() == change_handle);
+  static_assert(modify_change.interest() == ReactorInterest::Write);
+  static_assert(modify_change.fd_generation() == 13u);
+  static_assert(!modify_change.is_cleanup_remove());
+
+  constexpr ReactorRegistrationChange cleanup_remove_change =
+      ReactorRegistrationChange::cleanup_remove(change_handle, 17u);
+  static_assert(cleanup_remove_change.kind() ==
+                ReactorRegistrationChange::Kind::CleanupRemove);
+  static_assert(cleanup_remove_change.handle() == change_handle);
+  static_assert(cleanup_remove_change.interest() == ReactorInterest::None);
+  static_assert(cleanup_remove_change.fd_generation() == 17u);
+  static_assert(cleanup_remove_change.is_cleanup_remove());
+
   constexpr ReactorPlatformHandleIdentity invalid_identity =
       ReactorPlatformHandleIdentity::invalid();
   constexpr ReactorPlatformHandleIdentity first_identity =

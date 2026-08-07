@@ -252,18 +252,65 @@ private:
   ReactorPlatformHandleIdentityDisposition disposition_;
 };
 
-struct ReactorRegistrationChange {
+class ReactorRegistrationChange final {
+public:
   enum class Kind : std::uint8_t {
     Add,
     Modify,
-    Remove,
+    CleanupRemove,
   };
 
-  Kind kind = Kind::Add;
-  ReactorHandle handle = kInvalidReactorHandle;
-  ReactorInterest interest = ReactorInterest::None;
-  std::uint64_t fd_generation = 0u;
-  bool best_effort = false;
+  [[nodiscard]] static constexpr ReactorRegistrationChange
+  add(const ReactorHandle handle, const ReactorInterest interest,
+      const std::uint64_t fd_generation) noexcept {
+    return ReactorRegistrationChange{Kind::Add, handle, interest,
+                                     fd_generation};
+  }
+
+  [[nodiscard]] static constexpr ReactorRegistrationChange
+  modify(const ReactorHandle handle, const ReactorInterest interest,
+         const std::uint64_t fd_generation) noexcept {
+    return ReactorRegistrationChange{Kind::Modify, handle, interest,
+                                     fd_generation};
+  }
+
+  [[nodiscard]] static constexpr ReactorRegistrationChange
+  cleanup_remove(const ReactorHandle handle,
+                 const std::uint64_t fd_generation) noexcept {
+    return ReactorRegistrationChange{Kind::CleanupRemove, handle,
+                                     ReactorInterest::None, fd_generation};
+  }
+
+  [[nodiscard]] constexpr Kind kind() const noexcept { return kind_; }
+
+  [[nodiscard]] constexpr ReactorHandle handle() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] constexpr ReactorInterest interest() const noexcept {
+    return interest_;
+  }
+
+  [[nodiscard]] constexpr std::uint64_t fd_generation() const noexcept {
+    return fd_generation_;
+  }
+
+  [[nodiscard]] constexpr bool is_cleanup_remove() const noexcept {
+    return kind_ == Kind::CleanupRemove;
+  }
+
+private:
+  constexpr ReactorRegistrationChange(
+      const Kind kind, const ReactorHandle handle,
+      const ReactorInterest interest,
+      const std::uint64_t fd_generation) noexcept
+      : handle_(handle), fd_generation_(fd_generation), interest_(interest),
+        kind_(kind) {}
+
+  ReactorHandle handle_;
+  std::uint64_t fd_generation_;
+  ReactorInterest interest_;
+  Kind kind_;
 };
 
 struct BatchIoPollRequest {

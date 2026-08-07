@@ -80,10 +80,10 @@ configuration remains a reactor-capacity failure and projects to
 
 On the supported 64-bit ABI, a canonical wait is 88 bytes. The fixed arena uses
 a 96-byte wait slot plus one 4-byte ordered slot id and one 4-byte free slot id
-per configured wait. The fd state is 80 bytes. Warm add, remove, re-arm, and
-batch drain stay inside configured storage; descriptor-capacity pressure
-deterministically flushes already-deferred removes before rejecting a new
-descriptor.
+per configured wait. The fd state is 80 bytes, and one queued registration
+change is 24 bytes. Warm add, remove, re-arm, and batch drain stay inside
+configured storage; descriptor-capacity pressure deterministically flushes
+already-deferred removes before rejecting a new descriptor.
 
 Batch removal validates the ordered success prefix, unlinks each selected slot
 in `O(1)`, and compacts the 32-bit canonical order once. The first selected
@@ -210,7 +210,7 @@ caller-required `R` full records; no second full-wait authority exists.
   snapshots the failed change identity before erasing an applied prefix,
   consumes the platform batch disposition without a boolean result mirror,
   drains successful prefixes without repeated front erases, and preserves
-  best-effort invalid-remove semantics. A strict invalid change stays at the
+  `CleanupRemove` invalid-ignore semantics. A strict invalid change stays at the
   queue front until the ready-drain owner has acquired leases, prepared host
   event storage, and removed every wait for that descriptor. That commit
   validates the observed `(handle, fd_generation)` token against the queue
@@ -344,12 +344,14 @@ zero-interest transition is first marked as a deferred native remove. If a
 later wait on the same still-live fd re-arms the same aggregate interest before
 the scheduler is otherwise idle, the deferred remove is cancelled and no
 native remove/add churn is emitted. Deferred removes flush when scheduler ready
-depth is zero; cleanup removes are best-effort, so an already-closed or
-already-missing fd records cleanup evidence and does not fail unrelated work.
-Kqueue applies paired read/write deletion with per-filter receipts: a missing
-read filter cannot mask removal of a live write filter, or vice versa. The
-platform registration projection is updated only after every non-missing
-filter result succeeds.
+depth is zero as typed `CleanupRemove` changes. This is the only cleanup kind
+and the only missing-descriptor-tolerant registration command; strict remove,
+best-effort add, and best-effort modify are not representable states. An
+already-closed or already-missing fd records cleanup evidence and does not fail
+unrelated work. Kqueue applies paired read/write deletion with per-filter
+receipts: a missing read filter cannot mask removal of a live write filter, or
+vice versa. The platform registration projection is updated only after every
+non-missing filter result succeeds.
 
 Admitted network sockets carry an in-memory fd generation in addition to their
 fd-derived host id. `WaitReactor` receives that generation from network
@@ -373,8 +375,8 @@ forces native re-registration, while a same-object re-arm still cancels the
 deferred remove without backend churn. The retained descriptor is bounded by
 the reactor registration capacity and is released together with the stored
 identity on registration removal, generation reset, or reactor teardown.
-Kqueue isolates replacement modifies so its best-effort delete completes
-before the new filter is added.
+Kqueue isolates replacement modifies so its internal ignore-missing delete
+completes before the new filter is added.
 
 Ready drain keeps those two lifetime mechanisms under one lease scope. An
 admitted network wait acquires a socket-generation lease before registry

@@ -12,7 +12,7 @@ namespace {
     return false;
   }
   for (const ReactorRegistrationChange& change : reactor.changes) {
-    if (change.kind != ReactorRegistrationChange::Kind::Add) {
+    if (change.kind() != ReactorRegistrationChange::Kind::Add) {
       return false;
     }
   }

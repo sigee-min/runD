@@ -14,21 +14,13 @@ namespace {
   return count <= reactor.changes.capacity() - reactor.changes.size();
 }
 
-[[nodiscard]] bool PushChange(
-    ReactorRuntime &reactor, const ReactorRegistrationChange::Kind kind,
-    const ReactorHandle fd, const ReactorInterest interest,
-    const std::uint64_t fd_generation,
-    const bool best_effort = false) noexcept {
+[[nodiscard]] bool
+PushChange(ReactorRuntime &reactor,
+           const ReactorRegistrationChange change) noexcept {
   if (!ReserveChanges(reactor, 1u)) {
     return false;
   }
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = kind,
-      .handle = fd,
-      .interest = interest,
-      .fd_generation = fd_generation,
-      .best_effort = best_effort,
-  });
+  reactor.changes.push_back(change);
   return true;
 }
 
@@ -107,13 +99,14 @@ bool ReactorRegistrationCollectForWaitAdd(
     if (identity_guard == kInvalidReactorHandle) {
       return false;
     }
-    const ReactorRegistrationChange::Kind kind =
-        state->registered ? ReactorRegistrationChange::Kind::Modify
-                          : ReactorRegistrationChange::Kind::Add;
+    const ReactorRegistrationChange change =
+        state->registered
+            ? ReactorRegistrationChange::modify(fd, current_interest, 0u)
+            : ReactorRegistrationChange::add(fd, current_interest, 0u);
     state->fd_generation = 0u;
     SetDeferred(reactor, *state, false);
     RememberRawFd(*state, raw_identity, identity_guard);
-    if (!PushChange(reactor, kind, fd, current_interest, 0u)) {
+    if (!PushChange(reactor, change)) {
       return false;
     }
     state->registered = true;
@@ -136,13 +129,13 @@ bool ReactorRegistrationCollectForWaitAdd(
   SetDeferred(reactor, *state, false);
   if (!state->registered ||
       state->backend_interest == ReactorInterest::None) {
-    if (!PushChange(reactor, ReactorRegistrationChange::Kind::Add, fd,
-                    current_interest, fd_generation)) {
+    if (!PushChange(reactor, ReactorRegistrationChange::add(
+                                 fd, current_interest, fd_generation))) {
       return false;
     }
   } else if (state->backend_interest != current_interest) {
-    if (!PushChange(reactor, ReactorRegistrationChange::Kind::Modify, fd,
-                    current_interest, fd_generation)) {
+    if (!PushChange(reactor, ReactorRegistrationChange::modify(
+                                 fd, current_interest, fd_generation))) {
       return false;
     }
   }
@@ -184,13 +177,15 @@ bool ReactorRegistrationCollectForWaitRemove(
   }
   SetDeferred(reactor, *state, false);
   if (state->backend_interest == ReactorInterest::None) {
-    if (!PushChange(reactor, ReactorRegistrationChange::Kind::Add, fd,
-                    current_interest, state->fd_generation)) {
+    if (!PushChange(reactor, ReactorRegistrationChange::add(
+                                 fd, current_interest,
+                                 state->fd_generation))) {
       return false;
     }
   } else if (state->backend_interest != current_interest) {
-    if (!PushChange(reactor, ReactorRegistrationChange::Kind::Modify, fd,
-                    current_interest, state->fd_generation)) {
+    if (!PushChange(reactor, ReactorRegistrationChange::modify(
+                                 fd, current_interest,
+                                 state->fd_generation))) {
       return false;
     }
   }
@@ -213,8 +208,8 @@ bool ReactorRegistrationFlushDeferredRemoves(
       continue;
     }
     if (state.registered &&
-        !PushChange(reactor, ReactorRegistrationChange::Kind::Remove, state.fd,
-                    ReactorInterest::None, state.fd_generation, true)) {
+        !PushChange(reactor, ReactorRegistrationChange::cleanup_remove(
+                                 state.fd, state.fd_generation))) {
       return false;
     }
     state.backend_interest = ReactorInterest::None;
@@ -247,8 +242,8 @@ void ReactorRegistrationForgetGeneration(
       std::remove_if(
           reactor.changes.begin(), reactor.changes.end(),
           [fd, fd_generation](const ReactorRegistrationChange &change) {
-            return change.handle == fd &&
-                   change.fd_generation == fd_generation;
+            return change.handle() == fd &&
+                   change.fd_generation() == fd_generation;
           }),
       reactor.changes.end());
   ReactorFdState *const state = ReactorRegistryFindFd(reactor, fd);

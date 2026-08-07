@@ -31,14 +31,15 @@ RebaseBatchFailure(const ReactorPlatformBatchResult result,
 
 ReactorPlatformOpResult KqueueApplyOneChange(
     ReactorPlatform& handle, const ReactorRegistrationChange& change) noexcept {
-  switch (change.kind) {
+  switch (change.kind()) {
     case ReactorRegistrationChange::Kind::Add:
-      return AddReactorPlatformInterest(handle, change.handle, change.interest);
+      return AddReactorPlatformInterest(handle, change.handle(),
+                                        change.interest());
     case ReactorRegistrationChange::Kind::Modify:
-      return ModifyReactorPlatformInterest(handle, change.handle,
-                                           change.interest);
-    case ReactorRegistrationChange::Kind::Remove:
-      return RemoveReactorPlatformInterest(handle, change.handle);
+      return ModifyReactorPlatformInterest(handle, change.handle(),
+                                           change.interest());
+    case ReactorRegistrationChange::Kind::CleanupRemove:
+      return RemoveReactorPlatformInterest(handle, change.handle());
   }
   return ReactorPlatformOpResult::success();
 }
@@ -53,10 +54,8 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
   for (std::size_t index = 0u; index < count; ++index) {
     const ReactorRegistrationChange& change = changes[index];
     const bool isolated_modify =
-        change.kind == ReactorRegistrationChange::Kind::Modify;
-    const bool isolated_remove =
-        change.best_effort &&
-        change.kind == ReactorRegistrationChange::Kind::Remove;
+        change.kind() == ReactorRegistrationChange::Kind::Modify;
+    const bool isolated_remove = change.is_cleanup_remove();
     if (isolated_modify || isolated_remove) {
       if (index != 0u) {
         const ReactorPlatformBatchResult prefix =
@@ -105,42 +104,44 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
     ignore_missing.reserve(count * 4u);
     for (std::size_t index = 0u; index < count; ++index) {
       const ReactorRegistrationChange& change = changes[index];
-      switch (change.kind) {
+      switch (change.kind()) {
         case ReactorRegistrationChange::Kind::Add:
-          if (HasReactorInterest(change.interest, ReactorInterest::Read)) {
+          if (HasReactorInterest(change.interest(), ReactorInterest::Read)) {
             KqueuePushReceiptFilter(native_changes, owners, ignore_missing,
-                                    index, false, change.handle, EVFILT_READ,
+                                    index, false, change.handle(), EVFILT_READ,
                                     EV_ADD);
           }
-          if (HasReactorInterest(change.interest, ReactorInterest::Write)) {
+          if (HasReactorInterest(change.interest(), ReactorInterest::Write)) {
             KqueuePushReceiptFilter(native_changes, owners, ignore_missing,
-                                    index, false, change.handle, EVFILT_WRITE,
+                                    index, false, change.handle(), EVFILT_WRITE,
                                     EV_ADD);
           }
           break;
         case ReactorRegistrationChange::Kind::Modify:
           KqueuePushReceiptFilter(native_changes, owners, ignore_missing, index,
-                                  true, change.handle, EVFILT_READ, EV_DELETE);
+                                  true, change.handle(), EVFILT_READ,
+                                  EV_DELETE);
           KqueuePushReceiptFilter(native_changes, owners, ignore_missing, index,
-                                  true, change.handle, EVFILT_WRITE, EV_DELETE);
-          if (HasReactorInterest(change.interest, ReactorInterest::Read)) {
+                                  true, change.handle(), EVFILT_WRITE,
+                                  EV_DELETE);
+          if (HasReactorInterest(change.interest(), ReactorInterest::Read)) {
             KqueuePushReceiptFilter(native_changes, owners, ignore_missing,
-                                    index, false, change.handle, EVFILT_READ,
+                                    index, false, change.handle(), EVFILT_READ,
                                     EV_ADD);
           }
-          if (HasReactorInterest(change.interest, ReactorInterest::Write)) {
+          if (HasReactorInterest(change.interest(), ReactorInterest::Write)) {
             KqueuePushReceiptFilter(native_changes, owners, ignore_missing,
-                                    index, false, change.handle, EVFILT_WRITE,
+                                    index, false, change.handle(), EVFILT_WRITE,
                                     EV_ADD);
           }
           break;
-        case ReactorRegistrationChange::Kind::Remove:
+        case ReactorRegistrationChange::Kind::CleanupRemove:
           KqueuePushReceiptFilter(native_changes, owners, ignore_missing, index,
-                                  change.best_effort, change.handle,
-                                  EVFILT_READ, EV_DELETE);
+                                  true, change.handle(), EVFILT_READ,
+                                  EV_DELETE);
           KqueuePushReceiptFilter(native_changes, owners, ignore_missing, index,
-                                  change.best_effort, change.handle,
-                                  EVFILT_WRITE, EV_DELETE);
+                                  true, change.handle(), EVFILT_WRITE,
+                                  EV_DELETE);
           break;
       }
     }

@@ -75,11 +75,8 @@ void VerifyPartialApplyFailureIdentity() {
   TEST_ASSERT(registered.read_fd >= 0 && registered.write_fd >= 0);
   const ReactorHandle registered_handle =
       ReactorHandleFromPublic(registered.read_fd);
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Add,
-      .handle = registered_handle,
-      .interest = ReactorInterest::Read,
-  });
+  reactor.changes.push_back(ReactorRegistrationChange::add(
+      registered_handle, ReactorInterest::Read, 0u));
   TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
               ReactorApplyDisposition::Success);
   TEST_ASSERT(reactor.changes.empty());
@@ -94,41 +91,26 @@ void VerifyPartialApplyFailureIdentity() {
   TEST_ASSERT(::close(invalid.read_fd) == 0);
   invalid.read_fd = -1;
 
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Modify,
-      .handle = registered_handle,
-      .interest = ReactorInterest::Read,
-  });
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Add,
-      .handle = invalid_handle,
-      .interest = ReactorInterest::Read,
-  });
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Modify,
-      .handle = invalid_handle,
-      .interest = ReactorInterest::Write,
-  });
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Remove,
-      .handle = invalid_handle,
-      .best_effort = true,
-  });
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Add,
-      .handle = suffix_handle,
-      .interest = ReactorInterest::Read,
-  });
+  reactor.changes.push_back(ReactorRegistrationChange::modify(
+      registered_handle, ReactorInterest::Read, 0u));
+  reactor.changes.push_back(ReactorRegistrationChange::add(
+      invalid_handle, ReactorInterest::Read, 0u));
+  reactor.changes.push_back(ReactorRegistrationChange::modify(
+      invalid_handle, ReactorInterest::Write, 0u));
+  reactor.changes.push_back(
+      ReactorRegistrationChange::cleanup_remove(invalid_handle, 0u));
+  reactor.changes.push_back(ReactorRegistrationChange::add(
+      suffix_handle, ReactorInterest::Read, 0u));
   const ReactorApplyResult failed = ReactorChangeQueueApply(reactor, stats);
   TEST_ASSERT(failed.disposition() == ReactorApplyDisposition::Invalid);
   TEST_ASSERT(failed.invalid_change().handle() == invalid_handle);
   TEST_ASSERT(failed.invalid_change().fd_generation() == 0u);
   TEST_ASSERT(reactor.changes.size() == 4u);
-  TEST_ASSERT(reactor.changes[0].handle == invalid_handle);
-  TEST_ASSERT(reactor.changes[1].handle == invalid_handle);
-  TEST_ASSERT(reactor.changes[2].handle == invalid_handle);
-  TEST_ASSERT(reactor.changes[2].best_effort);
-  TEST_ASSERT(reactor.changes[3].handle == suffix_handle);
+  TEST_ASSERT(reactor.changes[0].handle() == invalid_handle);
+  TEST_ASSERT(reactor.changes[1].handle() == invalid_handle);
+  TEST_ASSERT(reactor.changes[2].handle() == invalid_handle);
+  TEST_ASSERT(reactor.changes[2].is_cleanup_remove());
+  TEST_ASSERT(reactor.changes[3].handle() == suffix_handle);
 
   TEST_ASSERT(!ReactorChangeQueueAcknowledgeInvalid(
       reactor, ReactorInvalidChangeToken::observed(suffix_handle, 0u)));
@@ -139,9 +121,9 @@ void VerifyPartialApplyFailureIdentity() {
   TEST_ASSERT(ReactorChangeQueueAcknowledgeInvalid(reactor,
                                                    failed.invalid_change()));
   TEST_ASSERT(reactor.changes.size() == 2u);
-  TEST_ASSERT(reactor.changes[0].handle == invalid_handle);
-  TEST_ASSERT(reactor.changes[0].best_effort);
-  TEST_ASSERT(reactor.changes[1].handle == suffix_handle);
+  TEST_ASSERT(reactor.changes[0].handle() == invalid_handle);
+  TEST_ASSERT(reactor.changes[0].is_cleanup_remove());
+  TEST_ASSERT(reactor.changes[1].handle() == suffix_handle);
   TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
               ReactorApplyDisposition::Success);
   TEST_ASSERT(reactor.changes.empty());
@@ -157,32 +139,20 @@ void VerifyPartialApplyFailureIdentity() {
   const ReactorHandle orphan_handle = ReactorHandleFromPublic(orphan.read_fd);
   TEST_ASSERT(::close(orphan.read_fd) == 0);
   orphan.read_fd = -1;
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Add,
-      .handle = orphan_handle,
-      .interest = ReactorInterest::Read,
-  });
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Modify,
-      .handle = orphan_handle,
-      .interest = ReactorInterest::Write,
-  });
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Modify,
-      .handle = suffix_handle,
-      .interest = ReactorInterest::Read,
-  });
+  reactor.changes.push_back(ReactorRegistrationChange::add(
+      orphan_handle, ReactorInterest::Read, 0u));
+  reactor.changes.push_back(ReactorRegistrationChange::modify(
+      orphan_handle, ReactorInterest::Write, 0u));
+  reactor.changes.push_back(ReactorRegistrationChange::modify(
+      suffix_handle, ReactorInterest::Read, 0u));
   TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
               ReactorApplyDisposition::Success);
   TEST_ASSERT(reactor.changes.empty());
   TEST_ASSERT(ReactorRegistryFirstWait(reactor, suffix_handle) !=
               kNoReactorSlot);
 
-  reactor.changes.push_back(ReactorRegistrationChange{
-      .kind = ReactorRegistrationChange::Kind::Remove,
-      .handle = registered_handle,
-      .best_effort = true,
-  });
+  reactor.changes.push_back(
+      ReactorRegistrationChange::cleanup_remove(registered_handle, 0u));
   TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
               ReactorApplyDisposition::Success);
   ReactorCloseRuntime(reactor);
@@ -197,10 +167,10 @@ int RunRuntimeTaskReactorBatchApplyContract() {
 #endif
 
   rund::node::ReactorRuntime policy_reactor{};
-  policy_reactor.changes.push_back(rund::node::ReactorRegistrationChange{
-      .kind = rund::node::ReactorRegistrationChange::Kind::Add,
-      .handle = rund::node::ReactorHandleFromPublic(3),
-      .interest = rund::node::ReactorInterest::Read});
+  policy_reactor.changes.push_back(
+      rund::node::ReactorRegistrationChange::add(
+          rund::node::ReactorHandleFromPublic(3),
+          rund::node::ReactorInterest::Read, 0u));
   {
     rund::node::ReactorApplyBatchScope scope{policy_reactor};
     TEST_ASSERT(rund::node::ReactorApplyPolicyShouldDefer(

@@ -90,9 +90,17 @@ disposition: `Success`, `Invalid`, `Failed`, or `BackendUnavailable`.
 `Invalid` and `Failed` carry the native or allocation error. Stateless
 preparation in the unavailable owner remains `Success`; opening or mutating
 readiness state reports `BackendUnavailable`. Removing an invalid descriptor
-also retires the platform-private interest mirror, so a consumed best-effort
+also retires the platform-private interest mirror, so a consumed cleanup
 remove cannot be rediscovered indefinitely by a later blocking poll. Logical
 change retry remains owned by the scheduler queue.
+
+A queued registration change has exactly one kind: `Add`, `Modify`, or
+`CleanupRemove`. The non-aggregate value can be created only by its matching
+factory. `Add` and `Modify` carry the target interest and are strict;
+`CleanupRemove` fixes its interest to `None` and is the only missing-descriptor
+tolerant command. Every kind preserves the fd generation used by scheduler
+retry and invalid-change acknowledgement. There is no independent
+`best_effort` flag or strict-remove state.
 
 The registration-batch operation has exactly one disposition: `Success`,
 `Invalid`, `Failed`, or `BackendUnavailable`. `Success` and
@@ -106,7 +114,7 @@ normalizes the remaining queue. `Failed` and `BackendUnavailable` retain the
 failed logical change and suffix for retry. `Invalid` remains queue-owned until
 the scheduler has prepared every invalid wait for that descriptor for one
 drain transaction; acknowledgement then retires all strict changes for that
-descriptor while preserving its best-effort cleanup remove and every other
+descriptor while preserving its `CleanupRemove` and every other
 descriptor's suffix.
 
 The native poll operation has exactly one disposition: `Success`, `Invalid`,
