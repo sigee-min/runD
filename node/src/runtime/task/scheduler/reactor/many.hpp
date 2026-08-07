@@ -46,7 +46,6 @@ struct ReactorManyGroup {
   std::uint32_t max_events = 0u;
   std::uint32_t stored_event_count = 0u;
   bool completed = false;
-  bool timed_out = false;
   bool budget_exhausted = false;
 };
 

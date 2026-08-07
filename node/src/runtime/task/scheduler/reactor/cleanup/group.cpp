@@ -112,7 +112,6 @@ bool CleanupGroup(Scheduler &scheduler,
   }
 
   group->completed = true;
-  group->timed_out = cleanup_ok && request.reason == ReasonCode::IoTimedOut;
   if (request.reason == ReasonCode::TaskCancelled) {
     RecordReactorWaitsCanceled(scheduler.state_->evidence.metrics,
                                requests.size());
