@@ -3,6 +3,34 @@
 
 #include <rund/task/coroutine.hpp>
 
+namespace rund::node::compute_detail {
+
+TaskRetirementClaim TaskRetirement::claim(const bool joinable) noexcept {
+  switch (phase_) {
+  case TaskRetirementPhase::Live:
+    if (!joinable) {
+      phase_ = TaskRetirementPhase::Retired;
+      return TaskRetirementClaim::Retired;
+    }
+    phase_ = TaskRetirementPhase::Retiring;
+    return TaskRetirementClaim::Join;
+  case TaskRetirementPhase::Retiring:
+    return TaskRetirementClaim::Wait;
+  case TaskRetirementPhase::Retired:
+    return TaskRetirementClaim::Retired;
+  }
+}
+
+void TaskRetirement::publish() noexcept {
+  phase_ = TaskRetirementPhase::Retired;
+}
+
+void TaskRetirement::reset() noexcept {
+  phase_ = TaskRetirementPhase::Live;
+}
+
+} // namespace rund::node::compute_detail
+
 namespace rund::node {
 
 struct BackendAwaiter final {
@@ -137,8 +165,7 @@ void PrepareTask(compute_detail::TaskState &slot,
                             std::memory_order_relaxed);
   slot.submitted = false;
   slot.external_started.store(false, std::memory_order_relaxed);
-  slot.retiring = false;
-  slot.retired = false;
+  slot.retirement.reset();
   slot.frame_bytes = 0u;
 }
 
@@ -167,19 +194,16 @@ void Retire(const std::shared_ptr<runtime_detail::ComputeHostState> &host,
   }
   {
     std::unique_lock lock{task->mutex};
-    if (task->retired) {
+    const compute_detail::TaskRetirementClaim claim =
+        task->retirement.claim(static_cast<bool>(task->handle));
+    if (claim == compute_detail::TaskRetirementClaim::Retired) {
       return;
     }
-    if (task->retiring) {
-      task->retired_cv.wait(lock, [&] { return task->retired; });
+    if (claim == compute_detail::TaskRetirementClaim::Wait) {
+      task->retired_cv.wait(lock,
+                            [&] { return task->retirement.retired(); });
       return;
     }
-    if (!task->handle) {
-      task->retired = true;
-      task->retired_cv.notify_all();
-      return;
-    }
-    task->retiring = true;
   }
   task::Status joined{};
   if (host != nullptr) {
@@ -211,8 +235,7 @@ void Retire(const std::shared_ptr<runtime_detail::ComputeHostState> &host,
   if (!joined && task->status.error() == "compute_task_invalid") {
     task->status = compute::Status::fail(compute::Reason::CompletionInvalid);
   }
-  task->retired = true;
-  task->retiring = false;
+  task->retirement.publish();
   lock.unlock();
   task->retired_cv.notify_all();
 }

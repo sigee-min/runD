@@ -371,6 +371,22 @@ before task retirement, compile-service close, Scheduler reset, and callback
 detachment. Publishing `Closed` and notifying the host condition variable is
 the only terminal completion boundary.
 
+Each bounded Compute task slot has a separate mutex-protected handle
+retirement authority. Its only phases are `Live`, `Retiring`, and `Retired`.
+The first caller to claim a live, joinable handle changes `Live` to `Retiring`
+and owns the Scheduler join. A competing caller that observes `Retiring` waits
+on the task retirement condition until the owner publishes `Retired`; an
+already retired task is an idempotent no-op. A live task without a handle moves
+directly to `Retired`. After the prior task epoch releases its `SlotSet` claim,
+the next exclusive slot claim resets this phase to `Live` before publishing the
+new task epoch.
+
+This retirement phase is not the task's atomic terminal phase. The terminal
+phase arbitrates cancellation, backend finish, and logical completion without
+the task mutex; handle retirement arbitrates exactly one blocking join. Both
+clocks may be in progress independently and neither is a projection of the
+other.
+
 Terminal Compute status and statistics cross the source-private synchronous
 telemetry projection by constant reference. The completion owner writes the
 durable `TaskState` result once; there is no intermediate by-value callback

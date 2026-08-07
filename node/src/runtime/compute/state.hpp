@@ -30,6 +30,33 @@ struct ComputeHostState;
 
 namespace rund::node::compute_detail {
 
+enum class TaskRetirementPhase : std::uint8_t {
+  Live,
+  Retiring,
+  Retired,
+};
+
+enum class TaskRetirementClaim : std::uint8_t {
+  Join,
+  Wait,
+  Retired,
+};
+
+class TaskRetirement final {
+public:
+  [[nodiscard]] TaskRetirementPhase phase() const noexcept { return phase_; }
+  [[nodiscard]] bool retired() const noexcept {
+    return phase_ == TaskRetirementPhase::Retired;
+  }
+
+  [[nodiscard]] TaskRetirementClaim claim(bool joinable) noexcept;
+  void publish() noexcept;
+  void reset() noexcept;
+
+private:
+  TaskRetirementPhase phase_ = TaskRetirementPhase::Live;
+};
+
 struct TaskState final {
   std::size_t slot = 0u;
   runtime_detail::ComputeHostState *host = nullptr;
@@ -51,8 +78,7 @@ struct TaskState final {
   std::atomic<TerminalPhase> terminal_phase{TerminalPhase::Open};
   std::atomic_bool external_started{false};
   bool submitted = false;
-  bool retiring = false;
-  bool retired = false;
+  TaskRetirement retirement{};
   std::uint32_t frame_bytes{};
 };
 

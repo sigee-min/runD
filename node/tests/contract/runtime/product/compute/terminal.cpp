@@ -50,6 +50,9 @@ int RunRuntimeComputeTerminalContract() {
   using rund::node::compute_detail::FinishFailure;
   using rund::node::compute_detail::MarkComplete;
   using rund::node::compute_detail::RequestCancel;
+  using rund::node::compute_detail::TaskRetirement;
+  using rund::node::compute_detail::TaskRetirementClaim;
+  using rund::node::compute_detail::TaskRetirementPhase;
   using rund::node::compute_detail::TaskState;
   using rund::node::compute_detail::TerminalPhase;
 
@@ -97,6 +100,20 @@ int RunRuntimeComputeTerminalContract() {
   TEST_ASSERT(configured_abort_retires.load(std::memory_order_relaxed) == 1u);
   rund::node::runtime_detail::CloseHost(configured_abort);
   TEST_ASSERT(configured_abort_retires.load(std::memory_order_relaxed) == 1u);
+
+  TaskRetirement retirement{};
+  TEST_ASSERT(retirement.phase() == TaskRetirementPhase::Live);
+  TEST_ASSERT(retirement.claim(true) == TaskRetirementClaim::Join);
+  TEST_ASSERT(retirement.phase() == TaskRetirementPhase::Retiring);
+  TEST_ASSERT(retirement.claim(true) == TaskRetirementClaim::Wait);
+  retirement.publish();
+  TEST_ASSERT(retirement.phase() == TaskRetirementPhase::Retired);
+  TEST_ASSERT(retirement.retired());
+  TEST_ASSERT(retirement.claim(true) == TaskRetirementClaim::Retired);
+  retirement.reset();
+  TEST_ASSERT(retirement.phase() == TaskRetirementPhase::Live);
+  TEST_ASSERT(retirement.claim(false) == TaskRetirementClaim::Retired);
+  TEST_ASSERT(retirement.retired());
 
   std::atomic phase{TerminalPhase::Open};
   TEST_ASSERT(RequestCancel(phase) == CancelClaim::Accept);
