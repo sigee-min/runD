@@ -24,9 +24,14 @@ protocol semantics remain owned by [Network](../net.md).
   observation counters. Diagnostics never define backend state, readiness, or
   wake order, so changing an observation field cannot invalidate every user of
   the platform contract.
-- `reactor/poll.cpp`: the single immediate-probe orchestration owner. It
-  reuses the Runtime-owned backend and pre-reserved scratch rather than opening
-  an ephemeral reactor or allocating on a warm probe.
+- `reactor/model.hpp`: scheduler-owned wait and expanded-ready values. Each
+  expanded-ready value has one exhaustive disposition rather than a boolean
+  tuple.
+- `reactor/poll.{hpp,cpp}`: the immediate-probe result type and single
+  orchestration owner. Its exhaustive disposition carries no mirrored request
+  identity, and probing reuses the Runtime-owned backend and pre-reserved
+  scratch rather than opening an ephemeral reactor or allocating on a warm
+  probe.
 - `reactor/diagnostic/platform.cpp`: the single backend-lifecycle and
   scheduler-policy diagnostic counter owner; platform backends contain no
   mirrored counter state.
@@ -356,6 +361,15 @@ Reactor result mapping:
 - non-interrupted backend failure: `IoPollFailed`, `io_poll_failed`
 - selected unavailable backend: `ReactorBackendUnavailable`,
   `reactor_backend_unavailable`
+
+An expanded scheduler-ready value has exactly one disposition: `Ready`,
+`Invalid`, or `PollFailed`. An immediate probe has exactly one disposition:
+`NotReady`, `Ready`, `Invalid`, `PollFailed`, or `BackendUnavailable`. Only the
+`Ready` and `Invalid` immediate factories carry backend event bits; every other
+factory fixes them to `None`. The probe result does not retain wait id, task
+id, fd, or interest; its two callers own those inputs. Platform-native
+`invalid` bits remain local event-payload classifications and are projected
+once at the scheduler boundary rather than mirrored as scheduler booleans.
 
 Interrupted backend waits restart without an observation.
 

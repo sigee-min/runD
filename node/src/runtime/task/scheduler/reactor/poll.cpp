@@ -6,36 +6,25 @@ namespace rund::node {
 
 ReactorProbeResult ReactorProbeNow(ReactorPlatform &platform,
                                    std::vector<BatchIoReady> &scratch,
-                                   const ReactorRequest &request) noexcept {
+                                   const ReactorHandle handle,
+                                   const ReactorInterest interest) noexcept {
   const BatchIoPollRequest probe{
       .index = 0u,
-      .handle = request.fd,
-      .interest = request.interest,
+      .handle = handle,
+      .interest = interest,
   };
   const BatchIoProbeResult result =
       ProbeReactorPlatformNow(platform, &probe, 1u, scratch);
   if (!result.ok) {
-    return ReactorProbeResult{
-        .failed = true,
-        .unavailable = result.unavailable,
-    };
+    return result.unavailable ? ReactorProbeResult::backend_unavailable()
+                              : ReactorProbeResult::poll_failed();
   }
   if (scratch.empty()) {
-    return {};
+    return ReactorProbeResult::not_ready();
   }
   const BatchIoReady &ready = scratch.front();
-  return ReactorProbeResult{
-      .ready =
-          ReactorReady{
-              .wait_id = request.wait_id,
-              .task_id = request.task_id,
-              .fd = request.fd,
-              .interest = request.interest,
-              .events = ready.events,
-              .invalid = ready.invalid,
-          },
-      .has_ready = true,
-  };
+  return ready.invalid ? ReactorProbeResult::invalid(ready.events)
+                       : ReactorProbeResult::ready(ready.events);
 }
 
 } // namespace rund::node

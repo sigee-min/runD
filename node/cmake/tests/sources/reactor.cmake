@@ -16,6 +16,7 @@ set(NODE_TEST_REACTOR_TEST_SOURCES
   tests/contract/runtime/task/reactor/persistent.cpp
   tests/contract/runtime/task/reactor/rearm.cpp
   tests/contract/runtime/task/reactor/registration.cpp
+  tests/contract/runtime/task/reactor/result.cpp
   tests/contract/runtime/task/reactor/scratch.cpp
   tests/contract/runtime/task/reactor/task/group/batch.cpp
 )

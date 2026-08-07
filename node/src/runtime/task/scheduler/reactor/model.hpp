@@ -32,11 +32,10 @@ struct ReactorWaitSlot {
   std::uint32_t next_fd = kNoReactorSlot;
 };
 
-struct ReactorRequest {
-  std::uint64_t wait_id = 0u;
-  std::uint64_t task_id = 0u;
-  ReactorHandle fd = kInvalidReactorHandle;
-  ReactorInterest interest = ReactorInterest::None;
+enum class ReactorReadyDisposition : std::uint8_t {
+  Ready,
+  Invalid,
+  PollFailed,
 };
 
 struct ReactorReady {
@@ -45,20 +44,12 @@ struct ReactorReady {
   ReactorHandle fd = kInvalidReactorHandle;
   ReactorInterest interest = ReactorInterest::None;
   ReactorEvent events = ReactorEvent::None;
-  bool failed = false;
-  bool invalid = false;
+  ReactorReadyDisposition disposition = ReactorReadyDisposition::Ready;
 };
 
 struct ReactorFdPreviousInterest {
   ReactorHandle fd = kInvalidReactorHandle;
   ReactorInterest interest = ReactorInterest::None;
-};
-
-struct ReactorProbeResult {
-  bool failed = false;
-  bool unavailable = false;
-  ReactorReady ready{};
-  bool has_ready = false;
 };
 
 struct ReactorFdState {

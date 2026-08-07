@@ -2,6 +2,7 @@ RUND_NODE_TEST_CASE("runtime.task.reactor-persistent", RunRuntimeTaskReactorPers
 RUND_NODE_TEST_CASE("runtime.task.reactor-platform", RunRuntimeTaskReactorPlatformContract, "tests/contract/runtime/task/reactor/platform.cpp", runtime)
 RUND_NODE_TEST_CASE("runtime.task.reactor-registration", RunRuntimeTaskReactorRegistrationContract, "tests/contract/runtime/task/reactor/registration.cpp", runtime)
 RUND_NODE_TEST_CASE("runtime.task.reactor-rearm", RunRuntimeTaskReactorRearmContract, "tests/contract/runtime/task/reactor/rearm.cpp", runtime)
+RUND_NODE_TEST_CASE("runtime.task.reactor-result", RunRuntimeTaskReactorResultContract, "tests/contract/runtime/task/reactor/result.cpp", runtime)
 RUND_NODE_TEST_CASE("runtime.task.reactor-fd-generation", RunRuntimeTaskReactorFdGenerationContract, "tests/contract/runtime/task/reactor/generation/fd.cpp", runtime)
 RUND_NODE_TEST_CASE("runtime.task.reactor-batch-drain", RunRuntimeTaskReactorBatchDrainContract, "tests/contract/runtime/task/reactor/drain/batch.cpp", runtime)
 RUND_NODE_TEST_CASE("runtime.task.reactor-batch-apply", RunRuntimeTaskReactorBatchApplyContract, "tests/contract/runtime/task/reactor/apply/batch.cpp", runtime)

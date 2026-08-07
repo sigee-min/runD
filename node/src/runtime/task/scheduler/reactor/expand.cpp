@@ -24,23 +24,22 @@ namespace {
 void PushReady(ReactorRuntime &reactor, const std::uint64_t wait_id,
                const std::uint64_t task_id, const ReactorHandle fd,
                const ReactorInterest interest, const ReactorEvent events,
-               const bool failed, const bool invalid) {
+               const ReactorReadyDisposition disposition) {
   reactor.ready.push_back(ReactorReady{
       .wait_id = wait_id,
       .task_id = task_id,
       .fd = fd,
       .interest = interest,
       .events = events,
-      .failed = failed,
-      .invalid = invalid,
+      .disposition = disposition,
   });
 }
 
 void PushWaitReady(ReactorRuntime &reactor, const ReactorWait &wait,
-                   const ReactorEvent events, const bool failed,
-                   const bool invalid) {
+                   const ReactorEvent events,
+                   const ReactorReadyDisposition disposition) {
   PushReady(reactor, wait.wait_id, wait.task_id, wait.fd, wait.interest, events,
-            failed, invalid);
+            disposition);
 }
 
 } // namespace
@@ -82,8 +81,9 @@ bool ReactorExpandPlatformReady(
           !ReactorEventsMatch(platform_ready.events, wait->interest)) {
         continue;
       }
-      PushWaitReady(reactor, *wait, platform_ready.events, false,
-                    platform_ready.invalid);
+      PushWaitReady(reactor, *wait, platform_ready.events,
+                    platform_ready.invalid ? ReactorReadyDisposition::Invalid
+                                           : ReactorReadyDisposition::Ready);
     }
   }
   return true;
@@ -102,7 +102,7 @@ bool ReactorExpandInvalidHandle(ReactorRuntime &reactor,
       return false;
     }
     PushWaitReady(reactor, *wait, ReactorEventsForInterest(wait->interest),
-                  false, true);
+                  ReactorReadyDisposition::Invalid);
   }
   return true;
 }
@@ -114,8 +114,8 @@ bool ReactorExpandPollFailure(ReactorRuntime &reactor) noexcept {
   }
   for (std::size_t index = 0u; index < count; ++index) {
     const ReactorWait &wait = ReactorRegistryWaitAt(reactor, index);
-    PushWaitReady(reactor, wait, ReactorEventsForInterest(wait.interest), true,
-                  false);
+    PushWaitReady(reactor, wait, ReactorEventsForInterest(wait.interest),
+                  ReactorReadyDisposition::PollFailed);
   }
   return true;
 }
@@ -127,8 +127,8 @@ bool ReactorExpandInvalidAll(ReactorRuntime &reactor) noexcept {
   }
   for (std::size_t index = 0u; index < count; ++index) {
     const ReactorWait &wait = ReactorRegistryWaitAt(reactor, index);
-    PushWaitReady(reactor, wait, ReactorEventsForInterest(wait.interest), false,
-                  true);
+    PushWaitReady(reactor, wait, ReactorEventsForInterest(wait.interest),
+                  ReactorReadyDisposition::Invalid);
   }
   return true;
 }

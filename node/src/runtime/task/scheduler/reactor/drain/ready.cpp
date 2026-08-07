@@ -75,10 +75,11 @@ bool Scheduler::DrainReactorReadyBatch(
     const ReactorWait &wait = batch_removed_waits[index];
     ReasonCode ready_code = ReasonCode::Ok;
     task::ObservationKind observation_kind = task::ObservationKind::IoReady;
-    if (!batch.ok || !remove_applied.ok || ready.failed) {
+    if (!batch.ok || !remove_applied.ok ||
+        ready.disposition == ReactorReadyDisposition::PollFailed) {
       ready_code = ReasonCode::IoPollFailed;
       observation_kind = task::ObservationKind::IoPollFailed;
-    } else if (ready.invalid ||
+    } else if (ready.disposition == ReactorReadyDisposition::Invalid ||
                (wait.socket && !::rund::net::IsCurrentSocket(wait.socket))) {
       ready_code = ReasonCode::IoFdInvalid;
       observation_kind = task::ObservationKind::IoInvalid;
