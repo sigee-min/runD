@@ -902,6 +902,18 @@ slot. It never derives state ownership from encounter order or a preceding
 step; the admitted ordinary `first_step` or nested shape's `seed_first`
 remains the single topology coordinate used to verify the count binding.
 
+Nested append construction is one build-state transaction. Its rollback owner
+captures the sizes of `steps`, `internals`, `publications`, `window_controls`,
+and `nested_windows` together with `binding_count`; every semantic rejection
+and every `std::bad_alloc` allocation failure exits through that same owner.
+Semantic rejection writes the typed `Reason` and returns normally—`Reason`
+is never thrown as control flow. The one `noexcept` allocation boundary maps
+`std::bad_alloc` to `PipelineCapacity`; other exception classes retain the
+existing `noexcept` termination contract. The same transaction then restores
+the exact pre-append prefix. Commit disables rollback only after all nested
+records and derived counts have been published and the cached memory plan is
+invalidated.
+
 Each resolved View is the constructor-closed tuple
 `(backing_bytes, offset_bytes, count, stride_bytes, element_bytes,
 resource_ordinal, usage, Type, FixedFormat)`. The planner validates owner

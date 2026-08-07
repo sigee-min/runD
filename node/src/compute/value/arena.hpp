@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <type_traits>
+#include <utility>
 
 namespace rund::compute::detail {
 
@@ -32,12 +33,13 @@ public:
   ValueIdArena() = default;
   ValueIdArena(const ValueIdArena &) = delete;
   ValueIdArena &operator=(const ValueIdArena &) = delete;
-  ValueIdArena(ValueIdArena &&) noexcept = default;
-  ValueIdArena &operator=(ValueIdArena &&) noexcept = default;
+  ValueIdArena(ValueIdArena &&) = delete;
+  ValueIdArena &operator=(ValueIdArena &&) = delete;
 
+private:
   [[nodiscard]] std::optional<ValueRoutes>
-  store(std::span<const std::uint32_t> inputs,
-        std::span<const std::uint32_t> outputs) {
+  append(std::span<const std::uint32_t> inputs,
+         std::span<const std::uint32_t> outputs) {
     constexpr std::size_t IndexLimit =
         std::numeric_limits<std::uint32_t>::max();
     constexpr std::size_t ByteLimit =
@@ -84,6 +86,34 @@ public:
     };
   }
 
+public:
+  // Route IDs become visible only inside the callback that publishes their
+  // owning step. The transaction cannot escape this frame: callback failure
+  // retains any grown allocation but restores the exact logical prefix. One
+  // callback-scoped publication is the sole mutation authority for this arena.
+  template <class Publish>
+  [[nodiscard]] bool publish(const std::span<const std::uint32_t> inputs,
+                             const std::span<const std::uint32_t> outputs,
+                             Publish &&publish_step) {
+    if (transaction_active_) {
+      return false;
+    }
+    const std::size_t mark = size_;
+    const std::optional<ValueRoutes> routes = append(inputs, outputs);
+    if (!routes) {
+      return false;
+    }
+    transaction_active_ = true;
+    try {
+      std::invoke(std::forward<Publish>(publish_step), *routes);
+    } catch (...) {
+      rollback(mark);
+      throw;
+    }
+    transaction_active_ = false;
+    return true;
+  }
+
   [[nodiscard]] std::span<const std::uint32_t>
   view(const ValueIdRange range) const noexcept {
     if (!valid(range)) {
@@ -102,6 +132,11 @@ public:
   [[nodiscard]] std::size_t capacity() const noexcept { return capacity_; }
 
 private:
+  void rollback(const std::size_t mark) noexcept {
+    size_ = mark;
+    transaction_active_ = false;
+  }
+
   [[nodiscard]] bool
   aliases(const std::span<const std::uint32_t> values) const noexcept {
     if (values.empty() || size_ == 0u) {
@@ -118,6 +153,7 @@ private:
   std::unique_ptr<std::uint32_t[]> ids_;
   std::size_t size_{};
   std::size_t capacity_{};
+  bool transaction_active_{};
 };
 
 } // namespace rund::compute::detail

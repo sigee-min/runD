@@ -27,21 +27,22 @@ bool append_map(GraphState &graph, const std::string_view name,
                 const FlowControl control,
                 const std::span<const MapRead> reads) {
   try {
-    const std::optional<ValueRoutes> routes =
-        graph.value_ids.store(inputs, outputs);
-    if (!routes) {
+    const bool published =
+        graph.value_ids.publish(inputs, outputs, [&](const ValueRoutes routes) {
+          graph.steps.emplace_back(MapStep{
+              .name = std::string{name},
+              .inputs = routes.inputs,
+              .outputs = routes.outputs,
+              .expressions =
+                  std::vector<ExprRef>{expressions.begin(), expressions.end()},
+              .reads = std::vector<MapRead>{reads.begin(), reads.end()},
+              .control = control,
+          });
+        });
+    if (!published) {
       graph_detail::reject(graph, Reason::GraphCapacity);
       return false;
     }
-    graph.steps.emplace_back(MapStep{
-        .name = std::string{name},
-        .inputs = routes->inputs,
-        .outputs = routes->outputs,
-        .expressions =
-            std::vector<ExprRef>{expressions.begin(), expressions.end()},
-        .reads = std::vector<MapRead>{reads.begin(), reads.end()},
-        .control = control,
-    });
     return true;
   } catch (const std::bad_alloc &) {
     graph_detail::reject(graph, Reason::GraphCapacity);

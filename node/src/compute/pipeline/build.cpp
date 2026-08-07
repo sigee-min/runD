@@ -189,6 +189,46 @@ bind(const std::uint32_t owner, const PipelineInternal &resource,
 
 void changed(PipelineBuildState &build) noexcept { build.memory.reset(); }
 
+// One rollback owner for a nested Pipeline append. All semantic rejection and
+// container-growth failure exits pass through this destructor; callers never
+// use exceptions as ordinary control flow or repeat the rollback field list.
+class PipelineBuildMutation final {
+public:
+  explicit PipelineBuildMutation(PipelineBuildState &build) noexcept
+      : build_{build}, steps_{build.steps.size()},
+        bindings_{build.binding_count}, internals_{build.internals.size()},
+        publications_{build.publications.size()},
+        window_controls_{build.window_controls.size()},
+        nested_windows_{build.nested_windows.size()} {}
+
+  PipelineBuildMutation(const PipelineBuildMutation &) = delete;
+  PipelineBuildMutation &operator=(const PipelineBuildMutation &) = delete;
+
+  ~PipelineBuildMutation() noexcept {
+    if (!committed_) {
+      build_.steps.resize(steps_);
+      build_.internals.resize(internals_);
+      build_.publications.resize(publications_);
+      build_.window_controls.resize(window_controls_);
+      build_.nested_windows.resize(nested_windows_);
+      build_.binding_count = bindings_;
+    }
+  }
+
+  void fail(const Reason reason) noexcept { build_.failure = reason; }
+  void commit() noexcept { committed_ = true; }
+
+private:
+  PipelineBuildState &build_;
+  std::size_t steps_{};
+  std::size_t bindings_{};
+  std::size_t internals_{};
+  std::size_t publications_{};
+  std::size_t window_controls_{};
+  std::size_t nested_windows_{};
+  bool committed_{};
+};
+
 [[nodiscard]] bool has_seed(const PipelineBuildState &build) noexcept {
   return build.seed != nullptr || build.storage_seed != nullptr ||
          build.device_seed != nullptr;
@@ -865,12 +905,7 @@ void append_pipeline_window_repeat(
     return;
   }
 
-  const std::size_t old_steps = build->steps.size();
-  const std::size_t old_bindings = build->binding_count;
-  const std::size_t old_internals = build->internals.size();
-  const std::size_t old_publications = build->publications.size();
-  const std::size_t old_window_controls = build->window_controls.size();
-  const std::size_t old_nested = build->nested_windows.size();
+  PipelineBuildMutation mutation{*build};
   try {
     const auto internal = [&](const Type type, const FixedFormat format,
                               const std::size_t count,
@@ -898,8 +933,8 @@ void append_pipeline_window_repeat(
       PipelineBinding routed{};
       const Status status = route(*build, inputs[index], routed);
       if (!status) {
-        build->failure = status.reason();
-        throw build->failure;
+        mutation.fail(status.reason());
+        return;
       }
       outer_seed.push_back(std::move(routed));
       outer_first.push_back(
@@ -922,8 +957,8 @@ void append_pipeline_window_repeat(
       const Status status =
           route(*build, inputs[recurrent_count + index], routed);
       if (!status) {
-        build->failure = status.reason();
-        throw build->failure;
+        mutation.fail(status.reason());
+        return;
       }
       seed_external.push_back(std::move(routed));
     }
@@ -954,8 +989,8 @@ void append_pipeline_window_repeat(
         static_cast<std::uint16_t>(build->nested_windows.size() + 1u);
     if (nested == 0u || build->window_controls.size() >=
                             PipelineBuildWindowControlOrdinal::unassigned) {
-      build->failure = Reason::PipelineCapacity;
-      throw build->failure;
+      mutation.fail(Reason::PipelineCapacity);
+      return;
     }
     const PipelineBuildWindowControlOrdinal window_control{
         .value = static_cast<std::uint32_t>(build->window_controls.size()),
@@ -977,8 +1012,8 @@ void append_pipeline_window_repeat(
         };
     const std::size_t seed_first = nested_shape.seed_first();
     if (seed_first != build->steps.size()) {
-      build->failure = Reason::PipelineInvalid;
-      throw build->failure;
+      mutation.fail(Reason::PipelineInvalid);
+      return;
     }
     for (std::size_t template_index = seed_first;
          template_index < nested_shape.action_first(); ++template_index) {
@@ -987,8 +1022,8 @@ void append_pipeline_window_repeat(
       if (!apply_nested_projection(
               template_index, node::accel::detail::NestedTemplatePhase::Seed,
               step, projection)) {
-        build->failure = Reason::PipelineInvalid;
-        throw build->failure;
+        mutation.fail(Reason::PipelineInvalid);
+        return;
       }
       step.program = seed;
       step.logical_step = static_cast<std::uint32_t>(build->logical_step_count);
@@ -1014,8 +1049,8 @@ void append_pipeline_window_repeat(
 
     const std::size_t action_first = nested_shape.action_first();
     if (action_first != build->steps.size()) {
-      build->failure = Reason::PipelineInvalid;
-      throw build->failure;
+      mutation.fail(Reason::PipelineInvalid);
+      return;
     }
     for (std::size_t template_index = action_first;
          template_index < nested_shape.fold_first(); ++template_index) {
@@ -1024,8 +1059,8 @@ void append_pipeline_window_repeat(
       if (!apply_nested_projection(
               template_index, node::accel::detail::NestedTemplatePhase::Action,
               step, projection)) {
-        build->failure = Reason::PipelineInvalid;
-        throw build->failure;
+        mutation.fail(Reason::PipelineInvalid);
+        return;
       }
       const bool even = (projection.inner_iteration & 1u) == 0u;
       step.program = action;
@@ -1056,8 +1091,8 @@ void append_pipeline_window_repeat(
     }
     const std::size_t fold_first = nested_shape.fold_first();
     if (fold_first != build->steps.size()) {
-      build->failure = Reason::PipelineInvalid;
-      throw build->failure;
+      mutation.fail(Reason::PipelineInvalid);
+      return;
     }
     for (std::size_t template_index = fold_first;
          template_index < nested_shape.end(); ++template_index) {
@@ -1066,8 +1101,8 @@ void append_pipeline_window_repeat(
       if (!apply_nested_projection(
               template_index, node::accel::detail::NestedTemplatePhase::Fold,
               step, projection)) {
-        build->failure = Reason::PipelineInvalid;
-        throw build->failure;
+        mutation.fail(Reason::PipelineInvalid);
+        return;
       }
       const std::uint32_t route_index = projection.route;
       const std::span<const PipelineBinding> current =
@@ -1142,21 +1177,11 @@ void append_pipeline_window_repeat(
     build->binding_count += binding_count;
     ++build->logical_step_count;
     changed(*build);
-  } catch (const Reason) {
-    build->steps.resize(old_steps);
-    build->internals.resize(old_internals);
-    build->publications.resize(old_publications);
-    build->window_controls.resize(old_window_controls);
-    build->nested_windows.resize(old_nested);
-    build->binding_count = old_bindings;
+    mutation.commit();
   } catch (const std::bad_alloc &) {
-    build->steps.resize(old_steps);
-    build->internals.resize(old_internals);
-    build->publications.resize(old_publications);
-    build->window_controls.resize(old_window_controls);
-    build->nested_windows.resize(old_nested);
-    build->binding_count = old_bindings;
-    build->failure = Reason::PipelineCapacity;
+    // Allocation failure is the only exception class this noexcept builder
+    // projects. Unexpected exceptions retain the existing terminate contract.
+    mutation.fail(Reason::PipelineCapacity);
   }
 }
 

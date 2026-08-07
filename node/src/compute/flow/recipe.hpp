@@ -3,7 +3,6 @@
 #include "state.hpp"
 
 #include <memory>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -48,19 +47,20 @@ append_primitive(FlowState &flow, const std::span<const std::uint32_t> inputs,
     return false;
   }
   try {
-    const std::optional<ValueRoutes> routes =
-        flow.value_ids.store(inputs, outputs);
-    if (!routes) {
+    const bool published =
+        flow.value_ids.publish(inputs, outputs, [&](const ValueRoutes routes) {
+          flow.steps.emplace_back(FlowPrimitive{
+              .inputs = routes.inputs,
+              .outputs = routes.outputs,
+              .operation = operation,
+              .options = options,
+              .control = control,
+          });
+        });
+    if (!published) {
       reject(flow, Reason::FlowCapacity);
       return false;
     }
-    flow.steps.emplace_back(FlowPrimitive{
-        .inputs = routes->inputs,
-        .outputs = routes->outputs,
-        .operation = operation,
-        .options = options,
-        .control = control,
-    });
     return true;
   } catch (const std::bad_alloc &) {
     reject(flow, Reason::FlowCapacity);
@@ -75,20 +75,21 @@ append_map(FlowState &flow, const std::string_view name,
            const std::span<const ExprRef> expressions,
            const FlowControl control = {}) {
   try {
-    const std::optional<ValueRoutes> routes =
-        flow.value_ids.store(inputs, outputs);
-    if (!routes) {
+    const bool published =
+        flow.value_ids.publish(inputs, outputs, [&](const ValueRoutes routes) {
+          flow.steps.emplace_back(MapStep{
+              .name = std::string{name},
+              .inputs = routes.inputs,
+              .outputs = routes.outputs,
+              .expressions =
+                  std::vector<ExprRef>{expressions.begin(), expressions.end()},
+              .control = control,
+          });
+        });
+    if (!published) {
       reject(flow, Reason::FlowCapacity);
       return false;
     }
-    flow.steps.emplace_back(MapStep{
-        .name = std::string{name},
-        .inputs = routes->inputs,
-        .outputs = routes->outputs,
-        .expressions =
-            std::vector<ExprRef>{expressions.begin(), expressions.end()},
-        .control = control,
-    });
     return true;
   } catch (const std::bad_alloc &) {
     reject(flow, Reason::FlowCapacity);

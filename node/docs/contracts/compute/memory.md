@@ -37,6 +37,20 @@ one allocation precedes the ordered old-ID, input, and output copies;
 allocation failure leaves size unchanged, and the optional ranges are
 published only after all copies complete.
 
+Flow and Graph step construction use the arena's callback-scoped publication
+transaction, not a separately maintained rollback list. The arena captures the
+exact pre-store size and passes the staged ranges only to the callback that
+materializes one Map or Primitive step. The transaction commits when that
+callback returns; an exception restores the logical arena prefix while
+retaining any safely grown allocation. No transaction object can outlive its
+arena. The arena itself is non-movable and rejects nested publication, so owner
+relocation and reentrant staging cannot detach rollback from its target.
+Publication is the sole mutation entry; there is no direct-store bypass.
+Consequently a route tail without an owning step is unrepresentable on all four
+Flow/Graph Map/Primitive append paths. Allocation-fault and transaction-scope
+contracts prove exact prefix rollback, typed terminal failure, and successful
+retry for both construction states.
+
 Program graph schedule capacity is not expression capacity. One Program admits
 16,384 ordered graph nodes while each Map expression and emitted ComputeIR
 remains bounded at 1,024 nodes. Graph values are admitted against the derived

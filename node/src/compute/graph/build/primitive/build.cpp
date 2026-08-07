@@ -31,21 +31,22 @@ bool append_primitive(GraphState &graph,
     return false;
   }
   try {
-    const std::optional<ValueRoutes> routes =
-        graph.value_ids.store(inputs, outputs);
-    if (!routes) {
+    const bool published =
+        graph.value_ids.publish(inputs, outputs, [&](const ValueRoutes routes) {
+          graph.steps.emplace_back(GraphPrimitive{
+              .inputs = routes.inputs,
+              .outputs = routes.outputs,
+              .output = output,
+              .primitive = primitive,
+              .options = options,
+              .node = std::move(node),
+              .control = control,
+          });
+        });
+    if (!published) {
       graph_detail::reject(graph, Reason::GraphCapacity);
       return false;
     }
-    graph.steps.emplace_back(GraphPrimitive{
-        .inputs = routes->inputs,
-        .outputs = routes->outputs,
-        .output = output,
-        .primitive = primitive,
-        .options = options,
-        .node = std::move(node),
-        .control = control,
-    });
     return true;
   } catch (const std::bad_alloc &) {
     graph_detail::reject(graph, Reason::GraphCapacity);
