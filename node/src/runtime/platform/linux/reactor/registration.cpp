@@ -64,30 +64,29 @@ ReactorPlatformOpResult EpollCtl(ReactorPlatform& platform, const int op,
   errno = 0;
   if (::epoll_ctl(LinuxReactorState(platform).native, op, PosixFd(handle),
                   &event) == 0) {
-    return {};
+    return ReactorPlatformOpResult::success();
   }
   const int saved_errno = errno;
-  return ReactorPlatformOpResult{
-      .ok = false,
-      .invalid = saved_errno == EBADF || saved_errno == EINVAL,
-      .platform_error = saved_errno,
-  };
+  return saved_errno == EBADF || saved_errno == EINVAL
+             ? ReactorPlatformOpResult::invalid(saved_errno)
+             : ReactorPlatformOpResult::failed(saved_errno);
 }
 
 ReactorPlatformOpResult AddReactorPlatformInterest(
     ReactorPlatform& platform, const ReactorHandle handle,
     const ReactorInterest interest) noexcept {
   if (!EpollReserveInterestStorage(platform, handle)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   ReactorPlatformOpResult added =
       EpollCtl(platform, EPOLL_CTL_ADD, handle, interest);
-  if (!added.ok && added.platform_error == EEXIST) {
+  if (added.disposition() == ReactorPlatformOpDisposition::Failed &&
+      added.platform_error() == EEXIST) {
     added = EpollCtl(platform, EPOLL_CTL_MOD, handle, interest);
   }
-  if (added.ok) {
+  if (added.disposition() == ReactorPlatformOpDisposition::Success) {
     if (!EpollRememberInterest(platform, handle, interest)) {
-      return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+      return ReactorPlatformOpResult::failed(ENOMEM);
     }
     RecordReactorPlatformAdd();
   }
@@ -99,15 +98,17 @@ ReactorPlatformOpResult ModifyReactorPlatformInterest(
     const ReactorInterest interest) noexcept {
   RecordReactorPlatformModify();
   if (!EpollReserveInterestStorage(platform, handle)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   ReactorPlatformOpResult modified =
       EpollCtl(platform, EPOLL_CTL_MOD, handle, interest);
-  if (!modified.ok && modified.platform_error == ENOENT) {
+  if (modified.disposition() == ReactorPlatformOpDisposition::Failed &&
+      modified.platform_error() == ENOENT) {
     modified = EpollCtl(platform, EPOLL_CTL_ADD, handle, interest);
   }
-  if (modified.ok && !EpollRememberInterest(platform, handle, interest)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+  if (modified.disposition() == ReactorPlatformOpDisposition::Success &&
+      !EpollRememberInterest(platform, handle, interest)) {
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   return modified;
 }
@@ -120,14 +121,15 @@ ReactorPlatformOpResult RemoveReactorPlatformInterest(
       errno == ENOENT) {
     EpollForgetInterest(platform, handle);
     RecordReactorPlatformRemove();
-    return {};
+    return ReactorPlatformOpResult::success();
   }
   const int saved_errno = errno;
-  return ReactorPlatformOpResult{
-      .ok = false,
-      .invalid = saved_errno == EBADF || saved_errno == EINVAL,
-      .platform_error = saved_errno,
-  };
+  if (saved_errno == EBADF || saved_errno == EINVAL) {
+    EpollForgetInterest(platform, handle);
+    RecordReactorPlatformRemove();
+    return ReactorPlatformOpResult::invalid(saved_errno);
+  }
+  return ReactorPlatformOpResult::failed(saved_errno);
 }
 
 ReactorPlatformBatchResult ApplyReactorPlatformChanges(
@@ -137,7 +139,7 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
     return ReactorPlatformBatchResult::success();
   }
   for (std::size_t index = 0u; index < count; ++index) {
-    ReactorPlatformOpResult result{};
+    ReactorPlatformOpResult result = ReactorPlatformOpResult::success();
     const ReactorRegistrationChange& change = changes[index];
     switch (change.kind) {
       case ReactorRegistrationChange::Kind::Add:
@@ -152,12 +154,17 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
         result = RemoveReactorPlatformInterest(platform, change.handle);
         break;
     }
-    if (!result.ok) {
-      return result.invalid
-                 ? ReactorPlatformBatchResult::invalid(result.platform_error,
-                                                       index)
-                 : ReactorPlatformBatchResult::failed(result.platform_error,
-                                                      index);
+    switch (result.disposition()) {
+      case ReactorPlatformOpDisposition::Invalid:
+        return ReactorPlatformBatchResult::invalid(result.platform_error(),
+                                                   index);
+      case ReactorPlatformOpDisposition::Failed:
+        return ReactorPlatformBatchResult::failed(result.platform_error(),
+                                                  index);
+      case ReactorPlatformOpDisposition::BackendUnavailable:
+        return ReactorPlatformBatchResult::backend_unavailable();
+      case ReactorPlatformOpDisposition::Success:
+        break;
     }
   }
   return ReactorPlatformBatchResult::success();

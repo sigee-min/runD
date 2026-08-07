@@ -93,7 +93,8 @@ int RunRuntimeTaskReactorResultContract() {
   static_assert(backend_unavailable.events() == ReactorEvent::None);
 
   ReactorPlatform platform{};
-  TEST_ASSERT(PrepareReactorPlatform(platform, 1u).ok);
+  TEST_ASSERT(PrepareReactorPlatform(platform, 1u).disposition() ==
+              ReactorPlatformOpDisposition::Success);
   int pipe_fds[2] = {-1, -1};
   TEST_ASSERT(::pipe(pipe_fds) == 0);
   const ReactorHandle read_handle = ReactorHandleFromPublic(pipe_fds[0]);

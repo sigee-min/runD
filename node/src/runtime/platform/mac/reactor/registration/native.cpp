@@ -36,20 +36,13 @@ void KqueuePushReceiptFilter(std::vector<struct kevent>& changes,
 ProjectBatchOperationResult(const ReactorPlatformBatchResult result) noexcept {
   switch (result.disposition()) {
   case ReactorPlatformBatchDisposition::Invalid:
-    return ReactorPlatformOpResult{
-        .ok = false,
-        .invalid = true,
-        .platform_error = result.platform_error(),
-    };
+    return ReactorPlatformOpResult::invalid(result.platform_error());
   case ReactorPlatformBatchDisposition::Failed:
-    return ReactorPlatformOpResult{
-        .ok = false,
-        .platform_error = result.platform_error(),
-    };
+    return ReactorPlatformOpResult::failed(result.platform_error());
   case ReactorPlatformBatchDisposition::BackendUnavailable:
-    return ReactorPlatformOpResult{.ok = false, .unavailable = true};
+    return ReactorPlatformOpResult::backend_unavailable();
   case ReactorPlatformBatchDisposition::Success:
-    return {};
+    return ReactorPlatformOpResult::success();
   }
 }
 
@@ -76,7 +69,7 @@ ReactorPlatformOpResult KqueueSubmit(ReactorPlatform& platform,
         ignored.push_back(true);
       }
     } catch (...) {
-      return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+      return ReactorPlatformOpResult::failed(ENOMEM);
     }
     const ReactorPlatformBatchResult submitted = KqueueSubmitBatch(platform);
     return ProjectBatchOperationResult(submitted);
@@ -86,14 +79,12 @@ ReactorPlatformOpResult KqueueSubmit(ReactorPlatform& platform,
   const int rc = ::kevent(MacReactorState(platform).native, changes, count,
                           nullptr, 0, nullptr);
   if (rc == 0) {
-    return {};
+    return ReactorPlatformOpResult::success();
   }
   const int saved_errno = errno;
-  return ReactorPlatformOpResult{
-      .ok = false,
-      .invalid = saved_errno == EBADF || saved_errno == EINVAL,
-      .platform_error = saved_errno,
-  };
+  return saved_errno == EBADF || saved_errno == EINVAL
+             ? ReactorPlatformOpResult::invalid(saved_errno)
+             : ReactorPlatformOpResult::failed(saved_errno);
 }
 
 ReactorPlatformBatchResult KqueueSubmitBatch(ReactorPlatform& handle) noexcept {
@@ -154,7 +145,7 @@ ReactorPlatformOpResult KqueueAddInterest(
     append(EVFILT_WRITE);
   }
   if (count == 0) {
-    return {};
+    return ReactorPlatformOpResult::success();
   }
   return KqueueSubmit(platform, changes, count, false);
 }

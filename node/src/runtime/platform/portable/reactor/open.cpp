@@ -22,7 +22,7 @@ ReactorPlatformOpResult PrepareReactorPlatform(
   if (!platform.state) {
     platform.state.reset(new (std::nothrow) ReactorPlatformState{});
     if (!platform.state) {
-      return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+      return ReactorPlatformOpResult::failed(ENOMEM);
     }
   }
   ReactorPlatformState& state = PortableReactorState(platform);
@@ -31,24 +31,24 @@ ReactorPlatformOpResult PrepareReactorPlatform(
     state.events.reserve(capacity);
     state.probe.events.reserve(capacity);
   } catch (...) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformOpResult OpenReactorPlatform(
     ReactorPlatform& platform) noexcept {
   const ReactorPlatformOpResult prepared = PrepareReactorPlatform(platform, 0u);
-  if (!prepared.ok) {
+  if (prepared.disposition() != ReactorPlatformOpDisposition::Success) {
     return prepared;
   }
   ReactorPlatformState& state = PortableReactorState(platform);
   if (state.opened) {
-    return {};
+    return ReactorPlatformOpResult::success();
   }
   state.opened = true;
   RecordReactorPlatformOpen();
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 }  // namespace rund::node

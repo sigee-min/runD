@@ -78,6 +78,16 @@ counters are owned once by `scheduler/reactor/diagnostic/platform.cpp`. Platform
 backends only translate the neutral contract and issue native calls; they do
 not copy either orchestration or policy counters.
 
+Each native lifecycle or single-registration operation has exactly one
+disposition: `Success`, `Invalid`, `Failed`, or `BackendUnavailable`.
+`Success` and `BackendUnavailable` fix the platform error to zero, while
+`Invalid` and `Failed` carry the native or allocation error. Stateless
+preparation in the unavailable owner remains `Success`; opening or mutating
+readiness state reports `BackendUnavailable`. Removing an invalid descriptor
+also retires the platform-private interest mirror, so a consumed best-effort
+remove cannot be rediscovered indefinitely by a later blocking poll. Logical
+change retry remains owned by the scheduler queue.
+
 The registration-batch operation has exactly one disposition: `Success`,
 `Invalid`, `Failed`, or `BackendUnavailable`. `Success` and
 `BackendUnavailable` fix the platform error and failed index to zero.

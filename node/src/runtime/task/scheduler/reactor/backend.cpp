@@ -14,13 +14,15 @@ namespace {
 [[nodiscard]] ReactorApplyResult
 EnsureBackendOpen(ReactorRuntime &reactor) noexcept {
   const ReactorPlatformOpResult opened = OpenReactorPlatform(reactor.platform);
-  if (opened.ok) {
+  switch (opened.disposition()) {
+  case ReactorPlatformOpDisposition::Success:
     return ReactorApplyResult::success();
-  }
-  if (opened.unavailable) {
+  case ReactorPlatformOpDisposition::BackendUnavailable:
     return ReactorApplyResult::backend_unavailable();
+  case ReactorPlatformOpDisposition::Invalid:
+  case ReactorPlatformOpDisposition::Failed:
+    return ReactorApplyResult::failed();
   }
-  return ReactorApplyResult::failed();
 }
 
 } // namespace

@@ -14,18 +14,54 @@
 #include "../coroutine/allocation.hpp"
 #include "test/assert.hpp"
 
+namespace {
+
+[[nodiscard]] constexpr bool
+OperationSucceeded(const rund::node::ReactorPlatformOpResult result) noexcept {
+  return result.disposition() ==
+         rund::node::ReactorPlatformOpDisposition::Success;
+}
+
+} // namespace
+
 int RunRuntimeTaskReactorPlatformContract() {
   using namespace rund::node;
 
   static_assert(sizeof(ReactorHandle) >= sizeof(void*));
   static_assert(ReactorInterestBits(ReactorInterest::Read) == 1);
   static_assert(ReactorInterestBits(ReactorInterest::Write) == 4);
+  static_assert(!std::is_aggregate_v<ReactorPlatformOpResult>);
+  static_assert(std::is_trivially_copyable_v<ReactorPlatformOpResult>);
   static_assert(!std::is_aggregate_v<BatchIoProbeResult>);
   static_assert(std::is_trivially_copyable_v<BatchIoProbeResult>);
   static_assert(!std::is_aggregate_v<ReactorPlatformBatchResult>);
   static_assert(std::is_trivially_copyable_v<ReactorPlatformBatchResult>);
   static_assert(!std::is_aggregate_v<ReactorPlatformPollResult>);
   static_assert(std::is_trivially_copyable_v<ReactorPlatformPollResult>);
+
+  constexpr ReactorPlatformOpResult operation_success =
+      ReactorPlatformOpResult::success();
+  static_assert(operation_success.disposition() ==
+                ReactorPlatformOpDisposition::Success);
+  static_assert(operation_success.platform_error() == 0);
+
+  constexpr ReactorPlatformOpResult operation_invalid =
+      ReactorPlatformOpResult::invalid(EBADF);
+  static_assert(operation_invalid.disposition() ==
+                ReactorPlatformOpDisposition::Invalid);
+  static_assert(operation_invalid.platform_error() == EBADF);
+
+  constexpr ReactorPlatformOpResult operation_failed =
+      ReactorPlatformOpResult::failed(ENOMEM);
+  static_assert(operation_failed.disposition() ==
+                ReactorPlatformOpDisposition::Failed);
+  static_assert(operation_failed.platform_error() == ENOMEM);
+
+  constexpr ReactorPlatformOpResult operation_unavailable =
+      ReactorPlatformOpResult::backend_unavailable();
+  static_assert(operation_unavailable.disposition() ==
+                ReactorPlatformOpDisposition::BackendUnavailable);
+  static_assert(operation_unavailable.platform_error() == 0);
 
   constexpr ReactorPlatformBatchResult batch_success =
       ReactorPlatformBatchResult::success();
@@ -82,35 +118,72 @@ int RunRuntimeTaskReactorPlatformContract() {
   // This contract is compiled against the neutral interface only. Platform
   // SDK records are deliberately unavailable at this boundary.
 
+#if defined(__linux__)
+  {
+    int stale_pipe[2] = {-1, -1};
+    int live_pipe[2] = {-1, -1};
+    TEST_ASSERT(::pipe(stale_pipe) == 0);
+    TEST_ASSERT(::pipe(live_pipe) == 0);
+    ReactorPlatform invalid_remove_platform{};
+    TEST_ASSERT(
+        OperationSucceeded(PrepareReactorPlatform(invalid_remove_platform, 2u)));
+    TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(invalid_remove_platform)));
+    const ReactorHandle stale_handle =
+        ReactorHandleFromPublic(stale_pipe[0]);
+    const ReactorHandle live_handle = ReactorHandleFromPublic(live_pipe[0]);
+    TEST_ASSERT(OperationSucceeded(AddReactorPlatformInterest(
+        invalid_remove_platform, stale_handle, ReactorInterest::Read)));
+    TEST_ASSERT(OperationSucceeded(AddReactorPlatformInterest(
+        invalid_remove_platform, live_handle, ReactorInterest::Read)));
+    TEST_ASSERT(::close(stale_pipe[0]) == 0);
+    stale_pipe[0] = -1;
+    const ReactorPlatformOpResult invalid_remove =
+        RemoveReactorPlatformInterest(invalid_remove_platform, stale_handle);
+    TEST_ASSERT(invalid_remove.disposition() ==
+                ReactorPlatformOpDisposition::Invalid);
+    const char live_byte = 'l';
+    TEST_ASSERT(::write(live_pipe[1], &live_byte, 1u) == 1);
+    std::vector<ReactorPlatformReady> live_ready{};
+    const ReactorPlatformPollResult live_poll = PollReactorPlatform(
+        invalid_remove_platform, -1, 2u, live_ready);
+    TEST_ASSERT(live_poll.disposition() ==
+                ReactorPlatformPollDisposition::Success);
+    TEST_ASSERT(live_ready.size() == 1u);
+    TEST_ASSERT(live_ready.front().handle == live_handle);
+    CloseReactorPlatform(invalid_remove_platform);
+    TEST_ASSERT(::close(stale_pipe[1]) == 0);
+    TEST_ASSERT(::close(live_pipe[0]) == 0);
+    TEST_ASSERT(::close(live_pipe[1]) == 0);
+  }
+#endif
+
   ResetReactorBackendStats();
   ReactorPlatform platform{};
 
-  TEST_ASSERT(PrepareReactorPlatform(platform, 8u).ok);
+  TEST_ASSERT(OperationSucceeded(PrepareReactorPlatform(platform, 8u)));
   ReactorPlatformState* const storage = platform.state.get();
   TEST_ASSERT(storage != nullptr);
-  TEST_ASSERT(OpenReactorPlatform(platform).ok);
+  TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(platform)));
   CloseReactorPlatform(platform);
 
-  TEST_ASSERT(PrepareReactorPlatform(platform, 16u).ok);
+  TEST_ASSERT(OperationSucceeded(PrepareReactorPlatform(platform, 16u)));
   TEST_ASSERT(platform.state.get() == storage);
-  TEST_ASSERT(OpenReactorPlatform(platform).ok);
+  TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(platform)));
   CloseReactorPlatform(platform);
 
   {
     ReactorPlatform scoped{};
-    TEST_ASSERT(PrepareReactorPlatform(scoped, 4u).ok);
-    TEST_ASSERT(OpenReactorPlatform(scoped).ok);
+    TEST_ASSERT(OperationSucceeded(PrepareReactorPlatform(scoped, 4u)));
+    TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(scoped)));
   }
 
   int pipe_fds[2] = {-1, -1};
   TEST_ASSERT(::pipe(pipe_fds) == 0);
   const char byte = 'p';
   TEST_ASSERT(::write(pipe_fds[1], &byte, 1u) == 1);
-  TEST_ASSERT(OpenReactorPlatform(platform).ok);
-  TEST_ASSERT(AddReactorPlatformInterest(platform,
-                                         ReactorHandleFromPublic(pipe_fds[0]),
-                                         ReactorInterest::Read)
-                  .ok);
+  TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(platform)));
+  TEST_ASSERT(OperationSucceeded(AddReactorPlatformInterest(
+      platform, ReactorHandleFromPublic(pipe_fds[0]), ReactorInterest::Read)));
   std::vector<ReactorPlatformReady> poll_ready{};
   const ReactorPlatformPollResult first_poll =
       PollReactorPlatform(platform, 0, 1u, poll_ready);
@@ -133,9 +206,8 @@ int RunRuntimeTaskReactorPlatformContract() {
   char consumed = 0;
   TEST_ASSERT(::read(pipe_fds[0], &consumed, 1u) == 1);
   const ReactorHandle writable = ReactorHandleFromPublic(pipe_fds[1]);
-  TEST_ASSERT(
-      AddReactorPlatformInterest(platform, writable, ReactorInterest::Write)
-          .ok);
+  TEST_ASSERT(OperationSucceeded(AddReactorPlatformInterest(
+      platform, writable, ReactorInterest::Write)));
   const ReactorPlatformPollResult writable_poll =
       PollReactorPlatform(platform, 0, 1u, poll_ready);
   TEST_ASSERT(writable_poll.disposition() ==
@@ -144,7 +216,8 @@ int RunRuntimeTaskReactorPlatformContract() {
   TEST_ASSERT(poll_ready.size() == 1u);
   TEST_ASSERT(poll_ready.front().handle == writable);
   TEST_ASSERT(HasReactorEvent(poll_ready.front().events, ReactorEvent::Write));
-  TEST_ASSERT(RemoveReactorPlatformInterest(platform, writable).ok);
+  TEST_ASSERT(OperationSucceeded(
+      RemoveReactorPlatformInterest(platform, writable)));
   const ReactorPlatformPollResult removed_poll =
       PollReactorPlatform(platform, 0, 1u, poll_ready);
   TEST_ASSERT(removed_poll.disposition() ==
@@ -160,18 +233,15 @@ int RunRuntimeTaskReactorPlatformContract() {
   std::vector<std::array<int, 2>> poll_pipes(poll_registration_count,
                                              std::array<int, 2>{-1, -1});
   ReactorPlatform poll_failure_platform{};
-  TEST_ASSERT(
-      PrepareReactorPlatform(poll_failure_platform, poll_registration_count)
-          .ok);
-  TEST_ASSERT(OpenReactorPlatform(poll_failure_platform).ok);
+  TEST_ASSERT(OperationSucceeded(PrepareReactorPlatform(
+      poll_failure_platform, poll_registration_count)));
+  TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(poll_failure_platform)));
   for (std::array<int, 2> &poll_pipe : poll_pipes) {
     TEST_ASSERT(::pipe(poll_pipe.data()) == 0);
     TEST_ASSERT(::write(poll_pipe[1], &byte, 1u) == 1);
-    TEST_ASSERT(
-        AddReactorPlatformInterest(poll_failure_platform,
-                                   ReactorHandleFromPublic(poll_pipe[0]),
-                                   ReactorInterest::Read)
-            .ok);
+    TEST_ASSERT(OperationSucceeded(AddReactorPlatformInterest(
+        poll_failure_platform, ReactorHandleFromPublic(poll_pipe[0]),
+        ReactorInterest::Read)));
   }
   runtime_task_allocation::FailNext();
   const ReactorPlatformPollResult poll_capacity_failed = PollReactorPlatform(
@@ -205,12 +275,11 @@ int RunRuntimeTaskReactorPlatformContract() {
   TEST_ASSERT(::socketpair(AF_UNIX, SOCK_STREAM, 0, duplex_fds) == 0);
   TEST_ASSERT(::write(duplex_fds[1], &byte, 1u) == 1);
   ReactorPlatform duplex_platform{};
-  TEST_ASSERT(PrepareReactorPlatform(duplex_platform, 1u).ok);
-  TEST_ASSERT(OpenReactorPlatform(duplex_platform).ok);
-  TEST_ASSERT(AddReactorPlatformInterest(
-                  duplex_platform, ReactorHandleFromPublic(duplex_fds[0]),
-                  ReactorInterest::Read | ReactorInterest::Write)
-                  .ok);
+  TEST_ASSERT(OperationSucceeded(PrepareReactorPlatform(duplex_platform, 1u)));
+  TEST_ASSERT(OperationSucceeded(OpenReactorPlatform(duplex_platform)));
+  TEST_ASSERT(OperationSucceeded(AddReactorPlatformInterest(
+      duplex_platform, ReactorHandleFromPublic(duplex_fds[0]),
+      ReactorInterest::Read | ReactorInterest::Write)));
   std::vector<ReactorPlatformReady> duplex_ready{};
   const ReactorPlatformPollResult duplex_poll =
       PollReactorPlatform(duplex_platform, 0, 1u, duplex_ready);
@@ -242,7 +311,8 @@ int RunRuntimeTaskReactorPlatformContract() {
   cold_ready.reserve(1u);
   const std::size_t probe_count = cold_ready.capacity() + 1u;
   std::vector<BatchIoPollRequest> capacity_requests(probe_count, request);
-  TEST_ASSERT(PrepareReactorPlatform(platform, probe_count).ok);
+  TEST_ASSERT(
+      OperationSucceeded(PrepareReactorPlatform(platform, probe_count)));
   runtime_task_allocation::FailNext();
   const BatchIoProbeResult failed = ProbeReactorPlatformNow(
       platform, capacity_requests.data(), capacity_requests.size(), cold_ready);

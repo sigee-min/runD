@@ -59,10 +59,10 @@ ReactorPlatformOpResult AddReactorPlatformInterest(
     const ReactorInterest interest) noexcept {
   if (!PollReserveInterestStorage(platform, handle) ||
       !PollRememberInterest(platform, handle, interest)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   RecordReactorPlatformAdd();
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformOpResult ModifyReactorPlatformInterest(
@@ -71,16 +71,16 @@ ReactorPlatformOpResult ModifyReactorPlatformInterest(
   RecordReactorPlatformModify();
   if (!PollReserveInterestStorage(platform, handle) ||
       !PollRememberInterest(platform, handle, interest)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformOpResult RemoveReactorPlatformInterest(
     ReactorPlatform& platform, const ReactorHandle handle) noexcept {
   PollForgetInterest(platform, handle);
   RecordReactorPlatformRemove();
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformBatchResult ApplyReactorPlatformChanges(
@@ -90,7 +90,7 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
     return ReactorPlatformBatchResult::success();
   }
   for (std::size_t index = 0u; index < count; ++index) {
-    ReactorPlatformOpResult result{};
+    ReactorPlatformOpResult result = ReactorPlatformOpResult::success();
     const ReactorRegistrationChange& change = changes[index];
     switch (change.kind) {
       case ReactorRegistrationChange::Kind::Add:
@@ -105,12 +105,17 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
         result = RemoveReactorPlatformInterest(platform, change.handle);
         break;
     }
-    if (!result.ok) {
-      return result.invalid
-                 ? ReactorPlatformBatchResult::invalid(result.platform_error,
-                                                       index)
-                 : ReactorPlatformBatchResult::failed(result.platform_error,
-                                                      index);
+    switch (result.disposition()) {
+      case ReactorPlatformOpDisposition::Invalid:
+        return ReactorPlatformBatchResult::invalid(result.platform_error(),
+                                                   index);
+      case ReactorPlatformOpDisposition::Failed:
+        return ReactorPlatformBatchResult::failed(result.platform_error(),
+                                                  index);
+      case ReactorPlatformOpDisposition::BackendUnavailable:
+        return ReactorPlatformBatchResult::backend_unavailable();
+      case ReactorPlatformOpDisposition::Success:
+        break;
     }
   }
   return ReactorPlatformBatchResult::success();

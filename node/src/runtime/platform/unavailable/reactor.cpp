@@ -14,13 +14,13 @@ PrepareReactorPlatform(ReactorPlatform &platform,
                        const std::size_t capacity) noexcept {
   (void)platform;
   (void)capacity;
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformOpResult
 OpenReactorPlatform(ReactorPlatform &platform) noexcept {
   (void)platform;
-  return ReactorPlatformOpResult{.ok = false, .unavailable = true};
+  return ReactorPlatformOpResult::backend_unavailable();
 }
 
 void CloseReactorPlatform(ReactorPlatform &platform) noexcept {
@@ -34,7 +34,7 @@ AddReactorPlatformInterest(ReactorPlatform &platform,
   (void)platform;
   (void)handle;
   (void)interest;
-  return ReactorPlatformOpResult{.ok = false, .unavailable = true};
+  return ReactorPlatformOpResult::backend_unavailable();
 }
 
 ReactorPlatformOpResult
@@ -44,7 +44,7 @@ ModifyReactorPlatformInterest(ReactorPlatform &platform,
   (void)platform;
   (void)handle;
   (void)interest;
-  return ReactorPlatformOpResult{.ok = false, .unavailable = true};
+  return ReactorPlatformOpResult::backend_unavailable();
 }
 
 ReactorPlatformOpResult
@@ -52,7 +52,7 @@ RemoveReactorPlatformInterest(ReactorPlatform &platform,
                               const ReactorHandle handle) noexcept {
   (void)platform;
   (void)handle;
-  return ReactorPlatformOpResult{.ok = false, .unavailable = true};
+  return ReactorPlatformOpResult::backend_unavailable();
 }
 
 ReactorPlatformBatchResult

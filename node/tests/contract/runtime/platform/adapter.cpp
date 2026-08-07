@@ -52,17 +52,15 @@ void AssertUnsupported(const rund::node::NativeVectoredResult &result) {
 }
 
 void AssertPrepared(const rund::node::ReactorPlatformOpResult result) {
-  TEST_ASSERT(result.ok);
-  TEST_ASSERT(!result.invalid);
-  TEST_ASSERT(!result.unavailable);
-  TEST_ASSERT(result.platform_error == 0);
+  TEST_ASSERT(result.disposition() ==
+              rund::node::ReactorPlatformOpDisposition::Success);
+  TEST_ASSERT(result.platform_error() == 0);
 }
 
 void AssertUnavailable(const rund::node::ReactorPlatformOpResult result) {
-  TEST_ASSERT(!result.ok);
-  TEST_ASSERT(!result.invalid);
-  TEST_ASSERT(result.unavailable);
-  TEST_ASSERT(result.platform_error == 0);
+  TEST_ASSERT(result.disposition() ==
+              rund::node::ReactorPlatformOpDisposition::BackendUnavailable);
+  TEST_ASSERT(result.platform_error() == 0);
 }
 
 void AssertUnavailable(const rund::node::ReactorPlatformBatchResult result) {

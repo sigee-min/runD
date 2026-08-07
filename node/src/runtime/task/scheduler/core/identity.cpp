@@ -236,7 +236,8 @@ bool Scheduler::Configure(const ::rund::SchedulerConfig config,
   }
   const ReactorPlatformOpResult platform_prepared =
       PrepareReactorPlatform(reactor.platform, reactor_capacity);
-  if (!platform_prepared.ok) {
+  if (platform_prepared.disposition() !=
+      ReactorPlatformOpDisposition::Success) {
     state_->lanes.lane_code = ReasonCode::ReactorWaitCapacityExceeded;
     return false;
   }

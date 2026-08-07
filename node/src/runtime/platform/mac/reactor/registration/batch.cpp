@@ -40,7 +40,7 @@ ReactorPlatformOpResult KqueueApplyOneChange(
     case ReactorRegistrationChange::Kind::Remove:
       return RemoveReactorPlatformInterest(handle, change.handle);
   }
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformBatchResult ApplyReactorPlatformChanges(
@@ -66,12 +66,16 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
         }
       }
       const ReactorPlatformOpResult one = KqueueApplyOneChange(handle, change);
-      if (!one.ok) {
-        return one.invalid
-                   ? ReactorPlatformBatchResult::invalid(one.platform_error,
-                                                         index)
-                   : ReactorPlatformBatchResult::failed(one.platform_error,
-                                                        index);
+      switch (one.disposition()) {
+      case ReactorPlatformOpDisposition::Invalid:
+        return ReactorPlatformBatchResult::invalid(one.platform_error(),
+                                                   index);
+      case ReactorPlatformOpDisposition::Failed:
+        return ReactorPlatformBatchResult::failed(one.platform_error(), index);
+      case ReactorPlatformOpDisposition::BackendUnavailable:
+        return ReactorPlatformBatchResult::backend_unavailable();
+      case ReactorPlatformOpDisposition::Success:
+        break;
       }
       if (index + 1u == count) {
         return ReactorPlatformBatchResult::success();

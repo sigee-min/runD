@@ -26,7 +26,7 @@ ReactorPlatformOpResult PrepareReactorPlatform(
   if (!platform.state) {
     platform.state.reset(new (std::nothrow) ReactorPlatformState{});
     if (!platform.state) {
-      return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+      return ReactorPlatformOpResult::failed(ENOMEM);
     }
   }
   ReactorPlatformState& state = MacReactorState(platform);
@@ -39,30 +39,30 @@ ReactorPlatformOpResult PrepareReactorPlatform(
     state.ignore_missing.reserve(capacity * 4u);
     state.probe.events.reserve(capacity);
   } catch (...) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 ReactorPlatformOpResult OpenReactorPlatform(
     ReactorPlatform& platform) noexcept {
   const ReactorPlatformOpResult prepared = PrepareReactorPlatform(platform, 0u);
-  if (!prepared.ok) {
+  if (prepared.disposition() != ReactorPlatformOpDisposition::Success) {
     return prepared;
   }
   ReactorPlatformState& state = MacReactorState(platform);
   if (state.opened) {
-    return {};
+    return ReactorPlatformOpResult::success();
   }
   errno = 0;
   const int native = ::kqueue();
   if (native < 0) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = errno};
+    return ReactorPlatformOpResult::failed(errno);
   }
   state.native = native;
   state.opened = true;
   RecordReactorPlatformOpen();
-  return {};
+  return ReactorPlatformOpResult::success();
 }
 
 }  // namespace rund::node

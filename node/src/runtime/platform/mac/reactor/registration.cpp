@@ -9,13 +9,13 @@ ReactorPlatformOpResult AddReactorPlatformInterest(
     ReactorPlatform& platform, const ReactorHandle handle,
     const ReactorInterest interest) noexcept {
   if (!KqueueReserveInterestStorage(platform, handle)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   const ReactorPlatformOpResult added =
       KqueueAddInterest(platform, handle, interest);
-  if (added.ok) {
+  if (added.disposition() == ReactorPlatformOpDisposition::Success) {
     if (!KqueueRememberInterest(platform, handle, interest)) {
-      return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+      return ReactorPlatformOpResult::failed(ENOMEM);
     }
     RecordReactorPlatformAdd();
   }
@@ -27,17 +27,19 @@ ReactorPlatformOpResult ModifyReactorPlatformInterest(
     const ReactorInterest interest) noexcept {
   RecordReactorPlatformModify();
   if (!KqueueReserveInterestStorage(platform, handle)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   const ReactorPlatformOpResult removed =
       KqueueRemoveInterest(platform, handle, true);
-  if (!removed.ok && !removed.invalid) {
+  if (removed.disposition() != ReactorPlatformOpDisposition::Success &&
+      removed.disposition() != ReactorPlatformOpDisposition::Invalid) {
     return removed;
   }
   const ReactorPlatformOpResult added =
       KqueueAddInterest(platform, handle, interest);
-  if (added.ok && !KqueueRememberInterest(platform, handle, interest)) {
-    return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
+  if (added.disposition() == ReactorPlatformOpDisposition::Success &&
+      !KqueueRememberInterest(platform, handle, interest)) {
+    return ReactorPlatformOpResult::failed(ENOMEM);
   }
   return added;
 }
@@ -46,7 +48,8 @@ ReactorPlatformOpResult RemoveReactorPlatformInterest(
     ReactorPlatform& platform, const ReactorHandle handle) noexcept {
   const ReactorPlatformOpResult removed =
       KqueueRemoveInterest(platform, handle, true);
-  if (removed.ok || removed.invalid) {
+  if (removed.disposition() == ReactorPlatformOpDisposition::Success ||
+      removed.disposition() == ReactorPlatformOpDisposition::Invalid) {
     KqueueForgetInterest(platform, handle);
     RecordReactorPlatformRemove();
   }
