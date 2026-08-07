@@ -255,8 +255,9 @@ caller-required `R` full records; no second full-wait authority exists.
   result materialization.
 - `reactor/timeout/storage.cpp`: reactor timeout timer reserve/cancel helpers
   and cancel-counter evidence shared by single and many waits.
-- `reactor/timeout/validate.cpp`: timed reactor task, duration, fd,
-  stop-token, host-handle, and fd-generation preflight.
+- `reactor/timeout/validate.cpp`: the single timed reactor task-eligibility,
+  duration, fd, stop-token, host-handle, and fd-generation preflight. Leaf
+  rejection completes here before immediate probing or park admission.
 - `reactor/timeout/wake.cpp`: timer-fired reactor timeout cleanup routing and
   cleanup failure evidence.
 - `reactor/drain/batch.cpp`: deterministic ready-batch orchestration and
@@ -337,8 +338,10 @@ IO precedence:
 1. malformed `io::FdView`: `io_fd_invalid`
 2. no scheduler: `node_runtime_missing`
 3. no task: `task_context_missing`
-4. wait capacity full: `reactor_wait_capacity_exceeded`
-5. parked: record `IoPark`
+4. active leaf task: `task_leaf_primitive_forbidden`, before generation
+   cleanup or an immediate readiness probe
+5. wait capacity full: `reactor_wait_capacity_exceeded`
+6. parked: record `IoPark`
 
 Persistent reactor registrations are keyed by native fd and aggregate the
 interests of all live waits for that fd. Each fd stores one typed scheduler

@@ -21,11 +21,6 @@ bool Scheduler::ParkTimedReactorWait(
     const ::rund::detail::task::StopSourceIdentity stop,
     const ::rund::net::SocketView socket,
     std::uint64_t &wait_id, ::rund::detail::task::IoDecision &result) noexcept {
-  if (!record.coroutine_task) {
-    result = FailIo(ReasonCode::TaskLeafPrimitiveForbidden);
-    CompletePrimitiveCommit();
-    return false;
-  }
   if (state_->ready.timers.size() >= state_->resources.limits.timer_capacity) {
     result = FailIo(ReasonCode::TimerCapacityExceeded);
     CompletePrimitiveCommit();

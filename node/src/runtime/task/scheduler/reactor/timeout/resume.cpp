@@ -4,27 +4,10 @@
 #include "../../state/model/task.hpp"
 #include "../../state/storage.hpp"
 
-#include "../cleanup/request.hpp"
-
 namespace rund::node {
 
 ::rund::detail::task::IoDecision
-Scheduler::ResumeTimedReactorWait(TaskRecord &record,
-                                  const std::uint64_t wait_id) noexcept {
-  if (!record.coroutine_task) {
-    record.wait_id = 0u;
-    SetLeafFailure(record, ReasonCode::TaskLeafPrimitiveForbidden);
-    static_cast<void>(ReactorCleanupWait(
-        *this, ReactorCleanupRequest{.wait_id = wait_id,
-                                     .reason = ReasonCode::IoPollFailed,
-                                     .cancel_timeout_timer = true,
-                                     .require_timeout_timer_cancel = true,
-                                     .remove_ready_backlog = true}));
-    ::rund::detail::task::IoDecision result =
-        FailIo(ReasonCode::TaskLeafPrimitiveForbidden);
-    CompletePrimitiveCommit();
-    return result;
-  }
+Scheduler::ResumeTimedReactorWait(TaskRecord &record) noexcept {
   record.dynamic_scope_id = CurrentScopeId();
   record.lane_segment_side_exit = true;
   ::rund::detail::counter::Accumulate(

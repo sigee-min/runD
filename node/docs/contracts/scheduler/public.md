@@ -433,7 +433,10 @@ evidence.
 `spawn(lambda)` is a non-suspending leaf. The scheduler invokes it once on a
 worker without allocating a suspension frame. Suspending work must use
 `Task<T>`. A leaf primitive attempt fails with
-`task_leaf_primitive_forbidden`; no alternate suspension engine exists.
+`task_leaf_primitive_forbidden`; no alternate suspension engine exists. Leaf
+eligibility is decided before either timed or untimed readiness performs an
+immediate native probe, so descriptor readiness cannot change that result or
+publish IO observations for the rejected primitive.
 Synchronous `task::scope` is a scheduler-control operation, not a task
 primitive. Calling it from a leaf or coroutine fails before its callback runs;
 task-owned structured concurrency uses coroutine await or `Group` instead.

@@ -14,7 +14,8 @@ fail when selected or used.
 The scheduler does not allocate task stacks, switch register contexts, use
 platform record APIs, or maintain a second suspension representation.
 `spawn(lambda)` is a completion-bound leaf and cannot call suspending task
-primitives. Suspending work uses `Task<T>`.
+primitives. Suspending work uses `Task<T>`. Reactor entry rejects a leaf before
+calling a platform readiness probe.
 
 ## Reactor Boundary
 

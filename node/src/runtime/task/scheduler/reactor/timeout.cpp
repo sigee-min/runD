@@ -31,7 +31,7 @@ namespace rund::node {
                             result)) {
     return result;
   }
-  return ResumeTimedReactorWait(*record, wait_id);
+  return ResumeTimedReactorWait(*record);
 }
 
 } // namespace rund::node

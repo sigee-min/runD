@@ -17,4 +17,4 @@ ParkTimedReactorWait(TaskRecord &record, int fd, short interest,
                      ::rund::net::SocketView socket, std::uint64_t &wait_id,
                      ::rund::detail::task::IoDecision &result) noexcept;
 [[nodiscard]] ::rund::detail::task::IoDecision
-ResumeTimedReactorWait(TaskRecord &record, std::uint64_t wait_id) noexcept;
+ResumeTimedReactorWait(TaskRecord &record) noexcept;

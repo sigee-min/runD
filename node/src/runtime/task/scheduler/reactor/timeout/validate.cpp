@@ -21,6 +21,12 @@ bool Scheduler::ValidateTimedReactorWait(
     CompletePrimitiveCommit();
     return false;
   }
+  if (!record->coroutine_task) {
+    SetLeafFailure(*record, ReasonCode::TaskLeafPrimitiveForbidden);
+    result = FailIo(ReasonCode::TaskLeafPrimitiveForbidden);
+    CompletePrimitiveCommit();
+    return false;
+  }
   if (timeout.count() < 0) {
     result = FailIo(ReasonCode::TimerDurationInvalid);
     CompletePrimitiveCommit();

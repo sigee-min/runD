@@ -23,3 +23,4 @@ struct TimedSocketPairCleanup {
 [[nodiscard]] int RunTimedReadinessCloseCase();
 [[nodiscard]] int RunTimedReadinessInvalidCase();
 [[nodiscard]] int RunTimedReadinessCoroutineCase();
+[[nodiscard]] int RunTimedReadinessLeafCase();
