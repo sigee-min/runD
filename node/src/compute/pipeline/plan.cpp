@@ -8,9 +8,9 @@
 #include "../status.hpp"
 #include "claim.hpp"
 #include "local.hpp"
+#include "output.hpp"
 #include "plan/contract.hpp"
 #include "plan/local.hpp"
-#include "plan/output.hpp"
 #include "plan/prepare.hpp"
 #include "state.hpp"
 
@@ -38,12 +38,11 @@ struct PipelinePrepareOwner final {
   PipelinePrepare preparation;
 };
 
-[[nodiscard]] bool exact_publication_ticket(
-    const storage::Reservation &ticket,
-    const std::uint64_t expected_bytes) noexcept {
+[[nodiscard]] bool
+exact_publication_ticket(const storage::Reservation &ticket,
+                         const std::uint64_t expected_bytes) noexcept {
   const storage::Usage usage = ticket.usage();
-  return ticket.committed() &&
-         ticket.max_allocated_bytes() == expected_bytes &&
+  return ticket.committed() && ticket.max_allocated_bytes() == expected_bytes &&
          usage.physical_bytes == 0u && usage.allocated_bytes == expected_bytes;
 }
 
@@ -168,7 +167,8 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
       build->binding_count >
           (nested ? PipelineRouteBindingCapacity : PipelineBindingCapacity) ||
       build->state_pairs.size() > PipelineLeafCapacity ||
-      build->publications.size() > PipelineLeafCapacity) {
+      build->publications.size() > PipelineLeafCapacity ||
+      build->window_controls.size() > PipelineStepCapacity) {
     return Result<std::shared_ptr<PipelineState>>::fail(
         Reason::PipelineCapacity);
   }
@@ -234,8 +234,7 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
     const PipelinePublicationState *const prepared_publication =
         state->publication.get();
     if (owner.build->seed != nullptr) {
-      const Status restored =
-          restore_pipeline_state(state, owner.build->seed);
+      const Status restored = restore_pipeline_state(state, owner.build->seed);
       if (!restored) {
         return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
       }
@@ -252,9 +251,8 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
         return Result<std::shared_ptr<PipelineState>>::fail(restored.reason());
       }
     }
-    const Status attached =
-        attach_pipeline_memory(*state, owner.device_memory, publication_bytes,
-                               prepared_publication);
+    const Status attached = attach_pipeline_memory(
+        *state, owner.device_memory, publication_bytes, prepared_publication);
     if (!attached) {
       return Result<std::shared_ptr<PipelineState>>::fail(attached.reason());
     }

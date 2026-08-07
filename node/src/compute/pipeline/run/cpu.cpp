@@ -31,89 +31,40 @@ namespace {
   if (descriptor == nullptr || status.reason() != Reason::BoundedCountInvalid) {
     return status;
   }
-  state.stats.control.overflow_ordinal = descriptor->maximum;
+  state.stats.control.overflow_ordinal = descriptor->control.maximum;
   return status;
 }
 
-[[nodiscard]] Status read_u32(const std::shared_ptr<BufferState> &owner,
-                              const std::size_t offset,
-                              std::uint32_t &value) noexcept {
-  if (owner == nullptr || owner->type != Type::U32 || offset >= owner->count) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  const std::optional<CpuView> source =
-      cpu_view(owner.get(), offset, 1u, 1u, sizeof(std::uint32_t));
-  if (!source || source->data == nullptr) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  std::memcpy(&value, source->data, sizeof(value));
-  return Status::success();
-}
-
-[[nodiscard]] Status resident_view(PipelineState &state,
-                                   const PipelineWindow &window,
-                                   const std::uint32_t output,
-                                   const std::uint32_t bank,
-                                   CpuView &view) noexcept {
-  if (bank > PipelineWindow::second ||
-      window.first_step >= state.steps.size()) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  std::size_t step_index = window.first_step;
-  const bool input = bank == PipelineWindow::seed;
-  if (bank == PipelineWindow::second && step_index + 1u < state.steps.size() &&
-      state.steps[step_index + 1u].window == state.steps[step_index].window) {
-    ++step_index;
-  }
-  const PipelineStep &step = state.steps[step_index];
-  const std::shared_ptr<JobState> &job =
-      state.transactional && state.attempt_parity != 0u ? step.alternate_job
-                                                        : step.job;
-  if (job == nullptr) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  const auto &owners = input ? job->inputs : job->outputs;
-  const auto &views = input ? job->input_views : job->output_views;
-  if (output >= owners.size() || output >= views.size()) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  const std::optional<CpuView> resolved =
-      cpu_view(owners[output].get(), views[output]);
-  if (!resolved || resolved->data == nullptr) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  view = *resolved;
-  return Status::success();
-}
-
 [[nodiscard]] Status seal_resident(PipelineState &state,
-                                   const PipelineStep &step,
                                    const PipelineWindow &window) noexcept {
-  if (step.iteration_bound == 0u || window.first_step >= state.steps.size()) {
-    return Status::success();
-  }
-  const std::uint32_t final =
-      PipelineWindow::first + ((step.iteration_bound - 1u) & 1u);
-  if (window.current == final) {
-    return Status::success();
-  }
-  const PipelineStep &first = state.steps[window.first_step];
-  const std::shared_ptr<JobState> &job =
-      state.transactional && state.attempt_parity != 0u ? first.alternate_job
-                                                        : first.job;
-  if (job == nullptr || window.recurrent_output_count == 0u ||
-      window.recurrent_output_count > job->inputs.size() ||
-      window.recurrent_output_count > job->outputs.size()) {
+  if (window.first_step >= state.steps.size() ||
+      window.current > PipelineWindow::second ||
+      window.recurrent_output_count == 0u) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  for (std::uint32_t output = 0u; output < window.recurrent_output_count;
-       ++output) {
+  const std::uint32_t final = window.control.final;
+  if (final < PipelineWindow::first || final > PipelineWindow::second) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  std::uint32_t sealed_count = 0u;
+  const std::uint32_t state_index =
+      static_cast<std::uint32_t>(&window - state.windows.data());
+  for (const PipelinePublicationPlan &publication : state.publications) {
+    const auto *terminal =
+        std::get_if<PipelineTerminalPublicationPlan>(&publication);
+    if (terminal == nullptr || terminal->state != state_index) {
+      continue;
+    }
+    if (window.current == final) {
+      ++sealed_count;
+      continue;
+    }
     CpuView source{};
     CpuView target{};
-    const Status source_ready =
-        resident_view(state, window, output, window.current, source);
-    const Status target_ready =
-        resident_view(state, window, output, final, target);
+    const Status source_ready = resolve_cpu_pipeline_publication_view(
+        state, terminal->sources[window.current], source);
+    const Status target_ready = resolve_cpu_pipeline_publication_view(
+        state, terminal->sources[final], target);
     if (!source_ready || !target_ready ||
         source.footprint.bytes != target.footprint.bytes ||
         source.footprint.stride != target.footprint.stride ||
@@ -123,6 +74,7 @@ namespace {
     }
     if (source.footprint.dense()) {
       std::memmove(target.data, source.data, source.footprint.bytes);
+      ++sealed_count;
       continue;
     }
     const std::byte *read = source.data;
@@ -136,8 +88,11 @@ namespace {
     if (source.footprint.count != 0u) {
       std::memmove(write, read, source.footprint.width);
     }
+    ++sealed_count;
   }
-  return Status::success();
+  return sealed_count == window.recurrent_output_count
+             ? Status::success()
+             : Status::fail(Reason::PipelineInvalid);
 }
 
 void accumulate(Stats &total, const Stats &value,
@@ -182,9 +137,42 @@ void accumulate(Stats &total, const Stats &value,
 
 } // namespace
 
-Status cpu_resident_view(PipelineState &state, const PipelineWindow &window,
-                         const std::uint32_t output, CpuView &view) noexcept {
-  return resident_view(state, window, output, window.current, view);
+Status resolve_cpu_pipeline_publication_view(
+    PipelineState &state, const PipelinePublicationViewPlan &planned,
+    CpuView &view) noexcept {
+  const PipelinePublicationViewIdentity &identity = planned.identity;
+  const bool alternate = state.transactional && state.attempt_parity != 0u;
+  const PipelineResource *const resource =
+      selected_pipeline_resource(state, identity.resource_ordinal, alternate);
+  if (resource == nullptr || resource->buffer == nullptr ||
+      resource->type != planned.type || resource->format != planned.format ||
+      resource->buffer->type != planned.type ||
+      resource->bytes != identity.backing_bytes ||
+      identity.element_bytes == 0u ||
+      identity.offset_bytes % identity.element_bytes != 0u ||
+      identity.stride_bytes % identity.element_bytes != 0u ||
+      identity.offset_bytes / identity.element_bytes >
+          std::numeric_limits<std::size_t>::max() ||
+      identity.count > std::numeric_limits<std::size_t>::max() ||
+      identity.stride_bytes / identity.element_bytes >
+          std::numeric_limits<std::size_t>::max()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  const std::optional<CpuView> resolved = cpu_view(
+      resource->buffer.get(),
+      static_cast<std::size_t>(identity.offset_bytes / identity.element_bytes),
+      static_cast<std::size_t>(identity.count),
+      static_cast<std::size_t>(identity.stride_bytes / identity.element_bytes),
+      static_cast<std::size_t>(identity.element_bytes));
+  if (!resolved || (identity.count != 0u && resolved->data == nullptr) ||
+      resolved->footprint.base != identity.offset_bytes ||
+      resolved->footprint.count != identity.count ||
+      resolved->footprint.stride != identity.stride_bytes ||
+      resolved->footprint.width != identity.element_bytes) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  view = *resolved;
+  return Status::success();
 }
 
 void reset_cpu_resident(PipelineState &state) noexcept {
@@ -206,29 +194,44 @@ Status prepare_cpu_pipeline_window(PipelineState &state,
     return Status::fail(Reason::PipelineInvalid);
   }
   std::uint32_t item_count{};
-  const Status count_ready =
-      read_u32(descriptor->count, descriptor->count_offset, item_count);
-  if (!count_ready) {
-    return count_ready;
+  CpuView count{};
+  const Status count_ready = resolve_cpu_pipeline_publication_view(
+      state, descriptor->control.count, count);
+  if (!count_ready || count.data == nullptr || count.footprint.count != 1u ||
+      count.footprint.width != sizeof(item_count)) {
+    return Status::fail(Reason::PipelineInvalid);
   }
-  if (item_count > descriptor->maximum) {
-    state.stats.control.overflow_ordinal = descriptor->maximum;
+  std::memcpy(&item_count, count.data, sizeof(item_count));
+  if (item_count > descriptor->control.maximum) {
+    state.stats.control.overflow_ordinal = descriptor->control.maximum;
     return Status::fail(Reason::BoundedCountInvalid);
   }
   const std::uint64_t base =
-      static_cast<std::uint64_t>(step.iteration) * descriptor->tile;
+      static_cast<std::uint64_t>(step.iteration) * descriptor->control.tile;
   bool terminal = false;
-  if (descriptor->terminal != std::numeric_limits<std::uint32_t>::max()) {
+  if (descriptor->control.terminal_publication !=
+      std::numeric_limits<std::uint32_t>::max()) {
+    if (descriptor->control.terminal_publication >= state.publications.size()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    const auto *terminal_plan = std::get_if<PipelineTerminalPublicationPlan>(
+        &state.publications[descriptor->control.terminal_publication]);
+    const std::uint32_t state_index =
+        static_cast<std::uint32_t>(descriptor - state.windows.data());
+    if (terminal_plan == nullptr || terminal_plan->state != state_index ||
+        descriptor->current > PipelineWindow::second) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
     CpuView view{};
-    const Status terminal_ready = cpu_resident_view(
-        state, *descriptor, descriptor->terminal_output, view);
+    const Status terminal_ready = resolve_cpu_pipeline_publication_view(
+        state, terminal_plan->sources[descriptor->current], view);
     if (!terminal_ready || view.footprint.count != 1u ||
         view.footprint.width != sizeof(std::uint32_t)) {
       return Status::fail(Reason::PipelineInvalid);
     }
     std::uint32_t observed{};
     std::memcpy(&observed, view.data, sizeof(observed));
-    terminal = observed == descriptor->expected;
+    terminal = observed == descriptor->control.expected;
   }
   if (!descriptor->stopped && base < item_count && !terminal) {
     return Status::success();
@@ -236,7 +239,7 @@ Status prepare_cpu_pipeline_window(PipelineState &state,
 
   active = false;
   if (!descriptor->stopped) {
-    const Status sealed = seal_resident(state, step, *descriptor);
+    const Status sealed = seal_resident(state, *descriptor);
     if (!sealed) {
       return sealed;
     }

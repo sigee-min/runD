@@ -48,11 +48,10 @@ rund::AccelCheck EncodeVulkanResets(VulkanKernelResources &resources,
   const std::size_t end = entry->resets.begin + entry->resets.count;
   bool transfer = false;
   bool compute = false;
-  const bool captured = CapturesVulkanDispatch(command);
   for (std::size_t index = entry->resets.begin; index < end; ++index) {
     const VulkanReset &clear = resources.resets[index];
-    transfer = transfer || (clear.range.dense() && !captured);
-    compute = compute || !clear.range.dense() || captured;
+    transfer = transfer || !clear.shader;
+    compute = compute || clear.shader;
   }
   VkMemoryBarrier writable{};
   writable.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -71,7 +70,7 @@ rund::AccelCheck EncodeVulkanResets(VulkanKernelResources &resources,
         clear.resident.device_buffer->buffer == VK_NULL_HANDLE) {
       return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
     }
-    if (clear.range.dense() && !captured) {
+    if (!clear.shader) {
       vkCmdFillBuffer(command, clear.resident.device_buffer->buffer,
                       clear.range.offset(), reset::Payload(clear.range), 0u);
       continue;

@@ -173,25 +173,6 @@ struct ProgramFingerprint final {
                      At(&right.source, &right.handle));
 }
 
-[[nodiscard]] bool SameWindowIdentity(const BackendWindow &left,
-                                      const BackendWindow &right) noexcept {
-  if (left.maximum != right.maximum || left.tile != right.tile ||
-      left.expected != right.expected || left.state != right.state ||
-      left.outer_bound != right.outer_bound ||
-      left.inner_bound != right.inner_bound ||
-      left.has_terminal != right.has_terminal ||
-      !SameRead(left.count, right.count)) {
-    return false;
-  }
-  for (std::size_t bank = 0u; bank < left.terminal.size(); ++bank) {
-    if (left.has_terminal &&
-        !SameRead(left.terminal[bank], right.terminal[bank])) {
-      return false;
-    }
-  }
-  return true;
-}
-
 [[nodiscard]] bool ReadyRun(const BackendRun *const run,
                             const std::size_t step_count) noexcept {
   return run != nullptr && run->execution != nullptr && run->steps != nullptr &&
@@ -432,82 +413,29 @@ ProgramIdentity(const BackendRun &run) noexcept {
 }
 
 [[nodiscard]] bool
-ExactTemplateShape(const std::span<const BackendBatchEntry> templates,
-                   const std::span<const std::uint8_t> barriers,
-                   const std::size_t first, NestedTemplateSpan &seed,
-                   NestedTemplateSpan &action, NestedTemplateSpan &fold,
-                   BackendWindow &window) noexcept {
-  if (first >= templates.size() || barriers.size() != templates.size()) {
+ExactAggregateEnvelope(const std::span<const BackendBatchEntry> templates,
+                       const std::span<const std::uint8_t> barriers,
+                       const std::size_t first,
+                       NestedTemplateGeometry &geometry) noexcept {
+  if (!ProveNestedTemplateGeometry(templates, first, geometry) ||
+      geometry.window() == nullptr || geometry.inner_bound() == 0u ||
+      geometry.window()->has_terminal ||
+      geometry.window()->tile == std::numeric_limits<std::uint32_t>::max() ||
+      first > std::numeric_limits<std::uint32_t>::max() ||
+      geometry.action_first() > std::numeric_limits<std::uint32_t>::max() ||
+      geometry.fold_first() > std::numeric_limits<std::uint32_t>::max() ||
+      geometry.end() > static_cast<std::uint64_t>(
+                           std::numeric_limits<std::uint32_t>::max()) +
+                           1u) {
     return false;
   }
-  const BackendWindow *const source = templates[first].recurrence.window;
-  if (source == nullptr || source->phase != BackendWindowPhase::NestedSeed ||
-      source->maximum == 0u || source->tile == 0u ||
-      source->tile > source->maximum || source->outer_bound == 0u ||
-      source->inner_bound == 0u || source->has_terminal ||
-      source->tile == std::numeric_limits<std::uint32_t>::max() ||
-      source->outer_iteration != 0u || source->route != 0u) {
-    return false;
-  }
-  const std::uint64_t expected_outer =
-      (static_cast<std::uint64_t>(source->maximum) + source->tile - 1u) /
-      source->tile;
-  const std::uint64_t group_count = expected_outer + source->inner_bound + 3u;
-  if (expected_outer != source->outer_bound ||
-      group_count > templates.size() - first ||
-      first > std::numeric_limits<std::uint32_t>::max()) {
-    return false;
-  }
-  const std::size_t action_first = first + source->outer_bound;
-  const std::size_t fold_first = action_first + source->inner_bound;
-  for (std::size_t index = first; index < first + group_count; ++index) {
+  for (std::size_t index = first; index < geometry.end(); ++index) {
     const BackendBatchEntry &entry = templates[index];
-    const BackendWindow *const current = entry.recurrence.window;
-    if (current == nullptr || !SameWindowIdentity(*source, *current) ||
-        entry.run == nullptr || entry.template_index != index ||
+    if (entry.run == nullptr || entry.template_index != index ||
         (index != first && barriers[index] == 0u)) {
       return false;
     }
-    if (index < action_first) {
-      const std::uint32_t outer = static_cast<std::uint32_t>(index - first);
-      if (current->phase != BackendWindowPhase::NestedSeed ||
-          current->outer_iteration != outer || current->route != 0u ||
-          entry.recurrence.iteration != outer ||
-          entry.recurrence.bound != source->outer_bound) {
-        return false;
-      }
-    } else if (index < fold_first) {
-      const std::uint32_t inner =
-          static_cast<std::uint32_t>(index - action_first);
-      if (current->phase != BackendWindowPhase::NestedAction ||
-          current->inner_iteration != inner || current->route != 0u ||
-          entry.recurrence.iteration != inner ||
-          entry.recurrence.bound != source->inner_bound) {
-        return false;
-      }
-    } else {
-      const std::uint32_t route =
-          static_cast<std::uint32_t>(index - fold_first);
-      if (current->phase != BackendWindowPhase::NestedFold ||
-          current->route != route || entry.recurrence.iteration != route ||
-          entry.recurrence.bound != 3u) {
-        return false;
-      }
-    }
-    if (entry.recurrence.logical_step !=
-        templates[first].recurrence.logical_step) {
-      return false;
-    }
   }
-  seed = NestedTemplateSpan{.first = static_cast<std::uint32_t>(first),
-                            .count = source->outer_bound};
-  action = NestedTemplateSpan{
-      .first = static_cast<std::uint32_t>(action_first),
-      .count = source->inner_bound,
-  };
-  fold = NestedTemplateSpan{.first = static_cast<std::uint32_t>(fold_first),
-                            .count = 3u};
-  window = *source;
   return true;
 }
 
@@ -527,10 +455,10 @@ ExactTemplateShape(const std::span<const BackendBatchEntry> templates,
 
 [[nodiscard]] bool
 BuildAction(const std::span<const BackendBatchEntry> templates,
-            const NestedTemplateSpan action, const SeedProjection &seed,
+            const NestedTemplateShape &shape, const SeedProjection &seed,
             ProgramFingerprint &program, NestedScalarExpr &expression,
             View &final_state, std::uint32_t &dispatches) noexcept {
-  const BackendRun *const first = templates[action.first].run;
+  const BackendRun *const first = templates[shape.action_first()].run;
   if (!ReadyRun(first, 1u) || first->steps[0u].step == nullptr) {
     return false;
   }
@@ -541,8 +469,10 @@ BuildAction(const std::span<const BackendBatchEntry> templates,
   }
   dispatches = static_cast<std::uint32_t>(first->final_dispatch_count);
   View previous = seed.tile_state;
-  for (std::uint32_t iteration = 0u; iteration < action.count; ++iteration) {
-    const BackendRun *const run = templates[action.first + iteration].run;
+  for (std::uint32_t iteration = 0u; iteration < shape.action_count();
+       ++iteration) {
+    const BackendRun *const run =
+        templates[shape.action_first() + iteration].run;
     if (run == nullptr || !ReadyRun(run, 1u) ||
         run->steps[0u].step == nullptr) {
       return false;
@@ -589,11 +519,11 @@ BuildAction(const std::span<const BackendBatchEntry> templates,
 
 [[nodiscard]] bool
 BuildFold(const std::span<const BackendBatchEntry> templates,
-          const NestedTemplateSpan fold, const SeedProjection &seed,
+          const NestedTemplateShape &shape, const SeedProjection &seed,
           const View action_state, const BackendPublish &publication,
           ProgramFingerprint &program, NestedScalarExpr &expression,
           std::uint32_t &dispatches) noexcept {
-  const BackendRun *const first = templates[fold.first].run;
+  const BackendRun *const first = templates[shape.fold_first()].run;
   if (!ReadyRun(first, 1u) || first->steps[0u].step == nullptr) {
     return false;
   }
@@ -605,8 +535,8 @@ BuildFold(const std::span<const BackendBatchEntry> templates,
   dispatches = static_cast<std::uint32_t>(first->final_dispatch_count);
   std::array<View, 3u> inputs{};
   std::array<View, 3u> outputs{};
-  for (std::uint32_t route = 0u; route < fold.count; ++route) {
-    const BackendRun *const run = templates[fold.first + route].run;
+  for (std::uint32_t route = 0u; route < shape.fold_count(); ++route) {
+    const BackendRun *const run = templates[shape.fold_first() + route].run;
     if (!ReadyRun(run, 1u) || run->steps[0u].step == nullptr) {
       return false;
     }
@@ -657,8 +587,9 @@ PublicationFor(const std::span<const BackendPublish> publications,
                std::uint32_t &index) noexcept {
   std::uint32_t found = NoNode;
   for (std::size_t current = 0u; current < publications.size(); ++current) {
-    if (publications[current].state != window.state ||
-        publications[current].kind != BackendPublishKind::Terminal) {
+    if (publications[current].identity.state != window.state ||
+        publications[current].identity.kind !=
+            PreparedKernelPublicationKind::Terminal) {
       continue;
     }
     if (found != NoNode || current >= NoNode) {
@@ -670,9 +601,8 @@ PublicationFor(const std::span<const BackendPublish> publications,
     return false;
   }
   const BackendPublish &source = publications[found];
-  const std::uint32_t expected_final = 1u + ((window.outer_bound - 1u) & 1u);
-  const View target = At(&source.target, &source.target_handle);
-  if (source.final != expected_final || !WriteView(target) ||
+  const View target = At(&source.target.source, &source.target.handle);
+  if (source.identity.final >= source.sources.size() || !WriteView(target) ||
       !U32View(target, 1u)) {
     return false;
   }
@@ -694,19 +624,17 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
                      const std::span<const std::uint8_t> barriers,
                      const std::span<const BackendPublish> publications,
                      const std::size_t first) {
-  NestedTemplateSpan seed{};
-  NestedTemplateSpan action{};
-  NestedTemplateSpan fold{};
-  BackendWindow window{};
   if (barriers.size() != templates.size()) {
     return Invalid("compute_pipeline_nested_aggregate_barrier_invalid");
   }
-  if (!ExactTemplateShape(templates, barriers, first, seed, action, fold,
-                          window)) {
+  NestedTemplateGeometry geometry{};
+  if (!ExactAggregateEnvelope(templates, barriers, first, geometry)) {
     return Ineligible("compute_pipeline_nested_aggregate_shape_ineligible");
   }
+  const NestedTemplateShape &shape = geometry.shape();
+  const BackendWindow &window = *geometry.window();
 
-  const BackendRun *const seed_run = templates[seed.first].run;
+  const BackendRun *const seed_run = templates[shape.seed_first()].run;
   if (seed_run == nullptr) {
     return Ineligible("compute_pipeline_nested_aggregate_seed_ineligible");
   }
@@ -716,8 +644,8 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
   }
   SeedProjection seed_projection{};
   const char *seed_reason = "compute_pipeline_nested_aggregate_seed_ineligible";
-  for (std::uint32_t outer = 0u; outer < seed.count; ++outer) {
-    const BackendRun *const run = templates[seed.first + outer].run;
+  for (std::uint32_t outer = 0u; outer < shape.seed_count(); ++outer) {
+    const BackendRun *const run = templates[shape.seed_first() + outer].run;
     SeedProjection current{};
     if (run == nullptr || !SameProgram(*run, seed_program)) {
       return Ineligible(
@@ -750,7 +678,7 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
   NestedScalarExpr action_expression{};
   View action_state{};
   std::uint32_t action_dispatches{};
-  if (!BuildAction(templates, action, seed_projection, action_program,
+  if (!BuildAction(templates, shape, seed_projection, action_program,
                    action_expression, action_state, action_dispatches)) {
     return Ineligible("compute_pipeline_nested_aggregate_action_ineligible");
   }
@@ -764,7 +692,7 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
   ProgramFingerprint fold_program{};
   NestedScalarExpr fold_expression{};
   std::uint32_t fold_dispatches{};
-  if (!BuildFold(templates, fold, seed_projection, action_state, publication,
+  if (!BuildFold(templates, shape, seed_projection, action_state, publication,
                  fold_program, fold_expression, fold_dispatches)) {
     return Ineligible("compute_pipeline_nested_aggregate_fold_ineligible");
   }
@@ -774,14 +702,11 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
       seed_dispatches > std::numeric_limits<std::uint32_t>::max()) {
     return Ineligible("compute_pipeline_nested_aggregate_profile_ineligible");
   }
-  const std::uint64_t authored_action =
-      static_cast<std::uint64_t>(window.outer_bound) * window.inner_bound;
   return NestedAggregate{
       .state = NestedAggregateState::Ready,
-      .seed = seed,
-      .action = action,
-      .fold = fold,
-      .window = window,
+      .shape = shape,
+      .maximum = window.maximum,
+      .tile = window.tile,
       .queue =
           NestedAggregateRead{
               .read = std::move(seed_projection.queue),
@@ -808,7 +733,8 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
       .publication_index = publication_index,
       .failure =
           NestedAggregateFailureProjection{
-              .logical_step = templates[seed.first].recurrence.logical_step,
+              .logical_step =
+                  templates[shape.seed_first()].recurrence.logical_step,
               .invalid_index_source_node =
                   seed_projection.invalid_index_source_node,
               .reduce_overflow_source_node =
@@ -824,9 +750,6 @@ BuildNestedAggregate(const std::span<const BackendBatchEntry> templates,
           },
       .profile =
           NestedAggregateProfileProjection{
-              .authored_seed_occurrences = window.outer_bound,
-              .authored_action_occurrences = authored_action,
-              .authored_fold_occurrences = window.outer_bound,
               .seed_dispatches_per_occurrence =
                   static_cast<std::uint32_t>(seed_dispatches),
               .action_dispatches_per_occurrence = action_dispatches,

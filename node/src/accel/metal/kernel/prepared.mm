@@ -54,14 +54,14 @@ kernel void rund_compute_reset(device uint *target [[buffer(0)]],
   resources.resets.reserve(static_cast<std::size_t>(resets->size()));
   for (std::uint64_t index = 0u; index < resets->size(); ++index) {
     const BoundReset &route = (*resets)[static_cast<std::size_t>(index)];
-    const rund::kernel::ResidentBufferRef &ref = route.ref;
+    const rund::kernel::ResidentBufferRef ref = route.ref();
     const MetalViewTransfer *replacement = nullptr;
     if (route.external && !reset::Find(resources, route.binding, replacement)) {
       return false;
     }
     MetalResidentBufferResult resident =
         replacement == nullptr
-            ? LookupMetalResidentBuffer(pick, ref, route.handle)
+            ? LookupMetalResidentBuffer(pick, ref, route.handle())
             : replacement->dense;
     if (!resident.check.ok || resident.device_buffer == nullptr) {
       return false;
@@ -71,22 +71,27 @@ kernel void rund_compute_reset(device uint *target [[buffer(0)]],
         .element = replacement == nullptr ? 0u : replacement->element_bytes,
     };
     id<MTLBuffer> buffer = (__bridge id<MTLBuffer>)resident.device_buffer.get();
-    const reset::Result proved = reset::Prove(
-        reset::Project(ref, replacement == nullptr ? nullptr : &dense),
-        static_cast<std::uint64_t>(buffer.length),
-        std::numeric_limits<std::uint64_t>::max());
-    if (!proved.check.ok) {
+    reset::Range range = route.range();
+    if (replacement != nullptr) {
+      const reset::Result proved = reset::Prove(
+          reset::Project(ref, &dense),
+          static_cast<std::uint64_t>(buffer.length));
+      if (!proved.check.ok) {
+        return false;
+      }
+      range = proved.range;
+    } else if (!range.valid()) {
       return false;
     }
     resources.resets.push_back(MetalReset{
         .resident = std::move(resident),
-        .range = proved.range,
+        .range = range,
     });
     constexpr std::uint64_t window = std::numeric_limits<std::uint32_t>::max();
     resources.reset_count = ::rund::detail::counter::SaturatingAdd(
-        resources.reset_count, reset::Commands(proved.range.count(), window));
+        resources.reset_count, reset::Commands(range.count(), window));
     resources.reset_bytes = ::rund::detail::counter::SaturatingAdd(
-        resources.reset_bytes, reset::Payload(proved.range));
+        resources.reset_bytes, reset::Payload(range));
   }
   resources.reset_pipeline = LookupMetalNamedPipeline(adapter, "compute.reset");
   if (resources.reset_pipeline == nullptr) {

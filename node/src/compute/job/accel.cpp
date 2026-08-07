@@ -110,6 +110,21 @@ namespace {
   return job_binding_view(state, binding, buffer);
 }
 
+struct JobViewBytes final {
+  std::uint64_t offset{};
+  std::uint64_t stride{};
+};
+
+[[nodiscard]] bool project_job_view_bytes(const JobBufferView &view,
+                                          JobViewBytes &bytes) noexcept {
+  return kernel::checked::mul(static_cast<std::uint64_t>(view.offset),
+                              static_cast<std::uint64_t>(view.element_bytes),
+                              bytes.offset) &&
+         kernel::checked::mul(static_cast<std::uint64_t>(view.stride),
+                              static_cast<std::uint64_t>(view.element_bytes),
+                              bytes.stride);
+}
+
 struct RunBindings final {
   std::span<const rund::AccelRunBinding> graph{};
   Status status = Status::fail(Reason::GraphBindingInvalid);
@@ -159,12 +174,16 @@ build_run_bindings(const std::shared_ptr<JobState> &state,
       return result;
     }
     const JobBufferView view = binding_view(*state, binding, *buffer);
+    JobViewBytes bytes{};
+    if (!project_job_view_bytes(view, bytes)) {
+      return result;
+    }
     bindings[index] = rund::AccelRunBinding{
         .buffer = &resident->buffer,
         .role = binding.role,
-        .offset_bytes = view.offset * view.element_bytes,
+        .offset_bytes = bytes.offset,
         .element_count = view.count,
-        .stride_bytes = view.stride * view.element_bytes,
+        .stride_bytes = bytes.stride,
         .element_bytes = view.element_bytes,
         .alignment = view.alignment,
     };

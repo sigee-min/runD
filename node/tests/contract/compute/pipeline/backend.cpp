@@ -49,6 +49,10 @@ CheckBackend(const Backend backend,
   if (const int views = CheckViews(*device, backend); views != 0) {
     return 250 + views;
   }
+  if (const int bindings = CheckSealedPipelineBindings(*device);
+      bindings != 0) {
+    return 275 + bindings;
+  }
   if (const int hazards = CheckHazards(*device); hazards != 0) {
     return 300 + hazards;
   }

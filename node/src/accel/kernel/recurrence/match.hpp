@@ -25,8 +25,6 @@ SameArtifact(const rund::kernel::LoweringArtifact &left,
 [[nodiscard]] bool ExactRecurrenceMarker(
     std::span<const BackendBatchEntry> entries,
     bool &writes_each_iteration) noexcept;
-[[nodiscard]] bool ExactNestedMapRecurrenceMarker(
-    std::span<const BackendBatchEntry> entries) noexcept;
 [[nodiscard]] bool ExactHistoryOutputs(
     std::span<const BackendBatchEntry> entries, std::uint64_t output_count,
     MapRecurrenceHistory &history);

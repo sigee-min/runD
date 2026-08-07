@@ -56,7 +56,8 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
       for (const MetalPublish &publication : native_publication_rows()) {
         if (publication.params.kind !=
-                static_cast<std::uint32_t>(BackendPublishKind::Terminal) ||
+                static_cast<std::uint32_t>(
+                    PreparedKernelPublicationKind::Terminal) ||
             publication.params.count == 0u) {
           continue;
         }

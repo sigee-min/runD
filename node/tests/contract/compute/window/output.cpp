@@ -3,6 +3,9 @@
 
 #include <node/runtime/compute/access.hpp>
 
+#include "src/compute/pipeline/output.hpp"
+#include "src/compute/pipeline/plan/contract.hpp"
+#include "src/compute/pipeline/plan/publication.hpp"
 #include "src/compute/pipeline/state.hpp"
 
 #include <algorithm>
@@ -288,6 +291,14 @@ template <std::size_t WindowCount>
       .compile();
 }
 
+[[nodiscard]] auto CountAdvanceProgram(Device &device) {
+  using namespace rund::compute;
+  return on(device)
+      .map<std::uint32_t>("window-output-count-advance", 1u,
+                          [](auto value) { return value + kTile; })
+      .compile();
+}
+
 [[nodiscard]] auto ZeroPrefixSeedProgram(Device &device) {
   using namespace rund::compute;
   return on(device)
@@ -565,6 +576,992 @@ template <class Seed, class Action>
          stats.pipeline.rebinding_count == 0u;
 }
 
+[[nodiscard]] bool PublicationFingerprintV3Golden() {
+  using namespace rund::compute::detail;
+  const auto view =
+      [](const std::uint32_t ordinal, const std::uint64_t backing_bytes,
+         const std::uint64_t offset_bytes, const std::uint64_t count,
+         const std::uint64_t stride_bytes, const std::uint32_t usage) {
+        return PipelinePublicationViewPlan{
+            .identity =
+                PipelinePublicationViewIdentity{
+                    .backing_bytes = backing_bytes,
+                    .offset_bytes = offset_bytes,
+                    .count = count,
+                    .stride_bytes = stride_bytes,
+                    .element_bytes = sizeof(std::uint32_t),
+                    .resource_ordinal = ordinal,
+                    .usage = usage,
+                },
+            .type = Type::U32,
+        };
+      };
+
+  PipelineTerminalPublicationPlan terminal{
+      .sources =
+          {
+              view(2u, 64u, 0u, 1u, 4u, rund::kernel::kResidentUsageRead),
+              view(3u, 64u, 0u, 1u, 4u, rund::kernel::kResidentUsageRead),
+              view(4u, 64u, 0u, 1u, 4u, rund::kernel::kResidentUsageRead),
+          },
+      .target =
+          PipelinePublicationTargetPlan{
+              .view =
+                  view(7u, 64u, 8u, 1u, 8u, rund::kernel::kResidentUsageWrite),
+          },
+      .state = 1u,
+      .output = {.value = 2u},
+  };
+  PipelineWindowControl terminal_control{.final = 2u};
+  PipelineHash terminal_hash{};
+  terminal_hash.number(1u);
+  if (!mix_pipeline_publication_public_identity(terminal_hash, terminal,
+                                                terminal_control)) {
+    return false;
+  }
+  constexpr Fingerprint expected_terminal{
+      .hi = 0xb5087f04bc866a06ull,
+      .lo = 0x140961c5d5e8c583ull,
+  };
+  if (terminal_hash.finish() != expected_terminal) {
+    return false;
+  }
+
+  // Public v3 serializes the selected canonical source in the legacy source
+  // field. It deliberately does not add the private three-bank/final shape.
+  PipelineTerminalPublicationPlan compatible = terminal;
+  compatible.sources[0] =
+      view(99u, 128u, 16u, 2u, 12u, rund::kernel::kResidentUsageRead);
+  compatible.sources[1] = terminal.sources[2];
+  PipelineWindowControl compatible_control{.final = 1u};
+  PipelineHash compatible_hash{};
+  compatible_hash.number(1u);
+  if (!mix_pipeline_publication_public_identity(compatible_hash, compatible,
+                                                compatible_control) ||
+      compatible_hash.finish() != expected_terminal) {
+    return false;
+  }
+
+  PipelineWindowPublicationPlan window{
+      .source = view(9u, 16u, 0u, 4u, 4u, rund::kernel::kResidentUsageRead),
+      .target =
+          PipelinePublicationTargetPlan{
+              .view = view(11u, 80u, 8u, 16u, 4u,
+                           rund::kernel::kResidentUsageWrite),
+          },
+      .state = 2u,
+      .output = {.value = 3u},
+  };
+  PipelineWindowControl window_control{
+      .count = view(10u, 12u, 4u, 1u, 4u, rund::kernel::kResidentUsageRead),
+      .maximum = 16u,
+      .tile = 4u,
+  };
+  PipelineHash mixed_hash{};
+  mixed_hash.number(2u);
+  if (!mix_pipeline_publication_public_identity(mixed_hash, terminal,
+                                                terminal_control) ||
+      !mix_pipeline_publication_public_identity(mixed_hash, window,
+                                                window_control)) {
+    return false;
+  }
+  constexpr Fingerprint expected_mixed{
+      .hi = 0xc9ed4d382b576784ull,
+      .lo = 0x8c532fa716b8c443ull,
+  };
+  return mixed_hash.finish() == expected_mixed;
+}
+
+[[nodiscard]] bool PublicationSourceCoordinates() {
+  using namespace rund::compute::detail;
+  constexpr std::array<std::size_t, 4u> ordinary_steps{0u, 1u, 2u, 3u};
+  constexpr std::array<std::size_t, 4u> nested_routes{0u, 1u, 2u, 1u};
+  constexpr std::array<std::uint32_t, 4u> banks{
+      PipelineWindow::first,
+      PipelineWindow::second,
+      PipelineWindow::first,
+      PipelineWindow::second,
+  };
+  for (std::size_t index = 0u; index < ordinary_steps.size(); ++index) {
+    const std::size_t bound = index + 1u;
+    PipelineBuildState ordinary{};
+    ordinary.steps.resize(bound);
+    for (std::size_t iteration = 0u; iteration < bound; ++iteration) {
+      ordinary.steps[iteration].iteration =
+          static_cast<std::uint32_t>(iteration);
+      ordinary.steps[iteration].iteration_bound =
+          static_cast<std::uint32_t>(bound);
+      ordinary.steps[iteration].window_control = {.value = 0u};
+    }
+    ordinary.window_controls.push_back(PipelineBuildWindowControl{
+        .ordinary_step = {.value = 0u},
+    });
+    const PipelineBuildTerminalPublication publication{
+        .edge =
+            {
+                .target = {},
+                .control = {.value = 0u},
+                .output = {},
+            },
+    };
+    const auto final = resolve_build_window_final(ordinary, {.value = 0u});
+    const auto source = resolve_publication_source(ordinary, publication);
+    if (!final || !source ||
+        final->source_step.value != ordinary_steps[index] ||
+        source->step.value != ordinary_steps[index] ||
+        final->bank != banks[index]) {
+      return false;
+    }
+
+    PipelineBuildState nested{};
+    const std::size_t fold_first = bound;
+    nested.steps.resize(bound + 3u);
+    for (std::size_t iteration = 0u; iteration < bound; ++iteration) {
+      nested.steps[iteration].iteration = static_cast<std::uint32_t>(iteration);
+      nested.steps[iteration].iteration_bound =
+          static_cast<std::uint32_t>(bound);
+      nested.steps[iteration].window_control = {.value = 0u};
+      nested.steps[iteration].nested = 1u;
+      nested.steps[iteration].route = PipelineRoute::NestedSeed;
+    }
+    for (std::size_t route = 0u; route < 3u; ++route) {
+      nested.steps[fold_first + route].iteration =
+          static_cast<std::uint32_t>(route);
+      nested.steps[fold_first + route].iteration_bound = 3u;
+      nested.steps[fold_first + route].window_control = {.value = 0u};
+      nested.steps[fold_first + route].nested = 1u;
+      nested.steps[fold_first + route].route = PipelineRoute::NestedFold;
+    }
+    nested.window_controls.push_back(PipelineBuildWindowControl{
+        .nested = 1u,
+    });
+    node::accel::detail::NestedTemplateShape nested_shape{};
+    if (!node::accel::detail::ProveNestedTemplateShape(
+            0u, static_cast<std::uint32_t>(bound), 1u, 0u, nested_shape)) {
+      return false;
+    }
+    nested.nested_windows.push_back(PipelineBuildNestedWindow{
+        .shape = nested_shape,
+    });
+    const PipelineBuildTerminalPublication terminal{
+        .edge =
+            {
+                .target = {},
+                .control = {.value = 0u},
+                .output = {},
+            },
+    };
+    const PipelineBuildWindowPublication window{
+        .edge =
+            {
+                .target = {},
+                .control = {.value = 0u},
+                .output = {},
+            },
+    };
+    const auto nested_final = resolve_build_window_final(nested, {.value = 0u});
+    const auto terminal_source = resolve_publication_source(nested, terminal);
+    const auto window_source = resolve_publication_source(nested, window);
+    if (!nested_final || !terminal_source || !window_source ||
+        nested_final->source_step.value != fold_first + nested_routes[index] ||
+        terminal_source->step.value != fold_first + nested_routes[index] ||
+        window_source->step.value != fold_first ||
+        nested_final->bank != banks[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] int CheckOrdinaryAliasAuthority(Device &device) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr std::array<std::uint32_t, 1u> first_seed{10u};
+  constexpr std::array<std::uint32_t, 1u> second_seed{20u};
+  constexpr std::array<std::uint32_t, 1u> count_value{4u};
+  auto program = on(device)
+                     .input<std::uint32_t>(1u)
+                     .zip_input<std::uint32_t>(1u)
+                     .zip_input<std::uint32_t>(1u)
+                     .zip_input<std::uint32_t>(1u)
+                     .zip_input<std::uint32_t>(1u)
+                     .branch([](auto first, auto second, auto alias, auto count,
+                                auto ordinal) {
+                       (void)alias;
+                       (void)count;
+                       (void)ordinal;
+                       auto next_first =
+                           first.map("window-ordinary-alias-first",
+                                     [](auto value) { return value + 1u; });
+                       auto next_second =
+                           second.map("window-ordinary-alias-second",
+                                      [](auto value) { return value + 2u; });
+                       return outputs(next_first, next_second, next_first);
+                     })
+                     .compile();
+  auto first = device.upload<std::uint32_t>(first_seed);
+  auto second = device.upload<std::uint32_t>(second_seed);
+  auto count = device.upload<std::uint32_t>(count_value);
+  auto first_target = device.buffer<std::uint32_t>(1u);
+  auto second_target = device.buffer<std::uint32_t>(1u);
+  auto bad_target = device.buffer<std::uint32_t>(1u);
+  if (!program || !first || !second || !count || !first_target ||
+      !second_target || !bad_target) {
+    return 1;
+  }
+  const std::array<ResourceView, 3u> inputs{
+      BufferAccess::view(*first, ResourceAccess::Read),
+      BufferAccess::view(*second, ResourceAccess::Read),
+      BufferAccess::view(*first, ResourceAccess::Read),
+  };
+  const std::array<ResourceView, 3u> outputs{
+      BufferAccess::view(*first_target, ResourceAccess::Write),
+      BufferAccess::view(*second_target, ResourceAccess::Write),
+      BufferAccess::view(*first_target, ResourceAccess::Write),
+  };
+  auto build = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_windows(build, ProgramAccess::state(*program),
+                          BufferAccess::view(*count, ResourceAccess::Read),
+                          inputs, outputs, 4u, 1u, NoWindowTerminal, 1u);
+  if (build == nullptr || build->failure != Reason::Ok ||
+      build->steps.size() != 4u || build->internals.size() != 5u ||
+      build->publications.size() != 2u ||
+      std::any_of(build->steps.begin(), build->steps.end(),
+                  [](const auto &step) {
+                    return step.outputs.size() != 3u ||
+                           step.outputs[0u].owner != step.outputs[2u].owner ||
+                           step.outputs[0u].owner == step.outputs[1u].owner;
+                  })) {
+    return 2;
+  }
+  for (const PipelineBuildPublication &authored : build->publications) {
+    const auto *terminal =
+        std::get_if<PipelineBuildTerminalPublication>(&authored);
+    if (terminal == nullptr) {
+      return 3;
+    }
+    const auto source = resolve_publication_source(*build, *terminal);
+    const auto output =
+        source ? resolve_build_output(*build, *source)
+               : Result<PipelineBuildOutputProjection>::fail(source.reason());
+    if (!source || !output || source->step.value != 3u ||
+        output->source.value != terminal->edge.output.value) {
+      return 3;
+    }
+  }
+  const auto plan = plan_pipeline(build);
+  auto prepared = prepare_pipeline(build);
+  if (!plan || !prepared) {
+    return 4;
+  }
+  constexpr std::array<std::uint32_t, 4u> counts{0u, 1u, 3u, 4u};
+  for (const std::uint32_t active : counts) {
+    const std::array<std::uint32_t, 1u> next_count{active};
+    if (!rund_node_test_pipeline::Overwrite(*count, next_count) ||
+        !run_pipeline(*prepared)) {
+      return 5;
+    }
+    std::array<std::uint32_t, 1u> first_actual{};
+    std::array<std::uint32_t, 1u> second_actual{};
+    if (!read_pipeline_raw(*prepared, BufferAccess::state(*first_target),
+                           Type::U32, FixedFormat{}, first_actual.data(),
+                           sizeof(first_actual), first_actual.size()) ||
+        !read_pipeline_raw(*prepared, BufferAccess::state(*second_target),
+                           Type::U32, FixedFormat{}, second_actual.data(),
+                           sizeof(second_actual), second_actual.size()) ||
+        first_actual[0u] != first_seed[0u] + active ||
+        second_actual[0u] != second_seed[0u] + 2u * active) {
+      return 5;
+    }
+  }
+
+  const std::array<ResourceView, 3u> mismatched{
+      outputs[0u],
+      outputs[1u],
+      BufferAccess::view(*bad_target, ResourceAccess::Write),
+  };
+  auto rejected = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_windows(rejected, ProgramAccess::state(*program),
+                          BufferAccess::view(*count, ResourceAccess::Read),
+                          inputs, mismatched, 4u, 1u, NoWindowTerminal, 1u);
+  const auto rejected_plan = plan_pipeline(rejected);
+  if (rejected_plan ||
+      rejected_plan.reason() != Reason::BindingAliasUnsupported) {
+    return 6;
+  }
+  ResourceView invalid_count =
+      BufferAccess::view(*count, ResourceAccess::Write);
+  auto invalid_resident = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_windows(invalid_resident, ProgramAccess::state(*program),
+                          invalid_count, inputs, mismatched, 4u, 1u,
+                          NoWindowTerminal, 1u);
+  const auto invalid_resident_plan = plan_pipeline(invalid_resident);
+  if (invalid_resident_plan ||
+      invalid_resident_plan.reason() != Reason::BindingInvalid) {
+    return 7;
+  }
+  auto invalid_access_outputs = outputs;
+  invalid_access_outputs[2u].access = ResourceAccess::Read;
+  auto invalid_access = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_windows(invalid_access, ProgramAccess::state(*program),
+                          BufferAccess::view(*count, ResourceAccess::Read),
+                          inputs, invalid_access_outputs, 4u, 1u,
+                          NoWindowTerminal, 1u);
+  const auto invalid_access_plan = plan_pipeline(invalid_access);
+  return !invalid_access_plan &&
+                 invalid_access_plan.reason() == Reason::BindingInvalid
+             ? 0
+             : 8;
+}
+
+[[nodiscard]] int CheckAliasSubviewRouting(Device &device) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr std::size_t width = 4u;
+  constexpr std::array<std::uint32_t, width> first_seed{1u, 2u, 3u, 4u};
+  constexpr std::array<std::uint32_t, width> second_seed{10u, 20u, 30u, 40u};
+  constexpr std::array<std::uint32_t, 1u> count_value{3u};
+  constexpr std::array<std::uint32_t, 9u> backing_seed{
+      kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+      kSentinel, kSentinel, kSentinel, kSentinel,
+  };
+  auto program = on(device)
+                     .input<std::uint32_t>(width)
+                     .zip_input<std::uint32_t>(width)
+                     .zip_input<std::uint32_t>(width)
+                     .zip_input<std::uint32_t>(1u)
+                     .zip_input<std::uint32_t>(1u)
+                     .branch([](auto first, auto second, auto alias, auto count,
+                                auto ordinal) {
+                       (void)alias;
+                       (void)count;
+                       (void)ordinal;
+                       auto next_first =
+                           first.map("window-alias-subview-first",
+                                     [](auto value) { return value + 1u; });
+                       auto next_second =
+                           second.map("window-alias-subview-second",
+                                      [](auto value) { return value + 2u; });
+                       return outputs(next_first, next_second, next_first);
+                     })
+                     .compile();
+  auto consumer =
+      on(device)
+          .input<std::uint32_t>(2u)
+          .branch([](auto values) {
+            return values.map("window-alias-subview-consumer",
+                              [](auto value) { return value + 100u; });
+          })
+          .compile();
+  auto first = device.upload<std::uint32_t>(first_seed);
+  auto second = device.upload<std::uint32_t>(second_seed);
+  auto count = device.upload<std::uint32_t>(count_value);
+  auto backing = device.upload<std::uint32_t>(backing_seed);
+  auto second_target = device.buffer<std::uint32_t>(width);
+  auto sink = device.buffer<std::uint32_t>(2u);
+  if (!program || !consumer || !first || !second || !count || !backing ||
+      !second_target || !sink) {
+    return 1;
+  }
+  auto target = backing->view(1u, width, 2u);
+  auto downstream = backing->view(3u, 2u, 4u);
+  if (!target || !downstream) {
+    return 2;
+  }
+  const std::array<ResourceView, 3u> inputs{
+      BufferAccess::view(*first, ResourceAccess::Read),
+      BufferAccess::view(*second, ResourceAccess::Read),
+      BufferAccess::view(*first, ResourceAccess::Read),
+  };
+  const std::array<ResourceView, 3u> outputs{
+      BufferAccess::view(*target, ResourceAccess::Write),
+      BufferAccess::view(*second_target, ResourceAccess::Write),
+      BufferAccess::view(*target, ResourceAccess::Write),
+  };
+  auto build = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_windows(build, ProgramAccess::state(*program),
+                          BufferAccess::view(*count, ResourceAccess::Read),
+                          inputs, outputs, 4u, 1u, NoWindowTerminal, 1u);
+  const std::array<ResourceView, 1u> consume_input{
+      BufferAccess::view(*downstream, ResourceAccess::Read),
+  };
+  const std::array<ResourceView, 1u> consume_output{
+      BufferAccess::view(*sink, ResourceAccess::Write),
+  };
+  append_pipeline(build, ProgramAccess::state(*consumer), consume_input,
+                  consume_output);
+  if (build == nullptr || build->failure != Reason::Ok ||
+      build->steps.size() != 5u || build->internals.size() != 5u ||
+      build->publications.size() != 2u) {
+    return 3;
+  }
+  const auto plan = plan_pipeline(build);
+  auto prepared = prepare_pipeline(build);
+  if (!plan || !prepared || !run_pipeline(*prepared)) {
+    return 4;
+  }
+  std::array<std::uint32_t, backing_seed.size()> backing_actual{};
+  std::array<std::uint32_t, width> second_actual{};
+  std::array<std::uint32_t, 2u> sink_actual{};
+  if (!read_pipeline_raw(*prepared, BufferAccess::state(*backing), Type::U32,
+                         FixedFormat{}, backing_actual.data(),
+                         sizeof(backing_actual), backing_actual.size()) ||
+      !read_pipeline_raw(*prepared, BufferAccess::state(*second_target),
+                         Type::U32, FixedFormat{}, second_actual.data(),
+                         sizeof(second_actual), second_actual.size()) ||
+      !read_pipeline_raw(*prepared, BufferAccess::state(*sink), Type::U32,
+                         FixedFormat{}, sink_actual.data(), sizeof(sink_actual),
+                         sink_actual.size())) {
+    return 5;
+  }
+  auto expected_backing = backing_seed;
+  for (std::size_t index = 0u; index < width; ++index) {
+    expected_backing[1u + 2u * index] = first_seed[index] + count_value[0u];
+  }
+  const std::array<std::uint32_t, width> expected_second{16u, 26u, 36u, 46u};
+  const std::array<std::uint32_t, 2u> expected_sink{105u, 107u};
+  return backing_actual == expected_backing &&
+                 second_actual == expected_second &&
+                 sink_actual == expected_sink
+             ? 0
+             : 6;
+}
+
+template <class Seed, class Fold>
+[[nodiscard]] int CheckSealedPublicationMutation(Device &device,
+                                                 const Seed &seed,
+                                                 const Fold &fold) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr std::array<std::uint32_t, 1u> initial{kInitial};
+  constexpr std::array<std::uint32_t, 1u> witness_values{0u};
+  constexpr std::array<std::uint32_t, 3u> count_values{
+      0x13579BDFu, static_cast<std::uint32_t>(kMaximum), 0x2468ACE0u};
+  constexpr std::array<std::uint32_t, 1u> final_values{kSentinel};
+  std::array<std::uint32_t, kWindowBacking> window_values{};
+  window_values.fill(kSentinel);
+
+  auto outer = device.upload<std::uint32_t>(initial);
+  auto values = device.upload<std::uint32_t>(kValues);
+  auto lanes = device.upload<std::uint32_t>(kLanes);
+  auto witness = device.upload<std::uint32_t>(witness_values);
+  auto count = device.upload<std::uint32_t>(count_values);
+  auto final = device.upload<std::uint32_t>(final_values);
+  auto appended = device.upload<std::uint32_t>(window_values);
+  if (!outer || !values || !lanes || !witness || !count || !final ||
+      !appended) {
+    return 1;
+  }
+  auto count_view = count->view(1u, 1u);
+  auto appended_view = appended->view(kWindowOffset, kMaximum);
+  if (!count_view || !appended_view) {
+    return 2;
+  }
+
+  const std::array<ResourceView, 4u> inputs{
+      BufferAccess::view(*outer, ResourceAccess::Read),
+      BufferAccess::view(*values, ResourceAccess::Read),
+      BufferAccess::view(*lanes, ResourceAccess::Read),
+      BufferAccess::view(*witness, ResourceAccess::Read),
+  };
+  const std::array<ResourceView, 1u> finals{
+      BufferAccess::view(*final, ResourceAccess::Write),
+  };
+  const std::array<ResourceView, 1u> windows{
+      BufferAccess::view(*appended_view, ResourceAccess::Write),
+  };
+  auto build = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_window_repeat(
+      build, ProgramAccess::state(seed), {}, ProgramAccess::state(fold),
+      BufferAccess::view(*count_view, ResourceAccess::Read), inputs, finals,
+      windows, kMaximum, kTile, 0u, NoWindowTerminal, 1u);
+  for (std::size_t route = 1u; route < 3u; ++route) {
+    auto drift = make_pipeline(DeviceAccess::state(device));
+    append_pipeline_window_repeat(
+        drift, ProgramAccess::state(seed), {}, ProgramAccess::state(fold),
+        BufferAccess::view(*count_view, ResourceAccess::Read), inputs, finals,
+        windows, kMaximum, kTile, 0u, NoWindowTerminal, 1u);
+    if (drift == nullptr || drift->failure != Reason::Ok ||
+        drift->nested_windows.size() != 1u) {
+      return 3;
+    }
+    const PipelineBuildNestedWindow &nested = drift->nested_windows[0u];
+    PipelineBinding &route_output =
+        drift->steps[nested.shape.fold_first() + route]
+            .outputs[nested.recurrent_output_count];
+    route_output.owner = static_cast<std::uint32_t>(drift->internals.size());
+    drift->internals.push_back(PipelineInternal{
+        .type = route_output.type,
+        .format = route_output.format,
+        .count = route_output.count,
+    });
+    const auto invalid = plan_pipeline(drift);
+    if (invalid || invalid.reason() != Reason::PipelineInvalid) {
+      return static_cast<int>(9u + route);
+    }
+  }
+
+  const auto plan = plan_pipeline(build);
+  if (!plan || build == nullptr || build->memory == nullptr ||
+      build->memory->publications.size() != 2u) {
+    return 3;
+  }
+  auto authored = std::find_if(
+      build->publications.begin(), build->publications.end(),
+      [](const PipelineBuildPublication &publication) {
+        return std::holds_alternative<PipelineBuildWindowPublication>(
+            publication);
+      });
+  auto authored_terminal = std::find_if(
+      build->publications.begin(), build->publications.end(),
+      [](const PipelineBuildPublication &publication) {
+        return std::holds_alternative<PipelineBuildTerminalPublication>(
+            publication);
+      });
+  auto sealed = std::find_if(
+      build->memory->publications.begin(), build->memory->publications.end(),
+      [](const PipelinePublicationPlan &publication) {
+        return std::holds_alternative<PipelineWindowPublicationPlan>(
+            publication);
+      });
+  if (authored == build->publications.end() ||
+      authored_terminal == build->publications.end() ||
+      sealed == build->memory->publications.end()) {
+    return 4;
+  }
+  auto &authored_window = std::get<PipelineBuildWindowPublication>(*authored);
+  const auto &sealed_window = std::get<PipelineWindowPublicationPlan>(*sealed);
+  if (build->nested_windows.size() != 1u ||
+      build->memory->window_controls.size() != 1u) {
+    return 5;
+  }
+  const PipelineWindowControl &sealed_control =
+      build->memory->window_controls[0u];
+  const std::uint64_t sealed_offset =
+      sealed_window.target.view.identity.offset_bytes;
+  if (sealed_offset != kWindowOffset * sizeof(std::uint32_t) ||
+      sealed_control.count.identity.offset_bytes != sizeof(std::uint32_t) ||
+      sealed_control.maximum != kMaximum || sealed_control.tile != kTile) {
+    return 5;
+  }
+
+  // Mutate the cold authored publication and the sole authored control after
+  // planning without invalidating memory. Preparation, accounting,
+  // fingerprinting, and execution must retain the already sealed authority.
+  authored_window.edge.target.offset = kWindowOffset + 1u;
+  authored_window.edge.control = {};
+  authored_window.edge.output.value = 0u;
+  auto &authored_final =
+      std::get<PipelineBuildTerminalPublication>(*authored_terminal);
+  authored_final.edge.target.offset = 1u;
+  authored_final.edge.control = {};
+  authored_final.edge.output.value = 1u;
+  if (build->window_controls.size() != 1u) {
+    return 6;
+  }
+  PipelineBuildWindowControl &authored_control = build->window_controls[0u];
+  authored_control.count_input = 0u;
+  node::accel::detail::NestedTemplateShape drifted_shape{};
+  if (!node::accel::detail::ProveNestedTemplateShape(
+          build->nested_windows[0u].shape.first() + 1u,
+          authored_control.maximum, authored_control.tile,
+          build->nested_windows[0u].shape.inner_bound(), drifted_shape)) {
+    return 6;
+  }
+  build->nested_windows[0u].shape = drifted_shape;
+  authored_control.maximum = kTile;
+  authored_control.tile = 1u;
+  authored_control.terminal = 0u;
+  authored_control.expected = 0xDEADBEEFu;
+  auto prepared = prepare_pipeline(build);
+  if (!prepared || (*prepared)->publications.size() != 2u) {
+    return 6;
+  }
+  // Lock the complete v3 Pipeline identity, not only the isolated publication
+  // suffix. In particular, nested routes retain zero/default ordinary-window
+  // slots and serialize their control once in the nested-begin block.
+  constexpr Fingerprint expected_nested{
+      .hi = 0x99db298093fd0b2full,
+      .lo = 0x8535483e8b5c9539ull,
+  };
+  if ((*prepared)->publication->fingerprint != expected_nested) {
+    return 9;
+  }
+  const auto runtime = std::find_if(
+      (*prepared)->publications.begin(), (*prepared)->publications.end(),
+      [](const PipelinePublicationPlan &publication) {
+        return std::holds_alternative<PipelineWindowPublicationPlan>(
+            publication);
+      });
+  if (runtime == (*prepared)->publications.end() ||
+      std::get<PipelineWindowPublicationPlan>(*runtime)
+              .target.view.identity.offset_bytes != sealed_offset ||
+      !run_pipeline(*prepared)) {
+    return 7;
+  }
+
+  std::array<std::uint32_t, 1u> actual_final{};
+  std::array<std::uint32_t, kWindowBacking> actual_window{};
+  const Status final_read = read_pipeline_raw(
+      *prepared, BufferAccess::state(*final), Type::U32, FixedFormat{},
+      actual_final.data(), sizeof(actual_final), actual_final.size());
+  const Status window_read = read_pipeline_raw(
+      *prepared, BufferAccess::state(*appended), Type::U32, FixedFormat{},
+      actual_window.data(), sizeof(actual_window), actual_window.size());
+  std::array<std::uint32_t, kWindowBacking> expected_window{};
+  expected_window.fill(kSentinel);
+  const auto expected_payload = ExpectedWindow(kValues, kMaximum);
+  std::copy(expected_payload.begin(), expected_payload.end(),
+            expected_window.begin() + kWindowOffset);
+  return final_read && window_read &&
+                 actual_final[0u] == ExpectedFinal(kValues, kMaximum) &&
+                 actual_window == expected_window
+             ? 0
+             : 8;
+}
+
+template <class Seed, class Fold>
+[[nodiscard]] int CheckPublicationJobBindingMutation(Device &device,
+                                                     const Seed &seed,
+                                                     const Fold &fold) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr std::array<std::uint32_t, 1u> initial{kInitial};
+  constexpr std::array<std::uint32_t, 1u> witness_values{0u};
+  constexpr std::array<std::uint32_t, 1u> count_values{
+      static_cast<std::uint32_t>(kMaximum)};
+  constexpr std::array<std::uint32_t, 1u> final_values{kSentinel};
+  std::array<std::uint32_t, kMaximum> window_values{};
+  window_values.fill(kSentinel);
+
+  auto outer = device.upload<std::uint32_t>(initial);
+  auto values = device.upload<std::uint32_t>(kValues);
+  auto lanes = device.upload<std::uint32_t>(kLanes);
+  auto witness = device.upload<std::uint32_t>(witness_values);
+  auto count = device.upload<std::uint32_t>(count_values);
+  auto final = device.upload<std::uint32_t>(final_values);
+  auto appended = device.upload<std::uint32_t>(window_values);
+  auto second_count = device.upload<std::uint32_t>(count_values);
+  auto ordinary_final_first = device.buffer<std::uint32_t>(1u);
+  auto ordinary_tile_first = device.buffer<std::uint32_t>(kTile);
+  auto ordinary_final_second = device.buffer<std::uint32_t>(1u);
+  auto ordinary_tile_second = device.buffer<std::uint32_t>(kTile);
+  if (!outer || !values || !lanes || !witness || !count || !final ||
+      !appended || !second_count || !ordinary_final_first ||
+      !ordinary_tile_first || !ordinary_final_second || !ordinary_tile_second) {
+    return 1;
+  }
+
+  const std::array<ResourceView, 4u> inputs{
+      BufferAccess::view(*outer, ResourceAccess::Read),
+      BufferAccess::view(*values, ResourceAccess::Read),
+      BufferAccess::view(*lanes, ResourceAccess::Read),
+      BufferAccess::view(*witness, ResourceAccess::Read),
+  };
+  const std::array<ResourceView, 1u> finals{
+      BufferAccess::view(*final, ResourceAccess::Write),
+  };
+  const std::array<ResourceView, 1u> windows{
+      BufferAccess::view(*appended, ResourceAccess::Write),
+  };
+  const std::array<ResourceView, 3u> ordinary_inputs{
+      BufferAccess::view(*outer, ResourceAccess::Read),
+      BufferAccess::view(*lanes, ResourceAccess::Read),
+      BufferAccess::view(*witness, ResourceAccess::Read),
+  };
+  const std::array<ResourceView, 2u> ordinary_outputs_first{
+      BufferAccess::view(*ordinary_final_first, ResourceAccess::Write),
+      BufferAccess::view(*ordinary_tile_first, ResourceAccess::Write),
+  };
+  const std::array<ResourceView, 2u> ordinary_outputs_second{
+      BufferAccess::view(*ordinary_final_second, ResourceAccess::Write),
+      BufferAccess::view(*ordinary_tile_second, ResourceAccess::Write),
+  };
+  const auto make_build = [&] {
+    auto build = make_pipeline(DeviceAccess::state(device));
+    append_pipeline_window_repeat(
+        build, ProgramAccess::state(seed), {}, ProgramAccess::state(fold),
+        BufferAccess::view(*count, ResourceAccess::Read), inputs, finals,
+        windows, kMaximum, kTile, 0u, NoWindowTerminal, 1u);
+    return build;
+  };
+
+  auto bank_build = make_build();
+  const auto bank_plan = plan_pipeline(bank_build);
+  if (!bank_plan || bank_build == nullptr || bank_build->memory == nullptr ||
+      bank_build->nested_windows.size() != 1u) {
+    return 2;
+  }
+  const std::size_t fold_first =
+      bank_build->nested_windows[0u].shape.fold_first();
+  if (fold_first > bank_build->steps.size() ||
+      bank_build->steps.size() - fold_first < 3u ||
+      bank_build->steps[fold_first + 1u].outputs.empty() ||
+      bank_build->steps[fold_first + 2u].outputs.empty()) {
+    return 3;
+  }
+  const std::size_t seed_first =
+      bank_build->nested_windows[0u].shape.seed_first();
+  if (seed_first >= bank_build->steps.size() ||
+      bank_build->steps[seed_first].inputs.size() < 2u) {
+    return 4;
+  }
+  // The cached plan says route 2 writes the first recurrent bank. Redirect the
+  // authored mirror to an already admitted owner without invalidating memory;
+  // Job materialization must still consume the frozen step binding.
+  PipelineBinding redirected =
+      bank_build->steps[seed_first]
+          .inputs[bank_build->steps[seed_first].inputs.size() - 2u];
+  redirected.access = ResourceAccess::Write;
+  redirected.hidden = true;
+  bank_build->steps[fold_first + 2u].outputs[0u] = std::move(redirected);
+  auto bank_prepared = prepare_pipeline(bank_build);
+  if (!bank_prepared) {
+    return 5;
+  }
+
+  auto count_build = make_build();
+  const auto count_plan = plan_pipeline(count_build);
+  if (!count_plan || count_build == nullptr || count_build->memory == nullptr ||
+      count_build->nested_windows.size() != 1u) {
+    return 6;
+  }
+  const PipelineBuildNestedWindow &nested = count_build->nested_windows[0u];
+  if (nested.shape.seed_count() < 2u ||
+      nested.shape.seed_first() >= count_build->steps.size() ||
+      nested.shape.seed_first() + 1u >= count_build->steps.size()) {
+    return 7;
+  }
+  PipelineBuildStep &later_seed =
+      count_build->steps[nested.shape.seed_first() + 1u];
+  if (later_seed.inputs.size() < 3u) {
+    return 8;
+  }
+  // Replace the authored penultimate count input with the already admitted
+  // one-element witness View. Every Seed Job must still use the frozen count
+  // coordinate rather than this stale declaration.
+  later_seed.inputs[later_seed.inputs.size() - 2u] = later_seed.inputs[2u];
+  auto count_prepared = prepare_pipeline(count_build);
+  if (!count_prepared) {
+    return 9;
+  }
+
+  auto drift_build = make_pipeline(DeviceAccess::state(device));
+  append_pipeline_windows(drift_build, ProgramAccess::state(fold),
+                          BufferAccess::view(*count, ResourceAccess::Read),
+                          ordinary_inputs, ordinary_outputs_first, kMaximum,
+                          kTile, NoWindowTerminal, 1u);
+  append_pipeline_windows(
+      drift_build, ProgramAccess::state(fold),
+      BufferAccess::view(*second_count, ResourceAccess::Read), ordinary_inputs,
+      ordinary_outputs_second, kMaximum, kTile, NoWindowTerminal, 1u);
+  if (drift_build == nullptr || drift_build->failure != Reason::Ok ||
+      drift_build->window_controls.size() != 2u) {
+    return 10;
+  }
+  const std::size_t drift_step =
+      drift_build->window_controls[0u].ordinary_step.value + 1u;
+  if (drift_step >= drift_build->steps.size()) {
+    return 11;
+  }
+  drift_build->steps[drift_step].window_control = {.value = 1u};
+  const auto drift_plan = plan_pipeline(drift_build);
+  if (drift_plan || drift_plan.reason() != Reason::PipelineInvalid) {
+    return 12;
+  }
+  drift_build->steps[drift_step].window_control = {};
+  const auto unassigned_plan = plan_pipeline(drift_build);
+  if (unassigned_plan || unassigned_plan.reason() != Reason::PipelineInvalid) {
+    return 13;
+  }
+
+  for (const bool nested_first : {false, true}) {
+    auto mixed_build = make_pipeline(DeviceAccess::state(device));
+    const auto append_ordinary = [&] {
+      append_pipeline_windows(
+          mixed_build, ProgramAccess::state(fold),
+          BufferAccess::view(*second_count, ResourceAccess::Read),
+          ordinary_inputs, ordinary_outputs_second, kMaximum, kTile,
+          NoWindowTerminal, 1u);
+    };
+    const auto append_nested = [&] {
+      append_pipeline_window_repeat(
+          mixed_build, ProgramAccess::state(seed), {},
+          ProgramAccess::state(fold),
+          BufferAccess::view(*count, ResourceAccess::Read), inputs, finals,
+          windows, kMaximum, kTile, 0u, NoWindowTerminal, 1u);
+    };
+    if (nested_first) {
+      append_nested();
+      append_ordinary();
+    } else {
+      append_ordinary();
+      append_nested();
+    }
+    const auto mixed_plan = plan_pipeline(mixed_build);
+    if (!mixed_plan || mixed_build == nullptr ||
+        mixed_build->memory == nullptr ||
+        mixed_build->memory->window_controls.size() != 2u) {
+      return 14;
+    }
+    auto mixed_prepared = prepare_pipeline(mixed_build);
+    if (!mixed_prepared || !run_pipeline(*mixed_prepared)) {
+      return 15;
+    }
+  }
+
+  auto coordinate_build = make_build();
+  const auto coordinate_plan = plan_pipeline(coordinate_build);
+  if (!coordinate_plan || coordinate_build == nullptr ||
+      coordinate_build->memory == nullptr ||
+      coordinate_build->memory->window_controls.size() != 1u) {
+    return 16;
+  }
+  auto mutable_plan =
+      std::const_pointer_cast<PipelineMemoryPlan>(coordinate_build->memory);
+  mutable_plan->window_controls[0u].count_input = 0u;
+  auto coordinate_prepared = prepare_pipeline(coordinate_build);
+  if (coordinate_prepared ||
+      coordinate_prepared.reason() != Reason::PipelineInvalid) {
+    return 17;
+  }
+  const auto verify = [&](const std::shared_ptr<PipelineState> &prepared) {
+    std::array<std::uint32_t, 1u> actual_final{};
+    std::array<std::uint32_t, kMaximum> actual_window{};
+    const auto expected_window = ExpectedWindow(kValues, kMaximum);
+    return run_pipeline(prepared) &&
+           read_pipeline_raw(prepared, BufferAccess::state(*final), Type::U32,
+                             FixedFormat{}, actual_final.data(),
+                             sizeof(actual_final), actual_final.size()) &&
+           read_pipeline_raw(prepared, BufferAccess::state(*appended),
+                             Type::U32, FixedFormat{}, actual_window.data(),
+                             sizeof(actual_window), actual_window.size()) &&
+           actual_final[0u] == ExpectedFinal(kValues, kMaximum) &&
+           actual_window == expected_window;
+  };
+  return verify(*bank_prepared) && verify(*count_prepared) ? 0 : 18;
+}
+
+template <class Seed, class Fold, class Advance>
+[[nodiscard]] int
+CheckTransactionalCountParity(Device &device, const Seed &seed,
+                              const Fold &fold, const Advance &advance) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr std::array<std::uint32_t, 1u> initial{kInitial};
+  constexpr std::array<std::uint32_t, 1u> witness_values{0u};
+  constexpr std::array<std::uint32_t, 1u> first_count{
+      static_cast<std::uint32_t>(kTile)};
+  constexpr std::array<std::uint32_t, 1u> second_count{0u};
+  constexpr std::array<std::uint32_t, 1u> final_values{kSentinel};
+  std::array<std::uint32_t, kMaximum> window_values{};
+  window_values.fill(kSentinel);
+
+  auto outer = device.upload<std::uint32_t>(initial);
+  auto values = device.upload<std::uint32_t>(kValues);
+  auto lanes = device.upload<std::uint32_t>(kLanes);
+  auto witness = device.upload<std::uint32_t>(witness_values);
+  auto count_first = device.upload<std::uint32_t>(first_count);
+  auto count_second = device.upload<std::uint32_t>(second_count);
+  auto final = device.upload<std::uint32_t>(final_values);
+  auto appended = device.upload<std::uint32_t>(window_values);
+  if (!outer || !values || !lanes || !witness || !count_first ||
+      !count_second || !final || !appended) {
+    return 1;
+  }
+
+  const auto body = tile_repeat<0u>(seed, fold);
+  auto builder = pipeline(device);
+  builder.state(*count_first, *count_second)
+      .then(advance, read(*count_first), write(*count_second))
+      .template windows<kMaximum, kTile>(
+          body, rund::compute::window(*count_second),
+          read(*outer, *values, *lanes, *witness), write_final(*final),
+          write_window(*appended))
+      .commit();
+  auto prepared = std::move(builder).prepare();
+  if (!prepared) {
+    return 2;
+  }
+  const std::shared_ptr<PipelineState> &state =
+      PipelineStateAccess::state(*prepared);
+  const auto publication = std::find_if(
+      state->publications.begin(), state->publications.end(),
+      [](const PipelinePublicationPlan &value) {
+        return std::holds_alternative<PipelineWindowPublicationPlan>(value);
+      });
+  if (state == nullptr || publication == state->publications.end()) {
+    return 3;
+  }
+  const auto &window = std::get<PipelineWindowPublicationPlan>(*publication);
+  const std::uint32_t count_ordinal =
+      state->windows[window.state].control.count.identity.resource_ordinal;
+  if (count_ordinal >= state->resources.size() ||
+      state->resources[count_ordinal].partner >= state->resources.size() ||
+      state->resources[state->resources[count_ordinal].partner].partner !=
+          count_ordinal) {
+    return 4;
+  }
+
+  const auto check = [&](const std::uint32_t count_value) {
+    const Status ran = prepared->run();
+    std::array<std::uint32_t, 1u> actual_final{};
+    std::array<std::uint32_t, kMaximum> actual_window{};
+    const auto expected_window = ExpectedWindow(kValues, count_value);
+    return ran && prepared->read(*final, actual_final) &&
+           prepared->read(*appended, actual_window) &&
+           actual_final[0u] == ExpectedFinal(kValues, count_value) &&
+           actual_window == expected_window;
+  };
+  if (!check(static_cast<std::uint32_t>(2u * kTile))) {
+    return 5;
+  }
+  if (!check(static_cast<std::uint32_t>(3u * kTile)) ||
+      prepared->generation() != 2u) {
+    return 6;
+  }
+  return 0;
+}
+
+template <class Seed, class Fold>
+[[nodiscard]] int CheckStatePairPublicationTargetRejected(Device &device,
+                                                          const Seed &seed,
+                                                          const Fold &fold) {
+  using namespace rund::compute;
+  constexpr std::array<std::uint32_t, 1u> initial{kInitial};
+  constexpr std::array<std::uint32_t, 1u> witness_values{0u};
+  constexpr std::array<std::uint32_t, 1u> count_values{
+      static_cast<std::uint32_t>(kMaximum)};
+  constexpr std::array<std::uint32_t, 1u> pending_values{kSentinel};
+  std::array<std::uint32_t, kMaximum> window_values{};
+  window_values.fill(kSentinel);
+
+  auto published = device.upload<std::uint32_t>(initial);
+  auto values = device.upload<std::uint32_t>(kValues);
+  auto lanes = device.upload<std::uint32_t>(kLanes);
+  auto witness = device.upload<std::uint32_t>(witness_values);
+  auto count = device.upload<std::uint32_t>(count_values);
+  auto pending = device.upload<std::uint32_t>(pending_values);
+  auto appended = device.upload<std::uint32_t>(window_values);
+  if (!published || !values || !lanes || !witness || !count || !pending ||
+      !appended) {
+    return 1;
+  }
+
+  const auto body = tile_repeat<0u>(seed, fold);
+  auto builder = pipeline(device);
+  builder.state(*published, *pending)
+      .template windows<kMaximum, kTile>(
+          body, rund::compute::window(*count),
+          read(*published, *values, *lanes, *witness), write_final(*pending),
+          write_window(*appended))
+      .commit();
+  const auto plan = builder.plan();
+  auto prepared = std::move(builder).prepare();
+  return plan && !prepared && prepared.reason() == Reason::PipelineInvalid ? 0
+                                                                           : 2;
+}
+
 [[nodiscard]] bool PreparedShape(const rund::compute::Pipeline &pipeline) {
   using namespace rund::compute::detail;
   const std::shared_ptr<PipelineState> &state =
@@ -574,11 +1571,12 @@ template <class Seed, class Action>
     return false;
   }
   const PipelineWindow &window = state->windows[0u];
-  if (!window.nested || window.begin != 0u || window.end != kTemplates ||
-      window.seed_first != 0u || window.seed_count != kOuter ||
-      window.action_first != kOuter || window.action_count != 0u ||
-      window.fold_first != kOuter || window.recurrent_output_count != 1u ||
-      window.maximum != kMaximum || window.tile != kTile) {
+  const auto &shape = window.nested_shape;
+  if (!window.nested() || shape.first() != 0u || shape.end() != kTemplates ||
+      shape.seed_first() != 0u || shape.seed_count() != kOuter ||
+      shape.action_first() != kOuter || shape.action_count() != 0u ||
+      shape.fold_first() != kOuter || window.recurrent_output_count != 1u ||
+      window.control.maximum != kMaximum || window.control.tile != kTile) {
     return false;
   }
   for (std::size_t index = 0u; index < state->steps.size(); ++index) {
@@ -589,24 +1587,29 @@ template <class Seed, class Action>
       return false;
     }
   }
-  const auto terminal =
-      std::find_if(state->publications.begin(), state->publications.end(),
-                   [](const PipelinePublish &value) {
-                     return value.kind == PipelinePublishKind::Terminal;
-                   });
-  const auto appended =
-      std::find_if(state->publications.begin(), state->publications.end(),
-                   [](const PipelinePublish &value) {
-                     return value.kind == PipelinePublishKind::Window;
-                   });
-  return terminal != state->publications.end() &&
-         appended != state->publications.end() && terminal->count == 1u &&
-         terminal->resident_count == nullptr && terminal->maximum == 0u &&
-         terminal->tile == 0u && appended->count == kTile &&
-         appended->resident_count == window.count &&
-         appended->resident_count_offset == window.count_offset &&
-         appended->maximum == kMaximum && appended->tile == kTile &&
-         appended->target_stride == 1u;
+  const auto terminal = std::find_if(
+      state->publications.begin(), state->publications.end(),
+      [](const PipelinePublicationPlan &value) {
+        return std::holds_alternative<PipelineTerminalPublicationPlan>(value);
+      });
+  const auto appended = std::find_if(
+      state->publications.begin(), state->publications.end(),
+      [](const PipelinePublicationPlan &value) {
+        return std::holds_alternative<PipelineWindowPublicationPlan>(value);
+      });
+  if (terminal == state->publications.end() ||
+      appended == state->publications.end()) {
+    return false;
+  }
+  const auto &terminal_plan =
+      std::get<PipelineTerminalPublicationPlan>(*terminal);
+  const auto &window_plan = std::get<PipelineWindowPublicationPlan>(*appended);
+  return window.control.final < terminal_plan.sources.size() &&
+         terminal_plan.sources[window.control.final].identity.count == 1u &&
+         window_plan.source.identity.count == kTile &&
+         window.control.count.identity.count == 1u &&
+         window_plan.target.view.identity.stride_bytes ==
+             window_plan.target.view.identity.element_bytes;
 }
 
 template <class Seed, class Fold>
@@ -944,35 +1947,32 @@ template <class Seed, class Fold, class Downstream>
       state->barriers.back() == 0u) {
     return 4;
   }
-  const auto publication =
-      std::find_if(state->publications.begin(), state->publications.end(),
-                   [](const PipelinePublish &value) {
-                     return value.kind == PipelinePublishKind::Window;
-                   });
+  const auto publication = std::find_if(
+      state->publications.begin(), state->publications.end(),
+      [](const PipelinePublicationPlan &value) {
+        return std::holds_alternative<PipelineWindowPublicationPlan>(value);
+      });
   if (publication == state->publications.end()) {
     return 5;
   }
-  const auto resource =
-      std::find_if(state->resources.begin(), state->resources.end(),
-                   [&](const PipelineResource &value) {
-                     return value.buffer == publication->target;
-                   });
-  if (resource == state->resources.end()) {
+  const auto &window_publication =
+      std::get<PipelineWindowPublicationPlan>(*publication);
+  const std::uint32_t resource_index =
+      window_publication.target.view.identity.resource_ordinal;
+  if (resource_index >= state->resources.size()) {
     return 6;
   }
-  const auto resource_index =
-      static_cast<std::uint32_t>(resource - state->resources.begin());
   const PipelineWindow &window = state->windows[0u];
-  const bool has_publication_read_hazard =
-      std::any_of(state->dependencies.begin(), state->dependencies.end(),
-                  [&](const PipelineDependency &dependency) {
-                    return dependency.resource == resource_index &&
-                           dependency.before >= window.fold_first &&
-                           dependency.before < window.end &&
-                           dependency.after == kTemplates &&
-                           dependency.before_access == PipelineAccess::Write &&
-                           dependency.after_access == PipelineAccess::Read;
-                  });
+  const bool has_publication_read_hazard = std::any_of(
+      state->dependencies.begin(), state->dependencies.end(),
+      [&](const PipelineDependency &dependency) {
+        return dependency.resource == resource_index &&
+               dependency.before >= window.nested_shape.fold_first() &&
+               dependency.before < window.nested_shape.end() &&
+               dependency.after == kTemplates &&
+               dependency.before_access == PipelineAccess::Write &&
+               dependency.after_access == PipelineAccess::Read;
+      });
   if (!has_publication_read_hazard) {
     return 7;
   }
@@ -1114,7 +2114,8 @@ template <class Seed, class Fold>
       PipelineStateAccess::state(*prepared);
   if (state == nullptr || state->windows.size() != 1u ||
       state->windows[0u].recurrent_output_count != 1u ||
-      state->steps[state->windows[0u].fold_first].job == nullptr) {
+      state->steps[state->windows[0u].nested_shape.fold_first()].job ==
+          nullptr) {
     return 4;
   }
 
@@ -1478,12 +2479,45 @@ template <class Seed, class Fold, class FoldTwo>
   auto scatter_seed = ScatterSeedProgram(device);
   auto scatter_fold = ScatterFoldProgram(device);
   auto downstream = DownstreamProgram(device);
+  auto count_advance = CountAdvanceProgram(device);
   auto zero_seed = ZeroPrefixSeedProgram(device);
   auto zero_fold = ZeroPrefixFoldProgram(device);
   if (!seed || !seed_fault || !action || !action_fault || !fold ||
       !high_index_fold || !fold_two || !priority_fold || !scatter_seed ||
-      !scatter_fold || !downstream || !zero_seed || !zero_fold) {
+      !scatter_fold || !downstream || !count_advance || !zero_seed ||
+      !zero_fold) {
     return 1;
+  }
+  if (!PublicationFingerprintV3Golden()) {
+    return 2;
+  }
+  if (!PublicationSourceCoordinates()) {
+    return 3;
+  }
+  if (const int aliases = CheckOrdinaryAliasAuthority(device); aliases != 0) {
+    return 140 + aliases;
+  }
+  if (const int subview = CheckAliasSubviewRouting(device); subview != 0) {
+    return 150 + subview;
+  }
+  if (const int mutation = CheckSealedPublicationMutation(device, *seed, *fold);
+      mutation != 0) {
+    return 3 + mutation;
+  }
+  if (const int mutation =
+          CheckPublicationJobBindingMutation(device, *seed, *fold);
+      mutation != 0) {
+    return 40 + mutation;
+  }
+  if (const int parity =
+          CheckTransactionalCountParity(device, *seed, *fold, *count_advance);
+      parity != 0) {
+    return 120 + parity;
+  }
+  if (const int target =
+          CheckStatePairPublicationTargetRejected(device, *seed, *fold);
+      target != 0) {
+    return 130 + target;
   }
   for (const std::uint32_t count : kCounts) {
     const int checked = CheckCount(device, backend, *seed, *fold, count,

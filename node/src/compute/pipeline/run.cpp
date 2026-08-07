@@ -74,13 +74,16 @@ namespace {
         return outcome;
       }
       PipelineWindow &nested = state.windows[step.window - 1u];
-      if (!nested.nested || index != nested.begin ||
-          nested.seed_first != nested.begin || nested.seed_count == 0u ||
+      const node::accel::detail::NestedTemplateShape &shape =
+          nested.nested_shape;
+      node::accel::detail::NestedTemplateShape expected_shape{};
+      if (!nested.nested() || index != shape.first() ||
           nested.recurrent_output_count == 0u ||
-          nested.action_first != nested.seed_first + nested.seed_count ||
-          nested.fold_first != nested.action_first + nested.action_count ||
-          nested.end != nested.fold_first + 3u ||
-          nested.end > state.steps.size()) {
+          shape.end() > state.steps.size() ||
+          !node::accel::detail::ProveNestedTemplateShape(
+              shape.first(), nested.control.maximum, nested.control.tile,
+              shape.inner_bound(), expected_shape) ||
+          expected_shape != shape) {
         outcome.status = Status::fail(Reason::PipelineInvalid);
         outcome.failed_step = index;
         outcome.failure_step_known = true;
@@ -88,18 +91,17 @@ namespace {
       }
 
       std::size_t executed_outer = 0u;
-      for (std::size_t outer = 0u; outer < nested.seed_count; ++outer) {
-        PipelineStep occurrence = state.steps[nested.fold_first];
+      for (std::size_t outer = 0u; outer < shape.outer_bound(); ++outer) {
+        PipelineStep occurrence = state.steps[shape.fold_first()];
         occurrence.iteration = static_cast<std::uint32_t>(outer);
-        occurrence.iteration_bound =
-            static_cast<std::uint32_t>(nested.seed_count);
+        occurrence.iteration_bound = shape.outer_bound();
         bool active = true;
         const Status ready =
             prepare_cpu_pipeline_window(state, occurrence, active);
         if (!ready) {
           outcome.status =
               pipeline_window_status(state, occurrence, ready, state.stats);
-          outcome.failed_step = nested.begin;
+          outcome.failed_step = shape.first();
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
           state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Seed;
@@ -110,7 +112,7 @@ namespace {
           continue;
         }
 
-        const std::size_t seed_index = nested.seed_first + outer;
+        const std::size_t seed_index = shape.seed_first() + outer;
         Status status = execute(seed_index);
         if (!status) {
           outcome.status = status;
@@ -121,8 +123,8 @@ namespace {
           nested.stopped = true;
           return outcome;
         }
-        for (std::size_t inner = 0u; inner < nested.action_count; ++inner) {
-          const std::size_t action_index = nested.action_first + inner;
+        for (std::size_t inner = 0u; inner < shape.action_count(); ++inner) {
+          const std::size_t action_index = shape.action_first() + inner;
           status = execute(action_index);
           if (!status) {
             outcome.status = status;
@@ -137,9 +139,15 @@ namespace {
           }
           ++state.stats.pipeline.executed_inner_iteration_count;
         }
-        const std::size_t fold_route =
-            outer == 0u ? 0u : ((outer & 1u) != 0u ? 1u : 2u);
-        const std::size_t fold_index = nested.fold_first + fold_route;
+        std::uint32_t fold_route = 0u;
+        if (!shape.fold_route_for_outer(static_cast<std::uint32_t>(outer),
+                                        fold_route)) {
+          outcome.status = Status::fail(Reason::PipelineInvalid);
+          outcome.failed_step = shape.fold_first();
+          outcome.failure_step_known = true;
+          return outcome;
+        }
+        const std::size_t fold_index = shape.fold_first() + fold_route;
         status = execute(fold_index);
         if (!status) {
           outcome.status = status;
@@ -164,13 +172,13 @@ namespace {
           return outcome;
         }
         nested.current =
-            PipelineWindow::first + static_cast<std::uint32_t>(outer & 1u);
+            fold_route == 1u ? PipelineWindow::second : PipelineWindow::first;
         ++executed_outer;
         ++state.stats.pipeline.executed_outer_window_count;
         ::rund::detail::counter::Accumulate(state.stats.control.iteration_count,
                                             1u);
       }
-      const std::size_t skipped = nested.seed_count - executed_outer;
+      const std::size_t skipped = shape.seed_count() - executed_outer;
       ::rund::detail::counter::Accumulate(
           state.stats.pipeline.skipped_outer_window_count,
           static_cast<std::uint64_t>(skipped));
@@ -178,9 +186,9 @@ namespace {
           state.stats.pipeline.skipped_inner_iteration_count,
           ::rund::detail::counter::SaturatingMultiply(
               static_cast<std::uint64_t>(skipped),
-              static_cast<std::uint64_t>(nested.action_count)));
-      outcome.verified = nested.end;
-      index = nested.end - 1u;
+              static_cast<std::uint64_t>(shape.action_count())));
+      outcome.verified = shape.end();
+      index = shape.end() - 1u;
       continue;
     }
     if (step.route != PipelineRoute::Ordinary) {

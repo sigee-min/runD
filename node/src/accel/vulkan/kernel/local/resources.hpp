@@ -78,6 +78,7 @@ struct VulkanReset final {
   reset::Range range{};
   VkDeviceSize binding_offset{};
   VkDescriptorSet descriptor{VK_NULL_HANDLE};
+  bool shader{};
 };
 #endif
 

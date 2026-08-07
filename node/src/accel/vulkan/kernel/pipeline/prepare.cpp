@@ -40,7 +40,7 @@ DescribeVulkanRouteDispatches(const VulkanKernelResources &resources,
   const std::uint64_t reset_window =
       static_cast<std::uint64_t>(resources.adapter->max_dispatch_groups) * 256u;
   for (const VulkanReset &clear : resources.resets) {
-    if (!rund::kernel::checked::add(
+    if (!clear.shader || !rund::kernel::checked::add(
             total, reset::Commands(clear.range.count(), reset_window), total)) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
@@ -484,8 +484,7 @@ struct VulkanPipelineDescriptionCapacity final {
     const BackendWindow *const window = entry.recurrence.window;
     if (transducer != nullptr &&
         (!transducer->recurrence.ready() || window == nullptr ||
-         window->phase != BackendWindowPhase::NestedAction ||
-         window->inner_advance != 0u ||
+         !window->valid_occurrence(true) ||
          transducer->template_first != entry.template_index ||
          transducer->template_count != window->inner_bound)) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
@@ -704,7 +703,8 @@ struct VulkanPipelineDescriptionCapacity final {
         terminal_publish_count,
         static_cast<std::uint64_t>(
             publication.params.kind ==
-            static_cast<std::uint32_t>(BackendPublishKind::Terminal)));
+            static_cast<std::uint32_t>(
+                PreparedKernelPublicationKind::Terminal)));
   }
   for (const VulkanWindowRoute &window : pipeline->window.routes) {
     const auto phase = static_cast<BackendWindowPhase>(window.params.phase);
@@ -725,7 +725,8 @@ struct VulkanPipelineDescriptionCapacity final {
             window_publish_count,
             static_cast<std::uint64_t>(
                 publication.params.kind ==
-                    static_cast<std::uint32_t>(BackendPublishKind::Window) &&
+                    static_cast<std::uint32_t>(
+                        PreparedKernelPublicationKind::Window) &&
                 publication.params.state == window->state));
       }
     }
@@ -739,7 +740,8 @@ struct VulkanPipelineDescriptionCapacity final {
           canonicalize_count,
           static_cast<std::uint64_t>(
               publication.params.kind ==
-                  static_cast<std::uint32_t>(BackendPublishKind::Terminal) &&
+                  static_cast<std::uint32_t>(
+                      PreparedKernelPublicationKind::Terminal) &&
               publication.params.state == window->state));
     }
   }

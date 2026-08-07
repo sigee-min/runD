@@ -9,8 +9,8 @@
 #include "src/accel/kernel/prepared/model.hpp"
 #include "src/accel/kernel/submission.hpp"
 #include "src/accel/kernel/telemetry.hpp"
-#include "src/accel/metal/kernel/pipeline/identity_index.hpp"
 #include "src/accel/metal/kernel/pipeline/icb.hpp"
+#include "src/accel/metal/kernel/pipeline/identity_index.hpp"
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 #include "src/accel/vulkan/kernel/pipeline/state.hpp"
@@ -71,6 +71,14 @@ namespace rund::node::accel::detail {
 [[nodiscard]] bool ScalePreparedMapRecurrenceRoutesForContract(
     const PreparedMapRecurrenceReservation &reservation, std::uint64_t copies,
     PreparedMapRecurrenceReservation &scaled) noexcept;
+[[nodiscard]] bool MaterializePreparedPipelineOccurrenceForContract(
+    const BackendWindow &template_window, std::uint32_t outer,
+    std::uint32_t outer_bound, std::uint32_t inner, std::uint32_t inner_bound,
+    std::uint32_t route, std::uint32_t inner_advance, bool transduced,
+    PreparedPipelineFailure &failure) noexcept;
+[[nodiscard]] bool PreparedPublicationViewMatchesForContract(
+    const rund::kernel::ResidentBufferRef &view,
+    const PreparedKernelPublicationViewIdentity &identity) noexcept;
 
 } // namespace rund::node::accel::detail
 
@@ -79,6 +87,126 @@ namespace {
 
 using rund::node::accel::detail::BackendRun;
 using rund::node::accel::detail::KernelResult;
+
+template <class T>
+concept HasLegacyBackendWindowIteration =
+    requires(T window) { window.iteration; };
+
+template <class T>
+concept HasLegacyBackendWindowBound = requires(T window) { window.bound; };
+
+using BackendWindow = rund::node::accel::detail::BackendWindow;
+static_assert(!HasLegacyBackendWindowIteration<BackendWindow>);
+static_assert(!HasLegacyBackendWindowBound<BackendWindow>);
+
+[[nodiscard]] bool BackendWindowDefaultsFailClosed() {
+  return BackendWindow{}.outer_bound == 0u;
+}
+
+[[nodiscard]] bool BackendWindowOccurrenceShapeHasOneAuthority() {
+  using rund::node::accel::detail::BackendWindowPhase;
+  const BackendWindow ordinary{
+      .maximum = 8u,
+      .tile = 4u,
+      .outer_iteration = 1u,
+      .outer_bound = 2u,
+  };
+  if (!ordinary.valid_occurrence(false) || ordinary.valid_occurrence(true)) {
+    return false;
+  }
+  for (std::size_t invalid = 0u; invalid < 5u; ++invalid) {
+    BackendWindow window = ordinary;
+    switch (invalid) {
+    case 0u:
+      window.maximum = 0u;
+      break;
+    case 1u:
+      window.tile = 0u;
+      break;
+    case 2u:
+      window.tile = window.maximum + 1u;
+      break;
+    case 3u:
+      window.outer_bound = 0u;
+      break;
+    case 4u:
+      window.outer_iteration = window.outer_bound;
+      break;
+    }
+    if (window.valid_occurrence(false)) {
+      return false;
+    }
+  }
+
+  BackendWindow seed = ordinary;
+  seed.phase = BackendWindowPhase::NestedSeed;
+  if (!seed.valid_occurrence(false) || seed.valid_occurrence(true)) {
+    return false;
+  }
+  seed.inner_advance = 1u;
+  if (seed.valid_occurrence(false)) {
+    return false;
+  }
+  seed.inner_advance = 0u;
+  seed.route = 1u;
+  if (seed.valid_occurrence(false)) {
+    return false;
+  }
+
+  BackendWindow action = ordinary;
+  action.phase = BackendWindowPhase::NestedAction;
+  action.inner_iteration = 2u;
+  action.inner_bound = 3u;
+  action.inner_advance = 1u;
+  if (!action.valid_occurrence(false) || action.valid_occurrence(true)) {
+    return false;
+  }
+  action.inner_advance = 0u;
+  if (!action.valid_occurrence(true) || action.valid_occurrence(false)) {
+    return false;
+  }
+  action.inner_advance = 1u;
+  action.inner_iteration = action.inner_bound;
+  if (action.valid_occurrence(false)) {
+    return false;
+  }
+  action.inner_iteration = 2u;
+  action.route = 1u;
+  if (action.valid_occurrence(false)) {
+    return false;
+  }
+  action.route = 0u;
+  action.inner_iteration = 0u;
+  action.inner_bound = 0u;
+  if (action.valid_occurrence(false)) {
+    return false;
+  }
+
+  BackendWindow fold = ordinary;
+  fold.phase = BackendWindowPhase::NestedFold;
+  fold.inner_bound = 3u;
+  if (!fold.valid_occurrence(false) || fold.valid_occurrence(true)) {
+    return false;
+  }
+  fold.route = 2u;
+  fold.inner_advance = fold.inner_bound;
+  if (!fold.valid_occurrence(false)) {
+    return false;
+  }
+  fold.route = 3u;
+  if (fold.valid_occurrence(false)) {
+    return false;
+  }
+  fold.route = 2u;
+  fold.inner_advance = 1u;
+  if (fold.valid_occurrence(false)) {
+    return false;
+  }
+
+  BackendWindow invalid_phase = ordinary;
+  invalid_phase.phase = static_cast<BackendWindowPhase>(0xffu);
+  return !invalid_phase.valid_occurrence(false);
+}
 
 namespace source_recipe = rund::node::accel::detail::backend_source_recipe;
 
@@ -93,9 +221,9 @@ inline constexpr std::array<std::string_view, 2u> kBackendSourceRecipeSuffix{
 struct BackendSourceRecipeEmitter final {
   template <typename Sink>
   [[nodiscard]] bool operator()(Sink &sink) const noexcept(
-      noexcept(source_recipe::append_fixed(sink, kBackendSourceRecipePrefix)) &&
-      noexcept(source_recipe::append_decimal(sink, std::uint64_t{})) &&
-      noexcept(sink.append(std::string_view{}))) {
+      noexcept(source_recipe::append_fixed(sink, kBackendSourceRecipePrefix))
+          && noexcept(source_recipe::append_decimal(sink, std::uint64_t{}))
+              && noexcept(sink.append(std::string_view{}))) {
     if (!source_recipe::append_fixed(sink, kBackendSourceRecipePrefix)) {
       return false;
     }
@@ -288,8 +416,14 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
   for (std::size_t index = 0u; index < route_cases.size(); ++index) {
     const RouteCase route = route_cases[index];
     BackendWindow phase_window{
+        .maximum = 8u,
+        .tile = 1u,
         .outer_iteration = 5u,
+        .outer_bound = 8u,
         .inner_iteration = 7u,
+        .inner_bound = 8u,
+        .inner_advance =
+            route.backend_phase == BackendWindowPhase::NestedAction ? 1u : 0u,
         .phase = route.backend_phase,
     };
     const BackendRecurrence recurrence{.window = &phase_window};
@@ -306,7 +440,37 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
     const std::uint32_t expected_inner =
         route.inner_known ? 7u : PreparedPipelineUnknownCoordinate;
 
+    BackendWindow compact_window{
+        .maximum = 8u,
+        .tile = 1u,
+        .outer_iteration =
+            route.backend_phase == BackendWindowPhase::NestedSeed ? 5u : 0u,
+        .outer_bound = 8u,
+        .inner_iteration = 7u,
+        .inner_bound = 8u,
+        .inner_advance =
+            route.backend_phase == BackendWindowPhase::NestedAction ? 1u : 0u,
+        .phase = route.backend_phase,
+    };
+    const BackendRecurrence compact_recurrence{.window = &compact_window};
     context.stage(PreparedPipelineFailureStage::BackendCapture);
+    context.compact_template_route(template_index, compact_recurrence);
+    const PreparedPipelineFailure template_route = context.failure("template");
+    const bool seed_template =
+        route.backend_phase == BackendWindowPhase::NestedSeed;
+    if (template_route.stage != PreparedPipelineFailureStage::BackendCapture ||
+        template_route.template_index != template_index ||
+        template_route.occurrence_index != PreparedPipelineUnknownCoordinate ||
+        template_route.node != PreparedPipelineUnknownCoordinate ||
+        template_route.outer_iteration !=
+            (seed_template ? 5u : PreparedPipelineUnknownCoordinate) ||
+        template_route.inner_iteration != PreparedPipelineUnknownCoordinate ||
+        template_route.nested_phase !=
+            (seed_template ? rund::compute::PipelineNestedPhase::Seed
+                           : rund::compute::PipelineNestedPhase::None)) {
+      return false;
+    }
+
     context.occurrence_route(phase_entry);
     const PreparedPipelineFailure occurrence = context.failure("occurrence");
     if (occurrence.stage != PreparedPipelineFailureStage::BackendCapture ||
@@ -318,16 +482,120 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
         occurrence.nested_phase != route.public_phase) {
       return false;
     }
+  }
 
-    context.template_recurrence_route(template_index, recurrence);
-    const PreparedPipelineFailure template_route = context.failure("template");
-    if (template_route.stage != PreparedPipelineFailureStage::BackendCapture ||
-        template_route.template_index != template_index ||
-        template_route.occurrence_index != PreparedPipelineUnknownCoordinate ||
-        template_route.node != PreparedPipelineUnknownCoordinate ||
-        template_route.outer_iteration != expected_outer ||
-        template_route.inner_iteration != expected_inner ||
-        template_route.nested_phase != route.public_phase) {
+  for (const std::uint32_t invalid_bound : {0u, 4u}) {
+    BackendWindow invalid_seed{
+        .maximum = 8u,
+        .tile = 1u,
+        .outer_iteration = 4u,
+        .outer_bound = invalid_bound,
+        .phase = BackendWindowPhase::NestedSeed,
+    };
+    context.compact_template_route(13u,
+                                   BackendRecurrence{.window = &invalid_seed});
+    const PreparedPipelineFailure invalid_route = context.failure("invalid");
+    if (invalid_route.outer_iteration != PreparedPipelineUnknownCoordinate ||
+        invalid_route.inner_iteration != PreparedPipelineUnknownCoordinate ||
+        invalid_route.nested_phase !=
+            rund::compute::PipelineNestedPhase::None) {
+      return false;
+    }
+  }
+
+  BackendWindow invalid_action{
+      .maximum = 8u,
+      .tile = 1u,
+      .outer_iteration = 1u,
+      .outer_bound = 2u,
+      .inner_iteration = 3u,
+      .inner_bound = 3u,
+      .inner_advance = 1u,
+      .phase = BackendWindowPhase::NestedAction,
+  };
+  context.occurrence_route(BackendBatchEntry{
+      .recurrence = BackendRecurrence{.window = &invalid_action},
+      .template_index = 14u,
+      .occurrence_index = 15u,
+  });
+  const PreparedPipelineFailure invalid_occurrence =
+      context.failure("invalid_occurrence");
+  if (invalid_occurrence.template_index != 14u ||
+      invalid_occurrence.occurrence_index != 15u ||
+      invalid_occurrence.node != PreparedPipelineUnknownCoordinate ||
+      invalid_occurrence.outer_iteration != PreparedPipelineUnknownCoordinate ||
+      invalid_occurrence.inner_iteration != PreparedPipelineUnknownCoordinate ||
+      invalid_occurrence.nested_phase !=
+          rund::compute::PipelineNestedPhase::None) {
+    return false;
+  }
+
+  BackendWindow transduced_seed{
+      .maximum = 8u,
+      .tile = 1u,
+      .outer_iteration = 1u,
+      .outer_bound = 2u,
+      .phase = BackendWindowPhase::NestedSeed,
+  };
+  context.occurrence_route(BackendBatchEntry{
+      .recurrence = BackendRecurrence{.window = &transduced_seed},
+      .transducer = 0u,
+      .template_index = 16u,
+      .occurrence_index = 17u,
+  });
+  const PreparedPipelineFailure invalid_transduced =
+      context.failure("invalid_transduced");
+  if (invalid_transduced.template_index != 16u ||
+      invalid_transduced.occurrence_index != 17u ||
+      invalid_transduced.outer_iteration != PreparedPipelineUnknownCoordinate ||
+      invalid_transduced.inner_iteration != PreparedPipelineUnknownCoordinate ||
+      invalid_transduced.nested_phase !=
+          rund::compute::PipelineNestedPhase::None) {
+    return false;
+  }
+
+  struct MaterializedCase final {
+    BackendWindowPhase backend_phase;
+    rund::compute::PipelineNestedPhase public_phase;
+    std::uint32_t inner;
+    std::uint32_t route;
+    std::uint32_t inner_advance;
+    bool transduced;
+  };
+  constexpr std::array<MaterializedCase, 3u> materialized_cases{{
+      {BackendWindowPhase::NestedAction,
+       rund::compute::PipelineNestedPhase::Action, 3u, 0u, 1u, false},
+      {BackendWindowPhase::NestedAction,
+       rund::compute::PipelineNestedPhase::Action, 3u, 0u, 0u, true},
+      {BackendWindowPhase::NestedFold, rund::compute::PipelineNestedPhase::Fold,
+       5u, 2u, 5u, false},
+  }};
+  for (const MaterializedCase route : materialized_cases) {
+    BackendWindow compact{
+        .maximum = 8u,
+        .tile = 1u,
+        .outer_iteration = 0u,
+        .outer_bound = 3u,
+        .inner_iteration = route.inner,
+        .inner_bound = 5u,
+        .inner_advance = route.inner_advance,
+        .route = route.route,
+        .phase = route.backend_phase,
+    };
+    PreparedPipelineFailure materialized{};
+    if (!MaterializePreparedPipelineOccurrenceForContract(
+            compact, 2u, 3u, route.inner, 5u, route.route, route.inner_advance,
+            route.transduced, materialized) ||
+        materialized.stage != PreparedPipelineFailureStage::CommonExpansion ||
+        materialized.template_index != 0u ||
+        materialized.occurrence_index != 0u ||
+        materialized.node != PreparedPipelineUnknownCoordinate ||
+        materialized.outer_iteration != 2u ||
+        materialized.inner_iteration !=
+            (route.backend_phase == BackendWindowPhase::NestedAction
+                 ? route.inner
+                 : PreparedPipelineUnknownCoordinate) ||
+        materialized.nested_phase != route.public_phase) {
       return false;
     }
   }
@@ -337,8 +605,13 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
   BoundStep step{.step = &execution_step};
   BackendRun run{.steps = &step, .step_count = 1u};
   BackendWindow window{
+      .maximum = 8u,
+      .tile = 1u,
       .outer_iteration = 5u,
+      .outer_bound = 8u,
       .inner_iteration = 7u,
+      .inner_bound = 8u,
+      .inner_advance = 1u,
       .phase = BackendWindowPhase::NestedAction,
   };
   const BackendBatchEntry entry{
@@ -348,6 +621,28 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
       .occurrence_index = 9u,
   };
   context.stage(PreparedPipelineFailureStage::BackendCapture);
+  BackendWindow compact_action{
+      .maximum = 8u,
+      .tile = 1u,
+      .outer_iteration = 0u,
+      .outer_bound = 8u,
+      .inner_iteration = 7u,
+      .inner_bound = 8u,
+      .inner_advance = 1u,
+      .phase = BackendWindowPhase::NestedAction,
+  };
+  context.compact_template_node_route(
+      3u, BackendRecurrence{.window = &compact_action}, run, 0u);
+  const PreparedPipelineFailure compact_node = context.failure("capacity");
+  if (compact_node.template_index != 3u ||
+      compact_node.occurrence_index != PreparedPipelineUnknownCoordinate ||
+      compact_node.node != 17u ||
+      compact_node.outer_iteration != PreparedPipelineUnknownCoordinate ||
+      compact_node.inner_iteration != PreparedPipelineUnknownCoordinate ||
+      compact_node.nested_phase != rund::compute::PipelineNestedPhase::None) {
+    return false;
+  }
+
   context.node_route(entry, 0u);
   const PreparedPipelineFailure exact = context.failure("native_failure");
   if (exact.stage != PreparedPipelineFailureStage::BackendCapture ||
@@ -682,8 +977,8 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
   const MetalIcbChunkPlan three = PlanMetalIcbChunks(3u, calibration);
   const MetalIcbChunkPlan full =
       PlanMetalIcbChunks(MetalPipelineIcbFullCommandCapacity, calibration);
-  const MetalIcbChunkPlan next = PlanMetalIcbChunks(
-      MetalPipelineIcbFullCommandCapacity + 1u, calibration);
+  const MetalIcbChunkPlan next =
+      PlanMetalIcbChunks(MetalPipelineIcbFullCommandCapacity + 1u, calibration);
   const MetalIcbChunkPlan multi = PlanMetalIcbChunks(
       2u * MetalPipelineIcbFullCommandCapacity + 32'769u, calibration);
   const MetalIcbChunkPlan product_actual =
@@ -694,8 +989,8 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
       !one.ok || one.chunk_count != 1u || one.tail_command_count != 1u ||
       one.tail_command_capacity != 1u ||
       one.allocated_bytes != calibration.allocated_bytes[0u] ||
-      one.retained_chunk_bytes != MetalPipelineIcbChunkHostBytes ||
-      !three.ok || three.tail_command_capacity != 4u ||
+      one.retained_chunk_bytes != MetalPipelineIcbChunkHostBytes || !three.ok ||
+      three.tail_command_capacity != 4u ||
       three.allocated_bytes != calibration.allocated_bytes[2u] || !full.ok ||
       full.full_chunk_count != 1u || full.tail_command_count != 0u ||
       full.chunk_count != 1u ||
@@ -726,10 +1021,9 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
   MetalIcbCalibration descending = calibration;
   descending.allocated_bytes[8u] = descending.allocated_bytes[7u] - 1u;
   MetalIcbCalibration overflow{};
-  overflow.allocated_bytes.fill(
-      std::numeric_limits<std::uint64_t>::max() / 2u + 1u);
-  if (ValidMetalIcbCalibration(zero) ||
-      ValidMetalIcbCalibration(descending) ||
+  overflow.allocated_bytes.fill(std::numeric_limits<std::uint64_t>::max() / 2u +
+                                1u);
+  if (ValidMetalIcbCalibration(zero) || ValidMetalIcbCalibration(descending) ||
       PlanMetalIcbChunks(1u, zero).ok ||
       PlanMetalIcbChunks(3u * MetalPipelineIcbFullCommandCapacity, overflow)
           .ok ||
@@ -760,8 +1054,7 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
     return false;
   }
   actual = limit;
-  actual.backend_command_native_bytes =
-      limit.backend_command_native_bytes + 1u;
+  actual.backend_command_native_bytes = limit.backend_command_native_bytes + 1u;
   return !PreparedKernelPipelineReservationWithin(actual, limit);
 }
 
@@ -789,8 +1082,9 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
       reservation.backend_parameter_bytes !=
           3u * sizeof(MetalNestedAggregateParams) ||
       reservation.backend_command_chunk_count != 1u ||
-      reservation.native_bytes != reservation.backend_parameter_bytes +
-                                      reservation.backend_command_native_bytes ||
+      reservation.native_bytes !=
+          reservation.backend_parameter_bytes +
+              reservation.backend_command_native_bytes ||
       reservation.host_transient_bytes !=
           index.byte_count + reservation.backend_parameter_bytes ||
       reservation.host_transient_bytes == 0u) {
@@ -838,16 +1132,13 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
          telemetry.backend_command_binding_slot_upper == 9u &&
          telemetry.backend_command_binding_count ==
              telemetry.backend_command_count * 10u &&
-         plan(status).ok &&
-         status.backend_command_binding_slot_upper == 7u &&
+         plan(status).ok && status.backend_command_binding_slot_upper == 7u &&
          status.backend_command_binding_count ==
              status.backend_command_count * 8u &&
-         plan(route).ok &&
-         route.backend_command_binding_slot_upper == 11u &&
+         plan(route).ok && route.backend_command_binding_slot_upper == 11u &&
          route.backend_command_binding_count ==
              route.backend_command_count * 12u &&
-         plan(publication).ok &&
-         publication.backend_command_count == 6u &&
+         plan(publication).ok && publication.backend_command_count == 6u &&
          publication.backend_command_binding_slot_upper == 8u;
 #else
   return true;
@@ -1073,22 +1364,23 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
 [[nodiscard]] bool PreparedPublicationCommandShapeIsCanonical() {
   using namespace rund::node::accel::detail;
   std::uint64_t commands = 0u;
-  if (!PreparedKernelPublicationCommandContribution(false, 0u, 0u, commands) ||
+  if (!PreparedKernelPublicationCommandContribution(
+          PreparedKernelPublicationKind::Terminal, 0u, commands) ||
       commands != 2u ||
-      !PreparedKernelPublicationCommandContribution(true, 516096u, 8192u,
-                                                    commands) ||
+      !PreparedKernelPublicationCommandContribution(
+          PreparedKernelPublicationKind::Window, 63u, commands) ||
       commands != 63u ||
-      !PreparedKernelPublicationCommandContribution(true, 10u, 3u, commands) ||
+      !PreparedKernelPublicationCommandContribution(
+          PreparedKernelPublicationKind::Window, 4u, commands) ||
       commands != 4u) {
     return false;
   }
-  return !PreparedKernelPublicationCommandContribution(false, 1u, 0u,
-                                                       commands) &&
-         !PreparedKernelPublicationCommandContribution(true, 0u, 1u,
-                                                       commands) &&
-         !PreparedKernelPublicationCommandContribution(true, 1u, 0u,
-                                                       commands) &&
-         !PreparedKernelPublicationCommandContribution(true, 1u, 2u, commands);
+  return !PreparedKernelPublicationCommandContribution(
+             PreparedKernelPublicationKind::Terminal, 1u, commands) &&
+         !PreparedKernelPublicationCommandContribution(
+             PreparedKernelPublicationKind::Window, 0u, commands) &&
+         !PreparedKernelPublicationCommandContribution(
+             static_cast<PreparedKernelPublicationKind>(0xffu), 1u, commands);
 }
 
 [[nodiscard]] bool VulkanPhysicalCommandShapeIsNonOverlapping() {
@@ -1135,8 +1427,7 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
 [[nodiscard]] bool VulkanPhysicalCapacityFailureIsTransactional() {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   using namespace rund::node::accel::detail;
-  constexpr std::uint64_t maximum =
-      std::numeric_limits<std::uint64_t>::max();
+  constexpr std::uint64_t maximum = std::numeric_limits<std::uint64_t>::max();
   const auto rejected_without_commit = [](auto reservation) {
     const PreparedKernelPipelineReservation before = reservation;
     const rund::AccelCheck planned =
@@ -2024,7 +2315,47 @@ static_assert(PreparedPipelineNestedCoordinateShapesAreCanonical());
   tampered_lo = 0u;
   SeedPreparedKernelPublicationFingerprint(tampered_hi, tampered_lo);
   MixPreparedKernelPublicationFingerprint(tampered_hi, tampered_lo, tampered);
+  if (tampered_hi == expected_hi && tampered_lo == expected_lo) {
+    return false;
+  }
+
+  tampered = publication;
+  ++tampered.outer_bound;
+  tampered_hi = 0u;
+  tampered_lo = 0u;
+  SeedPreparedKernelPublicationFingerprint(tampered_hi, tampered_lo);
+  MixPreparedKernelPublicationFingerprint(tampered_hi, tampered_lo, tampered);
   return tampered_hi != expected_hi || tampered_lo != expected_lo;
+}
+
+[[nodiscard]] bool PreparedPublicationResolvedIdentityIsExact() {
+  using namespace rund::node::accel::detail;
+  constexpr PreparedKernelPublicationViewIdentity identity{
+      .resident_id = 17u,
+      .backing_bytes = 4096u,
+      .offset_bytes = 64u,
+      .count = 16u,
+      .stride_bytes = 8u,
+      .element_bytes = 4u,
+      .resource_ordinal = 3u,
+      .usage = rund::kernel::kResidentUsageRead,
+  };
+  constexpr rund::kernel::ResidentBufferRef exact{
+      .id = 17u,
+      .bytes = 4096u,
+      .offset_bytes = 64u,
+      .element_bytes = 4u,
+      .stride_bytes = 8u,
+      .count = 16u,
+      .usage = rund::kernel::kResidentUsageRead,
+  };
+  auto swapped = exact;
+  swapped.id = 19u;
+  auto zero = exact;
+  zero.id = 0u;
+  return PreparedPublicationViewMatchesForContract(exact, identity) &&
+         !PreparedPublicationViewMatchesForContract(swapped, identity) &&
+         !PreparedPublicationViewMatchesForContract(zero, identity);
 }
 
 [[nodiscard]] bool GridBoundaries() {
@@ -2113,7 +2444,9 @@ struct FinishResources final {
 } // namespace
 
 bool AuthorityContract() {
-  return SubmissionTransitions() && PreparedPipelineClaimHasOneAuthority() &&
+  return BackendWindowDefaultsFailClosed() &&
+         BackendWindowOccurrenceShapeHasOneAuthority() &&
+         SubmissionTransitions() && PreparedPipelineClaimHasOneAuthority() &&
          PreparedPipelineNestedCoordinateShapesAreCanonical() &&
          PreparedPipelineFailureCoordinatesAreExact() &&
          PreparedPipelinePreparePathsAlwaysReportFailure() &&
@@ -2137,7 +2470,8 @@ bool AuthorityContract() {
          MetalMapCheckSourceHasOneGuardAuthority() &&
          MetalColdManifestIsExact() &&
          BackendTemplateRouteDemandIsExactAndFrozen() &&
-         PreparedPublicationFingerprintIsSemantic() && GridBoundaries() &&
+         PreparedPublicationFingerprintIsSemantic() &&
+         PreparedPublicationResolvedIdentityIsExact() && GridBoundaries() &&
          FinishPrecedence() && TelemetryProjection();
 }
 

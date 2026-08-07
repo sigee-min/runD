@@ -416,7 +416,8 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
           resident_window->phase == BackendWindowPhase::NestedFold) {
         for (const MetalPublish &publication : native_publication_rows()) {
           if (publication.params.kind !=
-                  static_cast<std::uint32_t>(BackendPublishKind::Window) ||
+                  static_cast<std::uint32_t>(
+                      PreparedKernelPublicationKind::Window) ||
               publication.params.state != resident_window->state ||
               publication.params.tile == 0u) {
             continue;
@@ -466,7 +467,8 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
               resident_window->outer_bound) {
         for (const MetalPublish &publication : native_publication_rows()) {
           if (publication.params.kind !=
-                  static_cast<std::uint32_t>(BackendPublishKind::Terminal) ||
+                  static_cast<std::uint32_t>(
+                      PreparedKernelPublicationKind::Terminal) ||
               publication.params.state != resident_window->state ||
               publication.params.final > 2u || publication.params.count == 0u) {
             continue;

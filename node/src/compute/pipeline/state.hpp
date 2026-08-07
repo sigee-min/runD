@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../accel/kernel/nested.hpp"
 #include "../device/state.hpp"
 #include "../job/state.hpp"
 #include "../program/state.hpp"
@@ -28,17 +29,6 @@ namespace rund::compute::detail {
 struct PipelinePublicationState;
 struct SnapshotStorageState;
 
-struct PipelinePublicationOrdinals final {
-  std::array<std::uint32_t, 3u> sources{};
-  std::uint32_t count{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
-};
-
-enum class PipelinePublishKind : std::uint8_t {
-  Terminal,
-  Window,
-};
-
 struct PipelinePublicationStepOrdinal final {
   std::size_t value{};
 };
@@ -49,6 +39,41 @@ struct PipelineLogicalOutputOrdinal final {
 
 struct PipelinePhysicalOutputOrdinal final {
   std::uint32_t value{};
+};
+
+struct PipelineBuildWindowControlOrdinal final {
+  static constexpr std::uint32_t unassigned =
+      std::numeric_limits<std::uint32_t>::max();
+
+  std::uint32_t value{unassigned};
+};
+
+// A publication names an authored logical output at one exact build step.
+// Output alias projection, physical producer selection, and final-bank
+// selection are resolved from this coordinate rather than copied bindings.
+struct PipelineBuildOutputCoordinate final {
+  PipelinePublicationStepOrdinal step{};
+  PipelineLogicalOutputOrdinal output{};
+};
+
+struct PipelineBuildOutputProjection final {
+  PipelinePhysicalOutputOrdinal physical{};
+  PipelineLogicalOutputOrdinal source{};
+};
+
+struct PipelineBuildWindowFinal final {
+  PipelinePublicationStepOrdinal source_step{};
+  std::uint32_t bank{};
+};
+
+struct PipelineBuildWindowAnchors final {
+  PipelinePublicationStepOrdinal count_step{};
+  PipelinePublicationStepOrdinal terminal_step{};
+};
+
+struct PipelineBuildPublicationBase final {
+  PipelineBuildWindowControlOrdinal control{};
+  PipelinePublicationStepOrdinal step{};
 };
 
 enum class PipelinePhase : unsigned char {
@@ -102,26 +127,181 @@ struct PipelineInternal final {
   PipelineFill fill{PipelineFill::None};
 };
 
+// Compute owns the exact physical identity of one sealed Pipeline View.
+// Scheduling, private-Job construction, and publication may project this
+// record into their own descriptors, but may not reconstruct it from authored
+// bindings.
+struct PipelinePublicationViewIdentity final {
+  std::uint64_t backing_bytes{};
+  std::uint64_t offset_bytes{};
+  std::uint64_t count{};
+  std::uint64_t stride_bytes{};
+  std::uint64_t element_bytes{};
+  std::uint32_t resource_ordinal{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t usage{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PipelinePublicationViewIdentity &) const noexcept = default;
+};
+
+// One constructor-closed physical Pipeline View. Type/FixedFormat retain the
+// semantic contract that byte geometry alone cannot distinguish. Element and
+// byte coordinates are sealed together once so downstream adapters perform no
+// independent arithmetic.
+struct PipelinePublicationViewPlan final {
+  PipelinePublicationViewIdentity identity{};
+  Type type{Type::I32};
+  FixedFormat format{};
+  std::size_t offset{};
+  std::size_t stride{1u};
+  std::uint64_t alignment{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PipelinePublicationViewPlan &) const noexcept = default;
+};
+
+// Publication targets are caller-owned and may be absent from every Program
+// binding. Their owner is held only by the canonical resolved-resource table;
+// this record contains publication-specific View meaning only.
+struct PipelinePublicationTargetPlan final {
+  PipelinePublicationViewPlan view{};
+};
+
+enum class PipelinePublicationKind : std::uint8_t {
+  Terminal,
+  Window,
+};
+
 struct PipelineTerminalPublicationPlan final {
-  std::array<std::uint32_t, 3u> sources{};
-  std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
+  std::array<PipelinePublicationViewPlan, 3u> sources{};
+  PipelinePublicationTargetPlan target{};
   std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
   PipelinePhysicalOutputOrdinal output{};
-  std::uint8_t final{};
 };
 
 struct PipelineWindowPublicationPlan final {
-  std::uint32_t source{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t count{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t target{std::numeric_limits<std::uint32_t>::max()};
+  PipelinePublicationViewPlan source{};
+  PipelinePublicationTargetPlan target{};
   std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
   PipelinePhysicalOutputOrdinal output{};
-  std::uint32_t maximum{};
-  std::uint32_t tile{};
 };
 
 using PipelinePublicationPlan = std::variant<PipelineTerminalPublicationPlan,
                                              PipelineWindowPublicationPlan>;
+
+[[nodiscard]] inline constexpr PipelinePublicationKind
+pipeline_publication_kind(const PipelinePublicationPlan &publication) noexcept {
+  return std::holds_alternative<PipelineWindowPublicationPlan>(publication)
+             ? PipelinePublicationKind::Window
+             : PipelinePublicationKind::Terminal;
+}
+
+[[nodiscard]] inline const PipelinePublicationTargetPlan &
+pipeline_publication_target(const PipelinePublicationPlan &publication) {
+  return std::visit(
+      [](const auto &typed) -> const PipelinePublicationTargetPlan & {
+        return typed.target;
+      },
+      publication);
+}
+
+[[nodiscard]] inline PipelinePublicationTargetPlan &
+pipeline_publication_target(PipelinePublicationPlan &publication) {
+  return std::visit(
+      [](auto &typed) -> PipelinePublicationTargetPlan & {
+        return typed.target;
+      },
+      publication);
+}
+
+// One state-wide immutable control authority. The cold plan owns it until
+// admission transfers the same record into PipelineWindow; publications never
+// retain count/bounds/final-selector mirrors.
+struct PipelineWindowControl final {
+  PipelinePublicationViewPlan count{};
+  std::uint32_t count_input{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t terminal{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t terminal_output{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t terminal_publication{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t expected{1u};
+  std::uint32_t final{1u};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PipelineWindowControl &) const noexcept = default;
+};
+
+struct PipelineBuildSnapshot;
+
+struct PipelineResolvedViewPlan final {
+  std::uint32_t resource{std::numeric_limits<std::uint32_t>::max()};
+  Type declared_type{Type::I32};
+  FixedFormat declared_format{};
+  ResourceAccess declared_access{ResourceAccess::Read};
+  std::uint64_t declared_backing_bytes{};
+  std::size_t offset{};
+  std::size_t count{};
+  std::size_t stride{1u};
+  std::size_t element_bytes{};
+  std::size_t alignment{};
+  std::uint64_t offset_bytes{};
+  std::uint64_t stride_bytes{};
+  std::uint64_t payload_bytes{};
+  std::uint64_t span_bytes{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PipelineResolvedViewPlan &) const noexcept = default;
+};
+
+struct PipelineResolvedOutputPlan final {
+  PipelineResolvedViewPlan view{};
+  std::uint32_t physical{std::numeric_limits<std::uint32_t>::max()};
+  bool hidden{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PipelineResolvedOutputPlan &) const noexcept = default;
+};
+
+struct PipelineStepResourcePlan final {
+  std::vector<PipelineResolvedViewPlan> inputs;
+  std::vector<PipelineResolvedOutputPlan> outputs;
+  std::vector<std::uint32_t> physical_sources;
+
+  [[nodiscard]] bool
+  operator==(const PipelineStepResourcePlan &) const noexcept = default;
+};
+
+struct PipelineExternalResourcePlan final {
+  std::shared_ptr<BufferState> owner;
+};
+
+struct PipelineInternalResourcePlan final {
+  PipelineFill fill{PipelineFill::None};
+};
+
+struct PipelineResolvedResourcePlan final {
+  std::variant<PipelineExternalResourcePlan, PipelineInternalResourcePlan>
+      locator{PipelineExternalResourcePlan{}};
+  Type type{Type::I32};
+  FixedFormat format{};
+  std::uint64_t count{};
+  std::uint64_t bytes{};
+  std::uint64_t physical_bytes{};
+  std::uint32_t first_write{resource::NoNode};
+  bool output{};
+  bool terminal_publish{};
+};
+
+struct PipelineStatePairResourcePlan final {
+  PipelineResolvedViewPlan published{};
+  PipelineResolvedViewPlan pending{};
+  // Prepare-time transactional validation consumes this cold scheduler proof.
+  // It is retained only for the pending member instead of mirroring first-use
+  // facts on every enduring resource descriptor.
+  std::uint32_t pending_first_input{resource::NoNode};
+  std::uint32_t pending_first_full_write{resource::NoNode};
+};
 
 struct PipelineMemoryPlan final {
   struct ViewSlot final {
@@ -132,6 +312,13 @@ struct PipelineMemoryPlan final {
   };
 
   PipelinePlan summary{};
+  // Immutable declaration snapshot and canonical resource coordinates. Once
+  // plan() publishes this object, prepare() never reads authored bindings
+  // again; it materializes owners and Jobs from these records only.
+  std::shared_ptr<const PipelineBuildSnapshot> frozen;
+  std::vector<PipelineStepResourcePlan> step_resources;
+  std::vector<PipelineResolvedResourcePlan> resources;
+  std::vector<PipelineStatePairResourcePlan> state_pair_resources;
   // Portion of summary.committed_peak_bytes whose owners are retained by the
   // resident publication authority after Pipeline destruction. Zero is an
   // exact value, never a sentinel or request to fall back to peak_bytes.
@@ -192,6 +379,10 @@ struct PipelineMemoryPlan final {
   // only their valid coordinates; admission consumes this ordered projection
   // without re-deriving output/input relationships from authored bindings.
   std::vector<PipelinePublicationPlan> publications;
+  // Exact count View for each zero-based window state. This exists even when a
+  // window has no append-only publication, so count gating never falls back to
+  // authored bindings or a canonical-only Buffer pointer.
+  std::vector<PipelineWindowControl> window_controls;
   std::uint64_t publication_fingerprint_hi{};
   std::uint64_t publication_fingerprint_lo{};
   // Frozen accelerator preparation admission. The public plan owns this
@@ -212,6 +403,32 @@ enum class PipelineRoute : std::uint8_t {
   NestedFold,
 };
 
+[[nodiscard]] inline constexpr PipelineRoute
+pipeline_route(const node::accel::detail::NestedTemplatePhase phase) noexcept {
+  switch (phase) {
+  case node::accel::detail::NestedTemplatePhase::Seed:
+    return PipelineRoute::NestedSeed;
+  case node::accel::detail::NestedTemplatePhase::Action:
+    return PipelineRoute::NestedAction;
+  case node::accel::detail::NestedTemplatePhase::Fold:
+    return PipelineRoute::NestedFold;
+  }
+  return PipelineRoute::Ordinary;
+}
+
+// One authored Window-control authority. Steps carry only this record's
+// ordinal. Ordinary recurrence owns one anchor here; nested count/terminal
+// anchors come only from PipelineBuildNestedWindow topology.
+struct PipelineBuildWindowControl final {
+  PipelinePublicationStepOrdinal ordinary_step{};
+  std::size_t count_input{};
+  std::size_t maximum{};
+  std::size_t tile{};
+  std::size_t terminal{NoWindowTerminal};
+  std::uint32_t expected{1u};
+  std::uint16_t nested{};
+};
+
 struct PipelineBuildStep final {
   std::shared_ptr<ProgramState> program;
   std::vector<PipelineBinding> inputs;
@@ -219,10 +436,7 @@ struct PipelineBuildStep final {
   std::uint32_t logical_step{};
   std::uint32_t iteration{};
   std::uint32_t iteration_bound{1u};
-  std::size_t window_max{};
-  std::size_t window_tile{};
-  std::size_t window_terminal{NoWindowTerminal};
-  std::uint32_t window_expected{1u};
+  PipelineBuildWindowControlOrdinal window_control{};
   std::uint16_t nested{};
   PipelineRoute route{PipelineRoute::Ordinary};
   // True only when repeat(...) retains this occurrence in caller-owned
@@ -232,21 +446,10 @@ struct PipelineBuildStep final {
 };
 
 struct PipelineBuildNestedWindow final {
-  PipelineBinding count;
-  std::size_t begin{};
-  std::size_t end{};
-  std::size_t seed_first{};
-  std::size_t seed_count{};
-  std::size_t action_first{};
-  std::size_t action_count{};
-  std::size_t fold_first{};
+  node::accel::detail::NestedTemplateShape shape{};
   // Exact leading Fold-output prefix that is also outer recurrent state.
   // Append-only window outputs follow this prefix and never enter a bank seal.
   std::size_t recurrent_output_count{};
-  std::size_t maximum{};
-  std::size_t tile{};
-  std::size_t terminal{NoWindowTerminal};
-  std::uint32_t expected{1u};
 };
 
 struct PipelineBuildStatePair final {
@@ -260,9 +463,8 @@ struct PipelineBuildStatePair final {
 // non-rollback: a later failure poisons a destination that may contain an
 // already published prefix.
 struct PipelineBuildPublicationEdge final {
-  PipelineBinding source;
   PipelineBinding target;
-  PipelinePublicationStepOrdinal step{};
+  PipelineBuildWindowControlOrdinal control{};
   PipelineLogicalOutputOrdinal output{};
 };
 
@@ -272,13 +474,38 @@ struct PipelineBuildTerminalPublication final {
 
 struct PipelineBuildWindowPublication final {
   PipelineBuildPublicationEdge edge;
-  PipelineBinding count;
-  std::size_t maximum{};
-  std::size_t tile{};
 };
 
 using PipelineBuildPublication = std::variant<PipelineBuildTerminalPublication,
                                               PipelineBuildWindowPublication>;
+
+// Preparation keeps only execution metadata. Exact resource and View meaning
+// lives in PipelineMemoryPlan::{resources,step_resources}; authored bindings
+// never survive as a parallel post-plan authority.
+struct PipelineFrozenStep final {
+  std::shared_ptr<ProgramState> program;
+  std::uint32_t logical_step{};
+  std::uint32_t iteration{};
+  std::uint32_t iteration_bound{1u};
+  std::uint16_t nested{};
+  PipelineRoute route{PipelineRoute::Ordinary};
+  bool writes_each_iteration{};
+};
+
+struct PipelineFrozenNestedWindow final {
+  node::accel::detail::NestedTemplateShape shape{};
+  std::size_t recurrent_output_count{};
+};
+
+struct PipelineBuildSnapshot final {
+  std::shared_ptr<DeviceState> device;
+  std::vector<PipelineFrozenStep> steps;
+  std::vector<PipelineFrozenNestedWindow> nested_windows;
+  std::size_t logical_step_count{};
+  std::uint32_t sealed_repetitions{1u};
+  PipelineProfile profile{PipelineProfile::None};
+  bool commit{};
+};
 
 [[nodiscard]] inline const PipelineBuildPublicationEdge &
 pipeline_publication_edge(const PipelineBuildPublication &publication) {
@@ -302,7 +529,11 @@ struct PipelineBuildState final {
   std::vector<PipelineBuildStatePair> state_pairs;
   std::vector<PipelineBuildPublication> publications;
   std::vector<PipelineInternal> internals;
+  std::vector<PipelineBuildWindowControl> window_controls;
   std::vector<PipelineBuildNestedWindow> nested_windows;
+  // Cold-only physical owner table indexed by the frozen canonical resource
+  // ordinal. Geometry and type remain owned by PipelineMemoryPlan.
+  std::vector<std::shared_ptr<BufferState>> materialized_resources;
   std::shared_ptr<const PipelineMemoryPlan> memory;
   std::shared_ptr<StateSnapshotState> seed;
   std::shared_ptr<SnapshotStorageState> storage_seed;
@@ -318,6 +549,22 @@ struct PipelineBuildState final {
   bool sealed_repetitions_configured{};
   Reason failure{Reason::Ok};
 };
+
+// Sole build-state projection from a sealed Window-state ordinal to its
+// constructor-closed nested topology. Consumers may copy projected values for
+// a downstream handoff, but may not reconstruct K from the control scalars.
+[[nodiscard]] inline const node::accel::detail::NestedTemplateShape *
+pipeline_build_nested_shape(const PipelineBuildState &build,
+                            const std::uint32_t state) noexcept {
+  if (state >= build.window_controls.size()) {
+    return nullptr;
+  }
+  const std::uint16_t nested = build.window_controls[state].nested;
+  if (nested == 0u || nested > build.nested_windows.size()) {
+    return nullptr;
+  }
+  return &build.nested_windows[nested - 1u].shape;
+}
 
 struct PipelineProfileState final {
   std::vector<PipelineStepProfile> steps;
@@ -342,6 +589,9 @@ struct PipelineResource final {
   std::size_t alignment{};
   std::uint32_t output{no_output};
   std::uint32_t first_write{resource::NoNode};
+  // Canonical transactional owner projection. `no_output` means self; paired
+  // resources point at each other and every runtime consumer uses this map.
+  std::uint32_t partner{no_output};
   bool owned{};
   bool terminal_publish{};
 };
@@ -378,26 +628,20 @@ struct PipelineWindow final {
   static constexpr std::uint32_t first = 1u;
   static constexpr std::uint32_t second = 2u;
 
-  std::shared_ptr<BufferState> count;
-  std::size_t count_offset{};
+  // Exact state-wide count/bounds/final-selector authority transferred from
+  // the cold plan. Runtime owner selection follows count's resource ordinal
+  // through PipelineResource::partner for CPU and accelerator streams.
+  PipelineWindowControl control{};
   std::size_t first_step{};
   // Leading output/input bank prefix sealed when no resident work executes.
   std::uint32_t recurrent_output_count{};
-  std::uint32_t maximum{};
-  std::uint32_t tile{};
-  std::uint32_t terminal{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t terminal_output{};
-  std::uint32_t expected{1u};
   std::uint32_t current{seed};
-  std::size_t begin{};
-  std::size_t end{};
-  std::size_t seed_first{};
-  std::size_t seed_count{};
-  std::size_t action_first{};
-  std::size_t action_count{};
-  std::size_t fold_first{};
-  bool nested{};
+  node::accel::detail::NestedTemplateShape nested_shape{};
   bool stopped{};
+
+  [[nodiscard]] constexpr bool nested() const noexcept {
+    return nested_shape.valid();
+  }
 };
 
 struct PipelineStatePair final {
@@ -407,30 +651,6 @@ struct PipelineStatePair final {
   FixedFormat format{};
   std::size_t count{};
   std::size_t bytes{};
-};
-
-// Backend-ready execution descriptor derived from PipelinePublicationPlan.
-// Its flat shape is a warm-path encoding, never a second admission authority.
-struct PipelinePublish final {
-  std::shared_ptr<BufferState> source;
-  std::shared_ptr<BufferState> target;
-  std::shared_ptr<BufferState> resident_count;
-  Type type{Type::I32};
-  FixedFormat format{};
-  std::size_t source_offset{};
-  std::size_t target_offset{};
-  std::size_t count{};
-  std::size_t target_stride{1u};
-  std::size_t element_bytes{};
-  std::uint16_t window{};
-  std::uint16_t output{};
-  PipelinePublishKind kind{PipelinePublishKind::Terminal};
-  std::uint8_t final{};
-  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
-  std::size_t resident_count_offset{};
-  std::uint32_t maximum{};
-  std::uint32_t tile{};
-  PipelinePublicationOrdinals ordinals{};
 };
 
 struct PipelineSnapshotField final {
@@ -516,7 +736,9 @@ struct PipelineState final {
   std::vector<std::shared_ptr<CpuGraphStorage>> cpu_storage;
   std::vector<BufferClaim> claims;
   std::vector<BufferClaim> alternate_claims;
-  std::vector<PipelinePublish> publications;
+  // Runtime retains the exact ordered cold plan. Admission clears only each
+  // target's cold external_owner after PipelineResource takes ownership.
+  std::vector<PipelinePublicationPlan> publications;
   std::vector<PipelineOutputState> outputs;
   // Lookup-only permutation of outputs, sorted by Buffer owner address. The
   // canonical output vector remains in resource order and owns hashing order.
@@ -575,5 +797,28 @@ struct PipelineState final {
   std::uint64_t read_staging_budget{};
   std::size_t unobserved_outputs{};
 };
+
+// Sole logical-ordinal -> physical-owner projection for transactional parity.
+// Publication identities and fingerprints always retain the canonical
+// ordinal; only the selected owner changes.
+[[nodiscard]] inline const PipelineResource *
+selected_pipeline_resource(const PipelineState &state,
+                           const std::uint32_t canonical_ordinal,
+                           const bool alternate) noexcept {
+  if (canonical_ordinal >= state.resources.size()) {
+    return nullptr;
+  }
+  const PipelineResource &canonical = state.resources[canonical_ordinal];
+  const std::uint32_t partner = canonical.partner;
+  if (partner != PipelineResource::no_output &&
+      (partner >= state.resources.size() ||
+       state.resources[partner].partner != canonical_ordinal)) {
+    return nullptr;
+  }
+  if (!alternate || partner == PipelineResource::no_output) {
+    return &canonical;
+  }
+  return &state.resources[partner];
+}
 
 } // namespace rund::compute::detail

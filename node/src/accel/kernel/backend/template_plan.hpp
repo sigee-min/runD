@@ -464,7 +464,8 @@ plan(const BackendRun &run, const BackendShape shape,
   if (run.resets != nullptr) {
     for (const BoundReset &reset : *run.resets) {
       if (!add(reservation.reset_dispatch_count,
-               reset::Commands(reset.ref.count, shape.reset_dispatch_window))) {
+               reset::Commands(reset.range().count(),
+                               shape.reset_dispatch_window))) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
     }

@@ -3,6 +3,7 @@
 #include "src/accel/kernel/reset/projection.hpp"
 #include "src/accel/kernel/reset/proof.hpp"
 #include "src/accel/kernel/run/bindings.hpp"
+#include "src/accel/vulkan/kernel/reset.hpp"
 
 #include <array>
 #include <cstdint>
@@ -26,6 +27,7 @@ using rund::node::accel::detail::reset::Prove;
 using rund::node::accel::detail::reset::Replacement;
 using rund::node::accel::detail::reset::Result;
 using rund::node::accel::detail::reset::Spec;
+using rund::node::accel::detail::reset::WordAddressable;
 
 [[nodiscard]] bool Accepted(const Result result) noexcept {
   return result.check.ok && std::string_view{result.check.reason} == "ok";
@@ -99,10 +101,11 @@ struct Resources final {
       .count = 4u,
   };
   const Spec dense = Project(source, nullptr);
-  const Result dense32 = Prove(dense, 20u, UINT64_MAX);
+  const Result dense32 = Prove(dense, 20u);
   const Params params = Bind(dense32.range, 2u);
   if (!Accepted(dense32) || !dense32.range.dense() ||
       Payload(dense32.range) != 16u || params.count != 4u ||
+      dense32.range.end() != 20u ||
       params.base != 2u || params.offset_words != 1u ||
       params.stride_words != 1u || params.element_words != 1u ||
       sizeof(params) != 40u) {
@@ -115,10 +118,11 @@ struct Resources final {
       .stride = 16u,
       .element = 8u,
   };
-  const Result sparse = Prove(strided64, 48u, UINT64_MAX);
+  const Result sparse = Prove(strided64, 48u);
   const Params sparse_params = Bind(sparse.range, 1u);
   if (!Accepted(sparse) || sparse.range.dense() ||
-      Payload(sparse.range) != 24u || sparse_params.offset_words != 2u ||
+      Payload(sparse.range) != 24u || sparse.range.end() != 48u ||
+      sparse_params.offset_words != 2u ||
       sparse_params.stride_words != 4u || sparse_params.element_words != 2u ||
       Commands(513u, 256u) != 3u || Commands(1u, 0u) != 0u) {
     return false;
@@ -126,8 +130,11 @@ struct Resources final {
 
   const Replacement replacement{.count = 6u, .element = 8u};
   const Spec projected = Project(source, &replacement);
+  const Result replaced = Prove(projected, 48u);
   return projected.offset == 0u && projected.count == 6u &&
-         projected.stride == 8u && projected.element == 8u && projected.dense();
+         projected.stride == 8u && projected.element == 8u &&
+         projected.dense() && Accepted(replaced) &&
+         replaced.range.offset() == 0u && replaced.range.end() == 48u;
 }
 
 [[nodiscard]] bool InvalidRangesHaveOneReason() {
@@ -150,21 +157,86 @@ struct Resources final {
       .stride = 4u,
       .element = 4u,
   };
+  const Spec shader_strided{
+      .offset = shader_limit.offset,
+      .count = 1u,
+      .stride = 8u,
+      .element = 4u,
+  };
   const std::uint64_t shader_bytes = shader_limit.offset + 4u;
-  return Rejected(
-             Prove(Spec{.offset = 2u, .count = 1u, .stride = 4u, .element = 4u},
-                   8u, maximum)) &&
-         Rejected(Prove(Spec{.count = 2u, .stride = 6u, .element = 4u}, 16u,
-                        maximum)) &&
-         Rejected(Prove(Spec{.count = 2u, .stride = 4u, .element = 8u}, 16u,
-                        maximum)) &&
-         Rejected(Prove(offset_overflow, maximum, maximum)) &&
-         Rejected(Prove(stride_overflow, maximum, maximum)) &&
-         Rejected(
-             Prove(Spec{.offset = 8u, .count = 3u, .stride = 8u, .element = 8u},
-                   31u, maximum)) &&
-         Rejected(Prove(shader_limit, shader_bytes, word_limit)) &&
-         Accepted(Prove(shader_limit, shader_bytes, maximum));
+  const Result shader_range = Prove(shader_limit, shader_bytes);
+  const Result shader_strided_range = Prove(shader_strided, shader_bytes);
+  const Spec oversized_shader{
+      .count = static_cast<std::uint64_t>(UINT32_MAX) + 1u,
+      .stride = 4u,
+      .element = 4u,
+  };
+  const std::uint64_t oversized_bytes = oversized_shader.count * 4u;
+  const Result oversized_range = Prove(oversized_shader, oversized_bytes);
+  return Rejected(Prove(Spec{.offset = 2u,
+                             .count = 1u,
+                             .stride = 4u,
+                             .element = 4u},
+                        8u)) &&
+         Rejected(Prove(
+             Spec{.count = 2u, .stride = 6u, .element = 4u}, 16u)) &&
+         Rejected(Prove(
+             Spec{.count = 2u, .stride = 4u, .element = 8u}, 16u)) &&
+         Rejected(Prove(offset_overflow, maximum)) &&
+         Rejected(Prove(stride_overflow, maximum)) &&
+         Rejected(Prove(Spec{.offset = 8u,
+                             .count = 3u,
+                             .stride = 8u,
+                             .element = 8u},
+                        31u)) &&
+         Accepted(shader_range) && shader_range.range.dense() &&
+         Accepted(shader_strided_range) &&
+         !shader_strided_range.range.dense() &&
+         Accepted(oversized_range) &&
+         !WordAddressable(shader_range.range, 0u, word_limit) &&
+         WordAddressable(shader_range.range, shader_limit.offset, word_limit) &&
+         WordAddressable(shader_strided_range.range, shader_limit.offset,
+                         word_limit) &&
+         !WordAddressable(oversized_range.range, 0u, word_limit) &&
+         !WordAddressable(shader_range.range, shader_limit.offset + 4u,
+                          maximum) &&
+         !WordAddressable(shader_range.range, shader_limit.offset - 1u,
+                          maximum) &&
+         WordAddressable(shader_range.range, 0u, maximum);
+}
+
+[[nodiscard]] bool VulkanExecutionFormIsExact() {
+  using rund::node::accel::detail::KernelPreparationMode;
+  using rund::node::accel::detail::PlanVulkanResetExecution;
+
+  constexpr std::uint64_t Count = 513u;
+  constexpr std::uint64_t Window = 256u;
+  const Result dense = Prove(
+      Spec{.count = Count, .stride = 4u, .element = 4u}, Count * 4u);
+  const Result strided = Prove(
+      Spec{.count = Count, .stride = 8u, .element = 4u},
+      (Count - 1u) * 8u + 4u);
+  if (!Accepted(dense) || !Accepted(strided)) {
+    return false;
+  }
+  const auto standalone_dense = PlanVulkanResetExecution(
+      dense.range, KernelPreparationMode::Standalone, Window);
+  const auto captured_dense = PlanVulkanResetExecution(
+      dense.range, KernelPreparationMode::PipelinePrivate, Window);
+  const auto standalone_strided = PlanVulkanResetExecution(
+      strided.range, KernelPreparationMode::Standalone, Window);
+  const auto dense_without_dispatch = PlanVulkanResetExecution(
+      dense.range, KernelPreparationMode::Standalone, 0u);
+  const auto captured_without_dispatch = PlanVulkanResetExecution(
+      dense.range, KernelPreparationMode::PipelinePrivate, 0u);
+  return standalone_dense.ok && !standalone_dense.shader &&
+         standalone_dense.commands == 1u && captured_dense.ok &&
+         captured_dense.shader && captured_dense.commands == 3u &&
+         standalone_strided.ok && standalone_strided.shader &&
+         standalone_strided.commands == 3u && dense_without_dispatch.ok &&
+         !dense_without_dispatch.shader &&
+         dense_without_dispatch.commands == 1u &&
+         !captured_without_dispatch.ok;
 }
 
 [[nodiscard]] bool LifetimeOverlapIsExact() {
@@ -173,24 +245,58 @@ struct Resources final {
 
   const auto owner = std::make_shared<std::uint32_t>(0u);
   const auto reset = [&](const std::uint64_t offset, const std::uint32_t first,
-                         const std::uint32_t last,
-                         const bool external = false) {
-    return BoundReset{
-        .ref =
-            {
-                .id = 7u,
-                .bytes = 64u,
-                .offset_bytes = offset,
-                .element_bytes = 4u,
-                .stride_bytes = 4u,
-                .count = 4u,
-            },
-        .handle = owner,
-        .step = rund::node::accel::detail::ExecStep{first},
-        .last = rund::node::accel::detail::ExecStep{last},
-        .external = external,
+                         const std::uint32_t last, const bool external = false,
+                         const std::uint64_t count = 4u,
+                         const std::uint64_t stride = 4u) {
+    const rund::kernel::ResidentBufferRef ref{
+        .id = 7u,
+        .bytes = 64u,
+        .offset_bytes = offset,
+        .element_bytes = 4u,
+        .stride_bytes = stride,
+        .count = count,
+        .usage = rund::kernel::kResidentUsageWrite,
     };
+    const Result proved = Prove(Project(ref, nullptr), ref.bytes);
+    return BoundReset::Seal(
+               ref, owner, proved.range, 0u,
+               rund::node::accel::detail::ExecStep{first},
+               rund::node::accel::detail::ExecStep{last}, external)
+        .value();
   };
+
+  const rund::kernel::ResidentBufferRef sealed_source{
+      .id = 7u,
+      .bytes = 64u,
+      .element_bytes = 4u,
+      .stride_bytes = 4u,
+      .count = 4u,
+      .usage = rund::kernel::kResidentUsageWrite,
+  };
+  const Result sealed_range =
+      Prove(Project(sealed_source, nullptr), sealed_source.bytes);
+  auto mismatched_source = sealed_source;
+  mismatched_source.offset_bytes = 4u;
+  if (BoundReset::Seal(mismatched_source, owner, sealed_range.range, 0u,
+                       rund::node::accel::detail::ExecStep{0u},
+                       rund::node::accel::detail::ExecStep{1u}, false)
+          .has_value()) {
+    return false;
+  }
+  auto read_source = sealed_source;
+  read_source.usage = rund::kernel::kResidentUsageRead;
+  auto unknown_source = sealed_source;
+  unknown_source.usage = 0u;
+  if (BoundReset::Seal(read_source, owner, sealed_range.range, 0u,
+                       rund::node::accel::detail::ExecStep{0u},
+                       rund::node::accel::detail::ExecStep{1u}, false)
+          .has_value() ||
+      BoundReset::Seal(unknown_source, owner, sealed_range.range, 0u,
+                       rund::node::accel::detail::ExecStep{0u},
+                       rund::node::accel::detail::ExecStep{1u}, false)
+          .has_value()) {
+    return false;
+  }
 
   const std::array disjoint_time{
       reset(0u, 0u, 1u),
@@ -208,9 +314,14 @@ struct Resources final {
       reset(0u, 0u, 1u, true),
       reset(8u, 2u, 3u),
   };
+  const std::array strided_tail_overlap{
+      reset(0u, 0u, 2u, false, 3u, 8u),
+      reset(16u, 1u, 3u, false, 1u, 4u),
+  };
 
   return Compatible(disjoint_time) && !Compatible(touching_time) &&
-         Compatible(adjacent_memory) && !Compatible(external_alias);
+         Compatible(adjacent_memory) && !Compatible(external_alias) &&
+         !Compatible(strided_tail_overlap);
 }
 
 [[nodiscard]] bool ResetPlansAreSealed() {
@@ -230,6 +341,7 @@ struct Resources final {
               .element_bytes = 4u,
               .stride_bytes = 4u,
               .count = 16u,
+              .usage = rund::kernel::kResidentUsageWrite,
           },
       .byte_extent = 64u,
       .usage = rund::BufferUsage::WriteOnly,
@@ -248,7 +360,8 @@ struct Resources final {
   const std::array visibilities{rund::GraphBufferVisibility::Internal};
   const std::array<std::uint64_t, 1u> aliases{0u};
   std::array<KernelExecutionStep, 3u> steps{};
-  const auto build = [&](const std::span<const ResetPlan> resets) {
+  const auto build_with = [&](const std::span<const ResetPlan> resets,
+                              const RunBinds &active_bindings) {
     const KernelExecution execution{
         .graph_roles = roles,
         .graph_visibilities = visibilities,
@@ -260,15 +373,71 @@ struct Resources final {
         .bindings = run_bindings.data(),
         .binding_count = run_bindings.size(),
     };
-    return BuildResetBinds(execution, run, bindings);
+    return BuildResetBinds(execution, run, active_bindings);
+  };
+  const auto build = [&](const std::span<const ResetPlan> resets) {
+    return build_with(resets, bindings);
   };
 
   const std::array valid{
       ResetPlan{.binding = 0u, .step = ExecStep{1u}, .last = ExecStep{2u}},
   };
   const auto bound = build(valid);
+  const rund::kernel::ResidentBufferRef sealed_ref =
+      bound.ok && !bound.binds.empty() ? bound.binds[0u].ref()
+                                       : rund::kernel::ResidentBufferRef{};
   if (!bound.ok || bound.binds.size() != 1u ||
-      bound.binds[0u].step.index != 1u || bound.binds[0u].last.index != 2u) {
+      bound.binds[0u].step.index != 1u ||
+      bound.binds[0u].last.index != 2u ||
+      !bound.binds[0u].range().valid() ||
+      bound.binds[0u].range().offset() != 0u ||
+      bound.binds[0u].range().count() != 16u ||
+      bound.binds[0u].range().end() != 64u ||
+      Payload(bound.binds[0u].range()) != 64u ||
+      sealed_ref.offset_bytes != bound.binds[0u].range().offset() ||
+      sealed_ref.element_bytes != bound.binds[0u].range().element() ||
+      sealed_ref.stride_bytes != bound.binds[0u].range().stride() ||
+      sealed_ref.count != bound.binds[0u].range().count()) {
+    return false;
+  }
+  const auto rejected_ref = [&](const rund::kernel::ResidentBufferRef ref) {
+    RunBinds candidate{};
+    return candidate.push(ref, owner) && candidate.valid() &&
+           !build_with(valid, candidate).ok;
+  };
+  auto misaligned_offset = buffer.resident;
+  misaligned_offset.offset_bytes = 1u;
+  misaligned_offset.count = 4u;
+  auto misaligned_stride = buffer.resident;
+  misaligned_stride.stride_bytes = 6u;
+  misaligned_stride.count = 4u;
+  auto unsupported_width = buffer.resident;
+  unsupported_width.element_bytes = 2u;
+  unsupported_width.count = 4u;
+  auto final_byte_overflow = buffer.resident;
+  final_byte_overflow.offset_bytes = 52u;
+  final_byte_overflow.count = 4u;
+  auto read_resident = buffer.resident;
+  read_resident.usage = rund::kernel::kResidentUsageRead;
+  auto unknown_resident = buffer.resident;
+  unknown_resident.usage = 0u;
+  if (!rejected_ref(misaligned_offset) || !rejected_ref(misaligned_stride) ||
+      !rejected_ref(unsupported_width) ||
+      !rejected_ref(final_byte_overflow) || !rejected_ref(read_resident) ||
+      !rejected_ref(unknown_resident)) {
+    return false;
+  }
+  auto trailing_owner_bytes = buffer.resident;
+  trailing_owner_bytes.bytes = 5u;
+  trailing_owner_bytes.count = 1u;
+  RunBinds trailing_bindings{};
+  if (!trailing_bindings.push(trailing_owner_bytes, owner) ||
+      !trailing_bindings.valid()) {
+    return false;
+  }
+  const auto trailing = build_with(valid, trailing_bindings);
+  if (!trailing.ok || trailing.binds.size() != 1u ||
+      trailing.binds[0u].range().end() != 4u) {
     return false;
   }
   const std::array reversed{
@@ -444,7 +613,8 @@ struct Resources final {
 
 bool ResetModelContract() {
   return WidthAndLayoutProofsMatch() && InvalidRangesHaveOneReason() &&
-         ProjectionIsUnique() && LifetimeOverlapIsExact() &&
+         VulkanExecutionFormIsExact() && ProjectionIsUnique() &&
+         LifetimeOverlapIsExact() &&
          ResetPlansAreSealed() && ProjectionMatrixIsExact() &&
          ProjectionRejectsAmbiguity();
 }

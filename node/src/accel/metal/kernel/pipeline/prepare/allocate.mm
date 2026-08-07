@@ -29,14 +29,16 @@ namespace {
     failure_context.template_route(static_cast<std::uint32_t>(index));
     const BackendRun *const run = templates[index].run;
     const std::uint32_t declared = status.declared_steps[index];
-    const std::uint64_t occurrences = aggregate.authored_occurrences(index);
-    if (run == nullptr || declared >= rows.size() || occurrences == 0u ||
+    NestedTemplateRouteProjection route{};
+    if (run == nullptr || declared >= rows.size() ||
+        !aggregate.shape.project(index, route) ||
         run->original_dispatch_count == 0u ||
-        occurrences > std::numeric_limits<std::uint64_t>::max() /
-                          run->original_dispatch_count) {
+        route.occurrence_count > std::numeric_limits<std::uint64_t>::max() /
+                                     run->original_dispatch_count) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-    const std::uint64_t original = occurrences * run->original_dispatch_count;
+    const std::uint64_t original =
+        route.occurrence_count * run->original_dispatch_count;
     PreparedPipelineStepEvidence &row = rows[declared];
     if (original > std::numeric_limits<std::uint64_t>::max() -
                        row.original_dispatch_count) {

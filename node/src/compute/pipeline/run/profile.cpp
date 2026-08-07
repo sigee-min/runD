@@ -77,13 +77,12 @@ void reset_pipeline_profile(PipelineState &state) noexcept {
     };
     const PipelineWindow *const nested =
         step.window != 0u && step.window <= state.windows.size() &&
-                state.windows[step.window - 1u].nested
+                state.windows[step.window - 1u].nested()
             ? &state.windows[step.window - 1u]
             : nullptr;
     if (nested != nullptr) {
-      row.outer_window_bound = static_cast<std::uint32_t>(nested->seed_count);
-      row.inner_iteration_bound =
-          static_cast<std::uint32_t>(nested->action_count);
+      row.outer_window_bound = nested->nested_shape.outer_bound();
+      row.inner_iteration_bound = nested->nested_shape.inner_bound();
     }
     if (step.route == PipelineRoute::NestedSeed) {
       row.outer_window = step.iteration;

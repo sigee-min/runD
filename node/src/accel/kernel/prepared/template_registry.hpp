@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../memory.hpp"
+#include "../publication.hpp"
 #include "../scratch.hpp"
 #include "../view.hpp"
 
@@ -30,7 +31,7 @@ struct PreparedKernelPipelineShape final {
   std::uint64_t terminal_publication_count{};
   // Exact physical publication dispatch upper for one backend stream.
   // Terminal routes emit one canonicalization and one final publication;
-  // window routes publish once per maximum/tile window.
+  // window routes consume the nested Shape's projected outer bound.
   std::uint64_t backend_publication_command_count{};
   // Per-stream Vulkan window identities. `window_state_count` is the exact
   // max active state id plus one (native state buffer extent), while
@@ -45,55 +46,6 @@ struct PreparedKernelPipelineShape final {
   bool profile_steps{};
 };
 
-// Sole arithmetic authority for converting one semantic publication into its
-// physical backend command contribution. Terminal publications have no window
-// extent and emit canonicalize + final. Window publications emit once for each
-// ceil(maximum / tile) outer window.
-[[nodiscard]] inline bool PreparedKernelPublicationCommandContribution(
-    const bool window, const std::uint64_t maximum, const std::uint64_t tile,
-    std::uint64_t &commands) noexcept {
-  commands = 0u;
-  if (!window) {
-    if (maximum != 0u || tile != 0u) {
-      return false;
-    }
-    commands = 2u;
-    return true;
-  }
-  if (maximum == 0u || tile == 0u || tile > maximum) {
-    return false;
-  }
-  commands = maximum / tile;
-  return maximum % tile == 0u ||
-         rund::kernel::checked::add(commands, 1u, commands);
-}
-
-// Stable publication identity shared by the public Compute plan and private
-// backend materialization. Resource ordinals come from Compute's canonical
-// resource admission order; pointers and native handles are intentionally not
-// part of this descriptor. Every ResidentBufferRef field that changes the
-// bytes addressed or the required access is represented explicitly.
-struct PreparedKernelPublicationViewIdentity final {
-  std::uint64_t backing_bytes{};
-  std::uint64_t offset_bytes{};
-  std::uint64_t count{};
-  std::uint64_t stride_bytes{};
-  std::uint64_t element_bytes{};
-  std::uint32_t resource_ordinal{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t usage{};
-};
-
-struct PreparedKernelPublicationIdentity final {
-  PreparedKernelPublicationViewIdentity sources[3]{};
-  PreparedKernelPublicationViewIdentity count{};
-  PreparedKernelPublicationViewIdentity target{};
-  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t final{};
-  std::uint32_t maximum{};
-  std::uint32_t tile{};
-  std::uint8_t kind{};
-};
-
 // Exact, pointer-free shape of one Program graph binding before private Jobs
 // exist. Public Pipeline planning freezes these in Program binding order.
 // Backend template identity projects only Map data bindings through the
@@ -105,40 +57,6 @@ struct PreparedKernelProgramBindingIdentity final {
   std::uint64_t count{};
   std::uint32_t usage{};
 };
-
-inline void
-SeedPreparedKernelPublicationFingerprint(std::uint64_t &hi,
-                                         std::uint64_t &lo) noexcept {
-  hi = 0x72756e442e707562ull;
-  lo = 0x6c69636174696f6eull;
-}
-
-inline void MixPreparedKernelPublicationFingerprint(
-    std::uint64_t &hi, std::uint64_t &lo,
-    const PreparedKernelPublicationIdentity &identity) noexcept {
-  const auto mix = [](std::uint64_t &hash, const std::uint64_t value) {
-    hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
-  };
-  const auto view = [&](const PreparedKernelPublicationViewIdentity &value) {
-    mix(hi, value.resource_ordinal);
-    mix(lo, value.backing_bytes);
-    mix(hi, value.offset_bytes);
-    mix(lo, value.count);
-    mix(hi, value.stride_bytes);
-    mix(lo, value.element_bytes);
-    mix(hi, value.usage);
-  };
-  for (const PreparedKernelPublicationViewIdentity &source : identity.sources) {
-    view(source);
-  }
-  view(identity.count);
-  view(identity.target);
-  mix(lo, identity.state);
-  mix(hi, identity.final);
-  mix(lo, identity.maximum);
-  mix(hi, identity.tile);
-  mix(lo, identity.kind);
-}
 
 // Allocation-free semantic projection shared by Compute's public plan and the
 // backend materializer. Pointer/handle identity is intentionally absent: the
@@ -161,6 +79,9 @@ struct PreparedKernelRecurrenceIdentity final {
   bool writes_each_iteration{};
   bool has_window{};
   bool has_terminal{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PreparedKernelRecurrenceIdentity &) const noexcept = default;
 };
 
 inline void

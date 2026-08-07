@@ -16,50 +16,51 @@ Status publish_cpu_pipeline(PipelineState &state) noexcept {
   if (state.device == nullptr || state.device->backend != Backend::Cpu) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  for (const PipelinePublish &publication : state.publications) {
-    if (publication.kind == PipelinePublishKind::Window) {
+  for (const PipelinePublicationPlan &publication : state.publications) {
+    const auto *terminal =
+        std::get_if<PipelineTerminalPublicationPlan>(&publication);
+    if (terminal == nullptr) {
       continue;
     }
-    if (publication.source == publication.target || publication.window == 0u ||
-        publication.window > state.windows.size() ||
-        publication.state != publication.window - 1u ||
-        publication.kind != PipelinePublishKind::Terminal ||
-        publication.final < PipelineWindow::first ||
-        publication.final > PipelineWindow::second ||
-        publication.resident_count != nullptr || publication.maximum != 0u ||
-        publication.tile != 0u) {
+    if (terminal->state >= state.windows.size()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    const PipelineWindowControl &control =
+        state.windows[terminal->state].control;
+    if (control.final < PipelineWindow::first ||
+        control.final > PipelineWindow::second) {
       return Status::fail(Reason::PipelineInvalid);
     }
     CpuView source{};
-    const Status selected =
-        cpu_resident_view(state, state.windows[publication.window - 1u],
-                          publication.output, source);
-    const std::optional<CpuView> target = cpu_view(
-        publication.target.get(), publication.target_offset, publication.count,
-        publication.target_stride, publication.element_bytes);
-    if (!selected || !target ||
-        source.footprint.bytes != target->footprint.bytes) {
+    CpuView target{};
+    const Status selected = resolve_cpu_pipeline_publication_view(
+        state, terminal->sources[control.final], source);
+    const Status targeted = resolve_cpu_pipeline_publication_view(
+        state, terminal->target.view, target);
+    if (!selected || !targeted ||
+        source.footprint.count != target.footprint.count ||
+        source.footprint.width != target.footprint.width) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const std::size_t bytes = source.footprint.bytes;
+    const std::size_t bytes = source.footprint.count * source.footprint.width;
     if (bytes == 0u) {
       continue;
     }
-    if (source.data == nullptr || target->data == nullptr) {
+    if (source.data == nullptr || target.data == nullptr) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    if (target->footprint.dense()) {
-      std::memcpy(target->data, source.data, bytes);
+    if (source.footprint.dense() && target.footprint.dense()) {
+      std::memcpy(target.data, source.data, bytes);
       continue;
     }
 
     const std::byte *from = source.data;
-    std::byte *to = target->data;
-    for (std::size_t remaining = publication.count; remaining > 1u;
+    std::byte *to = target.data;
+    for (std::size_t remaining = source.footprint.count; remaining > 1u;
          --remaining) {
       std::memcpy(to, from, source.footprint.width);
       from += source.footprint.stride;
-      to += target->footprint.stride;
+      to += target.footprint.stride;
     }
     std::memcpy(to, from, source.footprint.width);
   }
@@ -76,68 +77,68 @@ Status publish_cpu_pipeline_window(PipelineState &state,
     return Status::fail(Reason::PipelineInvalid);
   }
   const PipelineWindow &descriptor = state.windows[window - 1u];
-  if (!descriptor.nested || descriptor.tile == 0u || descriptor.maximum == 0u ||
-      descriptor.tile > descriptor.maximum || outer >= descriptor.seed_count) {
+  const PipelineWindowControl &control = descriptor.control;
+  if (!descriptor.nested() || control.tile == 0u || control.maximum == 0u ||
+      control.tile > control.maximum ||
+      outer >= descriptor.nested_shape.outer_bound()) {
     return Status::fail(Reason::PipelineInvalid);
   }
 
-  for (const PipelinePublish &publication : state.publications) {
-    if (publication.kind != PipelinePublishKind::Window ||
-        publication.window != window) {
+  for (const PipelinePublicationPlan &publication : state.publications) {
+    const auto *planned =
+        std::get_if<PipelineWindowPublicationPlan>(&publication);
+    if (planned == nullptr || planned->state + 1u != window) {
       continue;
     }
-    if (publication.source == nullptr || publication.target == nullptr ||
-        publication.resident_count == nullptr ||
-        publication.source == publication.target ||
-        publication.state != publication.window - 1u ||
-        publication.final != 0u || publication.maximum != descriptor.maximum ||
-        publication.tile != descriptor.tile ||
-        publication.count != publication.tile ||
-        publication.target_stride != 1u || publication.element_bytes == 0u) {
+    if (planned->state >= state.windows.size() ||
+        planned->source.identity.count != control.tile ||
+        planned->source.identity.element_bytes == 0u ||
+        planned->target.view.identity.count != control.maximum) {
       return Status::fail(Reason::PipelineInvalid);
     }
 
-    const std::optional<CpuView> count = cpu_view(
-        publication.resident_count.get(), publication.resident_count_offset, 1u,
-        1u, sizeof(std::uint32_t));
-    if (!count || count->data == nullptr || count->footprint.count != 1u) {
+    CpuView count{};
+    const Status count_ready =
+        resolve_cpu_pipeline_publication_view(state, control.count, count);
+    if (!count_ready || count.data == nullptr || count.footprint.count != 1u ||
+        count.footprint.width != sizeof(std::uint32_t)) {
       return Status::fail(Reason::PipelineInvalid);
     }
     std::uint32_t resident_count{};
-    std::memcpy(&resident_count, count->data, sizeof(resident_count));
-    if (resident_count > publication.maximum) {
+    std::memcpy(&resident_count, count.data, sizeof(resident_count));
+    if (resident_count > control.maximum) {
       return Status::fail(Reason::BoundedCountInvalid);
     }
 
-    const std::uint64_t base =
-        static_cast<std::uint64_t>(outer) * publication.tile;
-    if (base >= resident_count || base >= publication.maximum) {
+    const std::uint64_t base = static_cast<std::uint64_t>(outer) * control.tile;
+    if (base >= resident_count || base >= control.maximum) {
       continue;
     }
     const std::size_t active = static_cast<std::size_t>(
-        std::min({static_cast<std::uint64_t>(publication.tile),
+        std::min({static_cast<std::uint64_t>(control.tile),
                   static_cast<std::uint64_t>(resident_count) - base,
-                  static_cast<std::uint64_t>(publication.maximum) - base}));
-    if (active == 0u || base > std::numeric_limits<std::size_t>::max() -
-                                   publication.target_offset) {
+                  static_cast<std::uint64_t>(control.maximum) - base}));
+    if (active == 0u || base > std::numeric_limits<std::size_t>::max()) {
       return Status::fail(Reason::PipelineInvalid);
     }
 
-    const std::optional<CpuView> source =
-        cpu_view(publication.source.get(), publication.source_offset,
-                 publication.count, 1u, publication.element_bytes);
-    const std::optional<CpuView> target =
-        cpu_view(publication.target.get(),
-                 publication.target_offset + static_cast<std::size_t>(base),
-                 active, 1u, publication.element_bytes);
-    if (!source || !target || source->data == nullptr ||
-        target->data == nullptr ||
-        source->footprint.count != publication.tile ||
-        source->footprint.width != publication.element_bytes ||
-        !source->footprint.dense() || !target->footprint.dense()) {
+    CpuView source{};
+    CpuView target{};
+    const Status source_ready =
+        resolve_cpu_pipeline_publication_view(state, planned->source, source);
+    const Status target_ready = resolve_cpu_pipeline_publication_view(
+        state, planned->target.view, target);
+    if (!source_ready || !target_ready || source.data == nullptr ||
+        target.data == nullptr || source.footprint.count != control.tile ||
+        source.footprint.width != planned->source.identity.element_bytes ||
+        !source.footprint.dense() || !target.footprint.dense() ||
+        base > target.footprint.count ||
+        active > target.footprint.count - static_cast<std::size_t>(base)) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    std::memcpy(target->data, source->data, active * publication.element_bytes);
+    std::memcpy(target.data +
+                    static_cast<std::size_t>(base) * target.footprint.stride,
+                source.data, active * planned->source.identity.element_bytes);
     wrote = true;
   }
   return Status::success();

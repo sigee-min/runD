@@ -82,15 +82,6 @@ namespace {
           right.ref.offset_bytes + right_bytes <= left.ref.offset_bytes);
 }
 
-[[nodiscard]] bool SameRead(const BackendRead &left,
-                            const BackendRead &right) noexcept {
-  return left.handle == right.handle && left.source.id == right.source.id &&
-         left.source.offset_bytes == right.source.offset_bytes &&
-         left.source.element_bytes == right.source.element_bytes &&
-         left.source.stride_bytes == right.source.stride_bytes &&
-         left.source.count == right.source.count;
-}
-
 [[nodiscard]] bool ScalarExpr(const NestedScalarExpr &source,
                               MetalNestedScalarExpr &out) noexcept {
   if (source.op != NestedScalarOp::AddWrapU32) {
@@ -130,33 +121,33 @@ AdmitMetalNestedAggregate(const NestedAggregate &source,
   MetalNestedScalarExpr action{};
   MetalNestedScalarExpr fold{};
   const BackendRead &seed = source.publication.sources[0u];
-  const rund::kernel::ResidentBufferRef &target = source.publication.target;
-  const BackendWindow &window = source.window;
-  if (!source.ready() || window.maximum == 0u || window.tile == 0u ||
-      window.tile == std::numeric_limits<std::uint32_t>::max() ||
-      window.tile > window.maximum || window.outer_bound == 0u ||
-      window.inner_bound == 0u || source.seed.count == 0u) {
+  const rund::kernel::ResidentBufferRef &target =
+      source.publication.target.source;
+  const PreparedKernelPublicationIdentity &publication =
+      source.publication.identity;
+  const NestedTemplateShape &shape = source.shape;
+  NestedTemplateShape expected_shape{};
+  if (!source.ready() ||
+      !ProveNestedTemplateShape(shape.first(), source.maximum, source.tile,
+                                shape.inner_bound(), expected_shape) ||
+      expected_shape != shape) {
     return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
   }
-  const std::uint64_t expected_outer =
-      (static_cast<std::uint64_t>(window.maximum) + window.tile - 1u) /
-      window.tile;
-  const std::uint64_t seed_end = source.seed.end();
-  bool declared_seed_range = source.seed.count == window.outer_bound &&
-                             seed_end <= status.active_step_count;
+  const std::size_t seed_first = shape.seed_first();
+  bool declared_seed_range = shape.action_first() <= status.active_step_count;
   if (declared_seed_range) {
-    const std::uint32_t first = status.declared_steps[source.seed.first];
-    for (std::uint32_t outer = 0u; outer < source.seed.count; ++outer) {
+    const std::uint32_t first = status.declared_steps[seed_first];
+    for (std::uint32_t outer = 0u; outer < shape.seed_count(); ++outer) {
       if (first > std::numeric_limits<std::uint32_t>::max() - outer ||
-          status.declared_steps[source.seed.first + outer] != first + outer) {
+          status.declared_steps[seed_first + outer] != first + outer) {
         declared_seed_range = false;
         break;
       }
     }
   }
   bool profile_layout = !profile_steps;
-  if (profile_steps && source.seed.first == 0u &&
-      source.fold.end() == status.active_step_count &&
+  if (profile_steps && shape.first() == 0u &&
+      shape.end() == status.active_step_count &&
       status.active_step_count == status.declared_step_count) {
     profile_layout = true;
     for (std::uint32_t index = 0u; index < status.active_step_count; ++index) {
@@ -166,27 +157,20 @@ AdmitMetalNestedAggregate(const NestedAggregate &source,
       }
     }
   }
-  const std::uint64_t authored_actions =
-      static_cast<std::uint64_t>(window.outer_bound) * window.inner_bound;
   if (source.kind != NestedAggregateKind::WindowIndexedReduceSumU32 ||
-      window.has_terminal || window.outer_bound != expected_outer ||
-      window.state != source.publication.state ||
-      source.publication_index == NoNode || source.publication.final > 2u ||
-      source.queue.logical_count < window.maximum || !U32Read(source.queue) ||
+      source.publication_index == NoNode || publication.final > 2u ||
+      source.queue.logical_count < source.maximum || !U32Read(source.queue) ||
       !U32Read(source.domain) || !U32Read(source.count) ||
       source.count.logical_count != 1u ||
-      !U32Workspace(source.tile_low, window.outer_bound) ||
-      !U32Workspace(source.tile_status, window.outer_bound) ||
+      !U32Workspace(source.tile_low, shape.outer_bound()) ||
+      !U32Workspace(source.tile_status, shape.outer_bound()) ||
       !DisjointWorkspace(source.tile_low, source.tile_status,
-                         window.outer_bound) ||
-      !SameRead(source.count.read, window.count) || !U32Scalar(seed) ||
-      !U32Scalar(target, source.publication.target_handle) ||
+                         shape.outer_bound()) ||
+      !U32Scalar(seed) ||
+      !U32Scalar(target, source.publication.target.handle) ||
       source.failure.logical_step == NoNode || !declared_seed_range ||
-      source.failure.logical_step != status.declared_steps[source.seed.first] ||
+      source.failure.logical_step != status.declared_steps[seed_first] ||
       !profile_layout || !source.profile.aggregate_profile_supported ||
-      source.profile.authored_seed_occurrences != window.outer_bound ||
-      source.profile.authored_action_occurrences != authored_actions ||
-      source.profile.authored_fold_occurrences != window.outer_bound ||
       source.profile.seed_dispatches_per_occurrence == 0u ||
       source.profile.action_dispatches_per_occurrence == 0u ||
       source.profile.fold_dispatches_per_occurrence == 0u ||
@@ -221,7 +205,7 @@ AdmitMetalNestedAggregate(const NestedAggregate &source,
     resolved[2u] = resolve(source.count.read);
     resolved[3u] = resolve(seed);
     resolved[4u] = ResolveMetalResidentBuffer(
-        resident, target, source.publication.target_handle,
+        resident, target, source.publication.target.handle,
         "accel_metal_resident_id_unavailable", true);
     resolved[5u] = ResolveMetalResidentBuffer(
         resident, source.tile_low.ref, source.tile_low.handle,
@@ -259,10 +243,10 @@ AdmitMetalNestedAggregate(const NestedAggregate &source,
           source.tile_status.ref.offset_bytes / sizeof(std::uint32_t),
       .queue_count = source.queue.logical_count,
       .domain_count = source.domain.logical_count,
-      .maximum = window.maximum,
-      .tile = window.tile,
-      .outer_bound = window.outer_bound,
-      .inner_bound = window.inner_bound,
+      .maximum = source.maximum,
+      .tile = source.tile,
+      .outer_bound = shape.outer_bound(),
+      .inner_bound = shape.inner_bound(),
       .generation_stride = status.generation_stride,
       .declared_step_count = status.declared_step_count,
       .declared_step = source.failure.logical_step,
@@ -272,7 +256,7 @@ AdmitMetalNestedAggregate(const NestedAggregate &source,
       .profile_steps = profile_steps ? 1u : 0u,
       .profile_count = profile_steps ? status.declared_step_count : 0u,
       .profile_seed_first =
-          profile_steps ? status.declared_steps[source.seed.first] : 0u,
+          profile_steps ? status.declared_steps[seed_first] : 0u,
       .action = action,
       .fold = fold,
   };

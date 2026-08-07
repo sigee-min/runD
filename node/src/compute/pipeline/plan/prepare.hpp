@@ -1,7 +1,7 @@
 #pragma once
 
+#include "../output.hpp"
 #include "contract.hpp"
-#include "output.hpp"
 
 #include <rund/compute/status.hpp>
 
@@ -19,12 +19,8 @@ struct PipelineScheduleSuccess final {};
 
 struct PipelinePrepare final {
   std::shared_ptr<PipelineState> state;
-  std::vector<PipelinePlanStep> steps;
-  std::vector<PipelineResourceAdmission> admissions;
-  std::vector<PhysicalOutputProjection> outputs;
   PipelineHash hash{};
   std::size_t output_count{};
-  std::size_t binding_count{};
   std::uint64_t status_count{};
   Location failure{};
 };

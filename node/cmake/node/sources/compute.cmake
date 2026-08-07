@@ -52,7 +52,7 @@ list(APPEND NODE_SOURCES
   src/compute/pipeline/plan/bind.cpp
   src/compute/pipeline/plan/contract.cpp
   src/compute/pipeline/plan/memory.cpp
-  src/compute/pipeline/plan/output.cpp
+  src/compute/pipeline/output.cpp
   src/compute/pipeline/plan/publication.cpp
   src/compute/pipeline/plan/resource.cpp
   src/compute/pipeline/plan/schedule.cpp

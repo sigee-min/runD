@@ -237,15 +237,28 @@ n - 1 <= (S - o - w) / s
 ```
 
 The proof makes both `n*w` payload accounting and
-`o + (n-1)*s + w` address materialization safe. A backend supplies only its
-native address-width limit: Metal admits the proved 64-bit word extent, while
-Vulkan's strided shader admits its fixed u32 word extent. Dense Vulkan reset
-remains one `vkCmdFillBuffer`; strided Vulkan reset remains fixed 256-lane
-dispatch, and Metal remains exact `dispatchThreads` for both dense and strided
-ranges. Those execution forms are backend mechanics, not alternate value or
-validation policies. Prepared native reset records compose their handle or
-descriptor around the common proved `Range`; repeated encoding performs no range,
-overflow, alignment, replacement, allocation, or payload-copy work.
+`o + (n-1)*s + w` address materialization safe and stores that proved exclusive
+end in the Range. A backend applies only its native address-width
+specialization afterward: the common `WordAddressable` projection tests the
+proved descriptor-relative end against a word limit after validating the
+proved origin. Metal adds no value rule. Standalone Vulkan dense reset remains
+one `vkCmdFillBuffer` and does not inherit the shader limit. Strided resets and
+every Pipeline-private captured reset, including dense ranges, use the fixed
+256-lane shader and therefore share its u32 descriptor-relative word limit and
+checked multi-dispatch command count. Metal remains exact `dispatchThreads`
+for both dense and strided ranges. Those execution forms are backend
+mechanics, not alternate value or validation policies.
+
+`BuildResetBinds` mints that Range before backend selection. A sealed
+`BoundReset` retains resident identity, extent, usage, and lifetime separately,
+but derives every lookup geometry field from the one proved Range; it never
+retains a writable raw-geometry mirror. CPU clearing, overlap analysis,
+reservation accounting, and non-replacement Metal/Vulkan preparation consume
+the same Range. A native dense View replacement changes the physical range and
+therefore receives one new proof against the replacement's actual extent.
+Prepared native reset records then compose their handle or descriptor around
+the proved Range; repeated encoding performs no range, overflow, alignment,
+replacement, allocation, or payload-copy work.
 
 The public `Run` receipt retains its private state in a 1,152-byte,
 `uint64_t`-aligned inline store. The source-private `RunState` is 1,120 bytes
@@ -630,6 +643,25 @@ P = PipelineMemoryPlan::publication_committed_bytes
 0 <= P <= Q
 ```
 
+The frozen plan computes resource Buffer count/bytes/lifetime, step View
+geometry, publication hazards, command contribution, and target ownership from
+the ordered resolved resource, step-resource, publication, and state-control
+records. Publication alternatives carry only source/bank and target Views plus
+their state/output coordinates; the referenced state control alone carries
+count, `Max`, `Tile`, expected terminal value, and final parity. Memory planning
+does not re-read authored bindings or publication scalars after those records
+have been sealed. Before sealing, a publication source is only a typed
+window-control/logical-output coordinate. The ordinary control's sole
+`ordinary_step` or the nested `NestedTemplateShape`'s projected `fold_first`,
+together with the
+shared output projection and final-bank resolver, selects its canonical
+producer; no derived terminal-step copy, base-step mirror, or full source
+binding survives beside the step-resource table. A target-only shared owner is a cold
+materialization locator and is cleared after `PipelineResource` assumes
+lifetime ownership. Thus accounting, admission, CPU execution, and backend
+preparation cannot each project a different offset, count, stride, owner,
+bound, or final bank from the authored edge.
+
 `Q` is the sole Device charge expression. It is the conservative sum of the
 plan's individually page-rounded explicit mappings plus its separately owned
 exact commitments. Device admission never substitutes `peak_bytes`, rounds
@@ -791,6 +823,24 @@ total contributes to `PipelineRouteCapacity`; flat-only schedules retain
 `PipelineIterationCapacity`, and the product contributes to neither.
 Native command capacity is checked separately against the selected backend's
 published limit.
+
+All shared K/N cardinality is projected from one constructor-closed
+`NestedTemplateShape`. It owns phase spans, compact and retained route counts,
+per-route occurrence counts, authored and transduced command totals,
+outer-to-Fold selection, and Action parity ownership. Build, frozen plan, and
+runtime state copy that pointer-free value as a phase handoff. Public memory
+planning and backend preparation may validate the copy against the sealed
+Window control by invoking the same constructor, but may not rebuild
+`ceil(Max/Tile)`, `K * (N + 2)`, Fold bank counts, or phase boundaries. The
+runtime `NestedTemplateGeometry` combines the shape with exact resident
+count/terminal handle identity; backend-native descriptor, ICB, alignment, and
+limit equations remain specialized and are not aliases of the shared shape.
+Fold routes with zero projected occurrences remain valid retained templates;
+validity comes from successful shape projection, while accounting scales their
+execution contribution by zero.
+Window-publication count and backend command reservation consume the same
+Shape-projected `outer_bound`; neither memory planning nor backend preparation
+recomputes K from the retained copy geometry `(Max, Tile)`.
 
 The zero-count plan owns the same cold capacities but executes no Seed,
 Action, or Fold. Only the explicit recurrent `O` output prefix participates in

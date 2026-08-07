@@ -473,24 +473,8 @@ rund::AccelCheck PrepareVulkanWindow(
       if (window == nullptr) {
         continue;
       }
-      const bool nested = window->nested();
-      const bool nested_shape_valid =
-          !nested ||
-          (window->outer_bound != 0u &&
-           window->outer_iteration < window->outer_bound &&
-           ((window->phase == BackendWindowPhase::NestedSeed &&
-             window->route == 0u) ||
-            (window->phase == BackendWindowPhase::NestedAction &&
-             window->inner_bound != 0u &&
-             window->inner_iteration < window->inner_bound &&
-             window->route == 0u &&
-             window->inner_advance ==
-                 (entries[entry_index].transducer == NoTileTransducer ? 1u
-                                                                      : 0u)) ||
-            (window->phase == BackendWindowPhase::NestedFold &&
-             window->route < 3u &&
-             (window->inner_advance == 0u ||
-              window->inner_advance == window->inner_bound))));
+      const bool occurrence_valid =
+          window->valid_occurrence(entries[entry_index].transduced_action());
       const std::uint32_t template_index = entries[entry_index].template_index;
       VulkanResidentBufferResult count = ResolveVulkanResidentBuffer(
           resident, window->count.source, window->count.handle,
@@ -498,10 +482,7 @@ rund::AccelCheck PrepareVulkanWindow(
       VulkanCopyRange count_range{};
       const bool window_valid =
           count.check.ok && count.device_buffer != nullptr &&
-          window->maximum != 0u && window->tile != 0u &&
-          window->tile <= window->maximum && window->bound != 0u &&
-          window->iteration < window->bound && nested_shape_valid &&
-          template_index < status.active_step_count &&
+          occurrence_valid && template_index < status.active_step_count &&
           window->count.source.count == 1u &&
           window->count.source.element_bytes == sizeof(std::uint32_t) &&
           PlanVulkanCopyRange(adapter, window->count.source,
@@ -565,7 +546,7 @@ rund::AccelCheck PrepareVulkanWindow(
                                             terminal_ranges[2].offset_words},
                   .maximum = window->maximum,
                   .tile = window->tile,
-                  .iteration = window->iteration,
+                  .iteration = window->outer_iteration,
                   .expected = window->expected,
                   .state = window->state,
                   .has_terminal =

@@ -52,7 +52,7 @@ Status pipeline_window_status(PipelineState &state, const PipelineStep &step,
   if (descriptor == nullptr || status.reason() != Reason::BoundedCountInvalid) {
     return status;
   }
-  stats.control.overflow_ordinal = descriptor->maximum;
+  stats.control.overflow_ordinal = descriptor->control.maximum;
   return status;
 }
 

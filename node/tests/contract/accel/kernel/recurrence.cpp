@@ -1,8 +1,8 @@
 #include "src/accel/kernel/recurrence.hpp"
+#include "src/accel/context/internal/execution.hpp"
 #include "src/accel/kernel/backend/execute.hpp"
 #include "src/accel/kernel/recurrence/plan.hpp"
 #include "src/accel/kernel/recurrence/source.hpp"
-#include "src/accel/context/internal/execution.hpp"
 #include "src/accel/kernel/step/map/stride.hpp"
 #include "src/accel/metal/pipeline/guard.hpp"
 
@@ -30,12 +30,20 @@ using rund::node::accel::detail::BackendWindow;
 using rund::node::accel::detail::BackendWindowPhase;
 using rund::node::accel::detail::BoundStep;
 using rund::node::accel::detail::BuildMapRecurrence;
+using rund::node::accel::detail::BuildNestedAggregate;
 using rund::node::accel::detail::BuildNestedMapRecurrence;
 using rund::node::accel::detail::KernelExecutionStep;
 using rund::node::accel::detail::MapRecurrence;
 using rund::node::accel::detail::MapRecurrencePreparationPlan;
 using rund::node::accel::detail::MapRecurrenceState;
+using rund::node::accel::detail::NestedAggregateState;
+using rund::node::accel::detail::NestedTemplateGeometry;
+using rund::node::accel::detail::NestedTemplatePhase;
+using rund::node::accel::detail::NestedTemplateRouteProjection;
+using rund::node::accel::detail::NestedTemplateShape;
 using rund::node::accel::detail::PlannedStep;
+using rund::node::accel::detail::ProveNestedTemplateGeometry;
+using rund::node::accel::detail::ProveNestedTemplateShape;
 using rund::node::accel::detail::RunBinds;
 using rund::node::accel::detail::SameMapRecurrenceTemplate;
 using rund::node::accel::detail::StepBinds;
@@ -78,9 +86,8 @@ using rund::node::accel::detail::StepBinds;
   constexpr std::string_view result = "write_726573756c74";
   const std::string invariant_address =
       "RundBase_" + std::string{constant} +
-      (uniform_invariant
-           ? std::string{}
-           : " + gid * RundStride_" + std::string{constant});
+      (uniform_invariant ? std::string{}
+                         : " + gid * RundStride_" + std::string{constant});
   std::string source;
   source += "// artifact_variant=canonical\n";
   source += KeyLine("op_hash_hi", hash);
@@ -102,8 +109,8 @@ using rund::node::accel::detail::StepBinds;
               std::string{state} + " + gid * RundStride_" + std::string{state} +
               "));\n";
     source += "  const RundWide node_2 = RundWideFrom" + lane + "(LoadI" +
-              lane + "(" + std::string{constant} + ", " +
-              invariant_address + "));\n";
+              lane + "(" + std::string{constant} + ", " + invariant_address +
+              "));\n";
     source += "  const RundWide node_3 = RundWideAdd(node_1, node_2);\n";
     source += "  StoreI" + lane + "(" + std::string{result} + ", RundBase_" +
               std::string{result} + " + gid * RundStride_" +
@@ -122,8 +129,8 @@ using rund::node::accel::detail::StepBinds;
               std::string{state} + " + gid * RundStride_" + std::string{state} +
               "));\n";
     source += "  const RundWide node_2 = RundWideFrom" + lane + "(LoadI" +
-              lane + "_" + std::string{constant} + "(" +
-              invariant_address + "));\n";
+              lane + "_" + std::string{constant} + "(" + invariant_address +
+              "));\n";
     source += "  const RundWide node_3 = RundWideAdd(node_1, node_2);\n";
     source += "  StoreI" + lane + "_" + std::string{result} + "(RundBase_" +
               std::string{result} + " + gid * RundStride_" +
@@ -303,13 +310,11 @@ struct Fixture final {
   const MapRecurrence recurrence =
       BuildMapRecurrence(fixture.entries, fixture.barriers);
   const auto expected_variant =
-      writes_history
-          ? rund::kernel::LoweringArtifactVariant::HistoryRecurrence
-          : rund::kernel::LoweringArtifactVariant::Recurrence;
+      writes_history ? rund::kernel::LoweringArtifactVariant::HistoryRecurrence
+                     : rund::kernel::LoweringArtifactVariant::Recurrence;
   const std::span<const std::uint64_t> history_pitches =
-      recurrence.history == nullptr
-          ? std::span<const std::uint64_t>{}
-          : recurrence.history->pitches();
+      recurrence.history == nullptr ? std::span<const std::uint64_t>{}
+                                    : recurrence.history->pitches();
   rund::kernel::LoweringArtifact artifact{};
   if (!recurrence.ready() || recurrence.canonical_artifact == nullptr ||
       !recurrence.source_plan.ok ||
@@ -329,9 +334,8 @@ struct Fixture final {
   constexpr std::string_view constant = "read_636f6e7374616e74";
   const std::string invariant_address =
       "RundBase_" + std::string{constant} +
-      (uniform_invariant
-           ? std::string{}
-           : " + gid * RundStride_" + std::string{constant});
+      (uniform_invariant ? std::string{}
+                         : " + gid * RundStride_" + std::string{constant});
   const std::string state_load =
       api == ComputeApi::Metal
           ? "LoadI" + lane + "(" + std::string{state} + ", RundBase_" +
@@ -341,11 +345,10 @@ struct Fixture final {
                 std::string{state} + " + gid * RundStride_" +
                 std::string{state} + ")";
   const std::string invariant_load =
-      api == ComputeApi::Metal
-          ? "LoadI" + lane + "(" + std::string{constant} + ", " +
-                invariant_address + ")"
-          : "LoadI" + lane + "_" + std::string{constant} + "(" +
-                invariant_address + ")";
+      api == ComputeApi::Metal ? "LoadI" + lane + "(" + std::string{constant} +
+                                     ", " + invariant_address + ")"
+                               : "LoadI" + lane + "_" + std::string{constant} +
+                                     "(" + invariant_address + ")";
   const std::string exact_boundary =
       api == ComputeApi::Metal ? (wide ? "rund_next_0 = long(node_3.lo);"
                                        : "rund_next_0 = int(node_3.lo);")
@@ -363,8 +366,7 @@ struct Fixture final {
       !rund::node::accel::detail::MapSpecializedSourceUpperBytes(
           artifact, recurrence.plan, specialized_upper) ||
       specialized_upper != artifact.source_text_upper_bytes +
-                               BindingCount *
-                                   DecimalLiteralGrowthPerBinding ||
+                               BindingCount * DecimalLiteralGrowthPerBinding ||
       artifact.retained_dynamic_memory_bytes() <
           rund::kernel::compute_retained_detail::StringExternalStorageBytes(
               source)) {
@@ -377,8 +379,7 @@ struct Fixture final {
       std::string{result};
   const bool history_matches =
       writes_history
-          ? recurrence.history != nullptr &&
-                recurrence.history->count == 1u &&
+          ? recurrence.history != nullptr && recurrence.history->count == 1u &&
                 recurrence.history->outputs[0].count == 8u &&
                 recurrence.history->pitch_bytes[0] == bytes * 4u &&
                 source.find(history_address) != std::string::npos &&
@@ -445,55 +446,506 @@ struct Fixture final {
 
   Fixture mixed_marker{ComputeApi::Metal, ComputeScalar::Lane32, false, true};
   mixed_marker.entries[1u].recurrence.writes_each_iteration = false;
-  return BuildMapRecurrence(mixed_marker.entries, mixed_marker.barriers).state ==
-         MapRecurrenceState::Ineligible;
+  return BuildMapRecurrence(mixed_marker.entries, mixed_marker.barriers)
+             .state == MapRecurrenceState::Ineligible;
 }
 
 [[nodiscard]] bool NestedMarkerContract() {
+  constexpr std::size_t Outer = 2u;
+  constexpr std::size_t Inner = 2u;
+  constexpr std::size_t Count = Outer + Inner + 3u;
   Fixture fixture{ComputeApi::Metal, ComputeScalar::Lane32};
-  std::array<BackendWindow, 2u> windows{};
-  for (std::size_t index = 0u; index < windows.size(); ++index) {
+  std::array<BackendWindow, Count> windows{};
+  std::array<BackendBatchEntry, Count> entries{};
+  std::array<std::uint8_t, Count> barriers{};
+  barriers.fill(1u);
+  for (std::size_t index = 0u; index < Count; ++index) {
+    const bool seed = index < Outer;
+    const bool action = index >= Outer && index < Outer + Inner;
+    const std::uint32_t iteration = static_cast<std::uint32_t>(
+        seed ? index : (action ? index - Outer : index - Outer - Inner));
+    const std::uint32_t bound =
+        seed ? static_cast<std::uint32_t>(Outer)
+             : (action ? static_cast<std::uint32_t>(Inner) : 3u);
     windows[index] = BackendWindow{
         .maximum = 8u,
         .tile = 4u,
-        .iteration = 1u,
-        .bound = 2u,
         .state = 3u,
-        .outer_iteration = 1u,
-        .outer_bound = 2u,
-        .inner_iteration = static_cast<std::uint32_t>(index),
-        .inner_bound = 2u,
-        .inner_advance = 1u,
-        .phase = BackendWindowPhase::NestedAction,
+        .outer_iteration = seed ? iteration : 0u,
+        .outer_bound = static_cast<std::uint32_t>(Outer),
+        .inner_iteration = action ? iteration : 0u,
+        .inner_bound = static_cast<std::uint32_t>(Inner),
+        .inner_advance = action ? 1u : 0u,
+        .route = seed || action ? 0u : iteration,
+        .phase = seed ? BackendWindowPhase::NestedSeed
+                      : (action ? BackendWindowPhase::NestedAction
+                                : BackendWindowPhase::NestedFold),
     };
-    fixture.entries[index].recurrence.window = &windows[index];
+    if (action) {
+      entries[index] = fixture.entries[index - Outer];
+    }
+    entries[index].recurrence = BackendRecurrence{
+        .logical_step = 7u,
+        .iteration = iteration,
+        .bound = bound,
+        .window = &windows[index],
+    };
   }
-  fixture.barriers = {1u, 1u};
-  const MapRecurrence ready =
-      BuildNestedMapRecurrence(fixture.entries, fixture.barriers);
-  if (!ready.ready() || ready.iterations != windows.size()) {
+  const auto build = [&] {
+    NestedTemplateGeometry geometry{};
+    if (!ProveNestedTemplateGeometry(
+            std::span<const BackendBatchEntry>{entries.data(), entries.size()},
+            0u, geometry)) {
+      return MapRecurrence{};
+    }
+    return BuildNestedMapRecurrence(
+        std::span<const BackendBatchEntry>{
+            entries.data() + geometry.action_first(), geometry.inner_bound()},
+        std::span<const std::uint8_t>{barriers.data() + geometry.action_first(),
+                                      geometry.inner_bound()},
+        geometry);
+  };
+  const MapRecurrence ready = build();
+  if (!ready.ready() || ready.iterations != Inner) {
+    return false;
+  }
+  NestedTemplateGeometry token{};
+  if (!ProveNestedTemplateGeometry(
+          std::span<const BackendBatchEntry>{entries.data(), entries.size()},
+          0u, token)) {
+    return false;
+  }
+  const std::array<BackendBatchEntry, Inner> detached_actions{
+      entries[Outer], entries[Outer + 1u]};
+  if (BuildNestedMapRecurrence(
+          detached_actions,
+          std::span<const std::uint8_t>{barriers.data() + Outer, Inner}, token)
+          .state != MapRecurrenceState::Ineligible) {
     return false;
   }
 
-  fixture.barriers[1u] = 0u;
-  if (BuildNestedMapRecurrence(fixture.entries, fixture.barriers).state !=
-      MapRecurrenceState::Invalid) {
+  barriers[Outer + 1u] = 0u;
+  if (build().state != MapRecurrenceState::Invalid) {
     return false;
   }
-  fixture.barriers[1u] = 1u;
-  windows[1u].inner_iteration = 0u;
-  if (BuildNestedMapRecurrence(fixture.entries, fixture.barriers).state !=
-      MapRecurrenceState::Ineligible) {
+  barriers[Outer + 1u] = 1u;
+  windows[Outer + 1u].inner_iteration = 0u;
+  if (build().state != MapRecurrenceState::Ineligible) {
     return false;
   }
-  windows[1u].inner_iteration = 1u;
+  windows[Outer + 1u].inner_iteration = 1u;
+  entries[Outer].recurrence.writes_each_iteration = true;
+  if (build().state != MapRecurrenceState::Ineligible) {
+    return false;
+  }
+  entries[Outer].recurrence.writes_each_iteration = false;
+
+  constexpr std::size_t OneCount = Outer + 1u + 3u;
+  std::array<BackendBatchEntry, OneCount> one_entries{};
+  std::array<std::uint8_t, OneCount> one_barriers{};
+  one_barriers.fill(1u);
+  for (BackendWindow &window : windows) {
+    window.inner_bound = 1u;
+  }
+  one_entries[0u] = entries[0u];
+  one_entries[1u] = entries[1u];
+  one_entries[2u] = entries[Outer];
+  one_entries[2u].recurrence.bound = 1u;
+  one_entries[3u] = entries[Outer + Inner];
+  one_entries[4u] = entries[Outer + Inner + 1u];
+  one_entries[5u] = entries[Outer + Inner + 2u];
+  NestedTemplateGeometry one_geometry{};
+  if (!ProveNestedTemplateGeometry(
+          std::span<const BackendBatchEntry>{one_entries.data(),
+                                             one_entries.size()},
+          0u, one_geometry) ||
+      BuildNestedMapRecurrence(
+          std::span<const BackendBatchEntry>{one_entries.data() +
+                                                 one_geometry.action_first(),
+                                             one_geometry.inner_bound()},
+          std::span<const std::uint8_t>{one_barriers.data() +
+                                            one_geometry.action_first(),
+                                        one_geometry.inner_bound()},
+          one_geometry)
+              .state != MapRecurrenceState::Ineligible) {
+    return false;
+  }
+  for (BackendWindow &window : windows) {
+    window.inner_bound = static_cast<std::uint32_t>(Inner);
+  }
+
   fixture.occurrences[0u].step.artifact.metadata.read_routes.push_back(
       rund::kernel::ReadRoute{.source = 0u, .index = 1u, .count = 4u});
-  if (BuildNestedMapRecurrence(fixture.entries, fixture.barriers).state !=
-      MapRecurrenceState::Ineligible) {
+  if (build().state != MapRecurrenceState::Ineligible) {
     return false;
   }
   return true;
+}
+
+[[nodiscard]] bool NestedTemplateShapeContract() {
+  struct ShapeCase final {
+    std::uint32_t outer{};
+    std::uint32_t inner{};
+    std::uint64_t compact{};
+    std::uint64_t retained{};
+    std::uint64_t authored{};
+    std::uint64_t action_occurrences{};
+    std::array<std::uint64_t, 3u> fold_occurrences{};
+    bool action_candidate{};
+  };
+  constexpr std::array<ShapeCase, 12u> cases{{
+      {1u, 0u, 4u, 4u, 2u, 0u, {1u, 0u, 0u}, false},
+      {1u, 1u, 5u, 5u, 3u, 1u, {1u, 0u, 0u}, false},
+      {1u, 2u, 6u, 6u, 4u, 2u, {1u, 0u, 0u}, true},
+      {2u, 0u, 5u, 5u, 4u, 0u, {1u, 1u, 0u}, false},
+      {2u, 1u, 6u, 6u, 6u, 2u, {1u, 1u, 0u}, false},
+      {2u, 2u, 7u, 7u, 8u, 4u, {1u, 1u, 0u}, true},
+      {3u, 0u, 6u, 6u, 6u, 0u, {1u, 1u, 1u}, false},
+      {3u, 1u, 7u, 7u, 9u, 3u, {1u, 1u, 1u}, false},
+      {3u, 2u, 8u, 8u, 12u, 6u, {1u, 1u, 1u}, true},
+      {4u, 0u, 7u, 7u, 8u, 0u, {1u, 2u, 1u}, false},
+      {4u, 1u, 8u, 8u, 12u, 4u, {1u, 2u, 1u}, false},
+      {4u, 2u, 9u, 9u, 16u, 8u, {1u, 2u, 1u}, true},
+  }};
+  constexpr std::size_t first = 5u;
+  constexpr std::array<std::uint32_t, 4u> fold_routes{0u, 1u, 2u, 1u};
+  for (const ShapeCase &expected : cases) {
+    NestedTemplateShape shape{};
+    if (!ProveNestedTemplateShape(first, expected.outer, 1u, expected.inner,
+                                  shape) ||
+        !shape.valid() || shape.first() != first ||
+        shape.action_first() != first + expected.outer ||
+        shape.fold_first() != first + expected.outer + expected.inner ||
+        shape.end() != first + expected.compact ||
+        shape.outer_bound() != expected.outer ||
+        shape.inner_bound() != expected.inner ||
+        shape.compact_entry_count() != expected.compact ||
+        shape.retained_entry_count() != expected.retained ||
+        shape.authored_occurrence_count() != expected.authored ||
+        shape.authored_seed_occurrence_count() != expected.outer ||
+        shape.authored_action_occurrence_count() !=
+            expected.action_occurrences ||
+        shape.authored_fold_occurrence_count() != expected.outer ||
+        shape.transduced_occurrence_count() != expected.outer * 3u ||
+        shape.action_group_candidate() != expected.action_candidate) {
+      return false;
+    }
+    for (std::uint32_t outer = 0u; outer < expected.outer; ++outer) {
+      NestedTemplateRouteProjection route{};
+      if (!shape.project(shape.seed_first() + outer, route) ||
+          route.phase != NestedTemplatePhase::Seed ||
+          route.occurrence_count != 1u || route.iteration != outer ||
+          route.bound != expected.outer || route.outer_iteration != outer ||
+          route.outer_bound != expected.outer ||
+          route.inner_bound != expected.inner) {
+        return false;
+      }
+      std::uint32_t fold_route = 0u;
+      if (!shape.fold_route_for_outer(outer, fold_route) ||
+          fold_route != fold_routes[outer]) {
+        return false;
+      }
+    }
+    for (std::uint32_t inner = 0u; inner < expected.inner; ++inner) {
+      NestedTemplateRouteProjection route{};
+      if (!shape.project(shape.action_first() + inner, route) ||
+          route.phase != NestedTemplatePhase::Action ||
+          route.occurrence_count != expected.outer ||
+          route.iteration != inner || route.bound != expected.inner ||
+          route.inner_iteration != inner || route.inner_advance != 1u) {
+        return false;
+      }
+    }
+    for (std::uint32_t fold = 0u; fold < 3u; ++fold) {
+      NestedTemplateRouteProjection route{};
+      if (!shape.project(shape.fold_first() + fold, route) ||
+          route.phase != NestedTemplatePhase::Fold ||
+          route.occurrence_count != expected.fold_occurrences[fold] ||
+          route.iteration != fold || route.bound != 3u || route.route != fold) {
+        return false;
+      }
+    }
+  }
+
+  NestedTemplateShape tail{};
+  if (!ProveNestedTemplateShape(7u, 5u, 2u, 1u, tail) ||
+      tail.outer_bound() != 3u || tail.seed_first() != 7u ||
+      tail.action_first() != 10u || tail.fold_first() != 11u ||
+      tail.end() != 14u || tail.authored_occurrence_count() != 9u) {
+    return false;
+  }
+
+  NestedTemplateShape parity{};
+  if (!ProveNestedTemplateShape(10u, 2u, 1u, 4u, parity) ||
+      parity.compact_entry_count() != 9u ||
+      parity.retained_entry_count() != 7u) {
+    return false;
+  }
+  constexpr std::array<std::size_t, 4u> expected_owners{12u, 13u, 12u, 13u};
+  for (std::size_t offset = 0u; offset < expected_owners.size(); ++offset) {
+    std::size_t owner = 0u;
+    if (!parity.retained_owner(parity.action_first() + offset, owner) ||
+        owner != expected_owners[offset]) {
+      return false;
+    }
+  }
+  NestedTemplateShape invalid{};
+  return !ProveNestedTemplateShape(0u, 0u, 1u, 1u, invalid) &&
+         !ProveNestedTemplateShape(0u, 1u, 0u, 1u, invalid) &&
+         !ProveNestedTemplateShape(0u, 1u, 2u, 1u, invalid) &&
+         !ProveNestedTemplateShape(std::numeric_limits<std::size_t>::max() - 2u,
+                                   5u, 2u, 1u, invalid);
+}
+
+[[nodiscard]] bool NestedTemplateGeometryContract() {
+  constexpr std::size_t Outer = 2u;
+  constexpr std::size_t Inner = 2u;
+  constexpr std::size_t Count = Outer + Inner + 3u;
+  std::array<BackendWindow, Count> windows{};
+  std::array<BackendRecurrence, Count> recurrences{};
+  for (std::size_t index = 0u; index < Count; ++index) {
+    BackendWindowPhase phase = BackendWindowPhase::NestedFold;
+    std::uint32_t iteration = static_cast<std::uint32_t>(index - Outer - Inner);
+    std::uint32_t bound = 3u;
+    std::uint32_t outer = 0u;
+    std::uint32_t inner = 0u;
+    std::uint32_t route = iteration;
+    std::uint32_t advance = 0u;
+    if (index < Outer) {
+      phase = BackendWindowPhase::NestedSeed;
+      iteration = static_cast<std::uint32_t>(index);
+      bound = static_cast<std::uint32_t>(Outer);
+      outer = iteration;
+      route = 0u;
+    } else if (index < Outer + Inner) {
+      phase = BackendWindowPhase::NestedAction;
+      iteration = static_cast<std::uint32_t>(index - Outer);
+      bound = static_cast<std::uint32_t>(Inner);
+      inner = iteration;
+      route = 0u;
+      advance = 1u;
+    }
+    windows[index] = BackendWindow{
+        .maximum = 8u,
+        .tile = 4u,
+        .state = 3u,
+        .outer_iteration = outer,
+        .outer_bound = static_cast<std::uint32_t>(Outer),
+        .inner_iteration = inner,
+        .inner_bound = static_cast<std::uint32_t>(Inner),
+        .inner_advance = advance,
+        .route = route,
+        .phase = phase,
+    };
+    recurrences[index] = BackendRecurrence{
+        .logical_step = 7u,
+        .iteration = iteration,
+        .bound = bound,
+        .window = &windows[index],
+    };
+  }
+  const auto batch = [&] {
+    std::array<BackendBatchEntry, Count> entries{};
+    for (std::size_t index = 0u; index < Count; ++index) {
+      entries[index] = BackendBatchEntry{
+          .recurrence = recurrences[index],
+          .template_index = static_cast<std::uint32_t>(index),
+      };
+    }
+    return entries;
+  };
+  const auto proves = [&](const bool expected) {
+    NestedTemplateGeometry recurrence_geometry{};
+    NestedTemplateGeometry batch_geometry{};
+    const auto entries = batch();
+    const bool recurrence_ok = ProveNestedTemplateGeometry(
+        std::span<const BackendRecurrence>{recurrences.data(),
+                                           recurrences.size()},
+        0u, recurrence_geometry);
+    const bool batch_ok = ProveNestedTemplateGeometry(
+        std::span<const BackendBatchEntry>{entries.data(), entries.size()}, 0u,
+        batch_geometry);
+    if (recurrence_ok != expected || batch_ok != expected) {
+      return false;
+    }
+    return !expected ||
+           (recurrence_geometry.first() == 0u &&
+            recurrence_geometry.action_first() == Outer &&
+            recurrence_geometry.fold_first() == Outer + Inner &&
+            recurrence_geometry.end() == Count &&
+            recurrence_geometry.outer_bound() == Outer &&
+            recurrence_geometry.inner_bound() == Inner &&
+            batch_geometry.action_first() ==
+                recurrence_geometry.action_first() &&
+            batch_geometry.fold_first() == recurrence_geometry.fold_first() &&
+            batch_geometry.end() == recurrence_geometry.end());
+  };
+  if (!proves(true)) {
+    return false;
+  }
+
+  for (BackendWindow &window : windows) {
+    window.maximum = 12u;
+  }
+  if (!proves(false)) {
+    return false;
+  }
+  for (BackendWindow &window : windows) {
+    window.maximum = 8u;
+  }
+  windows[Outer].phase = BackendWindowPhase::NestedFold;
+  if (!proves(false)) {
+    return false;
+  }
+  windows[Outer].phase = BackendWindowPhase::NestedAction;
+  windows[0u].outer_iteration = 1u;
+  if (!proves(false)) {
+    return false;
+  }
+  windows[0u].outer_iteration = 0u;
+  windows[Outer].inner_advance = 0u;
+  if (!proves(false)) {
+    return false;
+  }
+  windows[Outer].inner_advance = 1u;
+  windows[Outer + Inner].route = 1u;
+  if (!proves(false)) {
+    return false;
+  }
+  windows[Outer + Inner].route = 0u;
+  recurrences[Outer + 1u].iteration = 0u;
+  if (!proves(false)) {
+    return false;
+  }
+  recurrences[Outer + 1u].iteration = 1u;
+  recurrences[Outer + 1u].bound = 1u;
+  if (!proves(false)) {
+    return false;
+  }
+  recurrences[Outer + 1u].bound = static_cast<std::uint32_t>(Inner);
+  recurrences[Outer + Inner].logical_step = 8u;
+  if (!proves(false)) {
+    return false;
+  }
+  recurrences[Outer + Inner].logical_step = 7u;
+  recurrences[Outer].writes_each_iteration = true;
+  if (!proves(false)) {
+    return false;
+  }
+  recurrences[Outer].writes_each_iteration = false;
+  windows[Outer + 1u].count.source.stride_bytes = 8u;
+  if (!proves(false)) {
+    return false;
+  }
+  windows[Outer + 1u].count.source.stride_bytes = 0u;
+  windows[Outer + 1u].count.handle = std::make_shared<std::uint32_t>(1u);
+  if (!proves(false)) {
+    return false;
+  }
+  windows[Outer + 1u].count.handle.reset();
+
+  for (BackendWindow &window : windows) {
+    window.has_terminal = true;
+  }
+  if (!proves(true)) {
+    return false;
+  }
+  windows.back().terminal[1u].source.id = 1u;
+  if (!proves(false)) {
+    return false;
+  }
+  windows.back().terminal[1u].source.id = 0u;
+
+  std::array<std::uint8_t, Count> barriers{};
+  barriers.fill(1u);
+  auto entries = batch();
+  const auto publications =
+      std::span<const rund::node::accel::detail::BackendPublish>{};
+  const auto terminal_aggregate =
+      BuildNestedAggregate(entries, barriers, publications, 0u);
+  if (terminal_aggregate.state != NestedAggregateState::Ineligible ||
+      std::string_view{terminal_aggregate.reason} !=
+          "compute_pipeline_nested_aggregate_shape_ineligible") {
+    return false;
+  }
+  for (BackendWindow &window : windows) {
+    window.has_terminal = false;
+  }
+  entries = batch();
+  BackendRun aggregate_run{};
+  for (BackendBatchEntry &entry : entries) {
+    entry.run = &aggregate_run;
+  }
+  const auto base_aggregate =
+      BuildNestedAggregate(entries, barriers, publications, 0u);
+  if (base_aggregate.state != NestedAggregateState::Ineligible ||
+      std::string_view{base_aggregate.reason} !=
+          "compute_pipeline_nested_aggregate_seed_ineligible") {
+    return false;
+  }
+  barriers[1u] = 0u;
+  const auto barrier_aggregate =
+      BuildNestedAggregate(entries, barriers, publications, 0u);
+  if (barrier_aggregate.state != NestedAggregateState::Ineligible ||
+      std::string_view{barrier_aggregate.reason} !=
+          "compute_pipeline_nested_aggregate_shape_ineligible") {
+    return false;
+  }
+
+  constexpr std::size_t ZeroCount = Outer + 3u;
+  std::array<BackendWindow, ZeroCount> zero_windows{};
+  std::array<BackendRecurrence, ZeroCount> zero_recurrences{};
+  std::array<BackendBatchEntry, ZeroCount> zero_entries{};
+  for (std::size_t index = 0u; index < ZeroCount; ++index) {
+    const bool seed = index < Outer;
+    const std::uint32_t iteration =
+        static_cast<std::uint32_t>(seed ? index : index - Outer);
+    zero_windows[index] = BackendWindow{
+        .maximum = 8u,
+        .tile = 4u,
+        .state = 3u,
+        .outer_iteration = seed ? iteration : 0u,
+        .outer_bound = static_cast<std::uint32_t>(Outer),
+        .inner_bound = 0u,
+        .route = seed ? 0u : iteration,
+        .phase = seed ? BackendWindowPhase::NestedSeed
+                      : BackendWindowPhase::NestedFold,
+    };
+    zero_recurrences[index] = BackendRecurrence{
+        .logical_step = 9u,
+        .iteration = iteration,
+        .bound = seed ? static_cast<std::uint32_t>(Outer) : 3u,
+        .window = &zero_windows[index],
+    };
+    zero_entries[index] = BackendBatchEntry{
+        .recurrence = zero_recurrences[index],
+        .template_index = static_cast<std::uint32_t>(index),
+    };
+  }
+  NestedTemplateGeometry zero_geometry{};
+  NestedTemplateGeometry zero_batch_geometry{};
+  std::array<std::uint8_t, ZeroCount> zero_barriers{};
+  zero_barriers.fill(1u);
+  const auto zero_aggregate =
+      BuildNestedAggregate(zero_entries, zero_barriers, publications, 0u);
+  return ProveNestedTemplateGeometry(
+             std::span<const BackendRecurrence>{zero_recurrences.data(),
+                                                zero_recurrences.size()},
+             0u, zero_geometry) &&
+         ProveNestedTemplateGeometry(
+             std::span<const BackendBatchEntry>{zero_entries.data(),
+                                                zero_entries.size()},
+             0u, zero_batch_geometry) &&
+         zero_geometry.inner_bound() == 0u &&
+         BuildNestedMapRecurrence(
+             std::span<const BackendBatchEntry>{zero_entries.data() + Outer,
+                                                0u},
+             std::span<const std::uint8_t>{zero_barriers.data() + Outer, 0u},
+             zero_batch_geometry)
+                 .state == MapRecurrenceState::Ineligible &&
+         zero_aggregate.state == NestedAggregateState::Ineligible &&
+         std::string_view{zero_aggregate.reason} ==
+             "compute_pipeline_nested_aggregate_shape_ineligible";
 }
 
 [[nodiscard]] bool PreparationPlanContract() {
@@ -589,13 +1041,11 @@ struct Fixture final {
   constexpr std::uint64_t descriptor_sets = 16u;
   constexpr std::uint64_t descriptors_per_set = 4u;
   if (!PlanVulkanPipelineRecurrence(plan, reservation).ok ||
-      reservation.group_count != 7u ||
-      reservation.history_group_count != 2u ||
+      reservation.group_count != 7u || reservation.history_group_count != 2u ||
       reservation.terminal_template_group_capacity != 10u ||
       reservation.history_template_group_capacity != 6u ||
       reservation.descriptor_set_count != descriptor_sets ||
-      reservation.descriptor_count !=
-          descriptor_sets * descriptors_per_set ||
+      reservation.descriptor_count != descriptor_sets * descriptors_per_set ||
       reservation.template_native_allocation_count != descriptor_sets + 8u) {
     return false;
   }
@@ -663,8 +1113,7 @@ struct Fixture final {
       terminal_scaled.route_native_allocation_count != 70u ||
       !same_template_budget(terminal, terminal_scaled) ||
       terminal_scaled.route_host_bytes != terminal.route_host_bytes * 10u ||
-      terminal_scaled.route_native_bytes !=
-          terminal.route_native_bytes * 10u) {
+      terminal_scaled.route_native_bytes != terminal.route_native_bytes * 10u) {
     return false;
   }
 
@@ -699,8 +1148,8 @@ struct Fixture final {
       .group_count = 1u,
   };
   if (PlanMetalPipelineRecurrence(invalid, rejected).ok ||
-      rejected.route_host_bytes != 0u ||
-      rejected.template_host_bytes != 0u || rejected.group_count != 0u) {
+      rejected.route_host_bytes != 0u || rejected.template_host_bytes != 0u ||
+      rejected.group_count != 0u) {
     return false;
   }
   invalid = mixed_seven;
@@ -756,22 +1205,20 @@ struct Fixture final {
   }
   const char *const storage = artifact.source_text.data();
   const std::size_t capacity = artifact.source_text.capacity();
-  rund::kernel::LoweringArtifact specialized = SpecializeMapInPlace(
-      std::move(artifact), recurrence.plan, recurrence.bindings, 1u,
-      final_upper);
+  rund::kernel::LoweringArtifact specialized =
+      SpecializeMapInPlace(std::move(artifact), recurrence.plan,
+                           recurrence.bindings, 1u, final_upper);
   if (!specialized.ok || specialized.source_text.data() != storage ||
       specialized.source_text.capacity() != capacity ||
       specialized.metadata.retained_dynamic_memory_bytes() != 0u ||
-      specialized.retained_dynamic_memory_bytes() >
-          final_storage_upper) {
+      specialized.retained_dynamic_memory_bytes() > final_storage_upper) {
     return false;
   }
 
   const KernelPreparationScope preparation{
       KernelPreparationMode::PipelinePrivate};
-  std::string guarded =
-      PipelinePrivateMetalSource(std::move(specialized.source_text),
-                                 final_upper);
+  std::string guarded = PipelinePrivateMetalSource(
+      std::move(specialized.source_text), final_upper);
   return !guarded.empty() && guarded.size() <= final_upper &&
          guarded.data() == storage && guarded.capacity() == capacity;
 #else
@@ -789,7 +1236,8 @@ struct Fixture final {
       rund::node::accel::detail::MapRecurrenceState::Ineligible) {
     return false;
   }
-  return NestedMarkerContract() && HistoryMarkerContract() &&
+  return NestedMarkerContract() && NestedTemplateShapeContract() &&
+         NestedTemplateGeometryContract() && HistoryMarkerContract() &&
          PreparationPlanContract() && MetalPreparationReservationContract() &&
          VulkanPreparationReservationContract() &&
          MetalRecurrenceSourceHasOneStorageOwner() &&

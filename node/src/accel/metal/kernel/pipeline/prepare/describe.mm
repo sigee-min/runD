@@ -39,18 +39,18 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       std::uint32_t seed_status = 0u;
       std::uint32_t action_status = 0u;
       std::uint32_t fold_status = 0u;
-      if (!status_count(aggregate.seed.first, seed_status) ||
-          !status_count(aggregate.action.first, action_status) ||
-          !status_count(aggregate.fold.first, fold_status)) {
+      if (!status_count(aggregate.shape.seed_first(), seed_status) ||
+          !status_count(aggregate.shape.action_first(), action_status) ||
+          !status_count(aggregate.shape.fold_first(), fold_status)) {
         return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
       }
       for (std::uint32_t index = 0u; index < status.active_step_count;
            ++index) {
         const std::uint32_t count =
-            index < aggregate.seed.end()
+            index < aggregate.shape.action_first()
                 ? seed_status
-                : (index < aggregate.action.end() ? action_status
-                                                  : fold_status);
+                : (index < aggregate.shape.fold_first() ? action_status
+                                                        : fold_status);
         if (!SetPreparedProgramStatusSlice(status, index, count)) {
           return rund::AccelCheck{false, "compute_pipeline_capacity"};
         }

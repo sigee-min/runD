@@ -26,8 +26,7 @@ Spec Project(const rund::kernel::ResidentBufferRef &source,
   };
 }
 
-Result Prove(const Spec spec, const std::uint64_t target_bytes,
-             const std::uint64_t word_limit) noexcept {
+Result Prove(const Spec spec, const std::uint64_t target_bytes) noexcept {
   if (spec.count == 0u ||
       (spec.element != sizeof(std::uint32_t) &&
        spec.element != sizeof(std::uint64_t)) ||
@@ -45,11 +44,8 @@ Result Prove(const Spec spec, const std::uint64_t target_bytes,
   // The preceding quotient proof bounds both operations by target_bytes.
   const std::uint64_t end =
       spec.offset + (spec.count - 1u) * spec.stride + spec.element;
-  if (end / kWordBytes > word_limit) {
-    return Reject();
-  }
-
-  return Result{.check = rund::AccelCheck{true, "ok"}, .range = Range{spec}};
+  return Result{.check = rund::AccelCheck{true, "ok"},
+                .range = Range{spec, end}};
 }
 
 } // namespace rund::node::accel::detail::reset

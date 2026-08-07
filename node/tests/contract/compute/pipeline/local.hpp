@@ -72,6 +72,7 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 [[nodiscard]] int CheckMetalGuardTransform();
 [[nodiscard]] int CheckViews(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckViewArena(rund::compute::Device &, Backend);
+[[nodiscard]] int CheckSealedPipelineBindings(rund::compute::Device &);
 [[nodiscard]] int CheckHazards(rund::compute::Device &);
 [[nodiscard]] int CheckValidationAndIdentity(rund::compute::Device &);
 [[nodiscard]] int CheckTransactionalGenerations(rund::compute::Device &,

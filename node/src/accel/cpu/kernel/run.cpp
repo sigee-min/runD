@@ -30,28 +30,31 @@ Reset(const BackendRun &run, const std::size_t step, std::size_t &cursor) {
   const std::size_t begin = cursor;
   while (cursor < run.resets->size() &&
          (*run.resets)[cursor].step.index == step) {
-    const BoundReset &reset = (*run.resets)[cursor];
+    const BoundReset &clear = (*run.resets)[cursor];
+    const rund::kernel::ResidentBufferRef ref = clear.ref();
     CpuBufferResult target = LookupCpuResidentView(
-        *run.pick, reset.ref, reset.handle, rund::kernel::kResidentUsageWrite);
+        *run.pick, ref, clear.handle(), rund::kernel::kResidentUsageWrite);
     if (!target.check.ok || target.buffer == nullptr) {
       return target.check.ok
                  ? rund::AccelCheck{false, "accel_kernel_reset_invalid"}
                  : target.check;
     }
     std::vector<std::uint8_t> &data = target.buffer->data;
-    if (reset.ref.stride_bytes == reset.ref.element_bytes) {
-      std::memset(
-          data.data() + reset.ref.offset_bytes, 0,
-          static_cast<std::size_t>(reset.ref.count * reset.ref.element_bytes));
+    const reset::Range range = clear.range();
+    if (!range.valid() || range.end() > data.size()) {
+      return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
+    }
+    if (range.dense()) {
+      std::memset(data.data() + range.offset(), 0,
+                  static_cast<std::size_t>(reset::Payload(range)));
     } else {
-      for (std::uint64_t ordinal = 0u; ordinal < reset.ref.count; ++ordinal) {
-        std::memset(data.data() + reset.ref.offset_bytes +
-                        ordinal * reset.ref.stride_bytes,
-                    0, static_cast<std::size_t>(reset.ref.element_bytes));
+      for (std::uint64_t ordinal = 0u; ordinal < range.count(); ++ordinal) {
+        std::memset(data.data() + range.offset() + ordinal * range.stride(), 0,
+                    static_cast<std::size_t>(range.element()));
       }
     }
     bytes = ::rund::detail::counter::SaturatingAdd(
-        bytes, reset.ref.count * reset.ref.element_bytes);
+        bytes, reset::Payload(range));
     ++cursor;
   }
   if (cursor == begin) {

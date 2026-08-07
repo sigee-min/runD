@@ -21,7 +21,7 @@ struct Spec final {
 
 class Range;
 struct Result;
-[[nodiscard]] Result Prove(Spec, std::uint64_t, std::uint64_t) noexcept;
+[[nodiscard]] Result Prove(Spec, std::uint64_t) noexcept;
 
 class Range final {
 public:
@@ -47,17 +47,24 @@ public:
     return stride_ == element_;
   }
 
+  [[nodiscard]] constexpr std::uint64_t end() const noexcept { return end_; }
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return count_ != 0u && end_ > offset_;
+  }
+
 private:
-  constexpr explicit Range(const Spec spec) noexcept
+  constexpr Range(const Spec spec, const std::uint64_t end) noexcept
       : offset_{spec.offset}, count_{spec.count}, stride_{spec.stride},
-        element_{spec.element} {}
+        element_{spec.element}, end_{end} {}
 
   std::uint64_t offset_{};
   std::uint64_t count_{};
   std::uint64_t stride_{};
   std::uint64_t element_{};
+  std::uint64_t end_{};
 
-  friend Result Prove(Spec, std::uint64_t, std::uint64_t) noexcept;
+  friend Result Prove(Spec, std::uint64_t) noexcept;
 };
 
 struct Replacement final {
@@ -85,6 +92,15 @@ static_assert(offsetof(Params, reserved) == 36u);
 
 [[nodiscard]] constexpr std::uint64_t Payload(const Range range) noexcept {
   return range.count() * range.element();
+}
+
+[[nodiscard]] constexpr bool
+WordAddressable(const Range range, const std::uint64_t origin,
+                const std::uint64_t word_limit) noexcept {
+  return range.valid() && origin <= range.offset() &&
+         origin % kWordBytes == 0u &&
+         (range.offset() - origin) % kWordBytes == 0u &&
+         (range.end() - origin) / kWordBytes <= word_limit;
 }
 
 [[nodiscard]] constexpr std::uint64_t

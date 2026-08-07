@@ -105,14 +105,26 @@ bool buffer_poisoned(const BufferState &buffer) noexcept {
   return buffer.poisoned;
 }
 
+Status
+validate_pipeline_resource_device(const PipelineState &state,
+                                  const PipelineResource &resource) noexcept {
+  if (state.device == nullptr || state.device->claims == nullptr) {
+    return Status::fail(Reason::DeviceInvalid);
+  }
+  return resource.buffer == nullptr || resource.buffer->device != state.device
+             ? Status::fail(Reason::BindingDeviceMismatch)
+             : Status::success();
+}
+
 Status validate_pipeline_resources(const PipelineState &state) noexcept {
   if (state.device == nullptr || state.device->claims == nullptr) {
     return Status::fail(Reason::DeviceInvalid);
   }
   std::lock_guard lock{state.device->claims->gate};
   for (const PipelineResource &resource : state.resources) {
-    if (resource.buffer == nullptr || resource.buffer->device != state.device) {
-      return Status::fail(Reason::BindingDeviceMismatch);
+    const Status device = validate_pipeline_resource_device(state, resource);
+    if (!device) {
+      return device;
     }
     if (resource.buffer->poisoned) {
       return Status::fail(Reason::BufferPoisoned);

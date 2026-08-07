@@ -61,10 +61,9 @@ consume_cpu_pipeline_step(PipelineState &state, std::size_t index,
 [[nodiscard]] Status prepare_cpu_pipeline_window(PipelineState &state,
                                                  const PipelineStep &step,
                                                  bool &active) noexcept;
-[[nodiscard]] Status cpu_resident_view(PipelineState &state,
-                                       const PipelineWindow &window,
-                                       std::uint32_t output,
-                                       CpuView &view) noexcept;
+[[nodiscard]] Status resolve_cpu_pipeline_publication_view(
+    PipelineState &state, const PipelinePublicationViewPlan &planned,
+    CpuView &view) noexcept;
 void reset_cpu_resident(PipelineState &state) noexcept;
 [[nodiscard]] Status publish_cpu_pipeline(PipelineState &state) noexcept;
 [[nodiscard]] Status publish_cpu_pipeline_window(PipelineState &state,

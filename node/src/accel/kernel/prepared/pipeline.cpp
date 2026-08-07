@@ -43,6 +43,14 @@ namespace rund::node::accel::detail {
 [[nodiscard]] bool ScalePreparedMapRecurrenceRoutesForContract(
     const PreparedMapRecurrenceReservation &reservation, std::uint64_t copies,
     PreparedMapRecurrenceReservation &scaled) noexcept;
+[[nodiscard]] bool MaterializePreparedPipelineOccurrenceForContract(
+    const BackendWindow &template_window, std::uint32_t outer,
+    std::uint32_t outer_bound, std::uint32_t inner, std::uint32_t inner_bound,
+    std::uint32_t route, std::uint32_t inner_advance, bool transduced,
+    PreparedPipelineFailure &failure) noexcept;
+[[nodiscard]] bool PreparedPublicationViewMatchesForContract(
+    const rund::kernel::ResidentBufferRef &view,
+    const PreparedKernelPublicationViewIdentity &identity) noexcept;
 
 namespace {
 
@@ -579,20 +587,6 @@ void fingerprint_pipeline_header(std::uint64_t &hi, std::uint64_t &lo,
   fingerprint_mix(lo, route_count);
 }
 
-[[nodiscard]] PreparedKernelPublicationViewIdentity
-publication_view_identity(const rund::kernel::ResidentBufferRef &view,
-                          const std::uint32_t ordinal) noexcept {
-  return PreparedKernelPublicationViewIdentity{
-      .backing_bytes = view.bytes,
-      .offset_bytes = view.offset_bytes,
-      .count = view.count,
-      .stride_bytes = view.stride_bytes,
-      .element_bytes = view.element_bytes,
-      .resource_ordinal = ordinal,
-      .usage = view.usage,
-  };
-}
-
 [[nodiscard]] PreparedKernelPipelineShape
 runtime_pipeline_shape(const std::span<const BackendPublish> publications,
                        const std::span<const BackendRecurrence> recurrences,
@@ -608,11 +602,11 @@ runtime_pipeline_shape(const std::span<const BackendPublish> publications,
   SeedPreparedKernelPublicationFingerprint(shape.publication_fingerprint_hi,
                                            shape.publication_fingerprint_lo);
   for (const BackendPublish &publication : publications) {
-    const bool window = publication.kind == BackendPublishKind::Window;
+    const PreparedKernelPublicationIdentity &identity = publication.identity;
+    const bool window = identity.kind == PreparedKernelPublicationKind::Window;
     std::uint64_t publication_commands = 0u;
     if (!PreparedKernelPublicationCommandContribution(
-            window, publication.maximum, publication.tile,
-            publication_commands) ||
+            identity.kind, identity.outer_bound, publication_commands) ||
         !rund::kernel::checked::add(shape.backend_publication_command_count,
                                     publication_commands,
                                     shape.backend_publication_command_count)) {
@@ -620,21 +614,6 @@ runtime_pipeline_shape(const std::span<const BackendPublish> publications,
           std::numeric_limits<std::uint64_t>::max();
     }
     shape.terminal_publication_count += window ? 0u : 1u;
-    PreparedKernelPublicationIdentity identity{
-        .count = publication_view_identity(publication.count.source,
-                                           publication.count_ordinal),
-        .target = publication_view_identity(publication.target,
-                                            publication.target_ordinal),
-        .state = publication.state,
-        .final = publication.final,
-        .maximum = publication.maximum,
-        .tile = publication.tile,
-        .kind = static_cast<std::uint8_t>(publication.kind),
-    };
-    for (std::size_t bank = 0u; bank < publication.sources.size(); ++bank) {
-      identity.sources[bank] = publication_view_identity(
-          publication.sources[bank].source, publication.source_ordinals[bank]);
-    }
     MixPreparedKernelPublicationFingerprint(shape.publication_fingerprint_hi,
                                             shape.publication_fingerprint_lo,
                                             identity);
@@ -658,6 +637,18 @@ runtime_pipeline_shape(const std::span<const BackendPublish> publications,
     shape.window_descriptor_state_count += first ? 1u : 0u;
   }
   return shape;
+}
+
+[[nodiscard]] bool publication_view_matches(
+    const rund::kernel::ResidentBufferRef &view,
+    const PreparedKernelPublicationViewIdentity &identity) noexcept {
+  return view.id != 0u && view.id == identity.resident_id &&
+         view.bytes == identity.backing_bytes &&
+         view.offset_bytes == identity.offset_bytes &&
+         view.count == identity.count &&
+         view.stride_bytes == identity.stride_bytes &&
+         view.element_bytes == identity.element_bytes &&
+         view.usage == identity.usage;
 }
 
 [[nodiscard]] bool
@@ -916,122 +907,6 @@ backend_template_route_demand(const std::uint64_t owner_count,
   return true;
 }
 
-[[nodiscard]] bool same_nested_window(const BackendWindow &left,
-                                      const BackendWindow &right) noexcept {
-  return left.state == right.state && left.maximum == right.maximum &&
-         left.tile == right.tile && left.expected == right.expected &&
-         left.outer_bound == right.outer_bound &&
-         left.inner_bound == right.inner_bound &&
-         left.has_terminal == right.has_terminal &&
-         left.count.source.id == right.count.source.id &&
-         left.count.source.offset_bytes == right.count.source.offset_bytes &&
-         left.count.handle == right.count.handle;
-}
-
-[[nodiscard]] bool
-nested_shape(const std::span<const BackendBatchEntry> templates,
-             const std::size_t first, std::size_t &end,
-             std::uint32_t &outer_bound, std::uint32_t &inner_bound) noexcept {
-  if (first >= templates.size()) {
-    return false;
-  }
-  const BackendWindow *const first_window = templates[first].recurrence.window;
-  if (first_window == nullptr ||
-      first_window->phase != BackendWindowPhase::NestedSeed ||
-      first_window->outer_bound == 0u) {
-    return false;
-  }
-  outer_bound = first_window->outer_bound;
-  inner_bound = first_window->inner_bound;
-  const std::uint64_t group_count =
-      static_cast<std::uint64_t>(outer_bound) + inner_bound + 3u;
-  if (group_count > templates.size() - first) {
-    return false;
-  }
-  end = first + static_cast<std::size_t>(group_count);
-  for (std::uint32_t outer = 0u; outer < outer_bound; ++outer) {
-    const BackendWindow *const window =
-        templates[first + outer].recurrence.window;
-    if (window == nullptr || window->phase != BackendWindowPhase::NestedSeed ||
-        window->outer_iteration != outer || window->route != 0u ||
-        !same_nested_window(*first_window, *window)) {
-      return false;
-    }
-  }
-  const std::size_t action_first = first + outer_bound;
-  for (std::uint32_t inner = 0u; inner < inner_bound; ++inner) {
-    const BackendWindow *const window =
-        templates[action_first + inner].recurrence.window;
-    if (window == nullptr ||
-        window->phase != BackendWindowPhase::NestedAction ||
-        window->inner_iteration != inner || window->route != 0u ||
-        !same_nested_window(*first_window, *window)) {
-      return false;
-    }
-  }
-  const std::size_t fold_first = action_first + inner_bound;
-  for (std::uint32_t route = 0u; route < 3u; ++route) {
-    const BackendWindow *const window =
-        templates[fold_first + route].recurrence.window;
-    if (window == nullptr || window->phase != BackendWindowPhase::NestedFold ||
-        window->route != route || !same_nested_window(*first_window, *window)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-[[nodiscard]] bool
-nested_shape(const std::span<const BackendRecurrence> recurrences,
-             const std::size_t first, std::size_t &end,
-             std::uint32_t &outer_bound, std::uint32_t &inner_bound) noexcept {
-  if (first >= recurrences.size()) {
-    return false;
-  }
-  const BackendWindow *const first_window = recurrences[first].window;
-  if (first_window == nullptr ||
-      first_window->phase != BackendWindowPhase::NestedSeed ||
-      first_window->outer_bound == 0u) {
-    return false;
-  }
-  outer_bound = first_window->outer_bound;
-  inner_bound = first_window->inner_bound;
-  const std::uint64_t group_count =
-      static_cast<std::uint64_t>(outer_bound) + inner_bound + 3u;
-  if (group_count > recurrences.size() - first) {
-    return false;
-  }
-  end = first + static_cast<std::size_t>(group_count);
-  for (std::uint32_t outer = 0u; outer < outer_bound; ++outer) {
-    const BackendWindow *const window = recurrences[first + outer].window;
-    if (window == nullptr || window->phase != BackendWindowPhase::NestedSeed ||
-        window->outer_iteration != outer || window->route != 0u ||
-        !same_nested_window(*first_window, *window)) {
-      return false;
-    }
-  }
-  const std::size_t action_first = first + outer_bound;
-  for (std::uint32_t inner = 0u; inner < inner_bound; ++inner) {
-    const BackendWindow *const window =
-        recurrences[action_first + inner].window;
-    if (window == nullptr ||
-        window->phase != BackendWindowPhase::NestedAction ||
-        window->inner_iteration != inner || window->route != 0u ||
-        !same_nested_window(*first_window, *window)) {
-      return false;
-    }
-  }
-  const std::size_t fold_first = action_first + inner_bound;
-  for (std::uint32_t route = 0u; route < 3u; ++route) {
-    const BackendWindow *const window = recurrences[fold_first + route].window;
-    if (window == nullptr || window->phase != BackendWindowPhase::NestedFold ||
-        window->route != route || !same_nested_window(*first_window, *window)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 [[nodiscard]] PreparedKernelRecurrenceIdentity
 recurrence_identity(const BackendRecurrence &recurrence) noexcept {
   PreparedKernelRecurrenceIdentity identity{
@@ -1057,40 +932,6 @@ recurrence_identity(const BackendRecurrence &recurrence) noexcept {
   identity.has_window = true;
   identity.has_terminal = window->has_terminal;
   return identity;
-}
-
-[[nodiscard]] bool recurrence_occurrences(const BackendRecurrence &recurrence,
-                                          std::uint64_t &count) noexcept {
-  const BackendWindow *const window = recurrence.window;
-  if (window == nullptr || window->phase == BackendWindowPhase::Ordinary) {
-    count = 1u;
-    return true;
-  }
-  switch (window->phase) {
-  case BackendWindowPhase::NestedSeed:
-    count = 1u;
-    return true;
-  case BackendWindowPhase::NestedAction:
-    count = window->outer_bound;
-    return count != 0u;
-  case BackendWindowPhase::NestedFold:
-    if (window->route == 0u) {
-      count = 1u;
-      return true;
-    }
-    if (window->route == 1u) {
-      count = window->outer_bound / 2u;
-      return true;
-    }
-    if (window->route == 2u && window->outer_bound != 0u) {
-      count = (window->outer_bound - 1u) / 2u;
-      return true;
-    }
-    return false;
-  case BackendWindowPhase::Ordinary:
-    break;
-  }
-  return false;
 }
 
 [[nodiscard]] bool route_recurrence_shape(
@@ -1119,20 +960,6 @@ recurrence_identity(const BackendRecurrence &recurrence) noexcept {
         top_level_recurrence && marker.logical_step == top_logical &&
         marker.iteration == index && marker.bound == recurrences.size() &&
         marker.window == nullptr && marker.writes_each_iteration == top_history;
-    const PreparedKernelRun *const item = runs[index];
-    if (item == nullptr || item->owner.get() != route_owner) {
-      continue;
-    }
-    std::uint64_t occurrences = 0u;
-    if (!recurrence_occurrences(recurrences[index], occurrences) ||
-        !accumulate(entry_count, 1u) ||
-        !accumulate(occurrence_count, occurrences) ||
-        (recurrences[index].window != nullptr &&
-         !accumulate(window_count, occurrences))) {
-      return false;
-    }
-    MixPreparedKernelRecurrenceFingerprint(
-        recurrence_hi, recurrence_lo, recurrence_identity(recurrences[index]));
   }
   if (top_level_recurrence && runs.front() != nullptr &&
       runs.front()->owner.get() == route_owner &&
@@ -1143,29 +970,68 @@ recurrence_identity(const BackendRecurrence &recurrence) noexcept {
   for (std::size_t index = 0u; index < recurrences.size();) {
     const BackendWindow *const window = recurrences[index].window;
     if (window == nullptr || window->phase == BackendWindowPhase::Ordinary) {
+      const PreparedKernelRun *const item = runs[index];
+      if (item == nullptr) {
+        return false;
+      }
+      if (item->owner.get() == route_owner &&
+          (!accumulate(entry_count, 1u) || !accumulate(occurrence_count, 1u) ||
+           (window != nullptr && !accumulate(window_count, 1u)))) {
+        return false;
+      }
+      if (item->owner.get() == route_owner) {
+        MixPreparedKernelRecurrenceFingerprint(
+            recurrence_hi, recurrence_lo,
+            recurrence_identity(recurrences[index]));
+      }
       ++index;
       continue;
     }
-    std::size_t end = 0u;
-    std::uint32_t outer = 0u;
-    std::uint32_t inner = 0u;
-    if (window->phase != BackendWindowPhase::NestedSeed ||
-        !nested_shape(recurrences, index, end, outer, inner) ||
+    NestedTemplateGeometry geometry{};
+    if (!ProveNestedTemplateGeometry(recurrences, index, geometry) ||
         runs[index] == nullptr) {
       return false;
+    }
+    const NestedTemplateShape &shape = geometry.shape();
+    const NestedTemplateRecurrenceIdentityBase identity_base{
+        .logical_step = geometry.logical_step(),
+        .maximum = geometry.window()->maximum,
+        .tile = geometry.window()->tile,
+        .expected = geometry.window()->expected,
+        .state = geometry.window()->state,
+        .has_terminal = geometry.window()->has_terminal,
+    };
+    for (std::size_t template_index = shape.first();
+         template_index < shape.end(); ++template_index) {
+      const PreparedKernelRun *const item = runs[template_index];
+      NestedTemplateRouteProjection route{};
+      PreparedKernelRecurrenceIdentity identity{};
+      if (item == nullptr || !shape.project(template_index, route) ||
+          !ProjectNestedRecurrenceIdentity(shape, template_index, identity_base,
+                                           identity)) {
+        return false;
+      }
+      if (item->owner.get() != route_owner) {
+        continue;
+      }
+      if (!accumulate(entry_count, 1u) ||
+          !accumulate(occurrence_count, route.occurrence_count) ||
+          !accumulate(window_count, route.occurrence_count)) {
+        return false;
+      }
+      MixPreparedKernelRecurrenceFingerprint(recurrence_hi, recurrence_lo,
+                                             identity);
     }
     if (runs[index]->owner.get() == route_owner &&
         !accumulate(nested_group_count, 1u)) {
       return false;
     }
-    const std::size_t action_first = index + outer;
-    if (inner > 1u && action_first < runs.size() &&
-        runs[action_first] != nullptr &&
-        runs[action_first]->owner.get() == route_owner &&
+    if (shape.action_group_candidate() &&
+        runs[shape.action_first()]->owner.get() == route_owner &&
         !accumulate(map_recurrence_group_count, 1u)) {
       return false;
     }
-    index = end;
+    index = shape.end();
   }
   // A compact terminal bank can be semantically authored yet have zero
   // physical occurrences for a one-iteration bound (for example fold bank
@@ -1416,24 +1282,19 @@ struct RuntimeRecurrenceRoutePlan final {
       ++index;
       continue;
     }
-    std::size_t end = 0u;
-    std::uint32_t outer = 0u;
-    std::uint32_t inner = 0u;
-    if (!nested_shape(recurrences, index, end, outer, inner)) {
+    NestedTemplateGeometry geometry{};
+    if (!ProveNestedTemplateGeometry(recurrences, index, geometry)) {
       return PreparedKernelPipelineReservation{.reason =
                                                    "accel_kernel_run_invalid"};
     }
-    std::uint64_t commands_per_outer = 0u;
-    std::uint64_t commands = 0u;
-    if (!add(inner, 2u, commands_per_outer) ||
-        !multiply(outer, commands_per_outer, commands) ||
-        !accumulate(occurrence_count, commands) ||
+    const std::uint64_t commands = geometry.shape().authored_occurrence_count();
+    if (!accumulate(occurrence_count, commands) ||
         !accumulate(window_count, commands) ||
         !accumulate(nested_group_count, 1u)) {
       return PreparedKernelPipelineReservation{.reason =
                                                    "compute_pipeline_capacity"};
     }
-    index = end;
+    index = geometry.end();
   }
   return plan_pipeline_structure_counts(recurrences.size(), occurrence_count,
                                         window_count, nested_group_count);
@@ -1617,10 +1478,49 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
   }
   return finalize_pipeline_backend_structure(
       context, *ops, projection, publications.size(),
-      shape.terminal_publication_count,
-      shape.backend_publication_command_count, shape.window_state_count,
-      shape.window_descriptor_state_count, profile_step_count,
-      profile_command_count, structure);
+      shape.terminal_publication_count, shape.backend_publication_command_count,
+      shape.window_state_count, shape.window_descriptor_state_count,
+      profile_step_count, profile_command_count, structure);
+}
+
+[[nodiscard]] bool append_pipeline_occurrence(
+    const std::span<const BackendBatchEntry> templates,
+    ExpandedPipeline &expanded, const std::size_t template_index,
+    const std::uint8_t barrier, const std::uint32_t outer,
+    const std::uint32_t outer_bound, const std::uint32_t inner,
+    const std::uint32_t inner_bound, const std::uint32_t route,
+    const std::uint32_t transducer = NoTileTransducer,
+    const std::uint32_t inner_advance = NoTileTransducer) {
+  if (template_index >= templates.size() ||
+      expanded.commands.size() >= std::numeric_limits<std::uint32_t>::max()) {
+    return false;
+  }
+  expanded.failure.compact_template_route(
+      static_cast<std::uint32_t>(template_index),
+      templates[template_index].recurrence);
+  BackendBatchEntry command = templates[template_index];
+  command.template_index = static_cast<std::uint32_t>(template_index);
+  command.occurrence_index =
+      static_cast<std::uint32_t>(expanded.commands.size());
+  command.transducer = transducer;
+  if (command.recurrence.window != nullptr) {
+    expanded.windows.push_back(*command.recurrence.window);
+    BackendWindow &window = expanded.windows.back();
+    window.outer_iteration = outer;
+    window.outer_bound = outer_bound;
+    window.inner_iteration = inner;
+    window.inner_bound = inner_bound;
+    window.inner_advance =
+        inner_advance != NoTileTransducer
+            ? inner_advance
+            : (window.phase == BackendWindowPhase::NestedAction ? 1u : 0u);
+    window.route = route;
+    command.recurrence.window = &window;
+  }
+  expanded.commands.push_back(std::move(command));
+  expanded.barriers.push_back(barrier);
+  expanded.failure.occurrence_route(expanded.commands.back());
+  return true;
 }
 
 [[nodiscard]] bool expand_pipeline(
@@ -1645,13 +1545,13 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
       ++index;
       continue;
     }
-    std::size_t end = 0u;
-    std::uint32_t outer_bound = 0u;
-    std::uint32_t inner_bound = 0u;
-    if (window->phase != BackendWindowPhase::NestedSeed ||
-        !nested_shape(templates, index, end, outer_bound, inner_bound)) {
+    NestedTemplateGeometry geometry{};
+    if (!ProveNestedTemplateGeometry(templates, index, geometry)) {
       return false;
     }
+    const std::size_t end = geometry.end();
+    const NestedTemplateShape &shape = geometry.shape();
+    const std::uint32_t inner_bound = geometry.inner_bound();
     NestedAggregate aggregate =
         BuildNestedAggregate(templates, template_barriers, publications, index);
     if (aggregate.invalid()) {
@@ -1669,12 +1569,15 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
     const NestedAggregate *const direct = expanded.aggregates.size() == 1u
                                               ? &expanded.aggregates.front()
                                               : nullptr;
-    bool declared_seed_range = direct != nullptr && direct->seed.first == 0u;
+    bool declared_seed_range =
+        direct != nullptr && direct->shape.seed_first() == 0u;
     if (declared_seed_range) {
-      const std::uint32_t first = declared_steps[direct->seed.first];
-      for (std::uint32_t outer = 0u; outer < direct->seed.count; ++outer) {
+      const std::size_t seed_first = direct->shape.seed_first();
+      const std::uint32_t first = declared_steps[seed_first];
+      for (std::uint32_t outer = 0u; outer < direct->shape.seed_count();
+           ++outer) {
         if (first > std::numeric_limits<std::uint32_t>::max() - outer ||
-            declared_steps[direct->seed.first + outer] != first + outer) {
+            declared_steps[seed_first + outer] != first + outer) {
           declared_seed_range = false;
           break;
         }
@@ -1693,12 +1596,10 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
     }
     const bool complete_direct =
         direct_aggregate_commands != 0u && direct != nullptr && index == 0u &&
-        end == templates.size() && direct->seed.count == outer_bound &&
-        direct->action.first == direct->seed.end() &&
-        direct->action.count == inner_bound &&
-        direct->fold.first == direct->action.end() &&
-        direct->fold.count == 3u && direct->fold.end() == templates.size() &&
-        publications.size() == 1u && direct->publication_index == 0u &&
+        end == templates.size() && direct->shape == shape &&
+        direct->shape.first() == 0u &&
+        direct->shape.end() == templates.size() && publications.size() == 1u &&
+        direct->publication_index == 0u &&
         direct->failure.logical_step == declared_steps.front() &&
         direct->profile.aggregate_profile_supported && declared_seed_range &&
         profile_layout;
@@ -1713,10 +1614,10 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
     if (group_transducers.empty()) {
       group_transducers.assign(templates.size(), NoTileTransducer);
     }
-    const std::size_t action_first = index + outer_bound;
+    const std::size_t action_first = geometry.action_first();
     MapRecurrence recurrence = BuildNestedMapRecurrence(
         templates.subspan(action_first, inner_bound),
-        template_barriers.subspan(action_first, inner_bound));
+        template_barriers.subspan(action_first, inner_bound), geometry);
     if (recurrence.invalid()) {
       expanded.reason = recurrence.reason;
       return false;
@@ -1743,17 +1644,13 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
           .template_count = inner_bound,
       });
     }
-    const std::uint64_t commands_per_outer =
-        fused ? 3u : static_cast<std::uint64_t>(inner_bound) + 2u;
+    const std::uint64_t commands = fused ? shape.transduced_occurrence_count()
+                                         : shape.authored_occurrence_count();
     if (command_count > std::numeric_limits<std::uint32_t>::max() ||
-        (commands_per_outer != 0u &&
-         outer_bound >
-             (std::numeric_limits<std::uint32_t>::max() - command_count) /
-                 commands_per_outer)) {
+        commands > std::numeric_limits<std::uint32_t>::max() - command_count) {
       return false;
     }
-    command_count +=
-        static_cast<std::uint64_t>(outer_bound) * commands_per_outer;
+    command_count += commands;
     index = end;
   }
   if (command_count == 0u ||
@@ -1767,45 +1664,6 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
   expanded.commands.reserve(capacity);
   expanded.barriers.reserve(capacity);
   expanded.windows.reserve(capacity);
-  const auto append = [&](const std::size_t template_index,
-                          const std::uint8_t barrier, const std::uint32_t outer,
-                          const std::uint32_t outer_bound,
-                          const std::uint32_t inner,
-                          const std::uint32_t inner_bound,
-                          const std::uint32_t route,
-                          const std::uint32_t transducer = NoTileTransducer,
-                          const std::uint32_t inner_advance =
-                              NoTileTransducer) {
-    if (template_index >= templates.size() ||
-        expanded.commands.size() >= std::numeric_limits<std::uint32_t>::max()) {
-      return false;
-    }
-    BackendBatchEntry command = templates[template_index];
-    command.template_index = static_cast<std::uint32_t>(template_index);
-    command.occurrence_index =
-        static_cast<std::uint32_t>(expanded.commands.size());
-    expanded.failure.occurrence_route(command);
-    command.transducer = transducer;
-    if (command.recurrence.window != nullptr) {
-      expanded.windows.push_back(*command.recurrence.window);
-      BackendWindow &window = expanded.windows.back();
-      window.iteration = outer;
-      window.bound = outer_bound;
-      window.outer_iteration = outer;
-      window.outer_bound = outer_bound;
-      window.inner_iteration = inner;
-      window.inner_bound = inner_bound;
-      window.inner_advance =
-          inner_advance != NoTileTransducer
-              ? inner_advance
-              : (window.phase == BackendWindowPhase::NestedAction ? 1u : 0u);
-      window.route = route;
-      command.recurrence.window = &window;
-    }
-    expanded.commands.push_back(std::move(command));
-    expanded.barriers.push_back(barrier);
-    return true;
-  };
 
   for (std::size_t index = 0u; index < templates.size();) {
     expanded.failure.template_route(static_cast<std::uint32_t>(index));
@@ -1814,49 +1672,58 @@ accumulate_route_projection(PreparedKernelPipelineReservation &projection,
       const std::uint32_t iteration =
           window == nullptr ? 0u : window->outer_iteration;
       const std::uint32_t bound = window == nullptr ? 1u : window->outer_bound;
-      if (!append(index, template_barriers[index], iteration, bound, 0u, 1u,
-                  0u)) {
+      if (!append_pipeline_occurrence(templates, expanded, index,
+                                      template_barriers[index], iteration,
+                                      bound, 0u, 1u, 0u)) {
         return false;
       }
       ++index;
       continue;
     }
 
-    std::size_t end = 0u;
-    std::uint32_t outer_bound = 0u;
-    std::uint32_t inner_bound = 0u;
-    if (!nested_shape(templates, index, end, outer_bound, inner_bound)) {
+    NestedTemplateGeometry geometry{};
+    if (!ProveNestedTemplateGeometry(templates, index, geometry)) {
       return false;
     }
-    const std::size_t action_first = index + outer_bound;
-    const std::size_t fold_first = action_first + inner_bound;
+    const std::size_t end = geometry.end();
+    const NestedTemplateShape &shape = geometry.shape();
+    const std::uint32_t outer_bound = geometry.outer_bound();
+    const std::uint32_t inner_bound = geometry.inner_bound();
+    const std::size_t action_first = geometry.action_first();
+    const std::size_t fold_first = geometry.fold_first();
     const std::uint32_t transducer = group_transducers[index];
     for (std::uint32_t outer = 0u; outer < outer_bound; ++outer) {
       const bool first_command = expanded.commands.empty();
       const std::uint8_t seed_barrier =
           first_command ? template_barriers[index + outer] : 1u;
-      if (!append(index + outer, seed_barrier, outer, outer_bound, 0u,
-                  inner_bound, 0u)) {
+      if (!append_pipeline_occurrence(templates, expanded, index + outer,
+                                      seed_barrier, outer, outer_bound, 0u,
+                                      inner_bound, 0u)) {
         return false;
       }
       if (transducer != NoTileTransducer) {
-        if (!append(action_first, 1u, outer, outer_bound, 0u, inner_bound, 0u,
-                    transducer, 0u)) {
+        if (!append_pipeline_occurrence(templates, expanded, action_first, 1u,
+                                        outer, outer_bound, 0u, inner_bound, 0u,
+                                        transducer, 0u)) {
           return false;
         }
       } else {
         for (std::uint32_t inner = 0u; inner < inner_bound; ++inner) {
-          if (!append(action_first + inner, 1u, outer, outer_bound, inner,
-                      inner_bound, 0u)) {
+          if (!append_pipeline_occurrence(
+                  templates, expanded, action_first + inner, 1u, outer,
+                  outer_bound, inner, inner_bound, 0u)) {
             return false;
           }
         }
       }
-      const std::uint32_t route =
-          outer == 0u ? 0u : ((outer & 1u) != 0u ? 1u : 2u);
-      if (!append(fold_first + route, 1u, outer, outer_bound, inner_bound,
-                  inner_bound, route, NoTileTransducer,
-                  transducer == NoTileTransducer ? 0u : inner_bound)) {
+      std::uint32_t route = 0u;
+      if (!shape.fold_route_for_outer(outer, route)) {
+        return false;
+      }
+      if (!append_pipeline_occurrence(
+              templates, expanded, fold_first + route, 1u, outer, outer_bound,
+              inner_bound, inner_bound, route, NoTileTransducer,
+              transducer == NoTileTransducer ? 0u : inner_bound)) {
         return false;
       }
     }
@@ -1882,6 +1749,12 @@ bool AccumulatePreparedKernelRouteProjectionForContract(
     const std::uint64_t window_count) noexcept {
   return accumulate_route_projection(projection, route, compact_entry_count,
                                      occurrence_count, window_count);
+}
+
+bool PreparedPublicationViewMatchesForContract(
+    const rund::kernel::ResidentBufferRef &view,
+    const PreparedKernelPublicationViewIdentity &identity) noexcept {
+  return publication_view_matches(view, identity);
 }
 
 bool BackendTemplateRouteDemandForContract(
@@ -1928,6 +1801,36 @@ bool ScalePreparedMapRecurrenceRoutesForContract(
     const std::uint64_t copies,
     PreparedMapRecurrenceReservation &scaled) noexcept {
   return scale_map_recurrence_route_reservation(reservation, copies, scaled);
+}
+
+bool MaterializePreparedPipelineOccurrenceForContract(
+    const BackendWindow &template_window, const std::uint32_t outer,
+    const std::uint32_t outer_bound, const std::uint32_t inner,
+    const std::uint32_t inner_bound, const std::uint32_t route,
+    const std::uint32_t inner_advance, const bool transduced,
+    PreparedPipelineFailure &failure) noexcept {
+  try {
+    const std::array<BackendBatchEntry, 1u> templates{{
+        {.recurrence = BackendRecurrence{.window = &template_window}},
+    }};
+    ExpandedPipeline expanded{};
+    expanded.commands.reserve(1u);
+    expanded.barriers.reserve(1u);
+    expanded.windows.reserve(1u);
+    expanded.failure.stage(PreparedPipelineFailureStage::CommonExpansion);
+    if (!append_pipeline_occurrence(
+            templates, expanded, 0u, 0u, outer, outer_bound, inner, inner_bound,
+            route, transduced ? 0u : NoTileTransducer, inner_advance) ||
+        expanded.commands.size() != 1u || expanded.windows.size() != 1u ||
+        expanded.commands.front().recurrence.window !=
+            &expanded.windows.front()) {
+      return false;
+    }
+    failure = expanded.failure.failure("contract_occurrence");
+    return true;
+  } catch (const std::bad_alloc &) {
+    return false;
+  }
 }
 
 std::shared_ptr<void> FindPreparedKernelTemplate(
@@ -3162,9 +3065,9 @@ PreparedKernelPipelineReservation PlanPreparedKernelPipeline(
           crossing < step_count ? static_cast<std::size_t>(crossing) : 0u;
       if (index <= std::numeric_limits<std::uint32_t>::max() &&
           index < recurrences.size()) {
-        failure.template_node_recurrence_route(
-            static_cast<std::uint32_t>(index), recurrences[index],
-            state->bound.run, step_index);
+        failure.compact_template_node_route(static_cast<std::uint32_t>(index),
+                                            recurrences[index],
+                                            state->bound.run, step_index);
       }
       return true;
     }
@@ -3199,27 +3102,47 @@ PrepareKernelPipeline(const rund::AccelContext &context,
     }
   }
   for (const BackendPublish &publication : publications) {
-    const auto &target = publication.target;
-    const bool window = publication.kind == BackendPublishKind::Window;
-    if (publication.target_handle == nullptr ||
-        publication.target_ordinal ==
+    const PreparedKernelPublicationIdentity &identity = publication.identity;
+    const auto &target = publication.target.source;
+    const bool window = identity.kind == PreparedKernelPublicationKind::Window;
+    bool recurrence_shape_matches = !window;
+    if (window) {
+      for (const BackendRecurrence &recurrence : recurrences) {
+        const BackendWindow *const recurrence_window = recurrence.window;
+        if (recurrence_window == nullptr ||
+            recurrence_window->state != identity.state) {
+          continue;
+        }
+        if (!recurrence_window->nested() ||
+            recurrence_window->maximum != identity.maximum ||
+            recurrence_window->tile != identity.tile ||
+            recurrence_window->outer_bound != identity.outer_bound) {
+          recurrence_shape_matches = false;
+          break;
+        }
+        recurrence_shape_matches = true;
+      }
+    }
+    if (!ValidPreparedKernelPublicationKind(identity.kind) ||
+        publication.target.handle == nullptr ||
+        identity.target.resource_ordinal ==
             std::numeric_limits<std::uint32_t>::max() ||
-        publication.state >= state_count ||
-        (!window && publication.final >= publication.sources.size()) ||
+        !publication_view_matches(target, identity.target) ||
+        identity.state >= state_count || !recurrence_shape_matches ||
+        (!window && identity.final >= publication.sources.size()) ||
         (window &&
-         (publication.maximum == 0u || publication.tile == 0u ||
-          publication.tile > publication.maximum ||
-          target.count != publication.maximum ||
+         (identity.maximum == 0u || identity.tile == 0u ||
+          identity.tile > identity.maximum || identity.outer_bound == 0u ||
+          target.count != identity.maximum ||
           publication.count.handle == nullptr ||
-          publication.count.source.count != 1u ||
-          publication.count.source.element_bytes != sizeof(std::uint32_t) ||
-          publication.count.source.stride_bytes < sizeof(std::uint32_t) ||
-          publication.count.source.usage !=
-              rund::kernel::kResidentUsageRead)) ||
-        (window && publication.count_ordinal ==
-                       std::numeric_limits<std::uint32_t>::max()) ||
-        (!window && (publication.maximum != 0u || publication.tile != 0u ||
-                     publication.count_ordinal !=
+          identity.count.resource_ordinal ==
+              std::numeric_limits<std::uint32_t>::max() ||
+          !publication_view_matches(publication.count.source, identity.count) ||
+          identity.count.count != 1u ||
+          identity.count.element_bytes != sizeof(std::uint32_t))) ||
+        (!window && (identity.maximum != 0u || identity.tile != 0u ||
+                     identity.outer_bound != 0u ||
+                     identity.count.resource_ordinal !=
                          std::numeric_limits<std::uint32_t>::max())) ||
         target.stride_bytes < target.element_bytes ||
         target.usage != rund::kernel::kResidentUsageWrite) {
@@ -3229,9 +3152,10 @@ PrepareKernelPipeline(const rund::AccelContext &context,
       const BackendRead &read = publication.sources[bank];
       const auto &source = read.source;
       if (read.handle == nullptr ||
-          publication.source_ordinals[bank] ==
+          identity.sources[bank].resource_ordinal ==
               std::numeric_limits<std::uint32_t>::max() ||
-          source.count != (window ? publication.tile : target.count) ||
+          !publication_view_matches(source, identity.sources[bank]) ||
+          source.count != (window ? identity.tile : target.count) ||
           source.element_bytes != target.element_bytes ||
           (source.element_bytes != 4u && source.element_bytes != 8u) ||
           source.stride_bytes < source.element_bytes ||
@@ -3351,8 +3275,8 @@ PrepareKernelPipeline(const rund::AccelContext &context,
   try {
     batch_templates.resize(runs.size());
     for (std::size_t index = 0u; index < runs.size(); ++index) {
-      failure.template_recurrence_route(static_cast<std::uint32_t>(index),
-                                        recurrences[index]);
+      failure.compact_template_route(static_cast<std::uint32_t>(index),
+                                     recurrences[index]);
       const PreparedKernelRun *const item = runs[index];
       auto *const state =
           item == nullptr
@@ -3434,12 +3358,13 @@ PrepareKernelPipeline(const rund::AccelContext &context,
       const NestedAggregate &aggregate = expanded.aggregates.front();
       for (std::size_t index = 0u; index < pipeline->size; ++index) {
         failure.template_route(static_cast<std::uint32_t>(index));
-        const std::uint64_t occurrences = aggregate.authored_occurrences(index);
-        if (pipeline->states[index] == nullptr || occurrences == 0u) {
+        NestedTemplateRouteProjection route{};
+        if (pipeline->states[index] == nullptr ||
+            !aggregate.shape.project(index, route)) {
           return invalid.reason;
         }
         prepared::Accumulate(pipeline->counts, *pipeline->states[index],
-                             occurrences);
+                             route.occurrence_count);
       }
       return nullptr;
     }

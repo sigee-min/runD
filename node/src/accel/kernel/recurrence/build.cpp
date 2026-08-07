@@ -28,11 +28,8 @@ Build(const std::span<const BackendBatchEntry> entries,
       const std::span<const std::uint8_t> barriers,
       const RecurrenceMarker marker) {
   bool writes_each_iteration = false;
-  const bool marked = marker == RecurrenceMarker::TopLevel
-                          ? ExactRecurrenceMarker(entries,
-                                                  writes_each_iteration)
-                          : ExactNestedMapRecurrenceMarker(entries);
-  if (!marked) {
+  if (marker == RecurrenceMarker::TopLevel &&
+      !ExactRecurrenceMarker(entries, writes_each_iteration)) {
     return {};
   }
   if (barriers.size() != entries.size() ||
@@ -165,9 +162,8 @@ Build(const std::span<const BackendBatchEntry> entries,
       result.bindings.resident_outputs = last_binding.resident_outputs;
     }
     const std::span<const std::uint64_t> history_pitches =
-        history == nullptr
-            ? std::span<const std::uint64_t>{}
-            : history->pitches();
+        history == nullptr ? std::span<const std::uint64_t>{}
+                           : history->pitches();
     result.source_plan = PlanMapRecurrenceSource(
         first.step->artifact, input_count, output_count, history_pitches);
     if (!result.source_plan.ok) {
@@ -194,7 +190,12 @@ BuildMapRecurrence(const std::span<const BackendBatchEntry> entries,
 
 MapRecurrence
 BuildNestedMapRecurrence(const std::span<const BackendBatchEntry> entries,
-                         const std::span<const std::uint8_t> barriers) {
+                         const std::span<const std::uint8_t> barriers,
+                         const NestedTemplateGeometry &geometry) {
+  if (!geometry.proves_action_span(entries) ||
+      !geometry.shape().action_group_candidate()) {
+    return {};
+  }
   return Build(entries, barriers, RecurrenceMarker::NestedAction);
 }
 } // namespace rund::node::accel::detail

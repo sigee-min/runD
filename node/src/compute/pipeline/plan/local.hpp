@@ -28,7 +28,7 @@ plan_memory(const PipelineBuildState &build);
 [[nodiscard]] Status materialize_pipeline(PipelineBuildState &build);
 [[nodiscard]] Result<PipelineMemorySet>
 make_pipeline_memory(const std::shared_ptr<DeviceState> &device,
-                     std::span<const PipelineBuildStep> steps,
+                     std::span<const PipelineFrozenStep> steps,
                      const PipelineMemoryPlan &plan);
 [[nodiscard]] Status prepare_backend(PipelineState &state,
                                      Location &failure) noexcept;

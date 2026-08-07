@@ -363,11 +363,12 @@ template <class Seed, class Action, class Fold>
     return false;
   }
   const PipelineWindow &nested = state->windows[0u];
-  if (!nested.nested || nested.begin != 0u || nested.end != kTemplates ||
-      nested.seed_first != 0u || nested.seed_count != kOuter ||
-      nested.action_first != kOuter || nested.action_count != kInner ||
-      nested.fold_first != kOuter + kInner || nested.maximum != kMaximum ||
-      nested.tile != kTile) {
+  const auto &shape = nested.nested_shape;
+  if (!nested.nested() || shape.first() != 0u || shape.end() != kTemplates ||
+      shape.seed_first() != 0u || shape.seed_count() != kOuter ||
+      shape.action_first() != kOuter || shape.action_count() != kInner ||
+      shape.fold_first() != kOuter + kInner ||
+      nested.control.maximum != kMaximum || nested.control.tile != kTile) {
     return false;
   }
   for (std::size_t index = 0u; index < state->steps.size(); ++index) {
@@ -409,8 +410,8 @@ ActionOwnerCount(const rund::compute::Pipeline &pipeline,
   const PipelineWindow &nested = state->windows[0u];
   std::array<const JobState *, 2u> owners{};
   std::size_t owner_count = 0u;
-  for (std::size_t index = nested.action_first;
-       index < nested.action_first + nested.action_count; ++index) {
+  for (std::size_t index = nested.nested_shape.action_first();
+       index < nested.nested_shape.fold_first(); ++index) {
     if (index >= state->steps.size() ||
         state->steps[index].program == nullptr ||
         state->steps[index].job == nullptr ||
@@ -831,16 +832,48 @@ CaptureBindingIdentity(const rund::compute::Pipeline &pipeline,
         result.valid && pair.first != nullptr && pair.second != nullptr;
   }
   result.publications.reserve(state->publications.size() * 2u);
-  for (const PipelinePublish &publication : state->publications) {
-    result.publications.push_back(publication.source.get());
-    result.publications.push_back(publication.target.get());
-    result.valid = result.valid && publication.source != nullptr &&
-                   publication.target != nullptr;
+  for (const PipelinePublicationPlan &publication : state->publications) {
+    const PipelinePublicationViewPlan *source = nullptr;
+    if (const auto *terminal =
+            std::get_if<PipelineTerminalPublicationPlan>(&publication)) {
+      const std::uint32_t final =
+          terminal->state < state->windows.size()
+              ? state->windows[terminal->state].control.final
+              : std::numeric_limits<std::uint32_t>::max();
+      source = final < terminal->sources.size() ? &terminal->sources[final]
+                                                : nullptr;
+    } else {
+      source = &std::get<PipelineWindowPublicationPlan>(publication).source;
+    }
+    const PipelinePublicationTargetPlan &target =
+        pipeline_publication_target(publication);
+    const std::uint32_t source_ordinal =
+        source == nullptr ? PipelineResource::no_output
+                          : source->identity.resource_ordinal;
+    const std::uint32_t target_ordinal = target.view.identity.resource_ordinal;
+    const BufferState *const source_owner =
+        source_ordinal < state->resources.size()
+            ? state->resources[source_ordinal].buffer.get()
+            : nullptr;
+    const BufferState *const target_owner =
+        target_ordinal < state->resources.size()
+            ? state->resources[target_ordinal].buffer.get()
+            : nullptr;
+    result.publications.push_back(source_owner);
+    result.publications.push_back(target_owner);
+    result.valid =
+        result.valid && source_owner != nullptr && target_owner != nullptr;
   }
   result.window_counts.reserve(state->windows.size());
   for (const PipelineWindow &window : state->windows) {
-    result.window_counts.push_back(window.count.get());
-    result.valid = result.valid && window.count != nullptr;
+    const std::uint32_t ordinal =
+        window.control.count.identity.resource_ordinal;
+    const BufferState *const owner =
+        ordinal < state->resources.size()
+            ? state->resources[ordinal].buffer.get()
+            : nullptr;
+    result.window_counts.push_back(owner);
+    result.valid = result.valid && owner != nullptr;
   }
   return result;
 }
@@ -1310,6 +1343,14 @@ CheckTransactionalBindingIdentity(rund::compute::Device &device,
       0u, kMaximum, 1u, &produced_stats);
   if (produced != 0) {
     return 20 + produced;
+  }
+  // Two outer banks make the canonical terminal bank `second`. Stopping after
+  // the first Fold leaves `first` current, so successful publication requires
+  // the explicit current -> final seal before final -> target publication.
+  const int sealed_early =
+      run_case.template operator()<6u, 3u>(0u, 6u, 1u, nullptr);
+  if (sealed_early != 0) {
+    return 25 + sealed_early;
   }
   Stats single_stats{};
   const int single =
@@ -2273,6 +2314,132 @@ CheckNestedAggregateStats(rund::compute::Device &device,
   return 0;
 }
 
+template <std::size_t Maximum, std::size_t Tile>
+[[nodiscard]] int CheckDormantAggregateRouteCase(
+    rund::compute::Device &device,
+    const std::array<std::uint64_t, 3u> expected_fold_occurrences,
+    const bool expect_direct) {
+  using namespace rund::compute;
+  constexpr std::size_t outer_count = CeilDiv(Maximum, Tile);
+  constexpr std::size_t template_count = outer_count + kInner + 3u;
+  std::array<std::uint32_t, Maximum> queue_values{};
+  std::copy_n(kQueue.begin(), Maximum, queue_values.begin());
+  constexpr std::array<std::uint32_t, 1u> initial{kOuterSeed};
+  constexpr std::array<std::uint32_t, 1u> count_values{
+      static_cast<std::uint32_t>(Maximum)};
+
+  auto seed = SeedProgram<Maximum, Tile>(device);
+  auto action = ActionProgram(device);
+  auto fold = FoldProgram(device);
+  auto outer = device.upload<std::uint32_t>(initial);
+  auto queue = device.upload<std::uint32_t>(queue_values);
+  auto domain = device.upload<std::uint32_t>(kDomainValues);
+  auto count = device.upload<std::uint32_t>(count_values);
+  if (!seed || !action || !fold || !outer || !queue || !domain || !count) {
+    return 1;
+  }
+
+  std::uint32_t expected = kOuterSeed;
+  for (const std::uint32_t item : queue_values) {
+    expected += kDomainValues[item] + static_cast<std::uint32_t>(kInner);
+  }
+  for (const bool profile_steps : {false, true}) {
+    auto output = device.buffer<std::uint32_t>(1u);
+    if (!output) {
+      return 2;
+    }
+    const auto body = tile_repeat<kInner>(*seed, *action, *fold);
+    auto builder = pipeline(device);
+    if (profile_steps) {
+      builder.profile(PipelineProfile::Steps);
+    }
+    builder.windows<Maximum, Tile>(body, rund::compute::window(*count),
+                                   read(*outer, *queue, *domain),
+                                   write_final(*output));
+    const auto plan = builder.plan();
+    auto prepared = plan ? std::move(builder)
+                               .budget(MemoryBudget{.bytes = plan->peak_bytes})
+                               .prepare()
+                         : Result<Pipeline>::fail(plan.reason());
+    const Status ran =
+        prepared ? prepared->run() : Status::fail(prepared.reason());
+    const Stats stats = prepared ? prepared->stats() : Stats{};
+    const bool direct =
+        stats.dispatches == 2u && stats.pipeline.control_command_count == 1u;
+    std::array<std::uint32_t, 1u> actual{};
+    if (!plan || !prepared || !ran || !prepared->read(*output, actual) ||
+        actual[0u] != expected || direct != expect_direct ||
+        stats.pipeline.executed_outer_window_count != outer_count ||
+        stats.pipeline.executed_inner_iteration_count != outer_count * kInner ||
+        stats.command_submits != 1u) {
+      std::fprintf(
+          stderr,
+          "nested dormant aggregate max=%llu tile=%llu profile=%u "
+          "plan=%u prepared=%u run=%u/%u output=%u/%u dispatches=%llu "
+          "control=%llu direct=%u/%u outer=%llu inner=%llu submits=%llu\n",
+          static_cast<unsigned long long>(Maximum),
+          static_cast<unsigned long long>(Tile),
+          static_cast<unsigned>(profile_steps),
+          static_cast<unsigned>(plan.ok()),
+          static_cast<unsigned>(prepared.ok()), static_cast<unsigned>(ran.ok()),
+          static_cast<unsigned>(ran.reason()), actual[0u], expected,
+          static_cast<unsigned long long>(stats.dispatches),
+          static_cast<unsigned long long>(stats.pipeline.control_command_count),
+          static_cast<unsigned>(direct), static_cast<unsigned>(expect_direct),
+          static_cast<unsigned long long>(
+              stats.pipeline.executed_outer_window_count),
+          static_cast<unsigned long long>(
+              stats.pipeline.executed_inner_iteration_count),
+          static_cast<unsigned long long>(stats.command_submits));
+      return 3;
+    }
+    if (!profile_steps) {
+      continue;
+    }
+    std::array<PipelineStepProfile, template_count> rows{};
+    const auto profile = prepared->profile(rows);
+    if (!profile || profile->written != rows.size() ||
+        profile->total != rows.size()) {
+      return 4;
+    }
+    const std::size_t fold_first = outer_count + kInner;
+    for (std::size_t route = 0u; route < expected_fold_occurrences.size();
+         ++route) {
+      const std::uint64_t original =
+          rows[fold_first + route].execution.original_dispatches;
+      const bool expected_active = expected_fold_occurrences[route] != 0u;
+      if ((original != 0u) != expected_active) {
+        std::fprintf(
+            stderr,
+            "nested dormant aggregate profile max=%llu route=%llu "
+            "occurrences=%llu original=%llu\n",
+            static_cast<unsigned long long>(Maximum),
+            static_cast<unsigned long long>(route),
+            static_cast<unsigned long long>(expected_fold_occurrences[route]),
+            static_cast<unsigned long long>(original));
+        return 5;
+      }
+    }
+  }
+  return 0;
+}
+
+[[nodiscard]] int
+CheckDormantAggregateRoutes(rund::compute::Device &device,
+                            const rund::compute::Backend backend) {
+  if (backend != rund::compute::Backend::Metal) {
+    return 0;
+  }
+  if (const int result =
+          CheckDormantAggregateRouteCase<4u, 4u>(device, {1u, 0u, 0u}, false);
+      result != 0) {
+    return 10 + result;
+  }
+  const int result =
+      CheckDormantAggregateRouteCase<8u, 4u>(device, {1u, 1u, 0u}, true);
+  return result == 0 ? 0 : 20 + result;
+}
+
 [[nodiscard]] int
 CheckWorkspaceObservationCapacity(rund::compute::Device &device) {
   using namespace rund::compute;
@@ -2958,9 +3125,13 @@ template <class Seed, class Action, class Fold>
   if (aggregate != 0) {
     return 175 + aggregate;
   }
+  const int dormant_aggregate = CheckDormantAggregateRoutes(device, backend);
+  if (dormant_aggregate != 0) {
+    return 176 + dormant_aggregate;
+  }
   const int workspace_observation = CheckWorkspaceObservationCapacity(device);
   if (workspace_observation != 0) {
-    return 176 + workspace_observation;
+    return 177 + workspace_observation;
   }
   const int aggregate_failures =
       CheckAggregateSeedFailures(device, backend, *seed, *action, *fold);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/run.hpp"
+#include "nested.hpp"
 #include "prepared/template_registry.hpp"
 
 #include <kernel/program/compute/limit.hpp>
@@ -11,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -214,14 +216,226 @@ struct NestedScalarExpr final {
   std::uint32_t immediate{};
 };
 
-struct NestedTemplateSpan final {
-  std::uint32_t first{};
-  std::uint32_t count{};
+// Allocation-free canonical proof for one compact nested template group.
+// Reservation, fallback expansion, and aggregate eligibility all consume this
+// geometry instead of independently reconstructing K/N or phase ordinals.
+// Placeholder coordinates that expansion overwrites are intentionally absent.
+class NestedTemplateGeometry;
 
-  [[nodiscard]] constexpr std::uint64_t end() const noexcept {
-    return static_cast<std::uint64_t>(first) + count;
+template <class Entry>
+[[nodiscard]] bool
+ProveNestedTemplateGeometry(std::span<const Entry> templates, std::size_t first,
+                            NestedTemplateGeometry &out) noexcept;
+
+class NestedTemplateGeometry final {
+public:
+  constexpr NestedTemplateGeometry() noexcept = default;
+
+  [[nodiscard]] constexpr const NestedTemplateShape &shape() const noexcept {
+    return shape_;
   }
+  [[nodiscard]] constexpr std::size_t first() const noexcept {
+    return shape_.first();
+  }
+  [[nodiscard]] constexpr std::size_t action_first() const noexcept {
+    return shape_.action_first();
+  }
+  [[nodiscard]] constexpr std::size_t fold_first() const noexcept {
+    return shape_.fold_first();
+  }
+  [[nodiscard]] constexpr std::size_t end() const noexcept {
+    return shape_.end();
+  }
+  [[nodiscard]] constexpr std::uint32_t outer_bound() const noexcept {
+    return shape_.outer_bound();
+  }
+  [[nodiscard]] constexpr std::uint32_t inner_bound() const noexcept {
+    return shape_.inner_bound();
+  }
+  [[nodiscard]] constexpr std::uint32_t logical_step() const noexcept {
+    return logical_step_;
+  }
+  [[nodiscard]] constexpr const BackendWindow *window() const noexcept {
+    return window_;
+  }
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return window_ != nullptr && shape_.valid();
+  }
+  [[nodiscard]] constexpr bool proves_action_span(
+      const std::span<const BackendBatchEntry> entries) const noexcept {
+    return action_entries_ != nullptr && entries.data() == action_entries_ &&
+           entries.size() == shape_.inner_bound();
+  }
+
+private:
+  constexpr NestedTemplateGeometry(
+      const NestedTemplateShape shape, const std::uint32_t logical_step,
+      const BackendWindow *const window,
+      const BackendBatchEntry *const action_entries) noexcept
+      : shape_{shape}, logical_step_{logical_step}, window_{window},
+        action_entries_{action_entries} {}
+
+  NestedTemplateShape shape_{};
+  std::uint32_t logical_step_{};
+  const BackendWindow *window_{};
+  const BackendBatchEntry *action_entries_{};
+
+  template <class Entry>
+  friend bool ProveNestedTemplateGeometry(std::span<const Entry> templates,
+                                          std::size_t first,
+                                          NestedTemplateGeometry &out) noexcept;
 };
+
+namespace nested_template_detail {
+
+[[nodiscard]] inline const BackendRecurrence &
+recurrence(const BackendRecurrence &value) noexcept {
+  return value;
+}
+
+[[nodiscard]] inline const BackendRecurrence &
+recurrence(const BackendBatchEntry &value) noexcept {
+  return value.recurrence;
+}
+
+[[nodiscard]] inline bool same_read(const BackendRead &left,
+                                    const BackendRead &right) noexcept {
+  const auto &a = left.source;
+  const auto &b = right.source;
+  return a.id == b.id && a.bytes == b.bytes &&
+         a.offset_bytes == b.offset_bytes &&
+         a.element_bytes == b.element_bytes &&
+         a.stride_bytes == b.stride_bytes && a.count == b.count &&
+         a.usage == b.usage && left.handle == right.handle;
+}
+
+[[nodiscard]] inline bool same_window(const BackendWindow &left,
+                                      const BackendWindow &right) noexcept {
+  if (left.maximum != right.maximum || left.tile != right.tile ||
+      left.expected != right.expected || left.state != right.state ||
+      left.outer_bound != right.outer_bound ||
+      left.inner_bound != right.inner_bound ||
+      left.has_terminal != right.has_terminal ||
+      !same_read(left.count, right.count)) {
+    return false;
+  }
+  for (std::size_t bank = 0u; bank < left.terminal.size(); ++bank) {
+    if (left.has_terminal &&
+        !same_read(left.terminal[bank], right.terminal[bank])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace nested_template_detail
+
+[[nodiscard]] inline constexpr BackendWindowPhase
+ProjectNestedBackendWindowPhase(const NestedTemplatePhase phase) noexcept {
+  switch (phase) {
+  case NestedTemplatePhase::Seed:
+    return BackendWindowPhase::NestedSeed;
+  case NestedTemplatePhase::Action:
+    return BackendWindowPhase::NestedAction;
+  case NestedTemplatePhase::Fold:
+    return BackendWindowPhase::NestedFold;
+  }
+  return BackendWindowPhase::Ordinary;
+}
+
+struct NestedTemplateRecurrenceIdentityBase final {
+  std::uint32_t logical_step{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t expected{};
+  std::uint32_t state{};
+  bool has_terminal{};
+};
+
+[[nodiscard]] inline constexpr bool ProjectNestedRecurrenceIdentity(
+    const NestedTemplateShape &shape, const std::size_t template_index,
+    const NestedTemplateRecurrenceIdentityBase base,
+    PreparedKernelRecurrenceIdentity &out) noexcept {
+  out = {};
+  NestedTemplateRouteProjection route{};
+  if (!shape.project(template_index, route)) {
+    return false;
+  }
+  out = PreparedKernelRecurrenceIdentity{
+      .logical_step = base.logical_step,
+      .iteration = route.iteration,
+      .bound = route.bound,
+      .maximum = base.maximum,
+      .tile = base.tile,
+      .expected = base.expected,
+      .outer_iteration = route.outer_iteration,
+      .outer_bound = route.outer_bound,
+      .inner_iteration = route.inner_iteration,
+      .inner_bound = route.inner_bound,
+      .route = route.route,
+      .state = base.state,
+      .phase = static_cast<std::uint8_t>(
+          ProjectNestedBackendWindowPhase(route.phase)),
+      .writes_each_iteration = false,
+      .has_window = true,
+      .has_terminal = base.has_terminal,
+  };
+  return true;
+}
+
+template <class Entry>
+[[nodiscard]] bool
+ProveNestedTemplateGeometry(const std::span<const Entry> templates,
+                            const std::size_t first,
+                            NestedTemplateGeometry &out) noexcept {
+  out = {};
+  if (first >= templates.size()) {
+    return false;
+  }
+  const BackendRecurrence &source_recurrence =
+      nested_template_detail::recurrence(templates[first]);
+  const BackendWindow *const source = source_recurrence.window;
+  if (source == nullptr || source->phase != BackendWindowPhase::NestedSeed ||
+      source->maximum == 0u || source->tile == 0u ||
+      source->tile > source->maximum || source->outer_bound == 0u) {
+    return false;
+  }
+  NestedTemplateShape shape{};
+  if (!ProveNestedTemplateShape(first, source->maximum, source->tile,
+                                source->inner_bound, shape) ||
+      shape.outer_bound() != source->outer_bound ||
+      shape.end() > templates.size()) {
+    return false;
+  }
+  for (std::size_t index = shape.first(); index < shape.end(); ++index) {
+    const BackendRecurrence &current_recurrence =
+        nested_template_detail::recurrence(templates[index]);
+    const BackendWindow *const current = current_recurrence.window;
+    NestedTemplateRouteProjection route{};
+    if (current == nullptr || current_recurrence.writes_each_iteration ||
+        !nested_template_detail::same_window(*source, *current) ||
+        current_recurrence.logical_step != source_recurrence.logical_step ||
+        !shape.project(index, route) ||
+        current->phase != ProjectNestedBackendWindowPhase(route.phase) ||
+        current_recurrence.iteration != route.iteration ||
+        current_recurrence.bound != route.bound ||
+        current->outer_iteration != route.outer_iteration ||
+        current->outer_bound != route.outer_bound ||
+        current->inner_iteration != route.inner_iteration ||
+        current->inner_bound != route.inner_bound ||
+        current->inner_advance != route.inner_advance ||
+        current->route != route.route) {
+      return false;
+    }
+  }
+  const BackendBatchEntry *action_entries = nullptr;
+  if constexpr (std::is_same_v<Entry, BackendBatchEntry>) {
+    action_entries = templates.data() + shape.action_first();
+  }
+  out = NestedTemplateGeometry{shape, source_recurrence.logical_step, source,
+                               action_entries};
+  return true;
+}
 
 struct NestedAggregateRead final {
   BackendRead read{};
@@ -237,13 +451,9 @@ struct NestedAggregateWorkspace final {
   std::shared_ptr<void> handle{};
 };
 
-// Exact projection from one aggregate command back to the authored recurrence.
-// A backend may select the aggregate for profiled execution only when it can
-// project every authored row and the sole physical owner from these counts.
+// Exact per-Program dispatch projection for one aggregate command. Authored
+// occurrence cardinality remains a NestedTemplateShape projection.
 struct NestedAggregateProfileProjection final {
-  std::uint64_t authored_seed_occurrences{};
-  std::uint64_t authored_action_occurrences{};
-  std::uint64_t authored_fold_occurrences{};
   std::uint32_t seed_dispatches_per_occurrence{};
   std::uint32_t action_dispatches_per_occurrence{};
   std::uint32_t fold_dispatches_per_occurrence{};
@@ -263,15 +473,15 @@ struct NestedAggregateFailureProjection final {
 };
 
 // Backend-neutral proof object for the complete Seed/Action/Fold recurrence.
-// Template spans remain the binding/resource authority. Backends consume the
-// normalized opcodes and must not rediscover them from generated source.
+// Shape remains the only template-span/cardinality authority. Backends consume
+// its projections and the normalized opcodes without rediscovering either from
+// generated source or a writable span mirror.
 struct NestedAggregate final {
   NestedAggregateState state{NestedAggregateState::Ineligible};
   NestedAggregateKind kind{NestedAggregateKind::WindowIndexedReduceSumU32};
-  NestedTemplateSpan seed{};
-  NestedTemplateSpan action{};
-  NestedTemplateSpan fold{};
-  BackendWindow window{};
+  NestedTemplateShape shape{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
   NestedAggregateRead queue{};
   NestedAggregateRead domain{};
   NestedAggregateRead count{};
@@ -292,27 +502,6 @@ struct NestedAggregate final {
   [[nodiscard]] constexpr bool invalid() const noexcept {
     return state == NestedAggregateState::Invalid;
   }
-
-  [[nodiscard]] constexpr std::uint64_t
-  authored_occurrences(const std::size_t template_index) const noexcept {
-    if (template_index >= seed.first && template_index < seed.end()) {
-      return 1u;
-    }
-    if (template_index >= action.first && template_index < action.end()) {
-      return window.outer_bound;
-    }
-    if (template_index < fold.first || template_index >= fold.end()) {
-      return 0u;
-    }
-    const std::size_t route = template_index - fold.first;
-    if (route == 0u) {
-      return 1u;
-    }
-    if (route == 1u) {
-      return window.outer_bound / 2u;
-    }
-    return window.outer_bound == 0u ? 0u : (window.outer_bound - 1u) / 2u;
-  }
 };
 
 // Eligibility depends only on graph semantics and resident identity. It never
@@ -326,7 +515,8 @@ BuildMapRecurrence(std::span<const BackendBatchEntry> entries,
 // subrange must still be present and ordered.
 [[nodiscard]] MapRecurrence
 BuildNestedMapRecurrence(std::span<const BackendBatchEntry> entries,
-                         std::span<const std::uint8_t> barriers);
+                         std::span<const std::uint8_t> barriers,
+                         const NestedTemplateGeometry &geometry);
 
 [[nodiscard]] NestedAggregate
 BuildNestedAggregate(std::span<const BackendBatchEntry> templates,

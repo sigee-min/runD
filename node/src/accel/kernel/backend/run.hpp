@@ -2,6 +2,8 @@
 
 #include "../bindings/build.hpp"
 #include "../plan.hpp"
+#include "../publication.hpp"
+#include "../reset/model.hpp"
 #include "../schedule.hpp"
 #include "../scratch.hpp"
 #include "../storage.hpp"
@@ -17,7 +19,9 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -26,13 +30,68 @@ namespace rund::node::accel::detail {
 struct BackendOps;
 struct PreparedKernelTemplateRegistry;
 
-struct BoundReset final {
-  rund::kernel::ResidentBufferRef ref{};
-  std::shared_ptr<void> handle{};
+// Sealed reset route. Resident identity/extent/usage are retained separately;
+// every geometric field in the lookup projection is derived from the one
+// constructor-closed Range, so a raw ResidentBufferRef cannot become a second
+// reset arithmetic authority after binding.
+class BoundReset final {
+public:
+  [[nodiscard]] static std::optional<BoundReset>
+  Seal(const rund::kernel::ResidentBufferRef source,
+       std::shared_ptr<void> handle, const reset::Range range,
+       const std::uint64_t binding, const ExecStep step, const ExecStep last,
+       const bool external) noexcept {
+    if (source.id == 0u || source.bytes == 0u ||
+        source.usage != rund::kernel::kResidentUsageWrite ||
+        handle == nullptr ||
+        !range.valid() || range.end() > source.bytes ||
+        source.offset_bytes != range.offset() ||
+        source.element_bytes != range.element() ||
+        source.stride_bytes != range.stride() ||
+        source.count != range.count()) {
+      return std::nullopt;
+    }
+    return BoundReset{source, std::move(handle), range, binding, step, last,
+                      external};
+  }
+
+  [[nodiscard]] rund::kernel::ResidentBufferRef ref() const noexcept {
+    return rund::kernel::ResidentBufferRef{
+        .id = resident_,
+        .bytes = bytes_,
+        .offset_bytes = range_.offset(),
+        .element_bytes = range_.element(),
+        .stride_bytes = range_.stride(),
+        .count = range_.count(),
+        .usage = usage_,
+    };
+  }
+
+  [[nodiscard]] const std::shared_ptr<void> &handle() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] reset::Range range() const noexcept { return range_; }
+
   std::uint64_t binding{};
   ExecStep step{};
   ExecStep last{};
   bool external{};
+
+private:
+  BoundReset(const rund::kernel::ResidentBufferRef source,
+             std::shared_ptr<void> handle, const reset::Range range,
+             const std::uint64_t binding, const ExecStep step,
+             const ExecStep last, const bool external) noexcept
+      : binding{binding}, step{step}, last{last}, external{external},
+        resident_{source.id}, bytes_{source.bytes}, usage_{source.usage},
+        handle_{std::move(handle)}, range_{range} {}
+
+  std::uint64_t resident_{};
+  std::uint64_t bytes_{};
+  std::uint32_t usage_{};
+  std::shared_ptr<void> handle_{};
+  reset::Range range_{};
 };
 
 using BoundResets = std::vector<BoundReset>;
@@ -196,24 +255,24 @@ struct BackendRead final {
   std::shared_ptr<void> handle{};
 };
 
-// One physical occurrence of a bounded resident recurrence. The three
-// terminal routes are the seed, first bank, and second bank. One fixed-width
-// ResidentState selector owns the logical transition; an inactive occurrence
-// leaves it unchanged and never copies payload between banks.
+// One compact route descriptor for a bounded resident recurrence. Ordinary
+// routes already name one physical occurrence. The fallback nested path copies
+// a template and writes that occurrence's outer/inner coordinates into the
+// same fields before backend admission. A separately proved compact aggregate
+// consumes template identity without treating its placeholder as an occurrence
+// coordinate. The three terminal routes are the seed, first bank, and second
+// bank. One fixed-width ResidentState selector owns the logical transition; an
+// inactive occurrence leaves it unchanged and never copies payload between
+// banks.
 struct BackendWindow final {
   BackendRead count{};
   std::array<BackendRead, 3u> terminal{};
   std::uint32_t maximum{};
   std::uint32_t tile{};
-  // Legacy one-dimensional coordinate. For expanded nested occurrences it is
-  // the outer coordinate/bound so existing admission remains fail-closed while
-  // phase-aware backends consume the explicit two-dimensional coordinates.
-  std::uint32_t iteration{};
-  std::uint32_t bound{};
   std::uint32_t expected{1u};
   std::uint32_t state{};
   std::uint32_t outer_iteration{};
-  std::uint32_t outer_bound{1u};
+  std::uint32_t outer_bound{};
   std::uint32_t inner_iteration{};
   std::uint32_t inner_bound{1u};
   // Number of authored Action transitions represented by this physical
@@ -235,6 +294,30 @@ struct BackendWindow final {
            phase == BackendWindowPhase::NestedFold;
   }
 
+  // Sole backend-neutral admission authority for one materialized occurrence.
+  // Backends may add native resource and transition proofs, but may not
+  // reinterpret these bounds, phase routes, or advance rules.
+  [[nodiscard]] constexpr bool
+  valid_occurrence(const bool transduced_action) const noexcept {
+    if (maximum == 0u || tile == 0u || tile > maximum || outer_bound == 0u ||
+        outer_iteration >= outer_bound) {
+      return false;
+    }
+    switch (phase) {
+    case BackendWindowPhase::Ordinary:
+      return !transduced_action;
+    case BackendWindowPhase::NestedSeed:
+      return !transduced_action && route == 0u && inner_advance == 0u;
+    case BackendWindowPhase::NestedAction:
+      return inner_bound != 0u && inner_iteration < inner_bound &&
+             route == 0u && inner_advance == (transduced_action ? 0u : 1u);
+    case BackendWindowPhase::NestedFold:
+      return !transduced_action && route < 3u &&
+             (inner_advance == 0u || inner_advance == inner_bound);
+    }
+    return false;
+  }
+
   [[nodiscard]] constexpr rund::compute::PipelineNestedPhase
   nested_phase() const noexcept {
     switch (phase) {
@@ -254,27 +337,11 @@ struct BackendWindow final {
 // Terminal publication is deliberately outside the authored Program graph.
 // Backends select exactly one immutable seed/first/second route from the
 // recurrence's ResidentState after canonical Pipeline status has been reduced.
-enum class BackendPublishKind : std::uint8_t {
-  Terminal,
-  Window,
-};
-
 struct BackendPublish final {
   std::array<BackendRead, 3u> sources{};
-  std::array<std::uint32_t, 3u> source_ordinals{
-      std::numeric_limits<std::uint32_t>::max(),
-      std::numeric_limits<std::uint32_t>::max(),
-      std::numeric_limits<std::uint32_t>::max()};
   BackendRead count{};
-  std::uint32_t count_ordinal{std::numeric_limits<std::uint32_t>::max()};
-  rund::kernel::ResidentBufferRef target{};
-  std::shared_ptr<void> target_handle{};
-  std::uint32_t target_ordinal{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t state{std::numeric_limits<std::uint32_t>::max()};
-  std::uint32_t final{};
-  std::uint32_t maximum{};
-  std::uint32_t tile{};
-  BackendPublishKind kind{BackendPublishKind::Terminal};
+  BackendRead target{};
+  PreparedKernelPublicationIdentity identity{};
 };
 
 // Rebuild one already-planned step against an alternate resident binding set.
@@ -296,6 +363,10 @@ struct BackendBatchEntry final {
   // lexicographic command-order failure key.
   std::uint32_t template_index{};
   std::uint32_t occurrence_index{};
+
+  [[nodiscard]] constexpr bool transduced_action() const noexcept {
+    return transducer != std::numeric_limits<std::uint32_t>::max();
+  }
 };
 
 struct BoundRun final {

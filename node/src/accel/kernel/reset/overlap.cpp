@@ -1,7 +1,5 @@
 #include "overlap.hpp"
 
-#include "../../primitive/shape.hpp"
-
 #include <algorithm>
 #include <functional>
 #include <limits>
@@ -116,16 +114,17 @@ bool Compatible(const std::span<const BoundReset> resets) noexcept try {
   std::vector<Interval> intervals;
   intervals.reserve(resets.size());
   for (std::size_t index = 0u; index < resets.size(); ++index) {
-    std::uint64_t begin = 0u;
-    std::uint64_t end = 0u;
-    if (!ResidentSpan(resets[index].ref, begin, end)) {
+    const BoundReset &item = resets[index];
+    const rund::kernel::ResidentBufferRef ref = item.ref();
+    const Range range = item.range();
+    if (ref.id == 0u || item.handle() == nullptr || !range.valid()) {
       return false;
     }
     intervals.push_back(Interval{
-        .owner = resets[index].handle.get(),
-        .resident = resets[index].ref.id,
-        .begin = begin,
-        .end = end,
+        .owner = item.handle().get(),
+        .resident = ref.id,
+        .begin = range.offset(),
+        .end = range.end(),
         .reset = index,
     });
   }

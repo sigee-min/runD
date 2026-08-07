@@ -13,6 +13,7 @@
 #include "../scratch.hpp"
 #include "lease.hpp"
 #include "local.hpp"
+#include "reset.hpp"
 #include "reset_source.hpp"
 
 #include <kernel/program/compute/artifact.hpp>
@@ -34,23 +35,12 @@ namespace {
                                 VulkanStorageBinding &binding,
                                 VkDeviceSize &origin) noexcept {
   if (clear.resident.device_buffer == nullptr || adapter.storage_align == 0u ||
-      clear.range.count() == 0u ||
-      clear.range.stride() < clear.range.element()) {
-    return false;
-  }
-  constexpr std::uint64_t max = std::numeric_limits<std::uint64_t>::max();
-  if (clear.range.count() - 1u >
-      (max - clear.range.element()) / clear.range.stride()) {
-    return false;
-  }
-  const std::uint64_t span =
-      (clear.range.count() - 1u) * clear.range.stride() + clear.range.element();
-  if (clear.range.offset() > max - span) {
+      !clear.range.valid()) {
     return false;
   }
   const std::uint64_t base =
       clear.range.offset() - clear.range.offset() % adapter.storage_align;
-  const std::uint64_t bytes = clear.range.offset() + span - base;
+  const std::uint64_t bytes = clear.range.end() - base;
   if (bytes == 0u || bytes > adapter.storage_limit ||
       base > std::numeric_limits<VkDeviceSize>::max() ||
       bytes > std::numeric_limits<VkDeviceSize>::max()) {
@@ -68,11 +58,11 @@ namespace {
 [[nodiscard]] rund::AccelCheck
 PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
   const bool captured = IsPipelinePrivatePreparation(resources.mode);
-  bool needs_pipeline = captured && !resources.resets.empty();
+  bool needs_pipeline = false;
   std::uint64_t descriptor_set_count = 0u;
   for (const VulkanReset &clear : resources.resets) {
-    needs_pipeline = needs_pipeline || !clear.range.dense();
-    if ((captured || !clear.range.dense()) &&
+    needs_pipeline = needs_pipeline || clear.shader;
+    if (clear.shader &&
         !rund::kernel::checked::add(descriptor_set_count, 1u,
                                     descriptor_set_count)) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -102,7 +92,7 @@ PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
     return rund::AccelCheck{false, VulkanLastError(&adapter)};
   }
   for (VulkanReset &clear : resources.resets) {
-    if (clear.range.dense() && !captured) {
+    if (!clear.shader) {
       continue;
     }
     if (!AcquireVulkanCollectiveDescriptorSet(
@@ -110,7 +100,10 @@ PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
       return rund::AccelCheck{false, VulkanLastError(&adapter)};
     }
     std::array<VulkanStorageBinding, 1u> bindings{};
-    if (!ResetBinding(adapter, clear, bindings[0], clear.binding_offset)) {
+    if (!ResetBinding(adapter, clear, bindings[0], clear.binding_offset) ||
+        !reset::WordAddressable(
+            clear.range, clear.binding_offset,
+            std::numeric_limits<std::uint32_t>::max())) {
       return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
     }
     if (!WriteVulkanStorageDescriptorSet(adapter, clear.descriptor, bindings)) {
@@ -130,7 +123,7 @@ PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
   std::uint64_t lease_count = 0u;
   const bool captured = IsPipelinePrivatePreparation(resources.mode);
   for (const VulkanReset &clear : resources.resets) {
-    if ((captured || !clear.range.dense()) &&
+    if (clear.shader &&
         !rund::kernel::checked::add(lease_count, 1u, lease_count)) {
       RecordNode(failed_node, steps[0]);
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -343,7 +336,7 @@ rund::AccelCheck PrepareVulkanResources(
       VulkanResidentState &resident = VulkanResidents(*adapter);
       for (std::uint64_t index = 0u; index < resets->size(); ++index) {
         const BoundReset &route = (*resets)[static_cast<std::size_t>(index)];
-        const rund::kernel::ResidentBufferRef &ref = route.ref;
+        const rund::kernel::ResidentBufferRef ref = route.ref();
         const VulkanViewTransfer *replacement = nullptr;
         if (route.external &&
             !reset::Find(*resources, route.binding, replacement)) {
@@ -351,7 +344,7 @@ rund::AccelCheck PrepareVulkanResources(
         }
         VulkanResidentBufferResult resolved =
             replacement == nullptr
-                ? ResolveVulkanResidentBuffer(resident, ref, route.handle,
+                ? ResolveVulkanResidentBuffer(resident, ref, route.handle(),
                                               "compute_resident_id_invalid")
                 : replacement->dense;
         if (!resolved.check.ok || resolved.device_buffer == nullptr) {
@@ -363,33 +356,31 @@ rund::AccelCheck PrepareVulkanResources(
             .count = replacement == nullptr ? 0u : replacement->count,
             .element = replacement == nullptr ? 0u : replacement->element_bytes,
         };
-        const reset::Spec projected =
-            reset::Project(ref, replacement == nullptr ? nullptr : &dense);
-        if (!projected.dense() && adapter->max_dispatch_groups == 0u) {
-          return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
+        reset::Range range = route.range();
+        if (replacement != nullptr) {
+          const reset::Result proved = reset::Prove(
+              reset::Project(ref, &dense), resolved.device_buffer->bytes);
+          if (!proved.check.ok) {
+            return proved.check;
+          }
+          range = proved.range;
         }
-        const reset::Result proved = reset::Prove(
-            projected, resolved.device_buffer->bytes,
-            projected.dense() ? std::numeric_limits<std::uint64_t>::max()
-                              : std::numeric_limits<std::uint32_t>::max());
-        if (!proved.check.ok) {
-          return proved.check;
+        const std::uint64_t reset_window =
+            static_cast<std::uint64_t>(adapter->max_dispatch_groups) * 256u;
+        const VulkanResetExecution execution =
+            PlanVulkanResetExecution(range, mode, reset_window);
+        if (!execution.ok) {
+          return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
         }
         resources->resets.push_back(VulkanReset{
             .resident = std::move(resolved),
-            .range = proved.range,
+            .range = range,
+            .shader = execution.shader,
         });
-        const std::uint64_t reset_commands =
-            proved.range.dense()
-                ? 1u
-                : reset::Commands(
-                      proved.range.count(),
-                      static_cast<std::uint64_t>(adapter->max_dispatch_groups) *
-                          256u);
         resources->reset_count = ::rund::detail::counter::SaturatingAdd(
-            resources->reset_count, reset_commands);
+            resources->reset_count, execution.commands);
         resources->reset_bytes = ::rund::detail::counter::SaturatingAdd(
-            resources->reset_bytes, reset::Payload(proved.range));
+            resources->reset_bytes, reset::Payload(range));
       }
     }
     const rund::AccelCheck template_ready = PrepareVulkanKernelProgramTemplate(
@@ -417,8 +408,7 @@ rund::AccelCheck PrepareVulkanResources(
                                          failed_node, *resources)
                     : resets_ready;
         for (const VulkanReset &clear : resources->resets) {
-          if (ready.ok &&
-              (!clear.range.dense() || IsPipelinePrivatePreparation(mode))) {
+          if (ready.ok && clear.shader) {
             const std::uint64_t window =
                 static_cast<std::uint64_t>(adapter->max_dispatch_groups) * 256u;
             const std::uint64_t commands =

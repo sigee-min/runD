@@ -29,27 +29,38 @@ public:
     template_index_ = entry.template_index;
     occurrence_index_ = entry.occurrence_index;
     node_ = PreparedPipelineUnknownCoordinate;
-    window_route(entry.recurrence.window);
+    const BackendWindow *const window = entry.recurrence.window;
+    if (window == nullptr ||
+        !window->valid_occurrence(entry.transduced_action())) {
+      clear_window();
+      return;
+    }
+    window_route(window);
   }
 
-  // Private route materialization has not produced a physical occurrence yet,
-  // but its authored recurrence already owns exact nested coordinates.
-  void template_recurrence_route(const std::uint32_t template_index,
-                                 const BackendRecurrence &recurrence) noexcept {
+  // A compact Seed template owns one exact outer coordinate. Action and Fold
+  // templates are reused across outer iterations, so their placeholder outer
+  // value must not be promoted to public failure evidence before expansion.
+  void compact_template_route(const std::uint32_t template_index,
+                              const BackendRecurrence &recurrence) noexcept {
     template_route(template_index);
-    window_route(recurrence.window);
+    const BackendWindow *const window = recurrence.window;
+    if (window != nullptr && window->phase == BackendWindowPhase::NestedSeed &&
+        window->valid_occurrence(false)) {
+      window_route(window);
+    }
   }
 
   void node_route(const BackendBatchEntry &entry,
                   const std::size_t step_index) noexcept {
     occurrence_route(entry);
-    node_for(entry, step_index);
+    node_for(entry.run, step_index);
   }
 
   void template_node_route(const BackendBatchEntry &entry,
                            const std::size_t step_index) noexcept {
     template_route(entry.template_index);
-    node_for(entry, step_index);
+    node_for(entry.run, step_index);
   }
 
   // A backend-owned status row may outlive the private BoundStep cursor that
@@ -61,15 +72,12 @@ public:
     node_ = node;
   }
 
-  void template_node_recurrence_route(const std::uint32_t template_index,
-                                      const BackendRecurrence &recurrence,
-                                      const BackendRun &run,
-                                      const std::size_t step_index) noexcept {
-    template_recurrence_route(template_index, recurrence);
-    if (run.steps != nullptr && step_index < run.step_count &&
-        run.steps[step_index].step != nullptr) {
-      node_ = run.steps[step_index].step->source.begin.index;
-    }
+  void compact_template_node_route(const std::uint32_t template_index,
+                                   const BackendRecurrence &recurrence,
+                                   const BackendRun &run,
+                                   const std::size_t step_index) noexcept {
+    compact_template_route(template_index, recurrence);
+    node_for(&run, step_index);
   }
 
   void clear_route() noexcept {
@@ -117,13 +125,13 @@ private:
     nested_phase_ = rund::compute::PipelineNestedPhase::None;
   }
 
-  void node_for(const BackendBatchEntry &entry,
+  void node_for(const BackendRun *const run,
                 const std::size_t step_index) noexcept {
-    if (entry.run == nullptr || entry.run->steps == nullptr ||
-        step_index >= entry.run->step_count) {
+    if (run == nullptr || run->steps == nullptr ||
+        step_index >= run->step_count) {
       return;
     }
-    const BoundStep &step = entry.run->steps[step_index];
+    const BoundStep &step = run->steps[step_index];
     if (step.step != nullptr) {
       node_ = step.step->source.begin.index;
     }

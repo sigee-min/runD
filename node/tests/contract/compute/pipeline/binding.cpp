@@ -11,6 +11,63 @@
 
 namespace rund_node_test_pipeline {
 
+[[nodiscard]] int CheckSealedPipelineBindings(rund::compute::Device &device) {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+
+  constexpr std::array<std::int32_t, 8u> initial{1, 2, 3, 4, -1, -1, -1, -1};
+  constexpr std::array<std::int32_t, 8u> expected{1, 2, 3, 4, 2, 4, 6, 8};
+  auto program = on(device)
+                     .map<std::int32_t>("pipeline-sealed-binding", 4u,
+                                        [](auto value) { return value * 2; })
+                     .compile();
+  auto storage = Upload(device, initial);
+  if (!program || !storage) {
+    return 1;
+  }
+  auto source = storage->view(0u, 4u);
+  auto target = storage->view(4u, 4u);
+  if (!source || !target) {
+    return 2;
+  }
+
+  const std::array<ResourceView, 1u> inputs{
+      BufferAccess::view(*source, ResourceAccess::Read)};
+  const std::array<ResourceView, 1u> outputs{
+      BufferAccess::view(*target, ResourceAccess::Write)};
+  auto build = make_pipeline(DeviceAccess::state(device));
+  append_pipeline(build, ProgramAccess::state(*program), inputs, outputs);
+  const auto planned = plan_pipeline(build);
+  if (!planned || build == nullptr || build->memory == nullptr ||
+      build->steps.size() != 1u || build->memory->step_resources.size() != 1u ||
+      build->memory->step_resources[0u].outputs.size() != 1u ||
+      build->memory->step_resources[0u].outputs[0u].view.offset != 4u) {
+    return 3;
+  }
+
+  // The schedule was proved with disjoint input/output Views. Mutate only the
+  // stale authored declaration after plan() without invalidating the cached
+  // memory plan. Preparation must bind the sealed output at offset 4, not the
+  // now-overlapping authored offset 0, and it must not turn the drift into a
+  // rejection path.
+  build->steps[0u].outputs[0u].offset = 0u;
+  auto prepared = prepare_pipeline(build);
+  if (!prepared || (*prepared)->steps.size() != 1u ||
+      (*prepared)->steps[0u].job == nullptr ||
+      (*prepared)->steps[0u].job->output_views.size() != 1u ||
+      (*prepared)->steps[0u].job->output_views[0u].offset != 4u) {
+    return 4;
+  }
+  std::array<std::int32_t, 8u> actual{};
+  return run_pipeline(*prepared) &&
+                 read_pipeline_raw(*prepared, BufferAccess::state(*storage),
+                                   Type::I32, FixedFormat{}, actual.data(),
+                                   sizeof(actual), actual.size()) &&
+                 actual == expected
+             ? 0
+             : 5;
+}
+
 [[nodiscard]] int CheckFrozenCpuMapBindings(rund::compute::Device &device) {
   using namespace rund::compute;
   using namespace rund::compute::detail;

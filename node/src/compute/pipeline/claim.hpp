@@ -17,6 +17,12 @@ void release_claims(DeviceState &device,
 void publish_claims(DeviceState &device, std::span<const BufferClaim> claims,
                     bool succeeded, bool poison_writes) noexcept;
 [[nodiscard]] bool buffer_poisoned(const BufferState &buffer) noexcept;
+// One device-affinity predicate for every prepare-time Pipeline resource path.
+// Callers may order this check at their existing admission boundary, but may
+// not reconstruct owner/device equality locally.
+[[nodiscard]] Status
+validate_pipeline_resource_device(const PipelineState &state,
+                                  const PipelineResource &resource) noexcept;
 [[nodiscard]] Status
 validate_pipeline_resources(const PipelineState &state) noexcept;
 [[nodiscard]] Status acquire_pipeline_claims(PipelineState &state) noexcept;

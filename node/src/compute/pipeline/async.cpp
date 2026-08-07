@@ -26,13 +26,14 @@ pipeline_window(PipelineState &state, const PipelineStep &step) noexcept {
 
 [[nodiscard]] bool valid_nested_window(const PipelineState &state,
                                        const PipelineWindow &window) noexcept {
-  return window.nested && window.seed_count != 0u &&
-         window.recurrent_output_count != 0u &&
-         window.begin == window.seed_first &&
-         window.action_first == window.seed_first + window.seed_count &&
-         window.fold_first == window.action_first + window.action_count &&
-         window.end == window.fold_first + 3u &&
-         window.end <= state.steps.size();
+  node::accel::detail::NestedTemplateShape expected{};
+  return window.nested() && window.recurrent_output_count != 0u &&
+         window.nested_shape.end() <= state.steps.size() &&
+         node::accel::detail::ProveNestedTemplateShape(
+             window.nested_shape.first(), window.control.maximum,
+             window.control.tile, window.nested_shape.inner_bound(),
+             expected) &&
+         expected == window.nested_shape;
 }
 
 [[nodiscard]] std::shared_ptr<JobState>
@@ -83,6 +84,8 @@ complete_pipeline_step_locked(PipelineState &state, const std::size_t index,
   }
   PipelineStep &step = state.steps[index];
   PipelineWindow *descriptor = nullptr;
+  std::size_t expected_fold = 0u;
+  std::uint32_t expected_fold_route = 0u;
   const bool nested = step.route != PipelineRoute::Ordinary;
   if (!nested) {
     if (index != state.verified ||
@@ -93,18 +96,20 @@ complete_pipeline_step_locked(PipelineState &state, const std::size_t index,
     descriptor = pipeline_window(state, step);
     if (schedule == nullptr || schedule->step != index ||
         descriptor == nullptr || !valid_nested_window(state, *descriptor) ||
-        state.verified != descriptor->begin ||
-        schedule->outer >= descriptor->seed_count) {
+        state.verified != descriptor->nested_shape.first() ||
+        schedule->outer >= descriptor->nested_shape.outer_bound()) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const std::size_t expected_fold =
-        descriptor->fold_first +
-        (schedule->outer == 0u ? 0u : ((schedule->outer & 1u) != 0u ? 1u : 2u));
+    if (!descriptor->nested_shape.fold_route_for_outer(
+            static_cast<std::uint32_t>(schedule->outer), expected_fold_route)) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    expected_fold = descriptor->nested_shape.fold_first() + expected_fold_route;
     if ((step.route == PipelineRoute::NestedSeed &&
-         index != descriptor->seed_first + schedule->outer) ||
+         index != descriptor->nested_shape.seed_first() + schedule->outer) ||
         (step.route == PipelineRoute::NestedAction &&
-         (index < descriptor->action_first ||
-          index >= descriptor->fold_first)) ||
+         (index < descriptor->nested_shape.action_first() ||
+          index >= descriptor->nested_shape.fold_first())) ||
         (step.route == PipelineRoute::NestedFold && index != expected_fold)) {
       return Status::fail(Reason::PipelineInvalid);
     }
@@ -138,7 +143,7 @@ complete_pipeline_step_locked(PipelineState &state, const std::size_t index,
     const bool inner_known =
         descriptor != nullptr && step.route == PipelineRoute::NestedAction;
     const std::size_t inner =
-        inner_known ? index - descriptor->action_first : 0u;
+        inner_known ? index - descriptor->nested_shape.action_first() : 0u;
     record_pipeline_failure(state, index, descriptor != nullptr,
                             descriptor == nullptr ? 0u : schedule->outer,
                             inner_known, inner);
@@ -160,25 +165,22 @@ complete_pipeline_step_locked(PipelineState &state, const std::size_t index,
 
   switch (step.route) {
   case PipelineRoute::NestedSeed:
-    schedule->step = descriptor->action_first;
+    schedule->step = descriptor->nested_shape.action_first();
     break;
   case PipelineRoute::NestedAction:
     ++state.stats.pipeline.executed_inner_iteration_count;
-    schedule->step = index + 1u < descriptor->fold_first
+    schedule->step = index + 1u < descriptor->nested_shape.fold_first()
                          ? index + 1u
-                         : descriptor->fold_first +
-                               (schedule->outer == 0u
-                                    ? 0u
-                                    : ((schedule->outer & 1u) != 0u ? 1u : 2u));
+                         : expected_fold;
     break;
   case PipelineRoute::NestedFold:
-    descriptor->current = PipelineWindow::first +
-                          static_cast<std::uint32_t>(schedule->outer & 1u);
+    descriptor->current = expected_fold_route == 1u ? PipelineWindow::second
+                                                    : PipelineWindow::first;
     ++state.stats.pipeline.executed_outer_window_count;
     ::rund::detail::counter::Accumulate(state.stats.control.iteration_count,
                                         1u);
     ++schedule->outer;
-    schedule->step = descriptor->seed_first;
+    schedule->step = descriptor->nested_shape.seed_first();
     break;
   case PipelineRoute::Ordinary:
     return Status::fail(Reason::PipelineInvalid);
@@ -290,7 +292,7 @@ Status begin_pipeline_step(const std::shared_ptr<PipelineState> &state,
   } else {
     const PipelineWindow *const descriptor = pipeline_window(*state, step);
     if (descriptor == nullptr || !valid_nested_window(*state, *descriptor) ||
-        state->verified != descriptor->begin) {
+        state->verified != descriptor->nested_shape.first()) {
       return Status::fail(Reason::PipelineInvalid);
     }
   }
@@ -382,8 +384,8 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
     if (step.route != PipelineRoute::NestedSeed) {
       PipelineWindow *const descriptor = pipeline_window(*state, step);
       if (descriptor == nullptr || !valid_nested_window(*state, *descriptor) ||
-          state->verified != descriptor->begin ||
-          schedule.outer >= descriptor->seed_count) {
+          state->verified != descriptor->nested_shape.first() ||
+          schedule.outer >= descriptor->nested_shape.outer_bound()) {
         record_pipeline_failure(*state, schedule.step);
         return {.status = Status::fail(Reason::PipelineInvalid)};
       }
@@ -397,28 +399,29 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
 
     PipelineWindow *const descriptor = pipeline_window(*state, step);
     if (descriptor == nullptr || !valid_nested_window(*state, *descriptor) ||
-        state->verified != descriptor->begin ||
-        schedule.outer > descriptor->seed_count ||
-        (schedule.step != descriptor->seed_first &&
-         (schedule.outer >= descriptor->seed_count ||
-          schedule.step != descriptor->seed_first + schedule.outer))) {
+        state->verified != descriptor->nested_shape.first() ||
+        schedule.outer > descriptor->nested_shape.outer_bound() ||
+        (schedule.step != descriptor->nested_shape.seed_first() &&
+         (schedule.outer >= descriptor->nested_shape.outer_bound() ||
+          schedule.step !=
+              descriptor->nested_shape.seed_first() + schedule.outer))) {
       record_pipeline_failure(*state, schedule.step, true, schedule.outer);
       return {.status = Status::fail(Reason::PipelineInvalid)};
     }
-    if (schedule.outer == descriptor->seed_count) {
-      state->verified = descriptor->end;
+    if (schedule.outer == descriptor->nested_shape.outer_bound()) {
+      state->verified = descriptor->nested_shape.end();
       state->stats.pipeline.verified_step_count =
           logical_verified_steps(*state, state->verified);
-      schedule.step = descriptor->end;
+      schedule.step = descriptor->nested_shape.end();
       schedule.outer = 0u;
       continue;
     }
 
-    schedule.step = descriptor->seed_first + schedule.outer;
-    PipelineStep occurrence = state->steps[descriptor->fold_first];
+    schedule.step = descriptor->nested_shape.seed_first() + schedule.outer;
+    PipelineStep occurrence =
+        state->steps[descriptor->nested_shape.fold_first()];
     occurrence.iteration = static_cast<std::uint32_t>(schedule.outer);
-    occurrence.iteration_bound =
-        static_cast<std::uint32_t>(descriptor->seed_count);
+    occurrence.iteration_bound = descriptor->nested_shape.outer_bound();
     bool active = true;
     const Status ready =
         prepare_cpu_pipeline_window(*state, occurrence, active);
@@ -433,9 +436,9 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
           state->stats.pipeline.skipped_outer_window_count, 1u);
       ::rund::detail::counter::Accumulate(
           state->stats.pipeline.skipped_inner_iteration_count,
-          static_cast<std::uint64_t>(descriptor->action_count));
+          descriptor->nested_shape.action_count());
       ++schedule.outer;
-      schedule.step = descriptor->seed_first;
+      schedule.step = descriptor->nested_shape.seed_first();
       continue;
     }
     PipelineStep &selected = state->steps[schedule.step];

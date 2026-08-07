@@ -1,156 +1,258 @@
 #include "prepare.hpp"
+#include "publication.hpp"
 
-#include "../../size.hpp"
 #include "../../type.hpp"
+#include "../claim.hpp"
 #include "../local.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace rund::compute::detail {
+namespace {
+
+[[nodiscard]] bool publication_matches_resolved(
+    const PipelinePublicationViewPlan &publication,
+    const PipelineResolvedViewPlan &resolved) noexcept {
+  return publication.identity.resource_ordinal == resolved.resource &&
+         publication.identity.offset_bytes == resolved.offset_bytes &&
+         publication.identity.count == resolved.count &&
+         publication.identity.stride_bytes == resolved.stride_bytes &&
+         publication.identity.element_bytes == resolved.element_bytes &&
+         publication.type == resolved.declared_type &&
+         publication.format == resolved.declared_format &&
+         publication.offset == resolved.offset &&
+         publication.stride == resolved.stride &&
+         publication.alignment == resolved.alignment;
+}
+
+[[nodiscard]] Result<std::uint32_t>
+admit_resolved_view(const PipelineMemoryPlan &plan, const PipelineState &state,
+                    const PipelineResolvedViewPlan &view, const Type slot_type,
+                    const std::size_t slot_count, const FixedFormat slot_format,
+                    const ResourceAccess expected_access) noexcept {
+  if (view.resource >= plan.resources.size() ||
+      view.resource >= state.resources.size()) {
+    return Result<std::uint32_t>::fail(Reason::PipelineInvalid);
+  }
+  const PipelineResolvedResourcePlan &planned = plan.resources[view.resource];
+  const PipelineResource &resource = state.resources[view.resource];
+  const std::shared_ptr<BufferState> &owner = resource.buffer;
+  const bool external =
+      std::holds_alternative<PipelineExternalResourcePlan>(planned.locator);
+  if (owner == nullptr) {
+    return Result<std::uint32_t>::fail(Reason::BindingInvalid);
+  }
+  const Status device = validate_pipeline_resource_device(state, resource);
+  if (!device) {
+    return Result<std::uint32_t>::fail(device.reason());
+  }
+  if (!valid_type(slot_type) || view.declared_type != slot_type ||
+      planned.type != slot_type || resource.type != slot_type ||
+      owner->type != slot_type) {
+    return Result<std::uint32_t>::fail(Reason::BindingTypeMismatch);
+  }
+  if (!typed_format_matches(slot_type, view.declared_format, slot_format) ||
+      planned.format != slot_format || resource.format != slot_format) {
+    return Result<std::uint32_t>::fail(valid_format(slot_type, slot_format)
+                                           ? Reason::FixedFormatMismatch
+                                           : Reason::FixedFormatInvalid);
+  }
+  const std::size_t element_bytes = type_bytes(slot_type);
+  if (view.declared_access != expected_access || element_bytes == 0u ||
+      view.element_bytes != element_bytes || view.count != slot_count ||
+      view.stride == 0u || view.alignment == 0u ||
+      (view.alignment & (view.alignment - 1u)) != 0u || view.alignment > 64u ||
+      view.offset_bytes % view.alignment != 0u ||
+      view.declared_backing_bytes != planned.bytes ||
+      planned.count != owner->count || planned.bytes != owner->bytes ||
+      (external && planned.physical_bytes != owner->physical_bytes) ||
+      owner->physical_bytes < owner->bytes ||
+      view.offset_bytes > planned.bytes ||
+      (view.count != 0u &&
+       view.span_bytes > planned.bytes - view.offset_bytes)) {
+    return Result<std::uint32_t>::fail(view.declared_access != expected_access
+                                           ? Reason::BindingInvalid
+                                           : Reason::ShapeMismatch);
+  }
+  return Result<std::uint32_t>::success(view.resource);
+}
+
+[[nodiscard]] PipelineResolvedViewPlan const *
+physical_output_view(const PipelineStepResourcePlan &step,
+                     const std::size_t physical) noexcept {
+  if (physical >= step.physical_sources.size()) {
+    return nullptr;
+  }
+  const std::uint32_t logical = step.physical_sources[physical];
+  return logical < step.outputs.size() ? &step.outputs[logical].view : nullptr;
+}
+
+[[nodiscard]] Result<bool> resolved_views_intersect(
+    const PipelineMemoryPlan &plan, const PipelineResolvedViewPlan &left,
+    const resource::AccessMode left_mode, const PipelineResolvedViewPlan &right,
+    const resource::AccessMode right_mode) noexcept {
+  if (left.resource >= plan.resources.size() ||
+      right.resource >= plan.resources.size()) {
+    return Result<bool>::fail(Reason::PipelineInvalid);
+  }
+  const auto shape = [&](const PipelineResolvedViewPlan &view) {
+    return resource::Resource{.id = view.resource + 1u,
+                              .bytes = plan.resources[view.resource].bytes,
+                              .alias_group = view.resource + 1u};
+  };
+  const auto access = [](const PipelineResolvedViewPlan &view,
+                         const resource::AccessMode mode) {
+    return resource::Access{.resource = view.resource + 1u,
+                            .mode = mode,
+                            .offset_bytes = view.offset_bytes,
+                            .element_bytes = view.element_bytes,
+                            .element_count = view.count,
+                            .stride_bytes = view.stride_bytes};
+  };
+  return resource::intersects(shape(left), access(left, left_mode),
+                              shape(right), access(right, right_mode));
+}
+
+[[nodiscard]] Status
+validate_step_aliases(const PipelineMemoryPlan &plan,
+                      const PipelineStepResourcePlan &step) noexcept {
+  for (const PipelineResolvedViewPlan &input : step.inputs) {
+    for (std::size_t physical = 0u; physical < step.physical_sources.size();
+         ++physical) {
+      const PipelineResolvedViewPlan *const output =
+          physical_output_view(step, physical);
+      if (output == nullptr) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      if (input.resource != output->resource) {
+        continue;
+      }
+      auto overlap =
+          resolved_views_intersect(plan, input, resource::AccessMode::Read,
+                                   *output, resource::AccessMode::Write);
+      if (!overlap || *overlap) {
+        return Status::fail(overlap ? Reason::BindingAliasUnsupported
+                                    : overlap.reason());
+      }
+    }
+  }
+  for (std::size_t left = 0u; left < step.physical_sources.size(); ++left) {
+    const PipelineResolvedViewPlan *const left_view =
+        physical_output_view(step, left);
+    if (left_view == nullptr) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    for (std::size_t right = left + 1u; right < step.physical_sources.size();
+         ++right) {
+      const PipelineResolvedViewPlan *const right_view =
+          physical_output_view(step, right);
+      if (right_view == nullptr) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      if (left_view->resource != right_view->resource) {
+        continue;
+      }
+      auto overlap = resolved_views_intersect(
+          plan, *left_view, resource::AccessMode::Write, *right_view,
+          resource::AccessMode::Write);
+      if (!overlap || *overlap) {
+        return Status::fail(overlap ? Reason::BindingDuplicate
+                                    : overlap.reason());
+      }
+    }
+  }
+  return Status::success();
+}
+
+} // namespace
 
 Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                       PipelinePrepare &prepare) {
-  auto state = std::make_shared<PipelineState>();
-  state->device = build->device;
-  state->publication = std::make_shared<PipelinePublicationState>();
-  state->publication->device = build->device;
-  state->sealed_repetitions = build->sealed_repetitions;
-  if (build->memory == nullptr) {
+  if (build->memory == nullptr || build->memory->frozen == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  const std::size_t resource_count = build->memory->hazards.lifetimes.size();
+  const PipelineMemoryPlan &plan = *build->memory;
+  const PipelineBuildSnapshot &frozen = *plan.frozen;
+  if (plan.window_states.size() != frozen.steps.size() ||
+      plan.step_resources.size() != frozen.steps.size() ||
+      frozen.commit != !plan.state_pair_resources.empty() ||
+      build->materialized_resources.size() != plan.resources.size() ||
+      plan.resources.size() != plan.hazards.lifetimes.size()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  const std::size_t resource_count = plan.resources.size();
   if (resource_count > PipelineResourceCapacity) {
     return Status::fail(Reason::PipelineCapacity);
   }
-  state->plan = build->memory->summary;
-  state->steps.resize(build->steps.size());
-  state->windows.reserve(build->logical_step_count);
-  if (build->profile == PipelineProfile::Steps) {
-    state->profile = std::make_unique<PipelineProfileState>();
-    state->profile->steps.resize(build->steps.size());
-    state->profile->started_ns.resize(build->steps.size());
-    state->profile->started.resize(build->steps.size());
-  }
-  std::vector<PipelinePlanStep> plan_steps(build->steps.size());
-  std::vector<PipelineResourceAdmission> resource_admissions;
-  resource_admissions.reserve(resource_count);
-  std::vector<PhysicalOutputProjection> physical_outputs(build->steps.size());
-  for (PhysicalOutputProjection &projection : physical_outputs) {
-    projection.sources.fill(PhysicalOutputProjection::unassigned);
-  }
-  std::vector<std::uint16_t> nested_windows(build->nested_windows.size());
-  state->resources.reserve(resource_count);
-  state->barriers.resize(build->steps.size());
 
-  std::unordered_map<const BufferState *, std::uint32_t> ordinals;
-  ordinals.reserve(resource_count);
+  auto state = std::make_shared<PipelineState>();
+  state->device = frozen.device;
+  state->publication = std::make_shared<PipelinePublicationState>();
+  state->publication->device = frozen.device;
+  state->sealed_repetitions = frozen.sealed_repetitions;
+  state->plan = plan.summary;
+  state->steps.resize(frozen.steps.size());
+  if (plan.window_controls.size() > std::numeric_limits<std::uint16_t>::max()) {
+    return Status::fail(Reason::PipelineCapacity);
+  }
+  state->windows.resize(plan.window_controls.size());
+  std::vector<bool> initialized_windows(plan.window_controls.size(), false);
+  state->resources.reserve(resource_count);
+  state->barriers.resize(frozen.steps.size());
+  if (frozen.profile == PipelineProfile::Steps) {
+    state->profile = std::make_unique<PipelineProfileState>();
+    state->profile->steps.resize(frozen.steps.size());
+    state->profile->started_ns.resize(frozen.steps.size());
+    state->profile->started.resize(frozen.steps.size());
+  }
+
+  for (std::size_t ordinal = 0u; ordinal < resource_count; ++ordinal) {
+    const PipelineResolvedResourcePlan &planned = plan.resources[ordinal];
+    const std::shared_ptr<BufferState> &owner =
+        build->materialized_resources[ordinal];
+    const bool owned =
+        std::holds_alternative<PipelineInternalResourcePlan>(planned.locator);
+    if (owner == nullptr ||
+        planned.count > std::numeric_limits<std::size_t>::max() ||
+        planned.bytes > std::numeric_limits<std::size_t>::max() ||
+        (planned.first_write != resource::NoNode &&
+         planned.first_write >= frozen.steps.size())) {
+      return Status::fail(owner == nullptr ? Reason::BindingInvalid
+                                           : Reason::PipelineInvalid);
+    }
+    state->resources.push_back(PipelineResource{
+        .buffer = owner,
+        .type = planned.type,
+        .format = planned.format,
+        .count = static_cast<std::size_t>(planned.count),
+        .bytes = static_cast<std::size_t>(planned.bytes),
+        .output = PipelineResource::no_output,
+        .first_write = planned.first_write,
+        .owned = owned,
+        .terminal_publish = false,
+    });
+  }
+
   PipelineHash hash{};
-  hash.number(build->sealed_repetitions);
-  hash.number(build->steps.size());
+  hash.number(frozen.sealed_repetitions);
+  hash.number(frozen.steps.size());
   std::size_t observed_bindings = 0u;
-  std::size_t output_count = 0u;
   std::uint64_t status_entry_count = 0u;
-  const std::size_t binding_capacity = build->nested_windows.empty()
+  const std::size_t binding_capacity = frozen.nested_windows.empty()
                                            ? PipelineBindingCapacity
                                            : PipelineRouteBindingCapacity;
+  std::size_t output_count = 0u;
 
-  const auto admit =
-      [&](const PipelineBinding &binding, const Type slot_type,
-          const std::size_t slot_count,
-          const FixedFormat slot_format) -> Result<std::uint32_t> {
-    const bool owned = binding.owner != PipelineBinding::external;
-    if (binding.buffer == nullptr) {
-      return Result<std::uint32_t>::fail(Reason::BindingInvalid);
-    }
-    if (binding.buffer->device != state->device) {
-      return Result<std::uint32_t>::fail(Reason::BindingDeviceMismatch);
-    }
-    if (!valid_type(slot_type) || binding.type != slot_type ||
-        binding.buffer->type != slot_type) {
-      return Result<std::uint32_t>::fail(Reason::BindingTypeMismatch);
-    }
-    const std::size_t element_bytes = type_bytes(slot_type);
-    if (element_bytes == 0u || !size::multiply(slot_count, element_bytes)) {
-      return Result<std::uint32_t>::fail(Reason::ShapeMismatch);
-    }
-    std::size_t distance = 0u;
-    std::size_t last = binding.offset;
-    const bool footprint_overflow =
-        binding.count != 0u &&
-        (binding.stride == 0u ||
-         !size::multiply(binding.count - 1u, binding.stride, distance) ||
-         !size::add(binding.offset, distance, last));
-    std::size_t buffer_bytes = 0u;
-    std::size_t offset_bytes = 0u;
-    const bool valid_buffer_bytes =
-        size::multiply(binding.buffer->count, element_bytes, buffer_bytes);
-    const bool valid_offset =
-        size::multiply(binding.offset, element_bytes, offset_bytes);
-    if (binding.count != slot_count || binding.element_bytes != element_bytes ||
-        binding.alignment == 0u ||
-        (binding.alignment & (binding.alignment - 1u)) != 0u ||
-        binding.alignment > 64u || footprint_overflow ||
-        (binding.count != 0u && last >= binding.buffer->count) ||
-        !valid_buffer_bytes || binding.buffer->bytes != buffer_bytes ||
-        binding.backing_bytes != binding.buffer->bytes ||
-        binding.buffer->physical_bytes < binding.buffer->bytes ||
-        !valid_offset || offset_bytes % binding.alignment != 0u) {
-      return Result<std::uint32_t>::fail(Reason::ShapeMismatch);
-    }
-    if (!typed_format_matches(slot_type, binding.format, slot_format)) {
-      return Result<std::uint32_t>::fail(valid_format(slot_type, slot_format)
-                                             ? Reason::FixedFormatMismatch
-                                             : Reason::FixedFormatInvalid);
-    }
-
-    const auto found = ordinals.find(binding.buffer.get());
-    if (found != ordinals.end()) {
-      PipelineResource &resource = state->resources[found->second];
-      if (resource.type != slot_type) {
-        return Result<std::uint32_t>::fail(Reason::BindingTypeMismatch);
-      }
-      if (resource.count != binding.buffer->count ||
-          resource.bytes != binding.buffer->bytes) {
-        return Result<std::uint32_t>::fail(Reason::ShapeMismatch);
-      }
-      if (resource.format != slot_format) {
-        return Result<std::uint32_t>::fail(Reason::FixedFormatMismatch);
-      }
-      if (resource.owned != owned) {
-        return Result<std::uint32_t>::fail(Reason::PipelineInvalid);
-      }
-      return Result<std::uint32_t>::success(found->second);
-    }
-    if (state->resources.size() >= PipelineResourceCapacity) {
-      return Result<std::uint32_t>::fail(Reason::PipelineCapacity);
-    }
-    const auto ordinal = static_cast<std::uint32_t>(state->resources.size());
-    ordinals.emplace(binding.buffer.get(), ordinal);
-    state->resources.push_back(PipelineResource{
-        .buffer = binding.buffer,
-        .type = slot_type,
-        .format = slot_format,
-        .count = binding.buffer->count,
-        .bytes = binding.buffer->bytes,
-        .owned = owned,
-    });
-    resource_admissions.emplace_back();
-    return Result<std::uint32_t>::success(ordinal);
-  };
-
-  // Phase 1 owns every static check. No Job or backend preparation occurs
-  // until all steps, projections, bindings, and policies are accepted.
-  for (std::size_t step_index = 0u; step_index < build->steps.size();
+  for (std::size_t step_index = 0u; step_index < frozen.steps.size();
        ++step_index) {
-    const PipelineBuildStep &declared = build->steps[step_index];
+    const PipelineFrozenStep &declared = frozen.steps[step_index];
+    const PipelineStepResourcePlan &sealed = plan.step_resources[step_index];
     const ProgramState *const program = declared.program.get();
     if (program == nullptr || program->device != state->device) {
       return Status::fail(program == nullptr ? Reason::ProgramInvalid
@@ -159,173 +261,155 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     status_entry_count = ::rund::detail::counter::SaturatingAdd(
         status_entry_count, cpu_program_status_entries(*program));
     if (!valid_input_shape(*program) ||
-        declared.inputs.size() != program->input_types.size()) {
+        sealed.inputs.size() != program->input_types.size()) {
       return Status::fail(Reason::BindingCountMismatch);
     }
-    auto projection = project_outputs(declared);
-    if (!projection) {
-      return Status::fail(projection.reason());
-    }
-    if (declared.inputs.size() > PipelineLeafCapacity ||
-        declared.outputs.size() >
-            PipelineLeafCapacity - declared.inputs.size()) {
+    if (sealed.outputs.size() > PipelineLeafCapacity ||
+        sealed.inputs.size() > PipelineLeafCapacity ||
+        sealed.outputs.size() > PipelineLeafCapacity - sealed.inputs.size() ||
+        sealed.physical_sources.size() != program->output_types.size() ||
+        program->output_sizes.size() != sealed.physical_sources.size() ||
+        program->output_formats.size() != sealed.physical_sources.size()) {
       return Status::fail(Reason::PipelineCapacity);
     }
     if (observed_bindings > binding_capacity ||
-        declared.inputs.size() + declared.outputs.size() >
+        sealed.inputs.size() + sealed.outputs.size() >
             binding_capacity - observed_bindings) {
       return Status::fail(Reason::PipelineCapacity);
     }
-    observed_bindings += declared.inputs.size() + declared.outputs.size();
+    observed_bindings += sealed.inputs.size() + sealed.outputs.size();
 
     PipelineStep &step = state->steps[step_index];
-    PipelinePlanStep &planned_step = plan_steps[step_index];
-    PhysicalOutputProjection &physical_output = physical_outputs[step_index];
     step.program = declared.program;
     step.logical_step = declared.logical_step;
     step.iteration = declared.iteration;
     step.iteration_bound = declared.iteration_bound;
     step.route = declared.route;
     step.writes_each_iteration = declared.writes_each_iteration;
+
     if (declared.nested != 0u) {
-      const std::size_t nested_index =
-          static_cast<std::size_t>(declared.nested - 1u);
-      if (nested_index >= build->nested_windows.size()) {
+      const std::size_t nested_index = declared.nested - 1u;
+      if (nested_index >= frozen.nested_windows.size()) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      const PipelineBuildNestedWindow &nested =
-          build->nested_windows[nested_index];
-      if (nested.begin >= nested.end || nested.end > build->steps.size() ||
-          step_index < nested.begin || step_index >= nested.end ||
-          nested.seed_first != nested.begin || nested.seed_count == 0u ||
-          nested.action_first != nested.seed_first + nested.seed_count ||
-          nested.fold_first != nested.action_first + nested.action_count ||
-          nested.end != nested.fold_first + 3u || nested.maximum == 0u ||
-          nested.tile == 0u || nested.tile > nested.maximum ||
+      const PipelineFrozenNestedWindow &nested =
+          frozen.nested_windows[nested_index];
+      const node::accel::detail::NestedTemplateShape &shape = nested.shape;
+      const std::uint32_t control_index = plan.window_states[step_index];
+      if (control_index >= plan.window_controls.size()) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      const PipelineWindowControl &control =
+          plan.window_controls[control_index];
+      node::accel::detail::NestedTemplateShape expected_shape{};
+      node::accel::detail::NestedTemplateRouteProjection route{};
+      if (!shape.valid() || shape.end() > frozen.steps.size() ||
+          !shape.project(step_index, route) ||
+          !node::accel::detail::ProveNestedTemplateShape(
+              shape.first(), control.maximum, control.tile, shape.inner_bound(),
+              expected_shape) ||
+          expected_shape != shape ||
+          declared.route != pipeline_route(route.phase) ||
+          declared.iteration != route.iteration ||
+          declared.iteration_bound != route.bound ||
           nested.recurrent_output_count == 0u ||
           nested.recurrent_output_count > PipelineLeafCapacity ||
-          nested.count.buffer == nullptr || nested.count.type != Type::U32 ||
-          nested.count.count != 1u ||
-          nested.count.element_bytes != sizeof(std::uint32_t)) {
+          shape.seed_first() >= plan.step_resources.size() ||
+          control.count_input >=
+              plan.step_resources[shape.seed_first()].inputs.size() ||
+          !publication_matches_resolved(control.count,
+                                        plan.step_resources[shape.seed_first()]
+                                            .inputs[control.count_input]) ||
+          control.count.type != Type::U32 ||
+          control.count.identity.count != 1u ||
+          control.count.identity.element_bytes != sizeof(std::uint32_t) ||
+          control.final < PipelineWindow::first ||
+          control.final > PipelineWindow::second) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      if (step_index == nested.begin) {
-        if (state->windows.size() >=
-            std::numeric_limits<std::uint16_t>::max()) {
-          return Status::fail(Reason::PipelineCapacity);
+      if (step_index == shape.first()) {
+        if (initialized_windows[control_index] ||
+            shape.fold_first() >= plan.step_resources.size()) {
+          return Status::fail(Reason::PipelineInvalid);
         }
-        auto fold_projection = project_outputs(build->steps[nested.fold_first]);
-        if (!fold_projection ||
-            nested.recurrent_output_count > fold_projection->physical_count ||
-            (nested.terminal != NoWindowTerminal &&
-             nested.terminal >=
-                 build->steps[nested.fold_first].outputs.size())) {
-          return Status::fail(fold_projection ? Reason::PipelineInvalid
-                                              : fold_projection.reason());
+        const PipelineStepResourcePlan &fold =
+            plan.step_resources[shape.fold_first()];
+        if (nested.recurrent_output_count > fold.physical_sources.size() ||
+            (control.terminal_output !=
+                 std::numeric_limits<std::uint32_t>::max() &&
+             control.terminal_output >= fold.physical_sources.size())) {
+          return Status::fail(Reason::PipelineInvalid);
         }
         for (std::size_t output = 0u; output < nested.recurrent_output_count;
              ++output) {
-          if (fold_projection->logical_to_physical[output] != output) {
+          if (output >= fold.outputs.size() ||
+              fold.outputs[output].physical != output) {
             return Status::fail(Reason::PipelineInvalid);
           }
         }
-        state->windows.push_back(PipelineWindow{
-            .count = nested.count.buffer,
-            .count_offset = nested.count.offset,
-            .first_step = nested.fold_first,
+        state->windows[control_index] = PipelineWindow{
+            .control = control,
+            .first_step = shape.fold_first(),
             .recurrent_output_count =
                 static_cast<std::uint32_t>(nested.recurrent_output_count),
-            .maximum = static_cast<std::uint32_t>(nested.maximum),
-            .tile = static_cast<std::uint32_t>(nested.tile),
-            .terminal = nested.terminal == NoWindowTerminal
-                            ? std::numeric_limits<std::uint32_t>::max()
-                            : static_cast<std::uint32_t>(nested.terminal),
-            .terminal_output =
-                nested.terminal == NoWindowTerminal
-                    ? 0u
-                    : fold_projection->logical_to_physical[nested.terminal],
-            .expected = nested.expected,
-            .begin = nested.begin,
-            .end = nested.end,
-            .seed_first = nested.seed_first,
-            .seed_count = nested.seed_count,
-            .action_first = nested.action_first,
-            .action_count = nested.action_count,
-            .fold_first = nested.fold_first,
-            .nested = true,
-        });
-        nested_windows[nested_index] =
-            static_cast<std::uint16_t>(state->windows.size());
+            .nested_shape = shape,
+        };
+        initialized_windows[control_index] = true;
       }
-      if (nested_windows[nested_index] == 0u) {
+      if (!initialized_windows[control_index]) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      step.window = nested_windows[nested_index];
+      if (declared.route == PipelineRoute::NestedSeed &&
+          (control.count_input >= sealed.inputs.size() ||
+           !publication_matches_resolved(control.count,
+                                         sealed.inputs[control.count_input]))) {
+        return Status::fail(Reason::BindingInvalid);
+      }
+      step.window = static_cast<std::uint16_t>(control_index + 1u);
     }
-    if (declared.window_tile != 0u) {
-      if (declared.nested != 0u) {
+
+    const std::uint32_t control_index = plan.window_states[step_index];
+    if (declared.nested == 0u && control_index != PipelineResourceUnassigned) {
+      if (control_index >= plan.window_controls.size()) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      if (declared.window_max == 0u ||
-          declared.window_max > std::numeric_limits<std::uint32_t>::max() ||
-          declared.window_tile > std::numeric_limits<std::uint32_t>::max() ||
-          (declared.window_terminal != NoWindowTerminal &&
-           (declared.window_terminal >= declared.outputs.size() ||
-            declared.window_terminal >
-                std::numeric_limits<std::uint32_t>::max())) ||
-          declared.inputs.size() < 2u) {
-        return Status::fail(Reason::PipelineCapacity);
+      const PipelineWindowControl &control =
+          plan.window_controls[control_index];
+      if (control.count_input >= sealed.inputs.size()) {
+        return Status::fail(Reason::PipelineInvalid);
       }
-      const PipelineBinding &count =
-          declared.inputs[declared.inputs.size() - 2u];
-      if (count.buffer == nullptr || count.type != Type::U32 ||
-          count.count != 1u || count.element_bytes != sizeof(std::uint32_t) ||
-          count.stride == 0u) {
+      const PipelineResolvedViewPlan &count =
+          sealed.inputs[control.count_input];
+      if (!publication_matches_resolved(control.count, count) ||
+          control.maximum == 0u || control.tile == 0u ||
+          control.tile > control.maximum ||
+          control.final < PipelineWindow::first ||
+          control.final > PipelineWindow::second ||
+          (control.terminal != std::numeric_limits<std::uint32_t>::max() &&
+           control.terminal_output >= sealed.outputs.size())) {
         return Status::fail(Reason::BindingInvalid);
       }
       if (declared.iteration == 0u) {
-        if (state->windows.size() >=
-            std::numeric_limits<std::uint16_t>::max()) {
-          return Status::fail(Reason::PipelineCapacity);
-        }
-        state->windows.push_back(PipelineWindow{
-            .count = count.buffer,
-            .count_offset = count.offset,
-            .first_step = step_index,
-            .recurrent_output_count =
-                static_cast<std::uint32_t>(projection->physical_count),
-            .maximum = static_cast<std::uint32_t>(declared.window_max),
-            .tile = static_cast<std::uint32_t>(declared.window_tile),
-            .terminal =
-                declared.window_terminal == NoWindowTerminal
-                    ? std::numeric_limits<std::uint32_t>::max()
-                    : static_cast<std::uint32_t>(declared.window_terminal),
-            .terminal_output =
-                declared.window_terminal == NoWindowTerminal
-                    ? 0u
-                    : projection->logical_to_physical[declared.window_terminal],
-            .expected = declared.window_expected,
-        });
-        step.window = static_cast<std::uint16_t>(state->windows.size());
-      } else {
-        if (step_index == 0u || state->steps[step_index - 1u].window == 0u) {
+        if (initialized_windows[control_index]) {
           return Status::fail(Reason::PipelineInvalid);
         }
-        step.window = state->steps[step_index - 1u].window;
-        const PipelineWindow &window = state->windows[step.window - 1u];
-        if (window.maximum != declared.window_max ||
-            window.tile != declared.window_tile ||
-            window.recurrent_output_count != projection->physical_count ||
-            window.terminal != (declared.window_terminal == NoWindowTerminal
-                                    ? std::numeric_limits<std::uint32_t>::max()
-                                    : declared.window_terminal) ||
-            window.expected != declared.window_expected ||
-            window.count != count.buffer ||
-            window.count_offset != count.offset) {
+        state->windows[control_index] = PipelineWindow{
+            .control = control,
+            .first_step = step_index,
+            .recurrent_output_count =
+                static_cast<std::uint32_t>(sealed.physical_sources.size()),
+        };
+        initialized_windows[control_index] = true;
+      } else {
+        if (!initialized_windows[control_index] ||
+            state->windows[control_index].recurrent_output_count !=
+                sealed.physical_sources.size()) {
           return Status::fail(Reason::PipelineInvalid);
         }
       }
+      step.window = static_cast<std::uint16_t>(control_index + 1u);
     }
+
     if (state->profile != nullptr) {
       PipelineStepProfile &profile = state->profile->steps[step_index];
       profile.index = declared.logical_step;
@@ -341,195 +425,133 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         profile.nested_phase = PipelineNestedPhase::Fold;
       }
       if (declared.nested != 0u) {
-        const PipelineBuildNestedWindow &nested =
-            build->nested_windows[declared.nested - 1u];
-        profile.outer_window_bound =
-            static_cast<std::uint32_t>(nested.seed_count);
-        profile.inner_iteration_bound =
-            static_cast<std::uint32_t>(nested.action_count);
+        const PipelineFrozenNestedWindow &nested =
+            frozen.nested_windows[declared.nested - 1u];
+        profile.outer_window_bound = nested.shape.outer_bound();
+        profile.inner_iteration_bound = nested.shape.inner_bound();
       }
       profile.program = program->graph_info.fingerprint;
     }
-    planned_step.inputs.resize(declared.inputs.size());
-    planned_step.outputs.resize(projection->physical_count);
+
     hash.number(step_index);
     hash.number(declared.logical_step);
     hash.number(declared.iteration);
     hash.number(declared.iteration_bound);
-    hash.number(declared.window_max);
-    hash.number(declared.window_tile);
-    hash.number(declared.window_terminal);
-    hash.number(declared.window_expected);
+    const PipelineWindowControl *const identity_control =
+        control_index == PipelineResourceUnassigned
+            ? nullptr
+            : &plan.window_controls[control_index];
+    // Fingerprint v3 assigned these four slots to ordinary authored-step
+    // window fields. Nested steps historically serialized their default values
+    // here and emitted their window identity once more in the nested-begin
+    // block below. Preserve that byte contract while sourcing every live value
+    // from the one sealed state control.
+    const PipelineWindowControl *const ordinary_control =
+        declared.nested == 0u ? identity_control : nullptr;
+    hash.number(ordinary_control == nullptr ? 0u : ordinary_control->maximum);
+    hash.number(ordinary_control == nullptr ? 0u : ordinary_control->tile);
+    hash.number(ordinary_control == nullptr ||
+                        ordinary_control->terminal ==
+                            std::numeric_limits<std::uint32_t>::max()
+                    ? NoWindowTerminal
+                    : ordinary_control->terminal);
+    hash.number(ordinary_control == nullptr ? 1u : ordinary_control->expected);
     hash.number(declared.nested);
     hash.byte(static_cast<std::uint8_t>(declared.route));
     hash.byte(static_cast<std::uint8_t>(declared.writes_each_iteration));
     if (declared.nested != 0u) {
-      const PipelineBuildNestedWindow &nested =
-          build->nested_windows[declared.nested - 1u];
-      if (step_index == nested.begin) {
-        hash.number(nested.maximum);
-        hash.number(nested.tile);
-        hash.number(nested.seed_count);
-        hash.number(nested.action_count);
+      const PipelineFrozenNestedWindow &nested =
+          frozen.nested_windows[declared.nested - 1u];
+      if (step_index == nested.shape.first()) {
+        hash.number(identity_control->maximum);
+        hash.number(identity_control->tile);
+        hash.number(nested.shape.seed_count());
+        hash.number(nested.shape.action_count());
         hash.number(nested.recurrent_output_count);
-        hash.number(nested.terminal);
-        hash.number(nested.expected);
+        hash.number(identity_control->terminal ==
+                            std::numeric_limits<std::uint32_t>::max()
+                        ? NoWindowTerminal
+                        : identity_control->terminal);
+        hash.number(identity_control->expected);
       }
     }
     hash.number(program->graph_info.fingerprint.hi);
     hash.number(program->graph_info.fingerprint.lo);
-    hash.number(declared.inputs.size());
-    for (std::size_t index = 0u; index < declared.inputs.size(); ++index) {
-      auto ordinal =
-          admit(declared.inputs[index], program->input_types[index],
-                program->input_sizes[index], program->input_formats[index]);
-      if (!ordinal) {
-        return Status::fail(ordinal.reason());
-      }
-      planned_step.inputs[index] = *ordinal;
-      PipelineResourceAdmission &admission = resource_admissions[*ordinal];
-      admission.first_input_step = std::min(
-          admission.first_input_step, static_cast<std::uint32_t>(step_index));
-      hash.byte(static_cast<std::uint8_t>(PipelineAccess::Read));
-      hash.number(index);
-      hash.number(*ordinal);
-      hash.number(static_cast<std::uint64_t>(program->input_types[index]));
-      hash.number(program->input_sizes[index]);
-      hash.number(declared.inputs[index].offset);
-      hash.number(declared.inputs[index].count);
-      hash.number(declared.inputs[index].stride);
-      hash.number(declared.inputs[index].element_bytes);
-      hash.number(declared.inputs[index].alignment);
-      hash.format(program->input_formats[index]);
-    }
-
-    std::array<std::uint32_t, PipelineLeafCapacity> physical_ordinals{};
-    physical_ordinals.fill(std::numeric_limits<std::uint32_t>::max());
-    std::array<bool, PipelineLeafCapacity> physical_bound{};
-    hash.number(declared.outputs.size());
-    for (std::size_t index = 0u; index < declared.outputs.size(); ++index) {
-      const std::uint32_t physical = projection->logical_to_physical[index];
-      auto admitted = admit(
-          declared.outputs[index], program->output_types[physical],
-          program->output_sizes[physical], program->output_formats[physical]);
+    hash.number(sealed.inputs.size());
+    for (std::size_t index = 0u; index < sealed.inputs.size(); ++index) {
+      const PipelineResolvedViewPlan &view = sealed.inputs[index];
+      auto admitted = admit_resolved_view(
+          plan, *state, view, program->input_types[index],
+          program->input_sizes[index], program->input_formats[index],
+          ResourceAccess::Read);
       if (!admitted) {
         return Status::fail(admitted.reason());
       }
-      // project_outputs already proves that every logical alias of this
-      // physical output names the same exact View. admit therefore returns
-      // the same canonical owner ordinal for every repeated physical index.
-      physical_ordinals[physical] = *admitted;
-      if (!physical_bound[physical]) {
-        physical_output.sources[physical] = static_cast<std::uint8_t>(index);
-        physical_bound[physical] = true;
+      hash.byte(static_cast<std::uint8_t>(PipelineAccess::Read));
+      hash.number(index);
+      hash.number(*admitted);
+      hash.number(static_cast<std::uint64_t>(program->input_types[index]));
+      hash.number(program->input_sizes[index]);
+      hash.number(view.offset);
+      hash.number(view.count);
+      hash.number(view.stride);
+      hash.number(view.element_bytes);
+      hash.number(view.alignment);
+      hash.format(program->input_formats[index]);
+    }
+
+    hash.number(sealed.outputs.size());
+    for (std::size_t index = 0u; index < sealed.outputs.size(); ++index) {
+      const PipelineResolvedOutputPlan &output = sealed.outputs[index];
+      if (output.physical >= program->output_types.size()) {
+        return Status::fail(Reason::PipelineInvalid);
       }
-      const std::uint32_t ordinal = physical_ordinals[physical];
-      PipelineResource &output_resource = state->resources[ordinal];
-      output_resource.first_write = std::min(
-          output_resource.first_write, static_cast<std::uint32_t>(step_index));
-      if (!declared.outputs[index].hidden &&
+      auto admitted = admit_resolved_view(
+          plan, *state, output.view, program->output_types[output.physical],
+          program->output_sizes[output.physical],
+          program->output_formats[output.physical], ResourceAccess::Write);
+      if (!admitted) {
+        return Status::fail(admitted.reason());
+      }
+      PipelineResource &output_resource = state->resources[*admitted];
+      if (!output.hidden &&
           output_resource.output == PipelineResource::no_output) {
-        // Mark write membership now; the canonical output index is assigned
-        // in resource order once Phase 1 is complete.
         output_resource.output = 0u;
         ++output_count;
       }
-      if (declared.outputs[index].offset == 0u &&
-          declared.outputs[index].stride == 1u &&
-          declared.outputs[index].count ==
-              declared.outputs[index].buffer->count) {
-        PipelineResourceAdmission &admission = resource_admissions[ordinal];
-        admission.first_full_output_step =
-            std::min(admission.first_full_output_step,
-                     static_cast<std::uint32_t>(step_index));
-      }
       hash.byte(static_cast<std::uint8_t>(PipelineAccess::Write));
       hash.number(index);
-      hash.number(physical);
-      hash.number(ordinal);
-      hash.number(static_cast<std::uint64_t>(program->output_types[physical]));
-      hash.number(program->output_sizes[physical]);
-      hash.number(declared.outputs[index].offset);
-      hash.number(declared.outputs[index].count);
-      hash.number(declared.outputs[index].stride);
-      hash.number(declared.outputs[index].element_bytes);
-      hash.number(declared.outputs[index].alignment);
-      hash.byte(static_cast<std::uint8_t>(declared.outputs[index].hidden));
-      hash.format(program->output_formats[physical]);
+      hash.number(output.physical);
+      hash.number(*admitted);
+      hash.number(
+          static_cast<std::uint64_t>(program->output_types[output.physical]));
+      hash.number(program->output_sizes[output.physical]);
+      hash.number(output.view.offset);
+      hash.number(output.view.count);
+      hash.number(output.view.stride);
+      hash.number(output.view.element_bytes);
+      hash.number(output.view.alignment);
+      hash.byte(static_cast<std::uint8_t>(output.hidden));
+      hash.format(program->output_formats[output.physical]);
     }
-    std::copy_n(physical_ordinals.begin(), projection->physical_count,
-                planned_step.outputs.begin());
-    step.writes = !planned_step.outputs.empty();
+    for (std::size_t physical = 0u; physical < sealed.physical_sources.size();
+         ++physical) {
+      const PipelineResolvedViewPlan *view =
+          physical_output_view(sealed, physical);
+      if (view == nullptr) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+    }
+    const Status aliases = validate_step_aliases(plan, sealed);
+    if (!aliases) {
+      return aliases;
+    }
+    step.writes = !sealed.physical_sources.empty();
+  }
 
-    const auto resource_descriptor = [&](const std::uint32_t ordinal) {
-      const PipelineResource &value = state->resources[ordinal];
-      return resource::Resource{
-          .id = ordinal + 1u,
-          .bytes = value.bytes,
-          .alias_group = ordinal + 1u,
-      };
-    };
-    const auto access_descriptor = [&](const PipelineBinding &binding,
-                                       const std::uint32_t ordinal,
-                                       const resource::AccessMode mode) {
-      return resource::Access{
-          .resource = ordinal + 1u,
-          .mode = mode,
-          .offset_bytes = binding.offset * binding.element_bytes,
-          .element_bytes = binding.element_bytes,
-          .element_count = binding.count,
-          .stride_bytes = binding.stride * binding.element_bytes,
-      };
-    };
-    for (std::size_t input = 0u; input < planned_step.inputs.size(); ++input) {
-      for (std::size_t output = 0u; output < planned_step.outputs.size();
-           ++output) {
-        if (planned_step.inputs[input] != planned_step.outputs[output]) {
-          continue;
-        }
-        const PipelineBinding &output_binding =
-            declared.outputs[physical_output.sources[output]];
-        auto overlap = resource::intersects(
-            resource_descriptor(planned_step.inputs[input]),
-            access_descriptor(declared.inputs[input],
-                              planned_step.inputs[input],
-                              resource::AccessMode::Read),
-            resource_descriptor(planned_step.outputs[output]),
-            access_descriptor(output_binding, planned_step.outputs[output],
-                              resource::AccessMode::Write));
-        if (!overlap) {
-          return Status::fail(overlap.reason());
-        }
-        if (*overlap) {
-          return Status::fail(Reason::BindingAliasUnsupported);
-        }
-      }
-    }
-    for (std::size_t left = 0u; left < planned_step.outputs.size(); ++left) {
-      for (std::size_t right = left + 1u; right < planned_step.outputs.size();
-           ++right) {
-        if (planned_step.outputs[left] != planned_step.outputs[right]) {
-          continue;
-        }
-        const PipelineBinding &left_binding =
-            declared.outputs[physical_output.sources[left]];
-        const PipelineBinding &right_binding =
-            declared.outputs[physical_output.sources[right]];
-        auto overlap = resource::intersects(
-            resource_descriptor(planned_step.outputs[left]),
-            access_descriptor(left_binding, planned_step.outputs[left],
-                              resource::AccessMode::Write),
-            resource_descriptor(planned_step.outputs[right]),
-            access_descriptor(right_binding, planned_step.outputs[right],
-                              resource::AccessMode::Write));
-        if (!overlap) {
-          return Status::fail(overlap.reason());
-        }
-        if (*overlap) {
-          return Status::fail(Reason::BindingDuplicate);
-        }
-      }
-    }
+  if (std::find(initialized_windows.begin(), initialized_windows.end(),
+                false) != initialized_windows.end()) {
+    return Status::fail(Reason::PipelineInvalid);
   }
   if (!state->windows.empty()) {
     static_assert(PipelineRouteCapacity <=
@@ -544,257 +566,183 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                : 0u));
     }
   }
-  if (observed_bindings != build->binding_count) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  state->publications.reserve(build->publications.size());
-  if (build->memory->publications.size() != build->publications.size()) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  hash.number(build->publications.size());
-  for (std::size_t publication_index = 0u;
-       publication_index < build->publications.size(); ++publication_index) {
-    const PipelineBuildPublication &declared =
-        build->publications[publication_index];
-    const PipelinePublicationPlan &planned =
-        build->memory->publications[publication_index];
-    const auto *declared_window =
-        std::get_if<PipelineBuildWindowPublication>(&declared);
-    const auto *planned_window =
-        std::get_if<PipelineWindowPublicationPlan>(&planned);
-    if ((declared_window == nullptr) != (planned_window == nullptr)) {
-      return Status::fail(Reason::PipelineInvalid);
+  const auto exact_resource =
+      [&](const PipelinePublicationViewPlan &view) -> PipelineResource * {
+    const PipelinePublicationViewIdentity &identity = view.identity;
+    if (identity.resource_ordinal >= state->resources.size() ||
+        identity.resource_ordinal >= plan.resources.size()) {
+      return nullptr;
     }
-    const PipelineBuildPublicationEdge &edge =
-        pipeline_publication_edge(declared);
-    if (edge.step.value >= state->steps.size() ||
-        state->steps[edge.step.value].window == 0u ||
-        edge.output.value >= PipelineLeafCapacity) {
-      return Status::fail(Reason::PipelineInvalid);
-    }
-    const auto *planned_terminal =
+    PipelineResource &resource = state->resources[identity.resource_ordinal];
+    return resource.buffer != nullptr && resource.type == view.type &&
+                   resource.format == view.format &&
+                   resource.buffer->type == view.type &&
+                   resource.bytes == identity.backing_bytes &&
+                   resource.buffer->bytes == identity.backing_bytes &&
+                   identity.element_bytes != 0u &&
+                   identity.stride_bytes != 0u &&
+                   identity.offset_bytes <= identity.backing_bytes &&
+                   (identity.count == 0u ||
+                    (identity.element_bytes <=
+                         identity.backing_bytes - identity.offset_bytes &&
+                     identity.count - 1u <=
+                         (identity.backing_bytes - identity.offset_bytes -
+                          identity.element_bytes) /
+                             identity.stride_bytes))
+               ? &resource
+               : nullptr;
+  };
+
+  state->publications.reserve(plan.publications.size());
+  hash.number(plan.publications.size());
+  for (const PipelinePublicationPlan &planned : plan.publications) {
+    const auto *window = std::get_if<PipelineWindowPublicationPlan>(&planned);
+    const auto *terminal =
         std::get_if<PipelineTerminalPublicationPlan>(&planned);
-    const std::uint32_t physical = planned_window != nullptr
-                                       ? planned_window->output.value
-                                       : planned_terminal->output.value;
-    if (physical >= PipelineLeafCapacity ||
+    const std::uint32_t planned_state =
+        window != nullptr ? window->state : terminal->state;
+    const std::uint32_t physical =
+        window != nullptr ? window->output.value : terminal->output.value;
+    if (planned_state >= state->windows.size() ||
+        physical >= PipelineLeafCapacity ||
         physical > std::numeric_limits<std::uint16_t>::max()) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const auto source = ordinals.find(edge.source.buffer.get());
-    if (source == ordinals.end()) {
+    const PipelineWindow &publication_window = state->windows[planned_state];
+    const PipelineWindowControl &control = publication_window.control;
+    const PipelinePublicationTargetPlan &target_plan =
+        pipeline_publication_target(planned);
+    const std::uint32_t target = target_plan.view.identity.resource_ordinal;
+    if (target >= plan.resources.size() || target >= state->resources.size() ||
+        !std::holds_alternative<PipelineExternalResourcePlan>(
+            plan.resources[target].locator)) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const std::uint32_t source_ordinal = source->second;
-    const Type source_type = state->resources[source_ordinal].type;
-    const FixedFormat source_format = state->resources[source_ordinal].format;
-    const bool window_publish = declared_window != nullptr;
-    const std::size_t maximum = window_publish ? planned_window->maximum : 0u;
-    const std::size_t tile = window_publish ? planned_window->tile : 0u;
-    const std::size_t target_slot_count =
-        window_publish ? maximum : edge.source.count;
-    auto target =
-        admit(edge.target, source_type, target_slot_count, source_format);
-    if (!target) {
-      return Status::fail(target.reason());
+    const Status target_device =
+        validate_pipeline_resource_device(*state, state->resources[target]);
+    if (!target_device) {
+      return target_device;
     }
-    if (source_ordinal == *target || edge.source.type != edge.target.type ||
-        edge.source.format != edge.target.format || edge.source.stride != 1u ||
-        edge.source.offset != 0u ||
-        edge.source.element_bytes != edge.target.element_bytes) {
+    if (exact_resource(target_plan.view) == nullptr) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    PipelinePublicationOrdinals planned_ordinals{};
-    planned_ordinals.sources.fill(std::numeric_limits<std::uint32_t>::max());
-    std::uint32_t planned_state = std::numeric_limits<std::uint32_t>::max();
-    std::uint8_t planned_final = 0u;
-    if (planned_window != nullptr) {
-      planned_ordinals.sources.fill(planned_window->source);
-      planned_ordinals.count = planned_window->count;
-      planned_ordinals.target = planned_window->target;
-      planned_state = planned_window->state;
+    if (window != nullptr) {
+      if (exact_resource(window->source) == nullptr ||
+          exact_resource(control.count) == nullptr || control.maximum == 0u ||
+          control.tile == 0u || control.tile > control.maximum) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
     } else {
-      planned_ordinals.sources = planned_terminal->sources;
-      planned_ordinals.target = planned_terminal->target;
-      planned_state = planned_terminal->state;
-      planned_final = planned_terminal->final;
-    }
-    const bool planned_source =
-        std::find(planned_ordinals.sources.begin(),
-                  planned_ordinals.sources.end(),
-                  source_ordinal) != planned_ordinals.sources.end();
-    if (!planned_source || planned_ordinals.target != *target ||
-        planned_state != state->steps[edge.step.value].window - 1u) {
-      return Status::fail(Reason::PipelineInvalid);
-    }
-    const PipelineWindow &publication_window =
-        state->windows[state->steps[edge.step.value].window - 1u];
-    if (window_publish) {
-      if (declared_window->count.buffer == nullptr ||
-          declared_window->count.buffer != publication_window.count ||
-          declared_window->count.offset != publication_window.count_offset ||
-          declared_window->count.type != Type::U32 ||
-          declared_window->count.count != 1u ||
-          declared_window->count.stride != 1u ||
-          declared_window->count.element_bytes != sizeof(std::uint32_t) ||
-          declared_window->maximum != maximum ||
-          declared_window->tile != tile ||
-          maximum != publication_window.maximum ||
-          tile != publication_window.tile || edge.source.count != tile ||
-          edge.target.count != maximum || edge.target.stride != 1u ||
-          planned_window->source != source_ordinal) {
+      if (terminal == nullptr || control.final < PipelineWindow::first ||
+          control.final > PipelineWindow::second ||
+          control.final >= terminal->sources.size()) {
         return Status::fail(Reason::PipelineInvalid);
       }
-      const auto count_ordinal =
-          ordinals.find(declared_window->count.buffer.get());
-      if (count_ordinal == ordinals.end() ||
-          planned_ordinals.count != count_ordinal->second) {
-        return Status::fail(Reason::PipelineInvalid);
+      for (const PipelinePublicationViewPlan &bank : terminal->sources) {
+        if (exact_resource(bank) == nullptr) {
+          return Status::fail(Reason::PipelineInvalid);
+        }
       }
-    } else if (edge.source.count != edge.target.count ||
-               planned_ordinals.count !=
-                   std::numeric_limits<std::uint32_t>::max() ||
-               planned_final >= planned_ordinals.sources.size() ||
-               planned_ordinals.sources[planned_final] != source_ordinal) {
-      return Status::fail(Reason::PipelineInvalid);
     }
-    PipelineResource &target_resource = state->resources[*target];
-    if (target_resource.output != PipelineResource::no_output) {
-      return Status::fail(Reason::BindingDuplicate);
+    PipelineResource &target_resource = state->resources[target];
+    if (!plan.resources[target].output ||
+        target_resource.output != PipelineResource::no_output) {
+      return Status::fail(target_resource.output != PipelineResource::no_output
+                              ? Reason::BindingDuplicate
+                              : Reason::PipelineInvalid);
     }
     target_resource.output = 0u;
-    target_resource.terminal_publish = !window_publish;
-    target_resource.first_write = static_cast<std::uint32_t>(
-        window_publish
-            ? publication_window.begin
-            : (build->steps.empty() ? 0u : build->steps.size() - 1u));
+    target_resource.terminal_publish = window == nullptr;
     ++output_count;
-    state->publications.push_back(PipelinePublish{
-        .source = edge.source.buffer,
-        .target = edge.target.buffer,
-        .resident_count =
-            window_publish ? declared_window->count.buffer : nullptr,
-        .type = edge.source.type,
-        .format = source_format,
-        .source_offset = edge.source.offset,
-        .target_offset = edge.target.offset,
-        .count = edge.source.count,
-        .target_stride = edge.target.stride,
-        .element_bytes = edge.source.element_bytes,
-        .window = state->steps[edge.step.value].window,
-        .output = static_cast<std::uint16_t>(physical),
-        .kind = window_publish ? PipelinePublishKind::Window
-                               : PipelinePublishKind::Terminal,
-        .final = planned_final,
-        .state = planned_state,
-        .resident_count_offset =
-            window_publish ? declared_window->count.offset : 0u,
-        .maximum = static_cast<std::uint32_t>(maximum),
-        .tile = static_cast<std::uint32_t>(tile),
-        .ordinals = planned_ordinals,
-    });
-    hash.number(source_ordinal);
-    hash.number(*target);
-    hash.number(static_cast<std::uint64_t>(edge.source.type));
-    hash.format(source_format);
-    hash.number(edge.source.count);
-    hash.number(edge.target.offset);
-    hash.number(edge.target.stride);
-    hash.number(edge.source.element_bytes);
-    hash.number(state->steps[edge.step.value].window);
-    hash.number(physical);
-    hash.byte(static_cast<std::uint8_t>(window_publish
-                                            ? PipelinePublishKind::Window
-                                            : PipelinePublishKind::Terminal));
-    hash.number(window_publish ? declared_window->count.offset : 0u);
-    hash.number(maximum);
-    hash.number(tile);
+    state->publications.push_back(planned);
+    if (!mix_pipeline_publication_public_identity(hash, planned, control)) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
   }
-  state->transactional = build->commit;
-  state->publication->state_pairs.reserve(build->state_pairs.size());
-  hash.number(build->state_pairs.size());
-  for (const PipelineBuildStatePair &declared_pair : build->state_pairs) {
-    const auto published = ordinals.find(declared_pair.published.buffer.get());
-    const auto pending = ordinals.find(declared_pair.pending.buffer.get());
-    if (published == ordinals.end() || pending == ordinals.end() ||
-        published->second == pending->second) {
+  for (std::size_t ordinal = 0u; ordinal < plan.resources.size(); ++ordinal) {
+    const PipelineResolvedResourcePlan &planned = plan.resources[ordinal];
+    const PipelineResource &admitted = state->resources[ordinal];
+    if (planned.output != (admitted.output != PipelineResource::no_output) ||
+        (planned.output &&
+         planned.terminal_publish != admitted.terminal_publish)) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const PipelineResource &published_resource =
-        state->resources[published->second];
-    const PipelineResource &pending_resource =
-        state->resources[pending->second];
-    if (published_resource.type != declared_pair.published.type ||
-        pending_resource.type != declared_pair.pending.type ||
-        published_resource.type != pending_resource.type) {
-      return Status::fail(Reason::BindingTypeMismatch);
-    }
-    if (published_resource.count != pending_resource.count ||
-        published_resource.bytes != pending_resource.bytes) {
-      return Status::fail(Reason::ShapeMismatch);
-    }
-    if (!typed_format_matches(published_resource.type,
-                              declared_pair.published.format,
-                              published_resource.format) ||
-        !typed_format_matches(pending_resource.type,
-                              declared_pair.pending.format,
-                              pending_resource.format)) {
-      return Status::fail(Reason::FixedFormatMismatch);
-    }
+  }
 
-    PipelineResourceAdmission &published_admission =
-        resource_admissions[published->second];
-    PipelineResourceAdmission &pending_admission =
-        resource_admissions[pending->second];
-    // Phase 1 recorded the first read and first complete overwrite once per
-    // canonical resource.  The original step-ordered law is equivalent to:
-    // published is never written, pending has a complete overwrite, and no
-    // pending read occurs before or in that first overwrite step (inputs are
-    // admitted before outputs inside a step).
-    if (published_resource.output != PipelineResource::no_output ||
-        pending_admission.first_full_output_step ==
-            PipelineResourceAdmission::none ||
-        pending_admission.first_input_step <=
-            pending_admission.first_full_output_step ||
-        published_admission.partner != PipelineResourceAdmission::none ||
-        pending_admission.partner != PipelineResourceAdmission::none) {
+  state->transactional = frozen.commit;
+  state->publication->state_pairs.reserve(plan.state_pair_resources.size());
+  hash.number(plan.state_pair_resources.size());
+  for (const PipelineStatePairResourcePlan &pair : plan.state_pair_resources) {
+    if (pair.published.resource >= plan.resources.size() ||
+        pair.pending.resource >= plan.resources.size()) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    published_admission.partner = pending->second;
-    pending_admission.partner = published->second;
+    const PipelineResolvedResourcePlan &published_plan =
+        plan.resources[pair.published.resource];
+    const PipelineResolvedResourcePlan &pending_plan =
+        plan.resources[pair.pending.resource];
+    auto published =
+        admit_resolved_view(plan, *state, pair.published, published_plan.type,
+                            static_cast<std::size_t>(published_plan.count),
+                            published_plan.format, ResourceAccess::Read);
+    auto pending =
+        admit_resolved_view(plan, *state, pair.pending, pending_plan.type,
+                            static_cast<std::size_t>(pending_plan.count),
+                            pending_plan.format, ResourceAccess::Write);
+    if (!published || !pending || *published == *pending) {
+      return Status::fail(!published ? published.reason()
+                          : !pending ? pending.reason()
+                                     : Reason::PipelineInvalid);
+    }
+    PipelineResource &published_resource = state->resources[*published];
+    PipelineResource &pending_resource = state->resources[*pending];
+    if (*published != pair.published.resource ||
+        *pending != pair.pending.resource) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    // A state pair shares one typed storage schema, not one Program arithmetic
+    // policy. Fixed rounding/overflow/approximation remain canonical on each
+    // resource's producing/consuming Program; parity only swaps equal-width
+    // storage owners, as the public state contract has always allowed.
+    if (pair.published.offset != 0u || pair.published.stride != 1u ||
+        pair.published.count != published_plan.count ||
+        pair.pending.offset != 0u || pair.pending.stride != 1u ||
+        pair.pending.count != pending_plan.count ||
+        published_resource.type != pending_resource.type ||
+        published_resource.count != pending_resource.count ||
+        published_resource.bytes != pending_resource.bytes ||
+        published_plan.output ||
+        pair.pending_first_full_write == resource::NoNode ||
+        pair.pending_first_input <= pair.pending_first_full_write ||
+        published_resource.partner != PipelineResource::no_output ||
+        pending_resource.partner != PipelineResource::no_output) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    published_resource.partner = *pending;
+    pending_resource.partner = *published;
     state->publication->state_pairs.push_back(PipelineStatePair{
-        .first = declared_pair.published.buffer,
-        .second = declared_pair.pending.buffer,
+        .first = build->materialized_resources[*published],
+        .second = build->materialized_resources[*pending],
         .type = published_resource.type,
         .format = published_resource.format,
         .count = published_resource.count,
         .bytes = published_resource.bytes,
     });
-    hash.number(published->second);
-    hash.number(pending->second);
+    hash.number(*published);
+    hash.number(*pending);
     hash.number(static_cast<std::uint64_t>(published_resource.type));
     hash.format(published_resource.format);
     hash.number(published_resource.count);
     hash.number(published_resource.bytes);
   }
-  // The frozen hazard plan is the canonical distinct-resource authority.
-  // Admission must reproduce it exactly; reserving from binding_count would
-  // over-allocate for heavily reused window/repeat bindings and a terminal
-  // shrink_to_fit would add an avoidable allocation/copy on the cold path.
-  if (state->resources.size() != resource_count ||
-      resource_admissions.size() != resource_count ||
-      ordinals.size() != resource_count) {
+
+  if (state->resources.size() != resource_count) {
     return Status::fail(Reason::PipelineInvalid);
   }
-
   prepare.state = std::move(state);
-  prepare.steps = std::move(plan_steps);
-  prepare.admissions = std::move(resource_admissions);
-  prepare.outputs = std::move(physical_outputs);
   prepare.hash = hash;
   prepare.output_count = output_count;
   prepare.status_count = status_entry_count;
-  prepare.binding_count = observed_bindings;
   return Status::success();
 }
 

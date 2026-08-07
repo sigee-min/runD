@@ -181,7 +181,8 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
   }
   std::size_t descriptor_set_count = publications.size();
   for (const BackendPublish &publication : publications) {
-    if (publication.kind == BackendPublishKind::Terminal) {
+    if (publication.identity.kind ==
+        PreparedKernelPublicationKind::Terminal) {
       if (descriptor_set_count == std::numeric_limits<std::size_t>::max()) {
         DestroyVulkanPipelinePublish(resources);
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -204,24 +205,25 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
   {
     std::lock_guard lock{resident.mutex};
     for (const BackendPublish &publication : publications) {
+      const PreparedKernelPublicationIdentity &identity = publication.identity;
       const bool window_publish =
-          publication.kind == BackendPublishKind::Window;
+          identity.kind == PreparedKernelPublicationKind::Window;
       std::array<VulkanResidentBufferResult, 3u> sources{};
       VulkanResidentBufferResult target = ResolveVulkanResidentBuffer(
-          resident, publication.target, publication.target_handle,
+          resident, publication.target.source, publication.target.handle,
           "compute_resident_id_invalid", true);
-      if (!target.check.ok || publication.state >= window.state_count ||
+      if (!target.check.ok || identity.state >= window.state_count ||
           (!window_publish &&
-           publication.final >= publication.sources.size())) {
+           identity.final >= publication.sources.size())) {
         DestroyVulkanPipelinePublish(resources);
         return target.check.ok
                    ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
                    : target.check;
       }
-      target.ref = publication.target;
+      target.ref = publication.target.source;
       std::array<VulkanCopyRange, 3u> source_ranges{};
       VulkanCopyRange target_range{};
-      if (!PlanVulkanCopyRange(adapter, publication.target,
+      if (!PlanVulkanCopyRange(adapter, publication.target.source,
                                target.device_buffer, target_range)) {
         DestroyVulkanPipelinePublish(resources);
         return rund::AccelCheck{false, "compute_resident_stride_invalid"};
@@ -234,11 +236,13 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
                                         "compute_resident_id_invalid", true);
         const bool valid =
             sources[bank].check.ok &&
-            sources[bank].device_buffer != target.device_buffer &&
+            ((!window_publish && bank != identity.final) ||
+             sources[bank].device_buffer != target.device_buffer) &&
             source.source.count == (window_publish
-                                        ? publication.tile
-                                        : publication.target.count) &&
-            source.source.element_bytes == publication.target.element_bytes &&
+                                        ? identity.tile
+                                        : publication.target.source.count) &&
+            source.source.element_bytes ==
+                publication.target.source.element_bytes &&
             PlanVulkanCopyRange(adapter, source.source,
                                 sources[bank].device_buffer,
                                 source_ranges[bank]);
@@ -256,7 +260,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
             source_ranges[bank].bytes};
       }
       const Grid grid = PlanGrid(
-          window_publish ? publication.tile : publication.target.count,
+          window_publish ? identity.tile : publication.target.source.count,
           kPublishThreads, adapter.max_dispatch_groups, adapter.dispatch_rows);
       if (!grid.valid()) {
         DestroyVulkanPipelinePublish(resources);
@@ -300,7 +304,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
           .count_binding = count_binding,
           .params =
               VulkanPipelinePublishParams{
-                  .count = publication.target.count,
+                  .count = publication.target.source.count,
                   .source_offset_words = {source_ranges[0].offset_words,
                                           source_ranges[1].offset_words,
                                           source_ranges[2].offset_words},
@@ -310,13 +314,14 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
                   .target_offset_words = target_range.offset_words,
                   .target_stride_words = target_range.stride_words,
                   .element_words = static_cast<std::uint32_t>(
-                      publication.target.element_bytes / sizeof(std::uint32_t)),
+                      publication.target.source.element_bytes /
+                      sizeof(std::uint32_t)),
                   .declared_step_count = status.declared_step_count,
-                  .state = publication.state,
-                  .final = publication.final,
-                  .maximum = publication.maximum,
-                  .tile = publication.tile,
-                  .kind = static_cast<std::uint32_t>(publication.kind),
+                  .state = identity.state,
+                  .final = identity.final,
+                  .maximum = identity.maximum,
+                  .tile = identity.tile,
+                  .kind = static_cast<std::uint32_t>(identity.kind),
                   .count_offset_words =
                       window_publish ? count_range.offset_words : 0u,
               },
@@ -336,7 +341,8 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
     for (VulkanPipelinePublishRoute &route : resources.routes) {
       const bool terminal =
           route.params.kind ==
-          static_cast<std::uint32_t>(BackendPublishKind::Terminal);
+          static_cast<std::uint32_t>(
+              PreparedKernelPublicationKind::Terminal);
       ready = ready &&
               AcquireVulkanCollectiveDescriptorSet(adapter, *resources.pipeline,
                                                    7u, route.descriptor) &&
@@ -411,7 +417,8 @@ bool EncodeVulkanPipelinePublish(
                      resources.pipeline->pipeline);
   for (const VulkanPipelinePublishRoute &route : resources.routes) {
     if (route.params.kind !=
-        static_cast<std::uint32_t>(BackendPublishKind::Terminal)) {
+        static_cast<std::uint32_t>(
+            PreparedKernelPublicationKind::Terminal)) {
       continue;
     }
     if (route.descriptor == VK_NULL_HANDLE || route.groups_x == 0u ||
@@ -454,7 +461,8 @@ bool EncodeVulkanPipelineCanonicalize(
                      resources.pipeline->pipeline);
   for (const VulkanPipelinePublishRoute &route : resources.routes) {
     if (route.params.kind !=
-            static_cast<std::uint32_t>(BackendPublishKind::Terminal) ||
+            static_cast<std::uint32_t>(
+                PreparedKernelPublicationKind::Terminal) ||
         route.params.state != state) {
       continue;
     }
@@ -493,7 +501,8 @@ bool EncodeVulkanPipelineWindowPublish(
                      resources.pipeline->pipeline);
   for (const VulkanPipelinePublishRoute &route : resources.routes) {
     if (route.params.kind !=
-            static_cast<std::uint32_t>(BackendPublishKind::Window) ||
+            static_cast<std::uint32_t>(
+                PreparedKernelPublicationKind::Window) ||
         route.params.state != state) {
       continue;
     }

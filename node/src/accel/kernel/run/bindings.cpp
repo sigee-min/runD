@@ -2,6 +2,7 @@
 
 #include "../../context/shared.hpp"
 #include "../reset/overlap.hpp"
+#include "../reset/proof.hpp"
 #include "shape.hpp"
 
 #include <accel/check.hpp>
@@ -11,6 +12,7 @@
 #include <kernel/core/checked.hpp>
 
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -145,19 +147,23 @@ ResetBindBuild BuildResetBinds(const KernelExecution &execution,
     const rund::kernel::ResidentBufferRef source_ref =
         bindings.refs()[reset.binding];
     std::shared_ptr<void> handle = bindings.handles()[reset.binding];
-    if (source_ref.bytes == 0u ||
-        source_ref.bytes % sizeof(std::uint32_t) != 0u || handle == nullptr) {
+    if (source_ref.bytes == 0u || handle == nullptr) {
       return result;
     }
-    result.binds.push_back(BoundReset{
-        .ref = source_ref,
-        .handle = std::move(handle),
-        .binding = reset.binding,
-        .step = reset.step,
-        .last = reset.last,
-        .external = execution.graph_visibilities[reset.binding] ==
-                    rund::GraphBufferVisibility::External,
-    });
+    const reset::Result proved =
+        reset::Prove(reset::Project(source_ref, nullptr), source_ref.bytes);
+    if (!proved.check.ok) {
+      result.reason = proved.check.reason;
+      return result;
+    }
+    std::optional<BoundReset> sealed = BoundReset::Seal(
+        source_ref, std::move(handle), proved.range, reset.binding, reset.step,
+        reset.last, execution.graph_visibilities[reset.binding] ==
+                        rund::GraphBufferVisibility::External);
+    if (!sealed.has_value()) {
+      return result;
+    }
+    result.binds.push_back(std::move(*sealed));
     prior = order;
   }
   if (!reset::Compatible(result.binds)) {

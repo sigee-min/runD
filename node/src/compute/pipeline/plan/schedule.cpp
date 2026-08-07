@@ -102,13 +102,33 @@ plan_pipeline_schedule(const PipelineBuildState &build,
   }
 
   PipelineScheduleResources resources(build);
+  plan.step_resources.clear();
+  plan.step_resources.resize(build.steps.size());
   plan.window_states.assign(build.steps.size(), PipelineResourceUnassigned);
   std::vector<std::uint32_t> &window_states = plan.window_states;
-  std::vector<std::uint32_t> nested_states(build.nested_windows.size(),
-                                           PipelineResourceUnassigned);
-  std::uint32_t next_window_state = 0u;
+  if (build.window_controls.size() >=
+      PipelineBuildWindowControlOrdinal::unassigned) {
+    return Result<PipelineScheduleSuccess>::fail(Reason::PipelineCapacity);
+  }
+  std::vector<bool> referenced_window_controls(build.window_controls.size(),
+                                               false);
   for (std::size_t index = 0u; index < build.steps.size(); ++index) {
     const PipelineBuildStep &step = build.steps[index];
+    if (step.window_control.value ==
+        PipelineBuildWindowControlOrdinal::unassigned) {
+      if (step.nested != 0u) {
+        return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+      }
+      continue;
+    }
+    if (step.window_control.value >= build.window_controls.size()) {
+      return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+    }
+    const PipelineBuildWindowControl &control =
+        build.window_controls[step.window_control.value];
+    if (step.nested != control.nested) {
+      return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+    }
     if (step.nested != 0u) {
       const std::size_t nested_index = step.nested - 1u;
       if (nested_index >= build.nested_windows.size()) {
@@ -116,27 +136,41 @@ plan_pipeline_schedule(const PipelineBuildState &build,
       }
       const PipelineBuildNestedWindow &nested =
           build.nested_windows[nested_index];
-      if (nested_states[nested_index] == PipelineResourceUnassigned) {
-        if (index != nested.begin ||
-            next_window_state == std::numeric_limits<std::uint32_t>::max()) {
-          return Result<PipelineScheduleSuccess>::fail(Reason::PipelineCapacity);
-        }
-        nested_states[nested_index] = next_window_state++;
+      if (index < nested.shape.first() || index >= nested.shape.end()) {
+        return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
       }
-      window_states[index] = nested_states[nested_index];
-    } else if (step.window_tile != 0u) {
-      if (step.iteration == 0u) {
-        if (next_window_state == std::numeric_limits<std::uint32_t>::max()) {
-          return Result<PipelineScheduleSuccess>::fail(Reason::PipelineCapacity);
-        }
-        window_states[index] = next_window_state++;
-      } else {
-        if (index == 0u ||
-            window_states[index - 1u] == PipelineResourceUnassigned ||
-            build.steps[index - 1u].logical_step != step.logical_step) {
-          return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
-        }
-        window_states[index] = window_states[index - 1u];
+    }
+    window_states[index] = step.window_control.value;
+    referenced_window_controls[step.window_control.value] = true;
+  }
+  if (std::find(referenced_window_controls.begin(),
+                referenced_window_controls.end(),
+                false) != referenced_window_controls.end()) {
+    return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+  }
+  for (std::size_t state = 0u; state < build.window_controls.size(); ++state) {
+    const PipelineBuildWindowControl &control = build.window_controls[state];
+    if (control.nested != 0u) {
+      continue;
+    }
+    const std::size_t first = control.ordinary_step.value;
+    if (first >= build.steps.size()) {
+      return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+    }
+    const PipelineBuildStep &head = build.steps[first];
+    const std::size_t bound = head.iteration_bound;
+    if (head.program == nullptr || head.iteration != 0u || bound == 0u ||
+        bound > build.steps.size() - first) {
+      return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+    }
+    for (std::size_t iteration = 0u; iteration < bound; ++iteration) {
+      const PipelineBuildStep &step = build.steps[first + iteration];
+      if (step.program != head.program ||
+          step.logical_step != head.logical_step ||
+          step.iteration != iteration || step.iteration_bound != bound ||
+          step.window_control.value != state || step.nested != 0u ||
+          step.route != PipelineRoute::Ordinary) {
+        return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
       }
     }
   }
@@ -156,38 +190,88 @@ plan_pipeline_schedule(const PipelineBuildState &build,
     if (!projection) {
       return Result<PipelineScheduleSuccess>::fail(projection.reason());
     }
-    for (const PipelineBinding &input : step.inputs) {
-      auto ordinal = resources.admit(input);
-      if (!ordinal) {
-        return Result<PipelineScheduleSuccess>::fail(ordinal.reason());
+    PipelineStepResourcePlan &sealed = plan.step_resources[step_index];
+    sealed.inputs.clear();
+    sealed.inputs.reserve(step.inputs.size());
+    sealed.outputs.clear();
+    sealed.outputs.reserve(step.outputs.size());
+    sealed.physical_sources.assign(projection->physical_sources.begin(),
+                                   projection->physical_sources.begin() +
+                                       projection->physical_count);
+    for (std::size_t input_index = 0u; input_index < step.inputs.size();
+         ++input_index) {
+      const PipelineBinding &input = step.inputs[input_index];
+      const Type slot_type = input_index < step.program->input_types.size()
+                                 ? step.program->input_types[input_index]
+                                 : input.type;
+      const FixedFormat slot_format =
+          input_index < step.program->input_formats.size()
+              ? step.program->input_formats[input_index]
+              : input.format;
+      auto view = resources.resolve(input, slot_type, slot_format);
+      if (!view) {
+        return Result<PipelineScheduleSuccess>::fail(view.reason(),
+                                                     view.location());
       }
       if (!PipelineScheduleResources::append(
-              resources.accesses, input, static_cast<std::uint32_t>(step_index),
-              *ordinal, resource::AccessMode::Read)) {
+              resources.accesses, *view, static_cast<std::uint32_t>(step_index),
+              resource::AccessMode::Read)) {
         return Result<PipelineScheduleSuccess>::fail(Reason::PipelineCapacity);
       }
+      resources.use_evidence[view->resource].first_input =
+          std::min(resources.use_evidence[view->resource].first_input,
+                   static_cast<std::uint32_t>(step_index));
+      sealed.inputs.push_back(*view);
     }
-    std::array<std::uint32_t, PipelineLeafCapacity> output_ordinals{};
-    output_ordinals.fill(PipelineResourceUnassigned);
     for (std::size_t output = 0u; output < step.outputs.size(); ++output) {
-      auto ordinal = resources.admit(step.outputs[output]);
-      if (!ordinal) {
-        return Result<PipelineScheduleSuccess>::fail(ordinal.reason());
-      }
       const std::uint32_t physical = projection->logical_to_physical[output];
-      if (physical >= projection->physical_count) {
+      if (physical >= projection->physical_count ||
+          physical >= step.program->output_types.size() ||
+          physical >= step.program->output_sizes.size() ||
+          physical >= step.program->output_formats.size()) {
         return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
       }
-      output_ordinals[physical] = *ordinal;
+      auto view = resources.resolve(step.outputs[output],
+                                    step.program->output_types[physical],
+                                    step.program->output_formats[physical]);
+      if (!view) {
+        return Result<PipelineScheduleSuccess>::fail(view.reason(),
+                                                     view.location());
+      }
+      const std::uint32_t canonical = sealed.physical_sources[physical];
+      if (canonical >= step.outputs.size() || canonical > output) {
+        return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+      }
+      if (canonical != output && (canonical >= sealed.outputs.size() ||
+                                  sealed.outputs[canonical].view != *view)) {
+        return Result<PipelineScheduleSuccess>::fail(
+            Reason::BindingAliasUnsupported);
+      }
+      PipelineResolvedResourcePlan &resource =
+          resources.resources[view->resource];
+      resource.first_write = std::min(resource.first_write,
+                                      static_cast<std::uint32_t>(step_index));
+      if (view->offset == 0u && view->stride == 1u &&
+          view->count == resource.count) {
+        resources.use_evidence[view->resource].first_full_write =
+            std::min(resources.use_evidence[view->resource].first_full_write,
+                     static_cast<std::uint32_t>(step_index));
+      }
+      resource.output = resource.output || !step.outputs[output].hidden;
+      sealed.outputs.push_back(PipelineResolvedOutputPlan{
+          .view = *view,
+          .physical = physical,
+          .hidden = step.outputs[output].hidden,
+      });
     }
     for (std::size_t physical = 0u; physical < projection->physical_count;
          ++physical) {
-      const std::uint32_t source = projection->physical_sources[physical];
-      if (source >= step.outputs.size() ||
-          output_ordinals[physical] == PipelineResourceUnassigned ||
+      const std::uint32_t source = sealed.physical_sources[physical];
+      if (source == PipelineResourceUnassigned ||
+          source >= sealed.outputs.size() ||
           !PipelineScheduleResources::append(
-              resources.accesses, step.outputs[source],
-              static_cast<std::uint32_t>(step_index), output_ordinals[physical],
+              resources.accesses, sealed.outputs[source].view,
+              static_cast<std::uint32_t>(step_index),
               resource::AccessMode::Write)) {
         return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
       }
@@ -208,13 +292,32 @@ plan_pipeline_schedule(const PipelineBuildState &build,
       [](const resource::Access &left, const resource::Access &right) {
         return left.node < right.node;
       });
+  plan.state_pair_resources.clear();
+  plan.state_pair_resources.reserve(build.state_pairs.size());
   for (const PipelineBuildStatePair &pair : build.state_pairs) {
-    auto published = resources.admit(pair.published);
-    auto pending = resources.admit(pair.pending);
+    auto published = resources.resolve(pair.published, pair.published.type,
+                                       pair.published.format);
+    auto pending =
+        resources.resolve(pair.pending, pair.pending.type, pair.pending.format);
     if (!published || !pending) {
       return Result<PipelineScheduleSuccess>::fail(
           published ? pending.reason() : published.reason());
     }
+    if (pending->resource >= resources.use_evidence.size()) {
+      return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+    }
+    const PipelineResourceUseEvidence &pending_use =
+        resources.use_evidence[pending->resource];
+    plan.state_pair_resources.push_back(PipelineStatePairResourcePlan{
+        .published = *published,
+        .pending = *pending,
+        .pending_first_input = pending_use.first_input,
+        .pending_first_full_write = pending_use.first_full_write,
+    });
+  }
+  const Status internals = resources.complete_internal_resources();
+  if (!internals) {
+    return Result<PipelineScheduleSuccess>::fail(internals.reason());
   }
 
   // Sealed repetitions may coalesce repeated invocations only when no
@@ -279,6 +382,11 @@ plan_pipeline_schedule(const PipelineBuildState &build,
       plan.schedule_barriers.begin(), plan.schedule_barriers.end(), 1u));
   plan.summary.resource_count =
       static_cast<std::uint64_t>(resources.shapes.size());
+  if (resources.resources.size() != resources.shapes.size() ||
+      resources.use_evidence.size() != resources.resources.size()) {
+    return Result<PipelineScheduleSuccess>::fail(Reason::PipelineInvalid);
+  }
+  plan.resources = std::move(resources.resources);
   plan.hazards = std::move(hazards);
   return Result<PipelineScheduleSuccess>::success({});
 }
@@ -286,20 +394,20 @@ plan_pipeline_schedule(const PipelineBuildState &build,
 Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
                          PipelinePrepare &prepare) {
   std::shared_ptr<PipelineState> &state = prepare.state;
-  std::vector<PipelineResourceAdmission> &resource_admissions =
-      prepare.admissions;
   PipelineHash &hash = prepare.hash;
   const std::size_t output_count = prepare.output_count;
-  if (state == nullptr || build->memory == nullptr) {
+  if (state == nullptr || build->memory == nullptr ||
+      build->memory->frozen == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
+  const PipelineBuildSnapshot &frozen = *build->memory->frozen;
   // plan() and prepare() consume the same resource::analyze result and the
   // same executable boundary projection. No command-count proxy is allowed to
   // reconstruct scheduling here.
   const resource::Plan &planned = build->memory->hazards;
   const std::span<const std::uint8_t> barriers =
       build->memory->schedule_barriers;
-  const std::size_t dependency_capacity = build->nested_windows.empty()
+  const std::size_t dependency_capacity = frozen.nested_windows.empty()
                                               ? PipelineBindingCapacity
                                               : PipelineRouteBindingCapacity;
   if (planned.dependencies.size() > dependency_capacity) {
@@ -388,17 +496,17 @@ Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
     state->claims[ordinal] = BufferClaim{
         .buffer = resource.buffer.get(),
         .write = write,
-        .transactional_state = resource_admissions[ordinal].partner !=
-                               PipelineResourceAdmission::none,
+        .transactional_state = resource.partner != PipelineResource::no_output,
         .gated_publish = resource.terminal_publish,
     };
     if (state->transactional) {
       state->alternate_claims[ordinal] = state->claims[ordinal];
-      if (resource_admissions[ordinal].partner !=
-          PipelineResourceAdmission::none) {
-        state->alternate_claims[ordinal].buffer =
-            state->resources[resource_admissions[ordinal].partner].buffer.get();
+      const PipelineResource *const selected =
+          selected_pipeline_resource(*state, ordinal, true);
+      if (selected == nullptr) {
+        return Status::fail(Reason::PipelineInvalid);
       }
+      state->alternate_claims[ordinal].buffer = selected->buffer.get();
     }
     if (write) {
       resource.output = static_cast<std::uint32_t>(output_index);
@@ -422,7 +530,7 @@ Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   state->publication->fingerprint = hash.finish();
   state->stats.backend = state->device->backend;
   state->stats.graph_hash = state->publication->fingerprint.lo;
-  state->logical_step_count = build->logical_step_count;
+  state->logical_step_count = frozen.logical_step_count;
   state->stats.pipeline.step_count = state->logical_step_count;
   state->stats.pipeline.resource_count = state->resources.size();
   state->stats.pipeline.sealed_repetition_count = state->sealed_repetitions;

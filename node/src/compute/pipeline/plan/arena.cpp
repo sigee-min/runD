@@ -3,8 +3,6 @@
 #include "../../memory/arena.hpp"
 #include "../../type.hpp"
 #include "../state.hpp"
-#include "compare.hpp"
-#include "output.hpp"
 #include "space.hpp"
 
 #include <kernel/core/checked.hpp>
@@ -80,7 +78,8 @@ Status plan_pipeline_views(const DeviceState &device,
     return Status::fail(Reason::PipelineInvalid);
   }
   try {
-    if (plan.job_owners.size() != steps.size()) {
+    if (plan.job_owners.size() != steps.size() ||
+        plan.step_resources.size() != steps.size()) {
       return Status::fail(Reason::PipelineInvalid);
     }
     std::uint64_t logical = 0u;
@@ -88,6 +87,8 @@ Status plan_pipeline_views(const DeviceState &device,
     for (std::size_t pipeline_step = 0u; pipeline_step < steps.size();
          ++pipeline_step) {
       const PipelineBuildStep &declared = steps[pipeline_step];
+      const PipelineStepResourcePlan &sealed =
+          plan.step_resources[pipeline_step];
       if (declared.program == nullptr) {
         return Status::fail(Reason::PipelineInvalid);
       }
@@ -98,7 +99,7 @@ Status plan_pipeline_views(const DeviceState &device,
         // binding-distinct occurrence remains its own owner and is planned
         // below.
         if (owner >= pipeline_step || owner >= plan.views.size() ||
-            !same_recurrence_phase(declared, steps[owner])) {
+            plan.step_resources[owner] != sealed) {
           return Status::fail(Reason::PipelineInvalid);
         }
         if (!kernel::checked::add(
@@ -114,10 +115,6 @@ Status plan_pipeline_views(const DeviceState &device,
           return Status::fail(Reason::GraphBindingInvalid);
         }
         continue;
-      }
-      auto projection = project_outputs(declared);
-      if (!projection) {
-        return Status::fail(projection.reason());
       }
       std::size_t binding_base = 0u;
       for (const graph::Node &node : program.graph_info.nodes) {
@@ -143,66 +140,45 @@ Status plan_pipeline_views(const DeviceState &device,
             }
             const GraphValueRoute route =
                 program.graph_value_routes[route_binding.value_index];
-            const PipelineBinding *view = nullptr;
+            const PipelineResolvedViewPlan *view = nullptr;
             Type type{Type::U32};
             if (route.source == GraphBindSource::Input) {
-              if (route.index >= declared.inputs.size() ||
+              if (route.index >= sealed.inputs.size() ||
                   route.index >= program.input_types.size()) {
                 return Status::fail(Reason::GraphBindingInvalid);
               }
-              view = &declared.inputs[route.index];
+              view = &sealed.inputs[route.index];
               type = program.input_types[route.index];
             } else if (route.source == GraphBindSource::Output) {
-              if (route.index >= projection->physical_count ||
+              if (route.index >= sealed.physical_sources.size() ||
                   route.index >= program.output_types.size()) {
                 return Status::fail(Reason::GraphBindingInvalid);
               }
               const std::uint32_t source =
-                  projection->physical_sources[route.index];
-              if (source == OutputProjection::unassigned ||
-                  source >= declared.outputs.size()) {
+                  sealed.physical_sources[route.index];
+              if (source >= sealed.outputs.size()) {
                 return Status::fail(Reason::GraphBindingInvalid);
               }
-              view = &declared.outputs[source];
+              view = &sealed.outputs[source].view;
               type = program.output_types[route.index];
             }
             if (view == nullptr || view->count == 0u) {
               continue;
             }
             const bool strided = view->count > 1u && view->stride != 1u;
-            std::uint64_t offset_bytes = 0u;
-            if (!kernel::checked::mul(
-                    static_cast<std::uint64_t>(view->offset),
-                    static_cast<std::uint64_t>(view->element_bytes),
-                    offset_bytes)) {
-              return Status::fail(Reason::PipelineCapacity);
-            }
             const bool vulkan_dense =
-                backend == Backend::Vulkan && offset_bytes % alignment != 0u;
+                backend == Backend::Vulkan &&
+                view->offset_bytes % alignment != 0u;
             if (!strided && !vulkan_dense) {
               continue;
             }
-            std::uint64_t bytes = 0u;
-            std::uint64_t stride_bytes = 0u;
-            std::uint64_t span_bytes = 0u;
             if (view->element_bytes == 0u ||
                 view->element_bytes != type_bytes(type) ||
                 view->element_bytes % sizeof(std::uint32_t) != 0u ||
-                !kernel::checked::mul(
-                    static_cast<std::uint64_t>(view->count),
-                    static_cast<std::uint64_t>(view->element_bytes), bytes) ||
-                !kernel::checked::mul(
-                    static_cast<std::uint64_t>(view->stride),
-                    static_cast<std::uint64_t>(view->element_bytes),
-                    stride_bytes) ||
-                !kernel::checked::mul(
-                    static_cast<std::uint64_t>(view->count - 1u), stride_bytes,
-                    span_bytes) ||
-                !kernel::checked::add(
-                    span_bytes, static_cast<std::uint64_t>(view->element_bytes),
-                    span_bytes)) {
+                view->payload_bytes == 0u || view->span_bytes == 0u) {
               return Status::fail(Reason::GraphBindingInvalid);
             }
+            const std::uint64_t bytes = view->payload_bytes;
             const std::uint64_t words64 = bytes / sizeof(std::uint32_t);
             if (words64 == 0u ||
                 words64 > std::numeric_limits<std::size_t>::max()) {
@@ -222,10 +198,10 @@ Status plan_pipeline_views(const DeviceState &device,
             active.push_back(
                 View{.binding = binding,
                      .bytes = bytes,
-                     .span_bytes = span_bytes,
-                     .backing_bytes = view->backing_bytes,
-                     .offset_bytes = offset_bytes,
-                     .stride_bytes = stride_bytes,
+                     .span_bytes = view->span_bytes,
+                     .backing_bytes = view->declared_backing_bytes,
+                     .offset_bytes = view->offset_bytes,
+                     .stride_bytes = view->stride_bytes,
                      .element_bytes = view->element_bytes,
                      .count = view->count,
                      .alignment = view->alignment,

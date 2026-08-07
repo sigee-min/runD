@@ -376,7 +376,8 @@ namespace rund_node_test_pipeline {
   arena_step.logical_step = 0u;
   arena_build.steps.push_back(std::move(arena_step));
   const auto arena_plan = detail::plan_memory(arena_build);
-  if (!arena_plan || (*arena_plan)->summary.allocation_count != 1u ||
+  if (!arena_plan || (*arena_plan)->frozen == nullptr ||
+      (*arena_plan)->summary.allocation_count != 1u ||
       (*arena_plan)->summary.transient_bytes != 69u * sizeof(std::uint32_t) ||
       (*arena_plan)->steps != std::vector<std::size_t>{0u, 2u} ||
       (*arena_plan)->owners != std::vector<std::size_t>{0u, 0u} ||
@@ -399,7 +400,7 @@ namespace rund_node_test_pipeline {
     return 11;
   }
   const auto arena_memory = detail::make_pipeline_memory(
-      arena_build.device, arena_build.steps, **arena_plan);
+      arena_build.device, (*arena_plan)->frozen->steps, **arena_plan);
   if (!arena_memory || arena_memory->buffers.size() != 1u ||
       arena_memory->steps.size() != 1u ||
       arena_memory->steps.front() == nullptr ||

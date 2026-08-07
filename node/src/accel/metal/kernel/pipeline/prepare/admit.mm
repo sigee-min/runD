@@ -214,20 +214,21 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
   }
   if (aggregates.size() == 1u) {
     const NestedAggregate &aggregate = aggregates.front();
+    NestedTemplateShape expected_shape{};
     const bool complete_templates =
-        aggregate.seed.first == 0u &&
-        aggregate.seed.count == aggregate.window.outer_bound &&
-        aggregate.action.first == aggregate.seed.end() &&
-        aggregate.action.count == aggregate.window.inner_bound &&
-        aggregate.fold.first == aggregate.action.end() &&
-        aggregate.fold.count == 3u && aggregate.fold.end() == templates.size();
+        aggregate.shape.valid() && aggregate.shape.first() == 0u &&
+        aggregate.shape.end() == templates.size() &&
+        ProveNestedTemplateShape(aggregate.shape.first(), aggregate.maximum,
+                                 aggregate.tile, aggregate.shape.inner_bound(),
+                                 expected_shape) &&
+        expected_shape == aggregate.shape;
     const bool complete_publication =
         publications.size() == 1u && aggregate.publication_index == 0u;
     const bool profile_ready =
         !profile_steps || aggregate.profile.aggregate_profile_supported;
     const bool seed_profile_owner =
-        aggregate.seed.first < status.active_step_count &&
-        status.declared_steps[aggregate.seed.first] <
+        aggregate.shape.seed_first() < status.active_step_count &&
+        status.declared_steps[aggregate.shape.seed_first()] <
             status.declared_step_count;
     if (complete_templates && complete_publication && profile_ready &&
         seed_profile_owner) {
@@ -239,7 +240,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           return admitted;
         }
       } else {
-        aggregate_profile_owner = status.declared_steps[aggregate.seed.first];
+        aggregate_profile_owner =
+            status.declared_steps[aggregate.shape.seed_first()];
         aggregate_selected = true;
       }
     }
@@ -321,9 +323,11 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     std::lock_guard resident_lock{resident.mutex};
     failure_context.clear_route();
     for (const BackendPublish &publication : publications) {
-      const bool window = publication.kind == BackendPublishKind::Window;
+      const PreparedKernelPublicationIdentity &identity = publication.identity;
+      const bool window =
+          identity.kind == PreparedKernelPublicationKind::Window;
       const MetalResidentBufferResult target = ResolveMetalResidentBuffer(
-          resident, publication.target, publication.target_handle,
+          resident, publication.target.source, publication.target.handle,
           "accel_metal_resident_id_unavailable", true);
       std::array<MetalResidentBufferResult, 3u> sources{};
       MetalResidentBufferResult count{};
@@ -333,9 +337,9 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
             "accel_metal_resident_id_unavailable", true);
       }
       if (!target.check.ok || target.device_buffer == nullptr ||
-          publication.state == std::numeric_limits<std::uint32_t>::max() ||
-          publication.state >= deferred_inner.size() ||
-          (!window && publication.final >= publication.sources.size()) ||
+          identity.state == std::numeric_limits<std::uint32_t>::max() ||
+          identity.state >= deferred_inner.size() ||
+          (!window && identity.final >= publication.sources.size()) ||
           (window &&
            (!count.check.ok || count.device_buffer == nullptr ||
             publication.count.source.count != 1u ||
@@ -351,10 +355,12 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
             "accel_metal_resident_id_unavailable", true);
         const bool source_valid =
             sources[bank].check.ok && sources[bank].device_buffer != nullptr &&
-            sources[bank].device_buffer != target.device_buffer &&
+            ((!window && bank != identity.final) ||
+             sources[bank].device_buffer != target.device_buffer) &&
             source.source.count ==
-                (window ? publication.tile : publication.target.count) &&
-            source.source.element_bytes == publication.target.element_bytes &&
+                (window ? identity.tile : publication.target.source.count) &&
+            source.source.element_bytes ==
+                publication.target.source.element_bytes &&
             (source.source.element_bytes == 4u ||
              source.source.element_bytes == 8u) &&
             source.source.stride_bytes >= source.source.element_bytes &&
@@ -367,7 +373,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                      : sources[bank].check;
         }
       }
-      state_count = std::max(state_count, publication.state + 1u);
+      state_count = std::max(state_count, identity.state + 1u);
       if (native_publication_count == native_publications.size()) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
@@ -378,7 +384,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           .count = window ? count.device_buffer : nullptr,
           .params =
               MetalPublishParams{
-                  .count = publication.target.count,
+                  .count = publication.target.source.count,
                   .source_offset_words =
                       {publication.sources[0].source.offset_bytes /
                            sizeof(std::uint32_t),
@@ -394,17 +400,20 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                        publication.sources[2].source.stride_bytes /
                            sizeof(std::uint32_t)},
                   .target_offset_words =
-                      publication.target.offset_bytes / sizeof(std::uint32_t),
+                      publication.target.source.offset_bytes /
+                      sizeof(std::uint32_t),
                   .target_stride_words =
-                      publication.target.stride_bytes / sizeof(std::uint32_t),
+                      publication.target.source.stride_bytes /
+                      sizeof(std::uint32_t),
                   .element_words = static_cast<std::uint32_t>(
-                      publication.target.element_bytes / sizeof(std::uint32_t)),
+                      publication.target.source.element_bytes /
+                      sizeof(std::uint32_t)),
                   .declared_step_count = status.declared_step_count,
-                  .state = publication.state,
-                  .final = publication.final,
-                  .maximum = publication.maximum,
-                  .tile = publication.tile,
-                  .kind = static_cast<std::uint32_t>(publication.kind),
+                  .state = identity.state,
+                  .final = identity.final,
+                  .maximum = identity.maximum,
+                  .tile = identity.tile,
+                  .kind = static_cast<std::uint32_t>(identity.kind),
                   .count_offset_words =
                       window ? publication.count.source.offset_bytes /
                                    sizeof(std::uint32_t)
@@ -425,30 +434,16 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
         return rund::AccelCheck{false, "accel_kernel_run_invalid"};
       }
       const DeferredInnerState &deferred = deferred_inner[window->state];
-      const bool nested_shape_valid =
+      const bool occurrence_valid =
+          window->valid_occurrence(entries[entry_index].transduced_action());
+      const bool deferred_valid =
           !nested ||
-          (window->outer_bound != 0u &&
-           window->outer_iteration < window->outer_bound &&
-           ((window->phase == BackendWindowPhase::NestedSeed &&
-             window->route == 0u && window->inner_advance == 0u) ||
-            (window->phase == BackendWindowPhase::NestedAction &&
-             window->inner_bound != 0u &&
-             window->inner_iteration < window->inner_bound &&
-             window->route == 0u &&
-             window->inner_advance ==
-                 (entries[entry_index].transducer == NoTileTransducer ? 1u
-                                                                      : 0u)) ||
-            (window->phase == BackendWindowPhase::NestedFold &&
-             window->route < 3u &&
-             (window->inner_advance == 0u ||
-              window->inner_advance == window->inner_bound))) &&
-           deferred.used && deferred.bound == window->inner_bound &&
+          (deferred.used && deferred.bound == window->inner_bound &&
            (deferred.advance == 0u || deferred.advance == deferred.bound));
       if (entries[entry_index].transducer != NoTileTransducer) {
         const TileTransducer &transducer =
             transducers[entries[entry_index].transducer];
-        if (!nested || window->phase != BackendWindowPhase::NestedAction ||
-            !transducer.recurrence.ready() ||
+        if (!occurrence_valid || !transducer.recurrence.ready() ||
             transducer.template_first != entries[entry_index].template_index ||
             transducer.template_count != window->inner_bound) {
           return rund::AccelCheck{false, "accel_kernel_run_invalid"};
@@ -458,9 +453,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           resident, window->count.source, window->count.handle,
           "accel_metal_resident_id_unavailable", true);
       if (!count.check.ok || count.device_buffer == nullptr ||
-          window->maximum == 0u || window->tile == 0u ||
-          window->tile > window->maximum || window->bound == 0u ||
-          window->iteration >= window->bound || !nested_shape_valid ||
+          !occurrence_valid || !deferred_valid ||
           window->count.source.count != 1u ||
           window->count.source.element_bytes != sizeof(std::uint32_t) ||
           (window->count.source.offset_bytes % sizeof(std::uint32_t)) != 0u) {
@@ -514,7 +507,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                            : 0u},
                   .maximum = window->maximum,
                   .tile = window->tile,
-                  .iteration = window->iteration,
+                  .iteration = window->outer_iteration,
                   .expected = window->expected,
                   .state = window->state,
                   .has_terminal =

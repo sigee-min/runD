@@ -737,6 +737,15 @@ the selected bytes into that canonical bank only when its parity differs.
 There is no copy for each inactive occurrence and at most one seal copy over
 the recurrence lifetime.
 
+The resolved Terminal publication record retains the exact Seed, first, and
+second physical Views. The one state-wide window-control record owns the
+canonical final-bank selector. On an early stop, the selected current bank is
+copied to that state selector's final bank once; terminal publication then
+copies the selected final-bank View to the caller target. CPU and accelerator
+lowering consume the same three-bank record through the same state control.
+Neither may reselect the source from a Job binding, retain a publication-local
+selector, or publish the current bank directly.
+
 For total recurrent payload width `S` and `J` inactive occurrences, the
 removed identity propagation cost was `J*S` device bytes. Both accelerator
 selectors add at most `S` seal bytes and `O(K)` constant-width control work.
@@ -813,18 +822,151 @@ runtime-owned trailing Seed inputs and never appear in the caller read pack.
 If Action needs either value, Seed must place it in `Q`; there is no hidden
 Action input.
 
+The pointer-free, constructor-closed `NestedTemplateShape` is the sole compact
+nested-template topology authority. From `(first, Max, Tile, N)` it proves
+`K = ceil(Max / Tile)` once and owns the Seed, Action, and Fold spans; the
+compact `K + N + 3` entry count; the retained
+`K + min(N, 2) + 3` Job/template-owner count; the authored `K * (N + 2)` and
+transduced `3 * K` occurrence counts; each compact route's occurrence count
+and phase coordinates; the outer-to-Fold route; and Action parity reuse.
+`PipelineBuildNestedWindow`, its frozen plan handoff, and runtime
+`PipelineWindow` carry that same value rather than separately stored begin/end
+or phase-count fields. `NestedTemplateGeometry` adds runtime `BackendWindow`
+and resident-handle identity proof to the shape; it does not own another K,
+span, route, or occurrence formula. CPU execution, public memory accounting,
+prepared-template fingerprinting, fallback expansion, and aggregate profiling
+consume those projections. Metal/Vulkan descriptor alignment, command
+encoding, device limits, and aggregate/transducer eligibility remain
+backend-specific responsibilities.
+
+A successful route projection, not a positive occurrence count, establishes
+that a compact entry belongs to the shape. For `K = 1`, Fold routes one and
+two are dormant; for `K = 2`, Fold route two is dormant. Their projected
+occurrence count is exactly zero, and common accounting plus backend profiling
+must retain the declared row while contributing zero execution evidence.
+Window-publication command contribution is the Shape's projected
+`outer_bound`; `Max` and `Tile` remain copy-addressing geometry and are never
+used downstream to reconstruct K. The backend publication identity carries
+that projection and common admission checks it against every materialized
+recurrence descriptor for the same state before native preparation.
+
 Publication lowering preserves that separation structurally. Authored
 Terminal and Window publications are distinct closed alternatives, and the
 cold planner replaces them with distinct resolved alternatives before hazard
-analysis or backend preparation. A Window plan contains its private Fold
-source, count, target, state, maximum, and tile; it has no input-binding
-coordinate. A Terminal plan alone resolves a physical Fold output to the
-corresponding recurrent input bank. Logical output ordinal, physical output
-ordinal, and input-binding ordinal are different coordinate domains and no
-generic integer guard may compare them outside that Terminal resolver. The
-ordered resolved publication vector is the sole physical authority consumed
-by admission and backend descriptor construction; those later stages do not
-project authored outputs again.
+analysis or backend preparation. A Window plan contains only its private Fold
+source, target, state, and physical output. A Terminal plan contains its three
+bank Views, target, state, and physical output. Count, `Max`, `Tile`, expected
+terminal value, and the final selector are deliberately absent from both
+publication alternatives and live once in the referenced state control. A
+Terminal plan alone resolves a physical Fold output to the corresponding
+recurrent input bank. Logical output ordinal, physical output ordinal, and
+input-binding ordinal are different coordinate domains and no generic integer
+guard may compare them outside that Terminal resolver. The ordered resolved
+publication vector plus its state control is the sole physical authority
+consumed by admission and backend descriptor construction; those later stages
+do not project authored outputs again.
+
+An authored publication retains a typed `(window-control ordinal, logical
+output)` coordinate, never a copied source binding or base-step mirror. An
+ordinary control owns exactly one `ordinary_step` anchor. A nested recurrence
+owns its `seed_first` and `fold_first` anchors only as projections of its
+`NestedTemplateShape`; its control carries no copies. One shared cold resolver
+derives the phase-local count and terminal steps from that shape, maps the
+logical output through the
+Program's logical-to-physical projection and the physical output's canonical
+logical source, and selects the actual Terminal producer step: the last
+ordinary occurrence, or nested Fold route zero for one outer iteration, route
+one for an even outer bound, and route two for an odd bound greater than one.
+Window publication always names Fold route zero, and planning proves that
+routes one and two resolve the same physical Window View. Authored downstream
+routing and cold planning consume this resolver; neither may independently
+select a source bank or retain a derived anchor. Source selection therefore
+does not change the reported logical step, iteration, or nested phase.
+
+The mutable build phase owns one Window-control record per recurrence state.
+`Max`, `Tile`, the optional terminal selector, and its expected value live only
+in that record. Every ordinary occurrence and every nested Seed/Action/Fold
+step stores only the typed record ordinal. The count View is resolved from the
+shared derived count step plus the control's input-binding ordinal, not from a
+copied binding. Nested structural ranges likewise carry no control-value
+mirror or independently writable phase boundaries. Planning projects each
+build record once into its resolved state
+control. The sealed step-to-state vector is the only runtime state assignment:
+admission maps each entry directly to the corresponding one-based
+`PipelineStep` window and initializes that exact `PipelineState::windows`
+slot. It never derives state ownership from encounter order or a preceding
+step; the admitted ordinary `first_step` or nested shape's `seed_first`
+remains the single topology coordinate used to verify the count binding.
+
+Each resolved View is the constructor-closed tuple
+`(backing_bytes, offset_bytes, count, stride_bytes, element_bytes,
+resource_ordinal, usage, Type, FixedFormat)`. The planner validates owner
+extent, alignment, type, format, footprint, canonical producer topology, and
+publication role exactly once while constructing that tuple. Output ownership
+and publication-target uniqueness remain preparation-time admission contracts: a
+valid cold plan may name a target already written by an ordinary step or by an
+earlier publication, and `prepare()` rejects that second output owner with
+`BindingDuplicate`. Planning does not duplicate that admission decision.
+Device affinity remains a prepare-time public contract: planning seals the
+owner without rejecting a foreign Device, and preparation validates the
+materialized canonical resource table before private backend preparation.
+The typed authored source coordinate carries no step mirror, owner, geometry,
+access role, or hidden marker. Only the canonical sealed producer View assigns
+publication Read usage. A caller target remains a full locator because it may be absent
+from every Program binding and authored downstream routing must project exact
+target-relative subviews. It retains a shared Buffer owner only until cold
+admission materializes its canonical `PipelineResource`; the runtime copy
+clears that locator and retains only the resolved View.
+
+Logical aliases are checked at two non-interchangeable phase boundaries. Before
+the information-losing physical projection, authored aliases must name the
+same complete `ResourceView`; otherwise an independently supplied target could
+be silently discarded. After resource resolution, the planner verifies that
+every retained logical occurrence resolves to the canonical sealed View. The
+second check is an integrity proof over resource ordinals and byte geometry,
+not another selector for alias meaning; `project_outputs` alone owns the
+logical-to-physical and canonical-source mapping.
+
+One resolved window-control record per state owns the exact count View, `Max`,
+`Tile`, logical terminal output, its physical output and cold publication link,
+the expected terminal value, and the canonical final selector. The logical and
+physical terminal coordinates are distinct typed planning facts; the
+publication index is their phase-local runtime link, not another terminal
+meaning. The resolved record preserves the canonical count View and input
+ordinal, not a copied count step. Admission obtains the count step only from
+the sealed ordinary or nested topology, and cold Job binding consumes the input
+ordinal directly; neither may infer a penultimate input from vector layout.
+`PipelineWindow` takes over that record when the cold plan is admitted. Every
+Window/Terminal publication,
+CPU selector, memory-accounting pass, and backend descriptor reaches the values
+through its state ordinal. Cold Job binding proves that each resolved
+source/count/bank View exactly matches the corresponding primary and alternate
+Job View before authored declarations are released.
+
+Transactional physical selection has one owner:
+`PipelineResource::partner`. Publication identities and the public Pipeline
+fingerprint retain canonical resource ordinals; primary/alternate claims,
+Jobs, count reads, and source reads select only the physical owner through
+that symmetric partner map. Target materialization uses the same resource
+selector, but a valid publication target is an ordinary non-state output under
+the current contract: it therefore has no partner to select. No publication
+Buffer pointer or private Job search may independently decide parity.
+
+Public Pipeline fingerprint version 3 preserves its established publication
+field order: selected canonical source ordinal, target ordinal, type, format,
+source count, target offset/stride in elements, element width, one-based window
+state, physical output, Terminal/Window kind, count offset, `Max`, and `Tile`.
+For Terminal publication it deliberately does not add private three-bank or
+final-selector fields; the selected canonical source occupies the existing
+source field. One serializer owns this sequence. Backend preparation uses a
+separate plan-stable semantic/geometry fingerprint over all three banks.
+After parity selects physical owners, cold backend materialization also seals
+each resident id; common validation requires every actual source/count/target
+reference to match that id and geometry field-for-field. The physical id is
+deliberately excluded from the plan fingerprint because alternate parity may
+select a different owner without changing Pipeline semantics. This changes
+neither the Metal/Vulkan publication parameter ABI nor backend-native command
+specialization.
 
 Backend route admission follows the same typed boundary. `NestedSeed` and
 `NestedAction` own their intermediates, while only `Ordinary` recurrence and
@@ -929,6 +1071,24 @@ Fold transitions; its authored command count is `2K`. Positive `N` authors
 routes, at most two alternating Action parity routes, and the three Fold bank
 transitions. Its authored command count remains `K * (N + 2)`.
 
+One backend-neutral `NestedTemplateGeometry` proof owns this compact shape.
+It proves `K = ceil(Max / Tile)`, the Seed/Action/Fold spans, their authored
+iteration/bound pairs and common logical step, and one full count/terminal
+window identity. Public reservation, fallback expansion, and aggregate
+eligibility all consume that proof. Aggregate eligibility may additionally
+require positive `N`, no terminal stop, complete barriers, exact Programs,
+publication lineage, and native opcode support; those optimization conditions
+do not redefine the base compact geometry. In particular, `N == 0` and a
+terminal-enabled group remain valid base shapes even when aggregate execution
+is ineligible. A compact nested group never carries the top-level
+`write_each` history marker: every Seed, Action, and Fold recurrence marker
+proves `writes_each_iteration == false`. The proof object is constructor-closed;
+the Action fusion optimizer consumes its proved Action span and owns only Map
+Program, binding, source, and barrier eligibility. It is ineligible for
+`N <= 1`, where no repeated Action launch can be removed. Native aggregate
+admission likewise consumes the common aggregate proof and does not recompute
+`K` or window identity.
+
 Historical counts produced before parity-route ownership was canonicalized are
 not a target shape for the current API. In particular, retaining all 64 Action
 rows instead of two adds 62 templates without adding authored commands. For
@@ -989,6 +1149,27 @@ and a newly prepared Pipeline. The failed attempt publishes no generation.
 Seed and Fold identify
 their phase and have no fabricated inner iteration. The product `k * N + j`
 is never a storage, capacity, ordering, or failure authority.
+
+Each backend-neutral window descriptor carries its outer coordinate exactly
+once as `outer_iteration` and `outer_bound`. A compact nested Action or Fold
+template initially carries an unmaterialized outer coordinate. In the fallback
+path, common expansion writes the physical coordinate into its copied
+descriptor before backend admission, and Metal and Vulkan encode native
+occurrence payloads directly from those fields. A separately proved compact
+aggregate may consume compact template identity without exposing its
+placeholder as an occurrence coordinate. No legacy host-side
+`iteration`/`bound` mirror may independently admit a route or select a window.
+A default `outer_bound` is zero and therefore invalid; every admitted
+occurrence must receive its proved nonzero bound from the planner or common
+expansion. The authored recurrence ordinal remains a separate
+`BackendRecurrence` coordinate and is not an alias for the outer window.
+
+The backend-neutral window descriptor is also the sole occurrence-shape
+admission authority. Its common predicate proves nonzero maximum, tile and
+outer bound, outer range, and the phase-specific route, inner range, and
+advance rule. Metal and Vulkan consume that predicate and may add only their
+native resource, range, and state-transition proofs; they do not independently
+reinterpret the common shape.
 
 The four nested-work totals are attempt-wide saturating sums across every
 nested logical Pipeline step. Entering a later nested step, including one with
@@ -1171,9 +1352,12 @@ successive executions; the nested oracle also compares overflow.
 
 Logical output leaves are the user-facing binding order. Preparation maps them
 through the Program's existing logical-to-physical output projection. If two
-logical leaves name one physical Program output, both leaves must bind the same
-Buffer owner; Pipeline then retains that physical owner once. Distinct Buffer
-owners never trigger an implicit copy to satisfy one aliased physical output.
+logical leaves name one physical Program output, both leaves must bind the
+same exact View; Pipeline then creates each private recurrence bank and each
+Terminal publication once per physical output, while logical slots refer to
+that canonical bank. Distinct owners or View coordinates never trigger an
+implicit copy or a silently dropped publication target for one aliased
+physical output.
 The current nested Seed/Action/Fold bank model requires distinct physical
 outputs and rejects a Program with logical output aliases as
 `BindingAliasUnsupported`; ordinary Pipeline steps retain the general alias
@@ -1289,6 +1473,18 @@ envelope. Two strided accesses conflict exactly when selected element byte
 sets intersect; holes are never treated as reads or writes. The bounded
 Diophantine overlap proof and overflow gates are owned by the resource planner,
 not reimplemented by Pipeline.
+
+The constructor-closed resource table `PipelineMemoryPlan::resources` owns each
+resource's locator, type, format, count, bytes, and lifetime frontier. Its
+ordered `step_resources` table owns every exact input/output View and the
+logical-to-physical output projection. Hazard construction, memory accounting,
+private Job reuse, primary/alternate Job construction, CPU execution, and
+accelerator preparation consume those records; authored `PipelineBinding`
+objects are accepted only at the cold planning boundary. A cached plan therefore
+remains authoritative even if a test mutates an authored offset afterward:
+prepare and execution must retain the sealed owner and coordinate. The contract
+tests exercise this counterexample for both a general Pipeline binding and a
+Window publication target.
 
 Map ports consume the retained offset and byte stride directly on CPU, Metal,
 and Vulkan and remain zero-copy. Vulkan aligns each descriptor base down to the
@@ -1438,12 +1634,14 @@ time, and authoritative input hashes remain caller or Replay evidence.
 
 1. validate owner phase, nonempty membership, and fixed capacities;
 2. expand every Program signature and logical output projection;
-3. validate Program, Device, type, extent, and numeric policy;
+3. seal Device-independent type, extent, numeric policy, owner, and View
+   geometry into the resource and step-resource tables;
 4. canonicalize Buffer owners by first use;
-5. reject unsupported same-step aliases;
-6. build the exact range-hazard plan, prove any sealed repetitions, and hash
-   the frozen identity;
-7. create one external-buffer-bound private prepared step per Program;
+5. build the exact range-hazard plan and prove any sealed repetitions;
+6. during admission, validate Program slot policy, unsupported same-step
+   aliases, Device affinity, and publication-target output uniqueness against
+   those sealed Views, then hash the frozen identity;
+7. create one sealed-resource-bound private prepared step per Program;
 8. allocate each Program's private internal storage and its backend-owned
    packed status/control storage;
 9. pack immutable Metal command parameters into one retained parameter arena;
@@ -1459,7 +1657,9 @@ proves the pending-overwrite-before-read law and freezes both resource-partner
 ordinals in `Theta(A + P)` total work for `A` binding occurrences and `P`
 state pairs; it does not rescan all `A` bindings for each pair. The same partner
 ordinal constructs alternate claims and private Job owners in linear resource
-and binding passes.
+and binding passes. Resolved Pipeline-window control and publication Views use
+that identical partner projection; they do not recover parity from authored
+Buffer owners or search the primary/alternate Jobs at execution time.
 
 The resource planner emits aligned dependency and witness rows: row `i`
 contains one ordered step pair and its canonical exact conflict. Pipeline
@@ -1926,6 +2126,21 @@ step order must contain a whole-buffer overwrite of it. This admission rule is
 the proof that a discarded partial generation can be reused on the next tick
 without copying the published generation into it.
 
+For Fixed storage, identical typed shape means the same scalar width and
+integer/fraction partition. Rounding, overflow, and approximation are Program
+arithmetic policy, not state-owner layout: the published and pending resources
+may be consumed or produced under different policies. Each resource retains
+its Program-derived canonical policy, while the state snapshot schema uses the
+published resource's typed layout. Parity never invents a third policy.
+
+A publication copy is not that Program-step overwrite. A Window publication
+is explicitly non-rollback, and a Terminal publication target remains an
+ordinary output rather than becoming transactional pending state. Therefore a
+state pair whose pending Buffer is written only as a publication target is
+invalid. Treating Terminal publication as the required pending overwrite would
+change the public transaction and rollback contract and is not inferred by
+preparation.
+
 An absent state-pair list and a zero-byte state pair are not interchangeable.
 A Pipeline with no declared state has no resident checkpoint authority, so
 `latest_device_state()` and `snapshot_storage()` reject it as
@@ -2204,6 +2419,16 @@ accelerator fusion. Accelerator preparation additionally preserves the compact
 `outer_iteration`/`inner_iteration`, and `nested_phase`. Coordinates are never
 flattened, and unknown U32 fields use `Location::none`.
 
+A compact template is not a physical occurrence. Its failure cursor may retain
+the exact Seed outer coordinate because each Seed template owns one outer
+iteration. Compact Action and Fold templates are reused across outer
+iterations, so their placeholder outer value is not failure evidence: their
+nested phase and coordinates remain unknown until common expansion copies the
+descriptor, writes the physical coordinates, and retains the expanded
+occurrence. Only that rebound occurrence may project exact Action or Fold
+coordinates. A compact aggregate path retains template and aggregate evidence
+instead and does not claim an expanded occurrence coordinate.
+
 `native_reason_key` is the backend's canonical process-lifetime static reason
 key. It preserves whether the failure was capacity, descriptor admission,
 shader/pipeline compilation, command capture, or another native boundary after
@@ -2405,7 +2630,7 @@ through the common Compute result vocabulary.
 | `ShapeMismatch` | A binding's scalar lane, element count, or complete byte extent differs from the Program slot. |
 | `FixedFormatMismatch` | Fixed `(I,F)`, rounding, overflow, or approximation policy differs. |
 | `BindingAliasUnsupported` | One step aliases a read and write, or aliases logical outputs that map to incompatible physical outputs. |
-| `BindingDuplicate` | Distinct physical output slots in one step bind the same Buffer owner. |
+| `BindingDuplicate` | Distinct physical output slots in one step bind the same Buffer owner, or a publication target is already owned by an ordinary output or earlier publication. |
 | `PipelineMemoryBudget` | `PipelinePlan::peak_bytes` exceeds `MemoryBudget`. |
 | `DevicePipelineMemoryCapacity` | The Pipeline's exact `committed_peak_bytes` cannot be reserved from its Device aggregate before materialization. |
 | `BoundedCountInvalid` | A resident device count exceeds the authored `Max`; payload work and publication remain zero. |
@@ -2961,6 +3186,7 @@ HostMetadata(Pipeline) = sizeof(PipelineState)
                        + V(resources)
                        + V(claims)
                        + V(alternate claims)
+                       + V(publications)
                        + V(state pairs)
                        + V(output state)
                        + V(output lookup permutation)
