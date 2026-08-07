@@ -64,11 +64,6 @@ private:
 ReactorBackendApplyChanges(ReactorRuntime &reactor,
                            ::rund::detail::task::StatStorage &stats) noexcept;
 
-[[nodiscard]] ReactorPlatformPollResult
-ReactorBackendPoll(ReactorRuntime &reactor,
-                   ::rund::detail::task::StatStorage &stats, int timeout_ms,
-                   std::size_t max_events) noexcept;
-
 void ReactorCloseRuntime(ReactorRuntime &reactor) noexcept;
 
 } // namespace rund::node

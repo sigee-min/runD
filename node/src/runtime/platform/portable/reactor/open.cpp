@@ -28,7 +28,6 @@ ReactorPlatformOpResult PrepareReactorPlatform(
   ReactorPlatformState& state = PortableReactorState(platform);
   try {
     state.registrations.reserve(capacity);
-    state.ready.reserve(capacity);
     state.events.reserve(capacity);
     state.probe.events.reserve(capacity);
   } catch (...) {

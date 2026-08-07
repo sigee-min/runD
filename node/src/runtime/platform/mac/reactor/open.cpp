@@ -32,7 +32,6 @@ ReactorPlatformOpResult PrepareReactorPlatform(
   ReactorPlatformState& state = MacReactorState(platform);
   try {
     state.registrations.reserve(capacity);
-    state.ready.reserve(capacity * 2u);
     state.changes.reserve(capacity * 4u);
     state.receipts.reserve(capacity * 4u);
     state.events.resize(capacity * 2u);

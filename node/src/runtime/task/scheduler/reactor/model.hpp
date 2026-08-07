@@ -91,6 +91,7 @@ struct ReactorRuntime {
   ReactorApplyPolicy apply_policy{};
   ReactorRegistry registry{};
   std::vector<ReactorRegistrationChange> changes{};
+  std::vector<ReactorPlatformReady> platform_ready{};
   std::vector<BatchIoReady> probe_ready{};
   std::vector<ReactorReady> ready{};
   std::vector<ReactorReady> ready_backlog{};

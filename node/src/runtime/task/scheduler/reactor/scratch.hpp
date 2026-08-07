@@ -10,6 +10,10 @@
 namespace rund::node {
 
 [[nodiscard]] bool
+ReactorScratchPreparePlatformReady(ReactorRuntime &reactor,
+                                   std::size_t reactor_capacity) noexcept;
+
+[[nodiscard]] bool
 ReactorScratchOrderReady(ReactorRuntime &reactor,
                          const std::vector<ReactorReady> &ready) noexcept;
 

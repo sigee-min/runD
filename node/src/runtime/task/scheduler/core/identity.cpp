@@ -6,6 +6,7 @@
 #include "../../../reactor/platform.hpp"
 #include "../access.hpp"
 #include "../reactor/registry.hpp"
+#include "../reactor/scratch.hpp"
 #include "../state/model/join.hpp"
 #include "../state/model/task.hpp"
 #include "../state/model/timer.hpp"
@@ -229,6 +230,10 @@ bool Scheduler::Configure(const ::rund::SchedulerConfig config,
   state_->reactor.reactor_socket_lease_scratch.reserve(reactor_capacity);
   state_->reactor.reactor_ready_sets.reserve(
       state_->resources.limits.net_ready_set_capacity);
+  if (!ReactorScratchPreparePlatformReady(reactor, reactor_capacity)) {
+    state_->lanes.lane_code = ReasonCode::ReactorWaitCapacityExceeded;
+    return false;
+  }
   const ReactorPlatformOpResult platform_prepared =
       PrepareReactorPlatform(reactor.platform, reactor_capacity);
   if (!platform_prepared.ok) {

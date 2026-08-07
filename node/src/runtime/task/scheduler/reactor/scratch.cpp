@@ -4,8 +4,25 @@
 #include "order.hpp"
 
 #include <algorithm>
+#include <limits>
 
 namespace rund::node {
+
+bool ReactorScratchPreparePlatformReady(
+    ReactorRuntime &reactor, const std::size_t reactor_capacity) noexcept {
+  if (reactor_capacity > std::numeric_limits<std::size_t>::max() / 2u) {
+    reactor.platform_ready.clear();
+    return false;
+  }
+  try {
+    reactor.platform_ready.clear();
+    reactor.platform_ready.reserve(reactor_capacity * 2u);
+  } catch (...) {
+    reactor.platform_ready.clear();
+    return false;
+  }
+  return true;
+}
 
 bool ReactorScratchOrderReady(ReactorRuntime &reactor,
                               const std::vector<ReactorReady> &ready) noexcept {
@@ -38,6 +55,7 @@ bool ReactorScratchPrepareHostEvents(std::vector<::rund::host::Event> &scratch,
 }
 
 void ReactorScratchClear(ReactorRuntime &reactor) noexcept {
+  reactor.platform_ready.clear();
   reactor.ready.clear();
   reactor.ordered_ready_scratch.clear();
   reactor.budget_ready_scratch.clear();

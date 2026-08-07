@@ -18,7 +18,6 @@ struct ReactorPlatformState {
   int native = -1;
   bool opened = false;
   std::vector<ReactorPlatformRegistration> registrations{};
-  std::vector<ReactorPlatformReady> ready{};
   std::vector<epoll_event> events{};
   PosixProbeBuffer probe{};
 };

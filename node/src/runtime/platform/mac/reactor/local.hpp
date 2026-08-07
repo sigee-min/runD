@@ -19,7 +19,6 @@ struct ReactorPlatformState {
   int native = -1;
   bool opened = false;
   std::vector<ReactorPlatformRegistration> registrations{};
-  std::vector<ReactorPlatformReady> ready{};
   std::vector<struct kevent> changes{};
   std::vector<struct kevent> receipts{};
   std::vector<struct kevent> events{};

@@ -3,7 +3,9 @@
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
 
+#include <array>
 #include <cerrno>
+#include <sys/socket.h>
 #include <type_traits>
 #include <unistd.h>
 
@@ -22,6 +24,8 @@ int RunRuntimeTaskReactorPlatformContract() {
   static_assert(std::is_trivially_copyable_v<BatchIoProbeResult>);
   static_assert(!std::is_aggregate_v<ReactorPlatformBatchResult>);
   static_assert(std::is_trivially_copyable_v<ReactorPlatformBatchResult>);
+  static_assert(!std::is_aggregate_v<ReactorPlatformPollResult>);
+  static_assert(std::is_trivially_copyable_v<ReactorPlatformPollResult>);
 
   constexpr ReactorPlatformBatchResult batch_success =
       ReactorPlatformBatchResult::success();
@@ -50,6 +54,30 @@ int RunRuntimeTaskReactorPlatformContract() {
                 ReactorPlatformBatchDisposition::BackendUnavailable);
   static_assert(batch_unavailable.platform_error() == 0);
   static_assert(batch_unavailable.failed_index() == 0u);
+
+  constexpr ReactorPlatformPollResult poll_success =
+      ReactorPlatformPollResult::success();
+  static_assert(poll_success.disposition() ==
+                ReactorPlatformPollDisposition::Success);
+  static_assert(poll_success.platform_error() == 0);
+
+  constexpr ReactorPlatformPollResult poll_invalid =
+      ReactorPlatformPollResult::invalid(EBADF);
+  static_assert(poll_invalid.disposition() ==
+                ReactorPlatformPollDisposition::Invalid);
+  static_assert(poll_invalid.platform_error() == EBADF);
+
+  constexpr ReactorPlatformPollResult poll_failed =
+      ReactorPlatformPollResult::failed(ENOMEM);
+  static_assert(poll_failed.disposition() ==
+                ReactorPlatformPollDisposition::Failed);
+  static_assert(poll_failed.platform_error() == ENOMEM);
+
+  constexpr ReactorPlatformPollResult poll_unavailable =
+      ReactorPlatformPollResult::backend_unavailable();
+  static_assert(poll_unavailable.disposition() ==
+                ReactorPlatformPollDisposition::BackendUnavailable);
+  static_assert(poll_unavailable.platform_error() == 0);
 
   // This contract is compiled against the neutral interface only. Platform
   // SDK records are deliberately unavailable at this boundary.
@@ -83,21 +111,23 @@ int RunRuntimeTaskReactorPlatformContract() {
                                          ReactorHandleFromPublic(pipe_fds[0]),
                                          ReactorInterest::Read)
                   .ok);
+  std::vector<ReactorPlatformReady> poll_ready{};
   const ReactorPlatformPollResult first_poll =
-      PollReactorPlatform(platform, 0, 1u);
-  TEST_ASSERT(first_poll.ok);
-  TEST_ASSERT(first_poll.ready != nullptr);
-  TEST_ASSERT(first_poll.ready->size() == 1u);
-  TEST_ASSERT(
-      HasReactorEvent(first_poll.ready->front().events, ReactorEvent::Read));
+      PollReactorPlatform(platform, 0, 1u, poll_ready);
+  TEST_ASSERT(first_poll.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(first_poll.platform_error() == 0);
+  TEST_ASSERT(poll_ready.size() == 1u);
+  TEST_ASSERT(HasReactorEvent(poll_ready.front().events, ReactorEvent::Read));
 
   runtime_task_allocation::Start();
   const ReactorPlatformPollResult warm_poll =
-      PollReactorPlatform(platform, 0, 1u);
+      PollReactorPlatform(platform, 0, 1u, poll_ready);
   runtime_task_allocation::Stop();
-  TEST_ASSERT(warm_poll.ok);
-  TEST_ASSERT(warm_poll.ready != nullptr);
-  TEST_ASSERT(warm_poll.ready->size() == 1u);
+  TEST_ASSERT(warm_poll.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(warm_poll.platform_error() == 0);
+  TEST_ASSERT(poll_ready.size() == 1u);
   TEST_ASSERT(runtime_task_allocation::Count() == 0u);
 
   char consumed = 0;
@@ -107,21 +137,101 @@ int RunRuntimeTaskReactorPlatformContract() {
       AddReactorPlatformInterest(platform, writable, ReactorInterest::Write)
           .ok);
   const ReactorPlatformPollResult writable_poll =
-      PollReactorPlatform(platform, 0, 1u);
-  TEST_ASSERT(writable_poll.ok);
-  TEST_ASSERT(writable_poll.ready != nullptr);
-  TEST_ASSERT(writable_poll.ready->size() == 1u);
-  TEST_ASSERT(writable_poll.ready->front().handle == writable);
-  TEST_ASSERT(HasReactorEvent(writable_poll.ready->front().events,
-                              ReactorEvent::Write));
+      PollReactorPlatform(platform, 0, 1u, poll_ready);
+  TEST_ASSERT(writable_poll.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(writable_poll.platform_error() == 0);
+  TEST_ASSERT(poll_ready.size() == 1u);
+  TEST_ASSERT(poll_ready.front().handle == writable);
+  TEST_ASSERT(HasReactorEvent(poll_ready.front().events, ReactorEvent::Write));
   TEST_ASSERT(RemoveReactorPlatformInterest(platform, writable).ok);
   const ReactorPlatformPollResult removed_poll =
-      PollReactorPlatform(platform, 0, 1u);
-  TEST_ASSERT(removed_poll.ok);
-  TEST_ASSERT(removed_poll.ready != nullptr);
-  TEST_ASSERT(removed_poll.ready->empty());
+      PollReactorPlatform(platform, 0, 1u, poll_ready);
+  TEST_ASSERT(removed_poll.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(removed_poll.platform_error() == 0);
+  TEST_ASSERT(poll_ready.empty());
   TEST_ASSERT(::write(pipe_fds[1], &byte, 1u) == 1);
   CloseReactorPlatform(platform);
+
+  std::vector<ReactorPlatformReady> cold_poll_ready{};
+  cold_poll_ready.reserve(1u);
+  const std::size_t poll_registration_count = cold_poll_ready.capacity() + 1u;
+  std::vector<std::array<int, 2>> poll_pipes(poll_registration_count,
+                                             std::array<int, 2>{-1, -1});
+  ReactorPlatform poll_failure_platform{};
+  TEST_ASSERT(
+      PrepareReactorPlatform(poll_failure_platform, poll_registration_count)
+          .ok);
+  TEST_ASSERT(OpenReactorPlatform(poll_failure_platform).ok);
+  for (std::array<int, 2> &poll_pipe : poll_pipes) {
+    TEST_ASSERT(::pipe(poll_pipe.data()) == 0);
+    TEST_ASSERT(::write(poll_pipe[1], &byte, 1u) == 1);
+    TEST_ASSERT(
+        AddReactorPlatformInterest(poll_failure_platform,
+                                   ReactorHandleFromPublic(poll_pipe[0]),
+                                   ReactorInterest::Read)
+            .ok);
+  }
+  runtime_task_allocation::FailNext();
+  const ReactorPlatformPollResult poll_capacity_failed = PollReactorPlatform(
+      poll_failure_platform, 0, poll_registration_count, cold_poll_ready);
+  TEST_ASSERT(poll_capacity_failed.disposition() ==
+              ReactorPlatformPollDisposition::Failed);
+  TEST_ASSERT(poll_capacity_failed.platform_error() == ENOMEM);
+  TEST_ASSERT(cold_poll_ready.empty());
+  const ReactorPlatformPollResult poll_retried = PollReactorPlatform(
+      poll_failure_platform, 0, poll_registration_count, cold_poll_ready);
+  TEST_ASSERT(poll_retried.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(poll_retried.platform_error() == 0);
+  TEST_ASSERT(cold_poll_ready.size() == poll_registration_count);
+  runtime_task_allocation::Start();
+  const ReactorPlatformPollResult poll_warm = PollReactorPlatform(
+      poll_failure_platform, 0, poll_registration_count, cold_poll_ready);
+  runtime_task_allocation::Stop();
+  TEST_ASSERT(poll_warm.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(poll_warm.platform_error() == 0);
+  TEST_ASSERT(cold_poll_ready.size() == poll_registration_count);
+  TEST_ASSERT(runtime_task_allocation::Count() == 0u);
+  CloseReactorPlatform(poll_failure_platform);
+  for (const std::array<int, 2> &poll_pipe : poll_pipes) {
+    TEST_ASSERT(::close(poll_pipe[0]) == 0);
+    TEST_ASSERT(::close(poll_pipe[1]) == 0);
+  }
+
+  int duplex_fds[2] = {-1, -1};
+  TEST_ASSERT(::socketpair(AF_UNIX, SOCK_STREAM, 0, duplex_fds) == 0);
+  TEST_ASSERT(::write(duplex_fds[1], &byte, 1u) == 1);
+  ReactorPlatform duplex_platform{};
+  TEST_ASSERT(PrepareReactorPlatform(duplex_platform, 1u).ok);
+  TEST_ASSERT(OpenReactorPlatform(duplex_platform).ok);
+  TEST_ASSERT(AddReactorPlatformInterest(
+                  duplex_platform, ReactorHandleFromPublic(duplex_fds[0]),
+                  ReactorInterest::Read | ReactorInterest::Write)
+                  .ok);
+  std::vector<ReactorPlatformReady> duplex_ready{};
+  const ReactorPlatformPollResult duplex_poll =
+      PollReactorPlatform(duplex_platform, 0, 1u, duplex_ready);
+  TEST_ASSERT(duplex_poll.disposition() ==
+              ReactorPlatformPollDisposition::Success);
+  TEST_ASSERT(duplex_poll.platform_error() == 0);
+  TEST_ASSERT(!duplex_ready.empty());
+#if defined(__APPLE__) || defined(__FreeBSD__)
+  TEST_ASSERT(duplex_ready.size() <= 2u);
+#else
+  TEST_ASSERT(duplex_ready.size() == 1u);
+#endif
+  ReactorEvent duplex_events = ReactorEvent::None;
+  for (const ReactorPlatformReady &ready_event : duplex_ready) {
+    duplex_events |= ready_event.events;
+  }
+  TEST_ASSERT(HasReactorEvent(duplex_events, ReactorEvent::Read));
+  TEST_ASSERT(HasReactorEvent(duplex_events, ReactorEvent::Write));
+  CloseReactorPlatform(duplex_platform);
+  TEST_ASSERT(::close(duplex_fds[0]) == 0);
+  TEST_ASSERT(::close(duplex_fds[1]) == 0);
 
   const BatchIoPollRequest request{
       .index = 0u,
@@ -165,8 +275,8 @@ int RunRuntimeTaskReactorPlatformContract() {
   TEST_ASSERT(::close(pipe_fds[1]) == 0);
 
   const ReactorBackendStats stats = ReactorBackendStatsSnapshot();
-  TEST_ASSERT(stats.open_calls == 4u);
-  TEST_ASSERT(stats.close_calls == 4u);
+  TEST_ASSERT(stats.open_calls == 6u);
+  TEST_ASSERT(stats.close_calls == 6u);
   TEST_ASSERT(stats.current_open_handles == 0u);
   TEST_ASSERT(stats.max_open_handles == 1u);
   return 0;

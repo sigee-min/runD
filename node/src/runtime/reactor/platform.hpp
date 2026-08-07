@@ -99,12 +99,55 @@ private:
   std::size_t failed_index_;
 };
 
-struct ReactorPlatformPollResult {
-  bool ok = true;
-  bool invalid = false;
-  bool unavailable = false;
-  std::int64_t platform_error = 0u;
-  const std::vector<ReactorPlatformReady> *ready = nullptr;
+enum class ReactorPlatformPollDisposition : std::uint8_t {
+  Success,
+  Invalid,
+  Failed,
+  BackendUnavailable,
+};
+
+class ReactorPlatformPollResult final {
+public:
+  [[nodiscard]] static constexpr ReactorPlatformPollResult success() noexcept {
+    return ReactorPlatformPollResult{ReactorPlatformPollDisposition::Success,
+                                     0};
+  }
+
+  [[nodiscard]] static constexpr ReactorPlatformPollResult
+  invalid(const std::int64_t platform_error) noexcept {
+    return ReactorPlatformPollResult{ReactorPlatformPollDisposition::Invalid,
+                                     platform_error};
+  }
+
+  [[nodiscard]] static constexpr ReactorPlatformPollResult
+  failed(const std::int64_t platform_error) noexcept {
+    return ReactorPlatformPollResult{ReactorPlatformPollDisposition::Failed,
+                                     platform_error};
+  }
+
+  [[nodiscard]] static constexpr ReactorPlatformPollResult
+  backend_unavailable() noexcept {
+    return ReactorPlatformPollResult{
+        ReactorPlatformPollDisposition::BackendUnavailable, 0};
+  }
+
+  [[nodiscard]] constexpr ReactorPlatformPollDisposition
+  disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr std::int64_t platform_error() const noexcept {
+    return platform_error_;
+  }
+
+private:
+  constexpr ReactorPlatformPollResult(
+      const ReactorPlatformPollDisposition disposition,
+      const std::int64_t platform_error) noexcept
+      : disposition_(disposition), platform_error_(platform_error) {}
+
+  ReactorPlatformPollDisposition disposition_;
+  std::int64_t platform_error_;
 };
 
 struct ReactorPlatformHandleIdentity {
@@ -202,7 +245,8 @@ ApplyReactorPlatformChanges(ReactorPlatform &platform,
                             std::size_t count) noexcept;
 [[nodiscard]] ReactorPlatformPollResult
 PollReactorPlatform(ReactorPlatform &platform, int timeout_ms,
-                    std::size_t max_events) noexcept;
+                    std::size_t max_events,
+                    std::vector<ReactorPlatformReady> &out) noexcept;
 [[nodiscard]] BatchIoProbeResult
 ProbeReactorPlatformNow(ReactorPlatform &platform,
                         const BatchIoPollRequest *requests, std::size_t count,

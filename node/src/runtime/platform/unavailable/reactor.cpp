@@ -67,11 +67,13 @@ ApplyReactorPlatformChanges(ReactorPlatform &platform,
 
 ReactorPlatformPollResult
 PollReactorPlatform(ReactorPlatform &platform, const int timeout_ms,
-                    const std::size_t max_events) noexcept {
+                    const std::size_t max_events,
+                    std::vector<ReactorPlatformReady> &out) noexcept {
   (void)platform;
   (void)timeout_ms;
   (void)max_events;
-  return ReactorPlatformPollResult{.ok = false, .unavailable = true};
+  out.clear();
+  return ReactorPlatformPollResult::backend_unavailable();
 }
 
 BatchIoProbeResult ProbeReactorPlatformNow(

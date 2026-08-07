@@ -5,6 +5,7 @@
 
 #include <cerrno>
 #include <cstdint>
+#include <limits>
 
 namespace rund::node {
 
@@ -18,28 +19,34 @@ timespec KqueueTimeoutSpec(const int timeout_ms) noexcept {
 
 ReactorPlatformPollResult PollReactorPlatform(
     ReactorPlatform& handle, const int timeout_ms,
-    const std::size_t max_events) noexcept {
+    const std::size_t max_events,
+    std::vector<ReactorPlatformReady>& out) noexcept {
   RecordReactorPlatformPoll();
-  ReactorPlatformPollResult result{};
+  out.clear();
   if (!MacReactorState(handle).opened || max_events == 0u) {
-    return result;
+    return ReactorPlatformPollResult::success();
   }
-  MacReactorState(handle).ready.clear();
-  result.ready = &MacReactorState(handle).ready;
+  if (max_events > std::numeric_limits<std::size_t>::max() / 2u) {
+    return ReactorPlatformPollResult::failed(ENOMEM);
+  }
+  const std::size_t event_capacity = max_events * 2u;
+  try {
+    out.reserve(event_capacity);
+  } catch (...) {
+    return ReactorPlatformPollResult::failed(ENOMEM);
+  }
   if (timeout_ms < 0) {
     ReactorPlatformReady invalid{};
     if (KqueueFindInvalidRegistration(handle, &invalid)) {
-      MacReactorState(handle).ready.push_back(invalid);
-      return result;
+      out.push_back(invalid);
+      return ReactorPlatformPollResult::success();
     }
   }
   std::vector<struct kevent>& events = MacReactorState(handle).events;
   try {
-    events.resize(max_events * 2u);
+    events.resize(event_capacity);
   } catch (...) {
-    result.ok = false;
-    result.platform_error = ENOMEM;
-    return result;
+    return ReactorPlatformPollResult::failed(ENOMEM);
   }
   timespec timeout = KqueueTimeoutSpec(timeout_ms);
   timespec* const timeout_ptr = timeout_ms < 0 ? nullptr : &timeout;
@@ -51,14 +58,11 @@ ReactorPlatformPollResult PollReactorPlatform(
   } while (native < 0 && errno == EINTR);
   const int saved_errno = errno;
   if (native < 0) {
-    result.ok = false;
-    result.invalid = saved_errno == EBADF || saved_errno == EINVAL;
-    result.platform_error = saved_errno;
-    return result;
+    return saved_errno == EBADF || saved_errno == EINVAL
+               ? ReactorPlatformPollResult::invalid(saved_errno)
+               : ReactorPlatformPollResult::failed(saved_errno);
   }
   try {
-    MacReactorState(handle).ready.clear();
-    MacReactorState(handle).ready.reserve(static_cast<std::size_t>(native));
     for (int index = 0; index < native; ++index) {
       const struct kevent& event = events[static_cast<std::size_t>(index)];
       const ReactorHandle native_handle =
@@ -67,19 +71,17 @@ ReactorPlatformPollResult PollReactorPlatform(
           KqueueInterestForHandle(handle, native_handle);
       const bool invalid = ((event.flags & EV_ERROR) != 0 &&
                             (event.data == EBADF || event.data == EINVAL));
-      MacReactorState(handle).ready.push_back(ReactorPlatformReady{
+      out.push_back(ReactorPlatformReady{
           .handle = native_handle,
           .events = KqueueReadyEvents(event, interest),
           .invalid = invalid,
       });
     }
   } catch (...) {
-    result.ok = false;
-    result.platform_error = ENOMEM;
-    MacReactorState(handle).ready.clear();
+    out.clear();
+    return ReactorPlatformPollResult::failed(ENOMEM);
   }
-  result.ready = &MacReactorState(handle).ready;
-  return result;
+  return ReactorPlatformPollResult::success();
 }
 
 }  // namespace rund::node

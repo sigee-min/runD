@@ -88,6 +88,17 @@ stop at that change, while a kqueue receipt batch may already have applied a
 later native filter. The scheduler removes only the acknowledged prefix and
 retains the failed logical change and suffix for normalized retry.
 
+The native poll operation has exactly one disposition: `Success`, `Invalid`,
+`Failed`, or `BackendUnavailable`. The caller-provided
+`ReactorPlatformReady` vector is the only ready payload and count authority;
+the result stores no pointer or count mirror. Every call clears that vector
+before observing the backend. `Success` may publish an empty or nonempty
+vector, while every other disposition leaves it empty. `Success` and
+`BackendUnavailable` fix the platform error to zero; `Invalid` and `Failed`
+carry the native or allocation error. A successful vector entry may itself be
+marked invalid for one descriptor; that per-entry classification is distinct
+from an operation-level `Invalid` poll.
+
 The batch immediate-probe operation has exactly one disposition: `Success`,
 `Failed`, or `BackendUnavailable`. `Success` includes an empty ready set. The
 caller-provided `BatchIoReady` vector is the only ready payload and count

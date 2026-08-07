@@ -73,11 +73,9 @@ void AssertUnavailable(const rund::node::ReactorPlatformBatchResult result) {
 }
 
 void AssertUnavailable(const rund::node::ReactorPlatformPollResult &result) {
-  TEST_ASSERT(!result.ok);
-  TEST_ASSERT(!result.invalid);
-  TEST_ASSERT(result.unavailable);
-  TEST_ASSERT(result.platform_error == 0);
-  TEST_ASSERT(result.ready == nullptr);
+  TEST_ASSERT(result.disposition() ==
+              rund::node::ReactorPlatformPollDisposition::BackendUnavailable);
+  TEST_ASSERT(result.platform_error() == 0);
 }
 
 void AssertUnavailable(const rund::node::BatchIoProbeResult result) {
@@ -190,7 +188,9 @@ void VerifyUnavailableNativeSurface() {
   AssertUnavailable(
       RemoveReactorPlatformInterest(platform, ReactorHandleFromPublic(0)));
   AssertUnavailable(ApplyReactorPlatformChanges(platform, nullptr, 0u));
-  AssertUnavailable(PollReactorPlatform(platform, 0, 1u));
+  std::vector<ReactorPlatformReady> poll_ready{ReactorPlatformReady{}};
+  AssertUnavailable(PollReactorPlatform(platform, 0, 1u, poll_ready));
+  TEST_ASSERT(poll_ready.empty());
   std::vector<BatchIoReady> ready{BatchIoReady{}};
   const BatchIoPollRequest request{
       .index = 0u,
@@ -204,8 +204,6 @@ void VerifyUnavailableNativeSurface() {
   ::rund::detail::task::StatStorage scheduler_stats{};
   AssertUnavailable(
       ReactorBackendApplyChanges(scheduler_reactor, scheduler_stats));
-  AssertUnavailable(
-      ReactorBackendPoll(scheduler_reactor, scheduler_stats, 0, 1u));
   ReactorCloseRuntime(scheduler_reactor);
 
   const ReactorPlatformHandleIdentity handle_identity =

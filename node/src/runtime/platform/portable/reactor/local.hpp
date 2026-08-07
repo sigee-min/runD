@@ -20,7 +20,6 @@ namespace rund::node {
 struct ReactorPlatformState {
   bool opened = false;
   std::vector<ReactorPlatformRegistration> registrations{};
-  std::vector<ReactorPlatformReady> ready{};
   std::vector<pollfd> events{};
   PosixProbeBuffer probe{};
 };

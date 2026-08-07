@@ -7,6 +7,8 @@
 #include <rund/task/await.hpp>
 
 #include "../../../../../src/runtime/reactor/diagnostics.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/scratch.hpp"
+#include "../coroutine/allocation.hpp"
 
 #include <array>
 #include <cstddef>
@@ -41,6 +43,22 @@ struct PipePair {
 } // namespace
 
 int RunRuntimeTaskReactorScratchContract() {
+  rund::node::ReactorRuntime scratch{};
+  scratch.platform_ready.reserve(1u);
+  const std::size_t cold_capacity = scratch.platform_ready.capacity() + 1u;
+  runtime_task_allocation::FailNext();
+  TEST_ASSERT(!rund::node::ReactorScratchPreparePlatformReady(
+      scratch, cold_capacity));
+  TEST_ASSERT(scratch.platform_ready.empty());
+  TEST_ASSERT(rund::node::ReactorScratchPreparePlatformReady(
+      scratch, cold_capacity));
+  TEST_ASSERT(scratch.platform_ready.capacity() >= cold_capacity * 2u);
+  runtime_task_allocation::Start();
+  TEST_ASSERT(rund::node::ReactorScratchPreparePlatformReady(
+      scratch, cold_capacity));
+  runtime_task_allocation::Stop();
+  TEST_ASSERT(runtime_task_allocation::Count() == 0u);
+
   constexpr std::size_t kTasks = 8u;
   std::array<PipePair, kTasks> pipes{};
   for (PipePair &pipe : pipes) {

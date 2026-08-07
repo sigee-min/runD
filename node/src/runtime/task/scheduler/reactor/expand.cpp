@@ -45,11 +45,10 @@ void PushWaitReady(ReactorRuntime &reactor, const ReactorWait &wait,
 } // namespace
 
 bool ReactorExpandPlatformReady(
-    ReactorRuntime &reactor, const ReactorPlatformPollResult &poll) noexcept {
+    ReactorRuntime &reactor,
+    const std::span<const ReactorPlatformReady> ready) noexcept {
   std::size_t capacity = 0u;
-  if (poll.ready == nullptr)
-    return false;
-  for (const ReactorPlatformReady &platform_ready : *poll.ready) {
+  for (const ReactorPlatformReady &platform_ready : ready) {
     const ReactorFdState *const fd =
         ReactorRegistryFindFd(reactor, platform_ready.handle);
     if (fd == nullptr) {
@@ -63,7 +62,7 @@ bool ReactorExpandPlatformReady(
   if (!ReserveReady(reactor, capacity)) {
     return false;
   }
-  for (const ReactorPlatformReady &platform_ready : *poll.ready) {
+  for (const ReactorPlatformReady &platform_ready : ready) {
     const ReactorFdState *const fd =
         ReactorRegistryFindFd(reactor, platform_ready.handle);
     if (fd == nullptr) {

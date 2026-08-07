@@ -62,12 +62,16 @@ descriptors, and `R` matching waits, expansion costs
 read/write reference counts, so one descriptor lookup costs `O(log F)` and
 interest projection is `O(1)` rather than scanning its `K` waits.
 
-The selected platform's private `ReactorPlatformState` is the only reusable
-owner of raw platform-ready descriptors. `ReactorRuntime::ready` owns only the
-expanded scheduler-ready values. Configure reserves no second platform-ready
-vector. A duplicate at capacity `C` would add one allocation and
-`C * sizeof(ReactorPlatformReady)` bytes without changing lookup, ordering, or
-lifetime.
+`ReactorRuntime::platform_ready` is the only reusable owner of normalized
+platform-ready descriptors, while `ReactorRuntime::ready` owns only expanded
+scheduler-ready values. The native poll result owns status and platform error
+only; it never borrows or mirrors the caller-owned vector. Configure requests
+storage for `2C` platform entries at reactor capacity `C`: epoll and portable
+poll publish at most one entry per descriptor, while kqueue may publish
+separate read and write filters. Platform-private state therefore retains only
+native event buffers and registration metadata. Failure to reserve this poll
+scratch during configuration remains a reactor-capacity failure and projects
+to `ReactorWaitCapacityExceeded`, alongside native reactor preparation failure.
 
 On the supported 64-bit ABI, a canonical wait is 88 bytes. The fixed arena uses
 a 96-byte wait slot plus one 4-byte ordered slot id and one 4-byte free slot id
@@ -99,8 +103,8 @@ caller-required `R` full records; no second full-wait authority exists.
   fd wait is explicitly classified and instead retains the reactor-owned fd
   identity guard. Missing waits, empty network views, and stale nonempty views
   fail the same scope rather than bypassing lifetime validation.
-- `reactor/scratch.cpp`: reusable reactor scratch vectors for ordered ready
-  events, drain batches, and host-event batches.
+- `reactor/scratch.cpp`: reusable reactor scratch vectors for platform-ready
+  observations, ordered ready events, drain batches, and host-event batches.
 - `reactor/apply/policy.cpp`: scoped scheduler-side registration apply
   deferral for root prepared joins; it owns policy counters and state
   transitions, not native backend syscalls.
@@ -192,7 +196,8 @@ caller-required `R` full records; no second full-wait authority exists.
   mutation and need no resume-time index remapping.
 - `reactor/backend.cpp`: scheduler-facing reactor backend lifecycle and
   delegation of registration-change application through the queue owner and
-  platform reactor boundary.
+  platform reactor boundary. Native polling follows one successful flush
+  directly; there is no forwarding poll wrapper or second apply projection.
 - `reactor/change/queue.cpp`: cursor-based queued registration apply owner; it
   snapshots the failed change identity before erasing an applied prefix,
   consumes the platform batch disposition without a boolean result mirror,
@@ -528,6 +533,8 @@ the batch boundary when the scheduler is otherwise idle. Blocking or
 timer-bounded reactor polling forces a flush before native polling. This
 changes native backend apply batching only; wait identity, canonical ordering,
 host evidence, and replay meaning stay scheduler-owned.
+Repolling stale native events inside the same timeout window does not reapply
+an unchanged registration queue.
 
 When a ready budget consumes only a canonical prefix, the scheduler stores the
 remaining canonical suffix in a ready backlog. Later drains consume backlog

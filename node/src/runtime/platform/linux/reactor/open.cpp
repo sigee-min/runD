@@ -32,7 +32,6 @@ ReactorPlatformOpResult PrepareReactorPlatform(
   ReactorPlatformState& state = LinuxReactorState(platform);
   try {
     state.registrations.reserve(capacity);
-    state.ready.reserve(capacity);
     state.events.resize(capacity);
     state.probe.events.reserve(capacity);
   } catch (...) {

@@ -8,17 +8,17 @@ namespace rund::node {
 
 ReactorPlatformPollResult PollReactorPlatform(
     ReactorPlatform& handle, const int timeout_ms,
-    const std::size_t max_events) noexcept {
+    const std::size_t max_events,
+    std::vector<ReactorPlatformReady>& out) noexcept {
   RecordReactorPlatformPoll();
-  ReactorPlatformPollResult result{};
+  out.clear();
   ReactorPlatformState& state = PortableReactorState(handle);
   if (!state.opened || state.registrations.empty() || max_events == 0u) {
-    return result;
+    return ReactorPlatformPollResult::success();
   }
-  state.ready.clear();
-  result.ready = &state.ready;
   state.events.clear();
   try {
+    out.reserve(state.registrations.size());
     state.events.reserve(state.registrations.size());
     for (const ReactorPlatformRegistration& registration :
          state.registrations) {
@@ -29,9 +29,7 @@ ReactorPlatformPollResult PollReactorPlatform(
       });
     }
   } catch (...) {
-    result.ok = false;
-    result.platform_error = ENOMEM;
-    return result;
+    return ReactorPlatformPollResult::failed(ENOMEM);
   }
   int native = 0;
   do {
@@ -39,25 +37,22 @@ ReactorPlatformPollResult PollReactorPlatform(
     native = ::poll(state.events.data(), state.events.size(), timeout_ms);
   } while (native < 0 && errno == EINTR);
   if (native < 0) {
-    result.ok = false;
-    result.invalid = errno == EBADF || errno == EINVAL;
-    result.platform_error = errno;
-    return result;
+    return errno == EBADF || errno == EINVAL
+               ? ReactorPlatformPollResult::invalid(errno)
+               : ReactorPlatformPollResult::failed(errno);
   }
   try {
-    state.ready.reserve(static_cast<std::size_t>(native));
     for (std::size_t index = 0u; index < state.events.size(); ++index) {
       ReactorPlatformReady ready{};
       if (PollReadyEvent(state.events[index], &ready)) {
-        state.ready.push_back(ready);
+        out.push_back(ready);
       }
     }
   } catch (...) {
-    result.ok = false;
-    result.platform_error = ENOMEM;
-    state.ready.clear();
+    out.clear();
+    return ReactorPlatformPollResult::failed(ENOMEM);
   }
-  return result;
+  return ReactorPlatformPollResult::success();
 }
 
 }  // namespace rund::node

@@ -113,11 +113,11 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
                        : Clock::time_point{};
     int poll_timeout_ms = timeout_ms;
     for (;;) {
-      const ReactorPlatformPollResult poll = ReactorBackendPoll(
-          reactor, state_->evidence.metrics, poll_timeout_ms,
-          ReactorRegistrySize(reactor));
-      if (!poll.ok) {
-        if (poll.invalid) {
+      const ReactorPlatformPollResult poll = PollReactorPlatform(
+          reactor.platform, poll_timeout_ms, ReactorRegistrySize(reactor),
+          reactor.platform_ready);
+      if (poll.disposition() != ReactorPlatformPollDisposition::Success) {
+        if (poll.disposition() == ReactorPlatformPollDisposition::Invalid) {
           if (!ReactorExpandInvalidAll(reactor)) {
             return false;
           }
@@ -126,11 +126,11 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
         }
         break;
       }
-      if (poll.ready == nullptr || poll.ready->empty()) {
+      if (reactor.platform_ready.empty()) {
         reactor.ready.clear();
         return false;
       }
-      if (!ReactorExpandPlatformReady(reactor, poll)) {
+      if (!ReactorExpandPlatformReady(reactor, reactor.platform_ready)) {
         return false;
       }
       if (!reactor.ready.empty()) {

@@ -8,28 +8,30 @@ namespace rund::node {
 
 ReactorPlatformPollResult PollReactorPlatform(
     ReactorPlatform& handle, const int timeout_ms,
-    const std::size_t max_events) noexcept {
+    const std::size_t max_events,
+    std::vector<ReactorPlatformReady>& out) noexcept {
   RecordReactorPlatformPoll();
-  ReactorPlatformPollResult result{};
+  out.clear();
   ReactorPlatformState& state = LinuxReactorState(handle);
   if (!state.opened || max_events == 0u) {
-    return result;
+    return ReactorPlatformPollResult::success();
   }
-  state.ready.clear();
-  result.ready = &state.ready;
+  try {
+    out.reserve(max_events);
+  } catch (...) {
+    return ReactorPlatformPollResult::failed(ENOMEM);
+  }
   if (timeout_ms < 0) {
     ReactorPlatformReady invalid{};
     if (EpollFindInvalidRegistration(handle, &invalid)) {
-      state.ready.push_back(invalid);
-      return result;
+      out.push_back(invalid);
+      return ReactorPlatformPollResult::success();
     }
   }
   try {
     state.events.resize(max_events);
   } catch (...) {
-    result.ok = false;
-    result.platform_error = ENOMEM;
-    return result;
+    return ReactorPlatformPollResult::failed(ENOMEM);
   }
   int native = 0;
   do {
@@ -39,23 +41,20 @@ ReactorPlatformPollResult PollReactorPlatform(
   } while (native < 0 && errno == EINTR);
   const int saved_errno = errno;
   if (native < 0) {
-    result.ok = false;
-    result.invalid = saved_errno == EBADF || saved_errno == EINVAL;
-    result.platform_error = saved_errno;
-    return result;
+    return saved_errno == EBADF || saved_errno == EINVAL
+               ? ReactorPlatformPollResult::invalid(saved_errno)
+               : ReactorPlatformPollResult::failed(saved_errno);
   }
   try {
-    state.ready.reserve(static_cast<std::size_t>(native));
     for (int index = 0; index < native; ++index) {
       const epoll_event& event = state.events[static_cast<std::size_t>(index)];
-      state.ready.push_back(EpollReadyEvent(handle, event));
+      out.push_back(EpollReadyEvent(handle, event));
     }
   } catch (...) {
-    result.ok = false;
-    result.platform_error = ENOMEM;
-    state.ready.clear();
+    out.clear();
+    return ReactorPlatformPollResult::failed(ENOMEM);
   }
-  return result;
+  return ReactorPlatformPollResult::success();
 }
 
 }  // namespace rund::node

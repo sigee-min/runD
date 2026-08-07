@@ -35,31 +35,6 @@ ReactorBackendApplyChanges(ReactorRuntime &reactor,
   return ReactorChangeQueueApply(reactor, stats);
 }
 
-ReactorPlatformPollResult ReactorBackendPoll(
-    ReactorRuntime &reactor, ::rund::detail::task::StatStorage &stats,
-    const int timeout_ms, const std::size_t max_events) noexcept {
-  const ReactorApplyResult applied = ReactorBackendApplyChanges(reactor, stats);
-  switch (applied.disposition()) {
-  case ReactorApplyDisposition::Invalid:
-    return ReactorPlatformPollResult{
-        .ok = false,
-        .invalid = true,
-        .ready = nullptr,
-    };
-  case ReactorApplyDisposition::Failed:
-    return ReactorPlatformPollResult{.ok = false, .ready = nullptr};
-  case ReactorApplyDisposition::BackendUnavailable:
-    return ReactorPlatformPollResult{
-        .ok = false,
-        .unavailable = true,
-        .ready = nullptr,
-    };
-  case ReactorApplyDisposition::Success:
-    break;
-  }
-  return PollReactorPlatform(reactor.platform, timeout_ms, max_events);
-}
-
 void ReactorCloseRuntime(ReactorRuntime &reactor) noexcept {
   CloseReactorPlatform(reactor.platform);
   ReactorRegistrationClear(reactor);
