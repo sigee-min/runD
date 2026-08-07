@@ -8,8 +8,53 @@
 #include "../../../../../reactor/readiness/mask.hpp"
 
 namespace rund::node {
+namespace {
 
-bool ReadyManyParkCreateGroupAndRequests(
+class ReadyManyGroupStoragePublication final {
+public:
+  ReadyManyGroupStoragePublication(SchedulerReactorState &storage,
+                                   const std::size_t first_request,
+                                   const std::size_t request_count) noexcept
+      : storage_(storage), request_mark_(first_request),
+        group_mark_(storage.reactor_many_groups.size()),
+        request_count_(request_count) {}
+
+  ~ReadyManyGroupStoragePublication() noexcept {
+    if (committed_) {
+      return;
+    }
+    storage_.reactor_many_groups.resize(group_mark_);
+    if (event_slots_published_) {
+      ReactorManyEventSlotsEraseGroup(
+          storage_.reactor_many_event_slots,
+          static_cast<std::uint32_t>(request_mark_),
+          static_cast<std::uint32_t>(request_count_));
+    }
+    storage_.reactor_many_requests.resize(request_mark_);
+  }
+
+  ReadyManyGroupStoragePublication(
+      const ReadyManyGroupStoragePublication &) = delete;
+  ReadyManyGroupStoragePublication &
+  operator=(const ReadyManyGroupStoragePublication &) = delete;
+
+  void mark_event_slots_published() noexcept {
+    event_slots_published_ = true;
+  }
+  void commit() noexcept { committed_ = true; }
+
+private:
+  SchedulerReactorState &storage_;
+  std::size_t request_mark_ = 0u;
+  std::size_t group_mark_ = 0u;
+  std::size_t request_count_ = 0u;
+  bool event_slots_published_ = false;
+  bool committed_ = false;
+};
+
+} // namespace
+
+bool ReadyManyParkPublishGroup(
     SchedulerState &state, ReadyManyEntry &entry, const std::uint64_t group_id,
     const std::uint64_t timer_wait_id,
     const ::rund::net::ready::Set ready_set) noexcept {
@@ -26,6 +71,8 @@ bool ReadyManyParkCreateGroupAndRequests(
       state.reactor.reactor_many_event_slots.capacity();
   const std::size_t group_capacity =
       state.reactor.reactor_many_groups.capacity();
+  ReadyManyGroupStoragePublication publication{state.reactor, first_request,
+                                                request_count};
   try {
     state.reactor.reactor_many_requests.insert(
         state.reactor.reactor_many_requests.end(), entry.requests.begin(),
@@ -42,9 +89,9 @@ bool ReadyManyParkCreateGroupAndRequests(
             state.reactor.reactor_many_event_slots,
             static_cast<std::uint32_t>(first_request),
             static_cast<std::uint32_t>(request_count))) {
-      state.reactor.reactor_many_requests.resize(first_request);
       return false;
     }
+    publication.mark_event_slots_published();
     state.reactor.reactor_many_groups.push_back(ReactorManyGroup{
         .group_id = group_id,
         .task_id = entry.record->id,
@@ -56,12 +103,9 @@ bool ReadyManyParkCreateGroupAndRequests(
         .max_events = entry.output_limit,
     });
   } catch (...) {
-    state.reactor.reactor_many_requests.resize(first_request);
-    ReactorManyEventSlotsEraseGroup(state.reactor.reactor_many_event_slots,
-                                    static_cast<std::uint32_t>(first_request),
-                                    static_cast<std::uint32_t>(request_count));
     return false;
   }
+  publication.commit();
   state.reactor.reactor_many_storage_growths +=
       state.reactor.reactor_many_requests.capacity() != request_capacity ? 1u
                                                                          : 0u;

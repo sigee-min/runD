@@ -144,10 +144,12 @@ caller-required `R` full records; no second full-wait authority exists.
 - `reactor/many/immediate.cpp`: immediate ReadyMany probe, deterministic
   copied-event ordering, no-timeout result, and zero-timeout result.
 - `reactor/many/park.cpp`: ReadyMany park orchestration, record park state,
-  observation records, and park failure cleanup.
+  observation records, one park-failure result projection, and published-group
+  rollback through the reactor cleanup owner.
 - `reactor/many/park/register.cpp`: exactly-once contiguous group request
-  storage, consecutive wait-id assignment, event-slot alignment, wait
-  registration, and wait-registration observation records.
+  storage, consecutive wait-id assignment, event-slot alignment, atomic group
+  storage publication, wait registration, and wait-registration observation
+  records.
 - `reactor/many/park/timer.cpp`: ReadyMany timeout timer setup and
   timed-wait evidence counters.
 - `reactor/many/resume.cpp`: ReadyMany resume orchestration, group lookup,
@@ -407,6 +409,15 @@ timeout, and resume borrow the canonical range; no phase creates a second
 group-wide request vector. Descriptor copies at park are therefore exactly
 `N` for `N` members, independent of the number of ready events or sibling
 cleanup operations.
+
+Requests, aligned event slots, and the group record publish as one storage
+transaction. A failure before group publication restores every prior live
+prefix inside `park/register.cpp` and never calls published-group cleanup. Once
+the group is published, wait- or timer-registration failure has one rollback
+request builder in `park.cpp` and routes through the canonical reactor cleanup
+owner. Neither rollback path rewinds an already-issued group, wait, timer-wait,
+or timer-sequence cursor; Scheduler reset remains the lifecycle boundary that
+reinitializes those cursors.
 
 Duplicate validation sorts a bounded index projection by
 `(fd, generation, interest)` and checks adjacent entries. Its comparison bound

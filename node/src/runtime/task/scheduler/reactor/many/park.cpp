@@ -5,6 +5,35 @@
 
 namespace rund::node {
 
+ReactorCleanupRequest
+ReadyManyParkRollbackRequest(const std::uint64_t group_id,
+                             const ReasonCode reason) noexcept {
+  return ReactorCleanupRequest{.wait_id = 0u,
+                               .group_id = group_id,
+                               .reason = reason,
+                               .cancel_timeout_timer = false,
+                               .remove_ready_backlog = true,
+                               .cleanup_siblings = true,
+                               .erase_group = true,
+                               .wake_owner = false};
+}
+
+::rund::net::ready::many::Wait
+ReadyManyAccess::FinishParkFailure(Scheduler &scheduler,
+                                   const ReasonCode reason) noexcept {
+  ::rund::net::ready::many::Wait result = FailManyCode(reason);
+  scheduler.CompletePrimitiveCommit();
+  return result;
+}
+
+::rund::net::ready::many::Wait ReadyManyAccess::RollbackPublishedPark(
+    Scheduler &scheduler, const std::uint64_t group_id,
+    const ReasonCode reason) noexcept {
+  static_cast<void>(ReactorCleanupWait(
+      scheduler, ReadyManyParkRollbackRequest(group_id, reason)));
+  return FinishParkFailure(scheduler, reason);
+}
+
 ::rund::net::ready::many::Wait
 ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
                       const std::optional<std::chrono::nanoseconds> timeout,
@@ -13,24 +42,16 @@ ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
   const bool use_timeout = timeout.has_value();
   if (ReactorRegistrySize(state.reactor.reactor) + entry.requests.size() >
       state.resources.limits.reactor_wait_capacity) {
-    ::rund::net::ready::many::Wait result =
-        FailManyCode(ReasonCode::ReactorWaitCapacityExceeded);
-    scheduler.CompletePrimitiveCommit();
-    return result;
+    return FinishParkFailure(scheduler,
+                             ReasonCode::ReactorWaitCapacityExceeded);
   }
   if (use_timeout &&
       state.ready.timers.size() >= state.resources.limits.timer_capacity) {
-    ::rund::net::ready::many::Wait result =
-        FailManyCode(ReasonCode::TimerCapacityExceeded);
-    scheduler.CompletePrimitiveCommit();
-    return result;
+    return FinishParkFailure(scheduler, ReasonCode::TimerCapacityExceeded);
   }
   if (use_timeout && !ReactorTimeoutReserveTimerStorage(
                          state.ready.timers, state.ready.timer_wait_id_index)) {
-    ::rund::net::ready::many::Wait result =
-        FailManyCode(ReasonCode::TimerCapacityExceeded);
-    scheduler.CompletePrimitiveCommit();
-    return result;
+    return FinishParkFailure(scheduler, ReasonCode::TimerCapacityExceeded);
   }
 
   const std::uint64_t group_id = state.identity.next_reactor_many_group_id++;
@@ -39,57 +60,22 @@ ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
       use_timeout ? state.identity.next_wait_id++ : 0u;
   const TimerDeadline timer_deadline =
       use_timeout ? scheduler.MakeTimerDeadline(*timeout) : TimerDeadline{};
-  if (!ReadyManyParkCreateGroupAndRequests(
-          state, entry, group_id, timer_wait_id, ready_set)) {
-    static_cast<void>(ReactorCleanupWait(
-        scheduler,
-        ReactorCleanupRequest{.wait_id = 0u,
-                              .group_id = group_id,
-                              .reason = ReasonCode::ReactorWaitCapacityExceeded,
-                              .cancel_timeout_timer = false,
-                              .remove_ready_backlog = true,
-                              .cleanup_siblings = true,
-                              .erase_group = true,
-                              .wake_owner = false}));
-    ::rund::net::ready::many::Wait result =
-        FailManyCode(ReasonCode::ReactorWaitCapacityExceeded);
-    scheduler.CompletePrimitiveCommit();
-    return result;
+  if (!ReadyManyParkPublishGroup(state, entry, group_id, timer_wait_id,
+                                 ready_set)) {
+    return FinishParkFailure(scheduler,
+                             ReasonCode::ReactorWaitCapacityExceeded);
   }
 
   if (!ReadyManyAccess::ParkRegisterWaits(scheduler, entry)) {
-    static_cast<void>(ReactorCleanupWait(
-        scheduler,
-        ReactorCleanupRequest{.wait_id = 0u,
-                              .group_id = group_id,
-                              .reason = ReasonCode::ReactorWaitCapacityExceeded,
-                              .cancel_timeout_timer = false,
-                              .remove_ready_backlog = true,
-                              .cleanup_siblings = true,
-                              .erase_group = true,
-                              .wake_owner = false}));
-    ::rund::net::ready::many::Wait result =
-        FailManyCode(ReasonCode::ReactorWaitCapacityExceeded);
-    scheduler.CompletePrimitiveCommit();
-    return result;
+    return RollbackPublishedPark(
+        scheduler, group_id, ReasonCode::ReactorWaitCapacityExceeded);
   }
 
   if (use_timeout) {
     if (!ReadyManyAccess::ParkRegisterTimeout(scheduler, entry, timer_wait_id,
                                               timer_deadline)) {
-      static_cast<void>(ReactorCleanupWait(
-          scheduler,
-          ReactorCleanupRequest{.wait_id = 0u,
-                                .group_id = group_id,
-                                .reason = ReasonCode::TimerCapacityExceeded,
-                                .remove_ready_backlog = true,
-                                .cleanup_siblings = true,
-                                .erase_group = true,
-                                .wake_owner = false}));
-      ::rund::net::ready::many::Wait result =
-          FailManyCode(ReasonCode::TimerCapacityExceeded);
-      scheduler.CompletePrimitiveCommit();
-      return result;
+      return RollbackPublishedPark(
+          scheduler, group_id, ReasonCode::TimerCapacityExceeded);
     }
   }
   ::rund::detail::counter::Accumulate(

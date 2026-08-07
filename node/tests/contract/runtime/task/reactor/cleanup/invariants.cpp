@@ -11,8 +11,12 @@
 #include <rund/task/cancel.hpp>
 
 #include "../../../../../../src/runtime/task/scheduler/reactor/invariants.hpp"
+#include "../../../../../../src/runtime/task/scheduler/reactor/many/park/local.hpp"
+#include "../../coroutine/allocation.hpp"
 
+#include <array>
 #include <chrono>
+#include <cstdint>
 #include <string_view>
 
 #include <sys/socket.h>
@@ -63,9 +67,83 @@ struct SocketPairCleanup {
   };
 }
 
+enum class ReadyManyPublicationFailure : std::uint8_t {
+  EventSlots,
+  Group,
+};
+
+int CheckReadyManyRollbackRequest() {
+  constexpr std::uint64_t group_id = 37u;
+  constexpr rund::ReasonCode reason =
+      rund::ReasonCode::TimerCapacityExceeded;
+  const rund::node::ReactorCleanupRequest request =
+      rund::node::ReadyManyParkRollbackRequest(group_id, reason);
+  TEST_ASSERT(request.wait_id == 0u);
+  TEST_ASSERT(request.group_id == group_id);
+  TEST_ASSERT(request.reason == reason);
+  TEST_ASSERT(!request.cancel_timeout_timer);
+  TEST_ASSERT(!request.require_timeout_timer_cancel);
+  TEST_ASSERT(request.remove_ready_backlog);
+  TEST_ASSERT(request.cleanup_siblings);
+  TEST_ASSERT(request.erase_group);
+  TEST_ASSERT(!request.wake_owner);
+  TEST_ASSERT(request.events == rund::node::ReactorEvent::None);
+  TEST_ASSERT(!request.store_event);
+  TEST_ASSERT(request.deadline_ns == 0);
+  return 0;
+}
+
+int CheckReadyManyPublicationRollback(
+    const ReadyManyPublicationFailure failure) {
+  rund::node::SchedulerState state{};
+  rund::node::TaskRecord record{.id = 17u};
+  std::array<rund::node::ReactorManyRequest, 2u> requests{};
+  rund::node::ReadyManyEntry entry{
+      .record = &record,
+      .output_limit = static_cast<std::uint32_t>(requests.size()),
+      .requests = requests,
+      .code = rund::ReasonCode::Ok,
+  };
+  state.reactor.reactor_many_requests.reserve(requests.size());
+  if (failure == ReadyManyPublicationFailure::Group) {
+    state.reactor.reactor_many_event_slots.reserve(requests.size());
+  }
+
+  constexpr std::uint64_t failed_group_id = 41u;
+  const std::uint64_t first_wait_id = state.identity.next_wait_id;
+  runtime_task_allocation::FailNext();
+  TEST_ASSERT(!rund::node::ReadyManyParkPublishGroup(
+      state, entry, failed_group_id, 0u, {}));
+  TEST_ASSERT(state.reactor.reactor_many_requests.empty());
+  TEST_ASSERT(state.reactor.reactor_many_event_slots.empty());
+  TEST_ASSERT(state.reactor.reactor_many_groups.empty());
+  TEST_ASSERT(state.identity.next_wait_id == first_wait_id + requests.size());
+
+  constexpr std::uint64_t retry_group_id = failed_group_id + 1u;
+  const std::uint64_t retry_first_wait_id = state.identity.next_wait_id;
+  TEST_ASSERT(rund::node::ReadyManyParkPublishGroup(
+      state, entry, retry_group_id, 0u, {}));
+  TEST_ASSERT(state.reactor.reactor_many_requests.size() == requests.size());
+  TEST_ASSERT(state.reactor.reactor_many_event_slots.size() == requests.size());
+  TEST_ASSERT(state.reactor.reactor_many_groups.size() == 1u);
+  TEST_ASSERT(state.reactor.reactor_many_groups.front().group_id ==
+              retry_group_id);
+  TEST_ASSERT(state.reactor.reactor_many_requests.front().wait_id ==
+              retry_first_wait_id);
+  TEST_ASSERT(state.identity.next_wait_id ==
+              retry_first_wait_id + requests.size());
+  return 0;
+}
+
 } // namespace
 
 int RunRuntimeTaskReactorCleanupInvariantsContract() {
+  TEST_ASSERT(CheckReadyManyRollbackRequest() == 0);
+  TEST_ASSERT(CheckReadyManyPublicationRollback(
+                  ReadyManyPublicationFailure::EventSlots) == 0);
+  TEST_ASSERT(CheckReadyManyPublicationRollback(
+                  ReadyManyPublicationFailure::Group) == 0);
+
   const rund::node::ReactorInvariantSnapshot no_scheduler =
       rund::node::ValidateReactorCleanupInvariantsForTest();
   TEST_ASSERT(!no_scheduler.ok);

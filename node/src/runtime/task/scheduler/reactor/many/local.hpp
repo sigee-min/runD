@@ -68,6 +68,11 @@ struct ReadyManyAccess {
   Park(Scheduler &scheduler, ReadyManyEntry &entry,
        std::optional<std::chrono::nanoseconds> timeout,
        ::rund::net::ready::Set ready_set) noexcept;
+  [[nodiscard]] static ::rund::net::ready::many::Wait
+  FinishParkFailure(Scheduler &scheduler, ReasonCode reason) noexcept;
+  [[nodiscard]] static ::rund::net::ready::many::Wait
+  RollbackPublishedPark(Scheduler &scheduler, std::uint64_t group_id,
+                        ReasonCode reason) noexcept;
   [[nodiscard]] static bool
   ParkRegisterWaits(Scheduler &scheduler, ReadyManyEntry &entry) noexcept;
   [[nodiscard]] static bool
