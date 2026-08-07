@@ -173,14 +173,29 @@ int RunRuntimeTaskReactorBatchApplyContract() {
           rund::node::ReactorInterest::Read, 0u));
   {
     rund::node::ReactorApplyBatchScope scope{policy_reactor};
+    TEST_ASSERT(policy_reactor.apply_policy.batch_scope_depth == 1u);
+    {
+      rund::node::ReactorApplyBatchScope nested_scope{policy_reactor};
+      TEST_ASSERT(policy_reactor.apply_policy.batch_scope_depth == 2u);
+    }
+    TEST_ASSERT(policy_reactor.apply_policy.batch_scope_depth == 1u);
     TEST_ASSERT(rund::node::ReactorApplyPolicyShouldDefer(
         policy_reactor, /*ready_depth=*/0u, /*force=*/false));
     TEST_ASSERT(!rund::node::ReactorApplyPolicyShouldDefer(
         policy_reactor, /*ready_depth=*/0u, /*force=*/true));
+    policy_reactor.changes.clear();
+    policy_reactor.changes.push_back(
+        rund::node::ReactorRegistrationChange::modify(
+            rund::node::ReactorHandleFromPublic(3),
+            rund::node::ReactorInterest::Write, 0u));
+    TEST_ASSERT(!rund::node::ReactorApplyPolicyShouldDefer(
+        policy_reactor, /*ready_depth=*/0u, /*force=*/false));
+    TEST_ASSERT(rund::node::ReactorApplyPolicyShouldDefer(
+        policy_reactor, /*ready_depth=*/1u, /*force=*/false));
   }
-  TEST_ASSERT(!policy_reactor.apply_policy.defer_registration_apply);
-  TEST_ASSERT(policy_reactor.apply_policy.defer_depth == 0u);
-  TEST_ASSERT(policy_reactor.apply_policy.batch_add_defer_depth == 0u);
+  TEST_ASSERT(policy_reactor.apply_policy.batch_scope_depth == 0u);
+  TEST_ASSERT(!rund::node::ReactorApplyPolicyShouldDefer(
+      policy_reactor, /*ready_depth=*/1u, /*force=*/false));
 
   constexpr std::size_t kTasks = 16u;
   std::array<PipeCleanup, kTasks> pipes{};

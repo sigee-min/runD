@@ -79,9 +79,7 @@ struct ReactorRegistry {
 };
 
 struct ReactorApplyPolicy {
-  std::uint32_t defer_depth = 0u;
-  std::uint32_t batch_add_defer_depth = 0u;
-  bool defer_registration_apply = false;
+  std::uint32_t batch_scope_depth = 0u;
 };
 
 struct ReactorRuntime {

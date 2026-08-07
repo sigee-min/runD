@@ -6,15 +6,15 @@ namespace rund::node {
 
 struct ReactorRuntime;
 
-struct ReactorApplyBatchScope {
-  ReactorRuntime* reactor = nullptr;
-  bool active = false;
-  bool batch_add_defer = false;
-
+class ReactorApplyBatchScope final {
+public:
   explicit ReactorApplyBatchScope(ReactorRuntime& runtime) noexcept;
   ReactorApplyBatchScope(const ReactorApplyBatchScope&) = delete;
   ReactorApplyBatchScope& operator=(const ReactorApplyBatchScope&) = delete;
   ~ReactorApplyBatchScope();
+
+private:
+  ReactorRuntime& reactor_;
 };
 
 [[nodiscard]] bool ReactorApplyPolicyShouldDefer(

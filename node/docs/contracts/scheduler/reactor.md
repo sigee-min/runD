@@ -111,8 +111,10 @@ caller-required `R` full records; no second full-wait authority exists.
 - `reactor/scratch.cpp`: reusable reactor scratch vectors for platform-ready
   observations, ordered ready events, drain batches, and host-event batches.
 - `reactor/apply/policy.cpp`: scoped scheduler-side registration apply
-  deferral for root prepared joins; it owns policy counters and state
-  transitions, not native backend syscalls.
+  deferral for root prepared joins. One nesting depth is the only active-scope
+  authority; there is no mirrored active boolean or parallel add-only depth.
+  The owner records policy counters and state transitions, not native backend
+  syscalls.
 - `reactor/backlog.cpp`: canonical ready backlog for budget-deferred ready
   waits; it owns ordered suffix storage and stale-entry removal, not native
   polling.
@@ -562,8 +564,10 @@ and resource limits fail closed with the documented reason codes.
 Root prepared joins may defer opportunistic zero-time native registration
 apply while scheduler-ready tasks are still parking fd waits. Add-only native
 registration changes inside the prepared-join batch scope may also wait until
-the batch boundary when the scheduler is otherwise idle. Blocking or
-timer-bounded reactor polling forces a flush before native polling. This
+the batch boundary when the scheduler is otherwise idle. The scope nesting
+depth alone activates both rules; add-only status is derived from the queued
+typed changes when needed. Blocking or timer-bounded reactor polling forces a
+flush before native polling. This
 changes native backend apply batching only; wait identity, canonical ordering,
 host evidence, and replay meaning stay scheduler-owned.
 Repolling stale native events inside the same timeout window does not reapply

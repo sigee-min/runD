@@ -23,29 +23,15 @@ namespace {
 
 ReactorApplyBatchScope::ReactorApplyBatchScope(
     ReactorRuntime& runtime) noexcept
-    : reactor(&runtime),
-      active(true),
-      batch_add_defer(true) {
-  ++reactor->apply_policy.defer_depth;
-  if (batch_add_defer) {
-    ++reactor->apply_policy.batch_add_defer_depth;
-  }
-  reactor->apply_policy.defer_registration_apply = true;
+    : reactor_(runtime) {
+  ++reactor_.apply_policy.batch_scope_depth;
 }
 
 ReactorApplyBatchScope::~ReactorApplyBatchScope() {
-  if (!active || reactor == nullptr ||
-      reactor->apply_policy.defer_depth == 0u) {
+  if (reactor_.apply_policy.batch_scope_depth == 0u) {
     return;
   }
-  --reactor->apply_policy.defer_depth;
-  if (batch_add_defer &&
-      reactor->apply_policy.batch_add_defer_depth != 0u) {
-    --reactor->apply_policy.batch_add_defer_depth;
-  }
-  if (reactor->apply_policy.defer_depth == 0u) {
-    reactor->apply_policy.defer_registration_apply = false;
-  }
+  --reactor_.apply_policy.batch_scope_depth;
 }
 
 bool ReactorApplyPolicyShouldDefer(
@@ -53,12 +39,10 @@ bool ReactorApplyPolicyShouldDefer(
     const std::size_t ready_depth,
     const bool force) noexcept {
   if (force || reactor.changes.empty() ||
-      !reactor.apply_policy.defer_registration_apply) {
+      reactor.apply_policy.batch_scope_depth == 0u) {
     return false;
   }
-  if (ready_depth == 0u &&
-      (reactor.apply_policy.batch_add_defer_depth == 0u ||
-       !PendingChangesAreAddsOnly(reactor))) {
+  if (ready_depth == 0u && !PendingChangesAreAddsOnly(reactor)) {
     return false;
   }
   RecordReactorRegistrationApplyDeferral();
@@ -71,10 +55,7 @@ void ReactorApplyPolicyRecordFlush(
   if (reactor.changes.empty()) {
     return;
   }
-  const bool deferred_scope_active =
-      reactor.apply_policy.defer_registration_apply ||
-      reactor.apply_policy.defer_depth != 0u;
-  if (deferred_scope_active) {
+  if (reactor.apply_policy.batch_scope_depth != 0u) {
     RecordReactorRegistrationApplyDeferredFlush();
   }
   if (forced) {
