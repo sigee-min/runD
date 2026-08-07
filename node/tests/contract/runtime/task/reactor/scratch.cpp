@@ -12,6 +12,7 @@
 
 #include <array>
 #include <cstddef>
+#include <vector>
 
 #include <unistd.h>
 
@@ -56,6 +57,22 @@ int RunRuntimeTaskReactorScratchContract() {
   runtime_task_allocation::Start();
   TEST_ASSERT(rund::node::ReactorScratchPreparePlatformReady(
       scratch, cold_capacity));
+  runtime_task_allocation::Stop();
+  TEST_ASSERT(runtime_task_allocation::Count() == 0u);
+
+  std::vector<::rund::host::Event> host_events{};
+  host_events.reserve(1u);
+  const std::size_t cold_host_event_capacity = host_events.capacity() + 1u;
+  runtime_task_allocation::FailNext();
+  TEST_ASSERT(!rund::node::ReactorScratchPrepareHostEvents(
+      host_events, cold_host_event_capacity));
+  TEST_ASSERT(host_events.empty());
+  TEST_ASSERT(rund::node::ReactorScratchPrepareHostEvents(
+      host_events, cold_host_event_capacity));
+  TEST_ASSERT(host_events.capacity() >= cold_host_event_capacity);
+  runtime_task_allocation::Start();
+  TEST_ASSERT(rund::node::ReactorScratchPrepareHostEvents(
+      host_events, cold_host_event_capacity));
   runtime_task_allocation::Stop();
   TEST_ASSERT(runtime_task_allocation::Count() == 0u);
 

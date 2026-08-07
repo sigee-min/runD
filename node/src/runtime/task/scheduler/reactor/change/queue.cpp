@@ -5,17 +5,29 @@
 
 #include "../../../../reactor/diagnostics.hpp"
 #include "../../../../reactor/platform.hpp"
+#include "../model.hpp"
 #include "../stats.hpp"
 
 namespace rund::node {
 namespace {
 
 [[nodiscard]] bool
+BestEffortRemove(const ReactorRegistrationChange &change) noexcept {
+  return change.best_effort &&
+         change.kind == ReactorRegistrationChange::Kind::Remove;
+}
+
+[[nodiscard]] bool
 IgnorableInvalidRemove(const ReactorRegistrationChange &change,
                        const ReactorPlatformBatchResult &result) noexcept {
-  return change.best_effort &&
-         change.kind == ReactorRegistrationChange::Kind::Remove &&
+  return BestEffortRemove(change) &&
          result.disposition() == ReactorPlatformBatchDisposition::Invalid;
+}
+
+[[nodiscard]] bool
+StrictChangeForHandle(const ReactorRegistrationChange &change,
+                      const ReactorHandle handle) noexcept {
+  return change.handle == handle && !BestEffortRemove(change);
 }
 
 void RecordApplied(::rund::detail::task::StatStorage &stats,
@@ -27,10 +39,10 @@ void RecordApplied(::rund::detail::task::StatStorage &stats,
 
 [[nodiscard]] ReactorApplyResult
 ProjectApplyFailure(const ReactorPlatformBatchResult &result,
-                    const ReactorHandle failed_handle) noexcept {
+                    const ReactorRegistrationChange &failed) noexcept {
   switch (result.disposition()) {
   case ReactorPlatformBatchDisposition::Invalid:
-    return ReactorApplyResult::invalid(failed_handle);
+    return ReactorApplyResult::invalid(failed.handle, failed.fd_generation);
   case ReactorPlatformBatchDisposition::BackendUnavailable:
     return ReactorApplyResult::backend_unavailable();
   case ReactorPlatformBatchDisposition::Failed:
@@ -82,11 +94,34 @@ ReactorChangeQueueApply(ReactorRuntime &reactor,
                             reactor.changes.begin() +
                                 static_cast<std::ptrdiff_t>(failed_index));
     }
-    return ProjectApplyFailure(result, failed.handle);
+    return ProjectApplyFailure(result, failed);
   }
 
   reactor.changes.clear();
   return ReactorApplyResult::success();
+}
+
+bool ReactorChangeQueueAcknowledgeInvalid(
+    ReactorRuntime &reactor,
+    const ReactorInvalidChangeToken token) noexcept {
+  if (!token.valid() || reactor.changes.empty()) {
+    return false;
+  }
+  const ReactorRegistrationChange &front = reactor.changes.front();
+  if (!StrictChangeForHandle(front, token.handle()) ||
+      front.fd_generation != token.fd_generation()) {
+    return false;
+  }
+  const std::size_t before = reactor.changes.size();
+  reactor.changes.erase(
+      std::remove_if(
+          reactor.changes.begin(), reactor.changes.end(),
+          [handle = token.handle()](
+              const ReactorRegistrationChange &change) noexcept {
+            return StrictChangeForHandle(change, handle);
+          }),
+      reactor.changes.end());
+  return reactor.changes.size() < before;
 }
 
 } // namespace rund::node

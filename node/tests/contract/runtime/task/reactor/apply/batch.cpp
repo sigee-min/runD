@@ -11,7 +11,9 @@
 #include "../../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../../src/runtime/task/scheduler/reactor/apply/policy.hpp"
 #include "../../../../../../src/runtime/task/scheduler/reactor/backend.hpp"
+#include "../../../../../../src/runtime/task/scheduler/reactor/change/queue.hpp"
 #include "../../../../../../src/runtime/task/scheduler/reactor/model.hpp"
+#include "../../../../../../src/runtime/task/scheduler/reactor/registry.hpp"
 #include "../await.hpp"
 #include "test/assert.hpp"
 
@@ -103,18 +105,79 @@ void VerifyPartialApplyFailureIdentity() {
       .interest = ReactorInterest::Read,
   });
   reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Modify,
+      .handle = invalid_handle,
+      .interest = ReactorInterest::Write,
+  });
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Remove,
+      .handle = invalid_handle,
+      .best_effort = true,
+  });
+  reactor.changes.push_back(ReactorRegistrationChange{
       .kind = ReactorRegistrationChange::Kind::Add,
       .handle = suffix_handle,
       .interest = ReactorInterest::Read,
   });
-  const ReactorApplyResult failed = ReactorBackendApplyChanges(reactor, stats);
+  const ReactorApplyResult failed = ReactorChangeQueueApply(reactor, stats);
   TEST_ASSERT(failed.disposition() == ReactorApplyDisposition::Invalid);
-  TEST_ASSERT(failed.invalid_handle() == invalid_handle);
+  TEST_ASSERT(failed.invalid_change().handle() == invalid_handle);
+  TEST_ASSERT(failed.invalid_change().fd_generation() == 0u);
+  TEST_ASSERT(reactor.changes.size() == 4u);
+  TEST_ASSERT(reactor.changes[0].handle == invalid_handle);
+  TEST_ASSERT(reactor.changes[1].handle == invalid_handle);
+  TEST_ASSERT(reactor.changes[2].handle == invalid_handle);
+  TEST_ASSERT(reactor.changes[2].best_effort);
+  TEST_ASSERT(reactor.changes[3].handle == suffix_handle);
+
+  TEST_ASSERT(!ReactorChangeQueueAcknowledgeInvalid(
+      reactor, ReactorInvalidChangeToken::observed(suffix_handle, 0u)));
+  TEST_ASSERT(reactor.changes.size() == 4u);
+  TEST_ASSERT(!ReactorChangeQueueAcknowledgeInvalid(
+      reactor, ReactorInvalidChangeToken::observed(invalid_handle, 1u)));
+  TEST_ASSERT(reactor.changes.size() == 4u);
+  TEST_ASSERT(ReactorChangeQueueAcknowledgeInvalid(reactor,
+                                                   failed.invalid_change()));
   TEST_ASSERT(reactor.changes.size() == 2u);
   TEST_ASSERT(reactor.changes[0].handle == invalid_handle);
+  TEST_ASSERT(reactor.changes[0].best_effort);
   TEST_ASSERT(reactor.changes[1].handle == suffix_handle);
+  TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
+              ReactorApplyDisposition::Success);
+  TEST_ASSERT(reactor.changes.empty());
 
-  reactor.changes.clear();
+  TEST_ASSERT(ReactorRegistryPrepare(reactor, 1u));
+  TEST_ASSERT(ReactorRegistryAddWait(
+      reactor, ReactorWait{.task_id = 1u,
+                           .wait_id = 1u,
+                           .fd = suffix_handle,
+                           .interest = ReactorInterest::Read}));
+  PipeCleanup orphan = MakePipe();
+  TEST_ASSERT(orphan.read_fd >= 0 && orphan.write_fd >= 0);
+  const ReactorHandle orphan_handle = ReactorHandleFromPublic(orphan.read_fd);
+  TEST_ASSERT(::close(orphan.read_fd) == 0);
+  orphan.read_fd = -1;
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Add,
+      .handle = orphan_handle,
+      .interest = ReactorInterest::Read,
+  });
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Modify,
+      .handle = orphan_handle,
+      .interest = ReactorInterest::Write,
+  });
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Modify,
+      .handle = suffix_handle,
+      .interest = ReactorInterest::Read,
+  });
+  TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
+              ReactorApplyDisposition::Success);
+  TEST_ASSERT(reactor.changes.empty());
+  TEST_ASSERT(ReactorRegistryFirstWait(reactor, suffix_handle) !=
+              kNoReactorSlot);
+
   reactor.changes.push_back(ReactorRegistrationChange{
       .kind = ReactorRegistrationChange::Kind::Remove,
       .handle = registered_handle,

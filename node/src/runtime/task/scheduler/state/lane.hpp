@@ -96,7 +96,9 @@ CopyReactorManyEvents(std::uint64_t group_id,
 [[nodiscard]] bool DrainReadyReactor(int timeout_ms,
                                      bool force_apply = false) noexcept;
 [[nodiscard]] bool
-DrainReactorReadyBatch(const std::vector<ReactorReady> &ordered) noexcept;
+DrainReactorReadyBatch(
+    const std::vector<ReactorReady> &ordered,
+    ReactorInvalidChangeToken invalid_change) noexcept;
 void WakeReadyReactor() noexcept;
 [[nodiscard]] bool WaitForDirectJobs() noexcept;
 [[nodiscard]] bool

@@ -4,7 +4,9 @@
 #include "apply/policy.hpp"
 #include "backlog.hpp"
 #include "change/queue.hpp"
+#include "model.hpp"
 #include "registration.hpp"
+#include "registry.hpp"
 #include "scratch.hpp"
 #include "stats.hpp"
 
@@ -34,7 +36,20 @@ ReactorBackendApplyChanges(ReactorRuntime &reactor,
   if (opened.disposition() != ReactorApplyDisposition::Success) {
     return opened;
   }
-  return ReactorChangeQueueApply(reactor, stats);
+  for (;;) {
+    const ReactorApplyResult applied = ReactorChangeQueueApply(reactor, stats);
+    if (applied.disposition() != ReactorApplyDisposition::Invalid) {
+      return applied;
+    }
+    const ReactorInvalidChangeToken invalid = applied.invalid_change();
+    if (ReactorRegistryFirstWait(reactor, invalid.handle()) !=
+        kNoReactorSlot) {
+      return applied;
+    }
+    if (!ReactorChangeQueueAcknowledgeInvalid(reactor, invalid)) {
+      return ReactorApplyResult::failed();
+    }
+  }
 }
 
 void ReactorCloseRuntime(ReactorRuntime &reactor) noexcept {

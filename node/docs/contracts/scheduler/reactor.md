@@ -76,9 +76,9 @@ to `ReactorWaitCapacityExceeded`, alongside native reactor preparation failure.
 On the supported 64-bit ABI, a canonical wait is 88 bytes. The fixed arena uses
 a 96-byte wait slot plus one 4-byte ordered slot id and one 4-byte free slot id
 per configured wait. The fd state is 80 bytes. Warm add, remove, re-arm, and
-batch drain stay inside configured storage; descriptor-capacity pressure
-deterministically flushes already-deferred removes before rejecting a new
-descriptor.
+apply-invalid drain stay inside configured storage; descriptor-capacity
+pressure deterministically flushes already-deferred removes before rejecting a
+new descriptor.
 
 Batch removal validates the ordered success prefix, unlinks each selected slot
 in `O(1)`, and compacts the 32-bit canonical order once. The first selected
@@ -195,19 +195,35 @@ caller-required `R` full records; no second full-wait authority exists.
   telemetry. Parked groups retain the snapshot independently of later set
   mutation and need no resume-time index remapping.
 - `reactor/backend.cpp`: scheduler-facing reactor backend lifecycle and
-  delegation of registration-change application through the queue owner and
-  platform reactor boundary. Native polling follows one successful flush
-  directly; there is no forwarding poll wrapper or second apply projection.
+  canonical registration-apply boundary. It delegates one attempt to the
+  queue owner, exact-acknowledges an `Invalid` change only when its descriptor
+  has no live wait, and reapplies until it reaches success, a generic failure,
+  backend unavailability, or an `Invalid` descriptor with a live wait. Native
+  polling follows one successful flush directly; there is no forwarding poll
+  wrapper or second orphan-normalization path.
 - `reactor/change/queue.cpp`: cursor-based queued registration apply owner; it
   snapshots the failed change identity before erasing an applied prefix,
   consumes the platform batch disposition without a boolean result mirror,
   drains successful prefixes without repeated front erases, and preserves
-  best-effort invalid-remove semantics.
+  best-effort invalid-remove semantics. A strict invalid change stays at the
+  queue front until the ready-drain owner has acquired leases, prepared host
+  event storage, and removed every wait for that descriptor. That commit
+  validates the observed `(handle, fd_generation)` token against the queue
+  front, retires all same-handle strict changes, and leaves cleanup removes
+  and unrelated suffixes ordered. The canonical backend boundary immediately
+  reapplies after acknowledging a descriptor with no registered wait, even
+  while unrelated waits remain live, so an orphaned invalid change cannot
+  block polling. An `Invalid` with a live wait is entry-local pending work:
+  normal or backlogged readiness, timeout, cancellation, group cleanup, and
+  an already-proven `IoFdInvalid` publication preserve their initiating
+  result. Only `Failed` and `BackendUnavailable` project a generic cleanup
+  failure. The token is transient within that apply and drain transaction; it
+  is never stored in a backlog or across turns.
 - The scheduler-facing apply result has exactly one disposition: `Success`,
   `Invalid`, `Failed`, or `BackendUnavailable`. Only `Invalid` carries the
-  failed logical handle; every other disposition fixes that payload to the
-  invalid-handle sentinel. A missing invalid handle is normalized to `Failed`
-  instead of publishing an `Invalid` disposition without an identity.
+  failed logical change's `(handle, fd_generation)` acknowledgement token;
+  every other disposition carries no token. A missing handle is normalized to
+  `Failed` instead of publishing an `Invalid` disposition without an identity.
   Platform errors and batch indices remain owned by the platform result that
   the apply boundary consumes.
 - `reactor/close.cpp`: scheduler-side fd close invalidation discovery and
@@ -364,14 +380,19 @@ registry waits remain fail-closed.
 
 Ready-drain budgeting is applied only after backend ready events have been
 expanded and sorted by the scheduler-owned key. A nonzero
-`reactor_ready_budget` consumes at most that many canonical ready waits in one
-drain; `0` uses ready-queue capacity as the per-drain budget. Available wake
-space is derived from `task_capacity`, because these waits already own admitted
-task records; the spawn backlog bound does not reject them. Budget deferral cannot
-import native backend order because every prefix is selected from the already
-canonical ready list. Reactor scratch vectors are scheduler-owned reusable
-storage; scratch reuse changes allocation behavior only, not ready order,
-evidence order, or replay meaning.
+`reactor_ready_budget` selects that many canonical ready waits as the initial
+drain prefix; `0` uses ready-queue capacity. The prefix extends only to keep a
+selected ReadyMany group atomic or to include every invalid wait for a
+selected descriptor. Invalid descriptor cleanup therefore cannot manufacture
+an intermediate modify behind the terminal invalid registration change.
+Available wake space is derived from `task_capacity`, because these waits
+already own admitted task records; the spawn backlog bound does not reject
+them. Budget deferral cannot import native backend order because every prefix
+is selected from the already canonical ready list. Apply-invalid expansion
+publishes at most one entry per live wait, so configuration prepares
+`reactor_wait_capacity` host-event slots for its drain commit. Reactor scratch
+reuse changes allocation behavior only, not ready order, evidence order, or
+replay meaning.
 
 Reactor result mapping:
 

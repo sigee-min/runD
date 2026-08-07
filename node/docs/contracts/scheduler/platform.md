@@ -102,7 +102,12 @@ failed logical change index. That index acknowledges the successful logical
 prefix; it is not a native rollback frontier. Linux and the portable backend
 stop at that change, while a kqueue receipt batch may already have applied a
 later native filter. The scheduler removes only the acknowledged prefix and
-retains the failed logical change and suffix for normalized retry.
+normalizes the remaining queue. `Failed` and `BackendUnavailable` retain the
+failed logical change and suffix for retry. `Invalid` remains queue-owned until
+the scheduler has prepared every invalid wait for that descriptor for one
+drain transaction; acknowledgement then retires all strict changes for that
+descriptor while preserving its best-effort cleanup remove and every other
+descriptor's suffix.
 
 The native poll operation has exactly one disposition: `Success`, `Invalid`,
 `Failed`, or `BackendUnavailable`. The caller-provided

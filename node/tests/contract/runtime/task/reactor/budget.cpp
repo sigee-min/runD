@@ -6,10 +6,14 @@
 #include <rund/task/api.hpp>
 #include <rund/task/await.hpp>
 
+#include "../../../../../src/host/io/access.hpp"
 #include "../../../../../src/runtime/reactor/diagnostics.hpp"
+#include "../../../../../src/runtime/reactor/readiness/handle.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/budget.hpp"
 
 #include <array>
 #include <cstddef>
+#include <vector>
 
 #include <unistd.h>
 
@@ -38,9 +42,135 @@ struct PipePair {
   return true;
 }
 
+void VerifyInvalidFdBudgetRetirement() {
+  PipePair pipe{};
+  PipePair suffix_pipe{};
+  TEST_ASSERT(MakePipe(pipe));
+  TEST_ASSERT(MakePipe(suffix_pipe));
+  rund::host::io::Fd fd =
+      rund::host::io::take_native_fd(::dup(pipe.read_fd));
+  rund::host::io::Fd suffix_fd =
+      rund::host::io::take_native_fd(::dup(suffix_pipe.read_fd));
+  TEST_ASSERT(fd);
+  TEST_ASSERT(suffix_fd);
+  const rund::host::io::FdView view = fd.view();
+  const rund::host::io::FdView suffix_view = suffix_fd.view();
+  const int native = rund::host::io::detail::Access::native(view);
+  const int suffix_native =
+      rund::host::io::detail::Access::native(suffix_view);
+
+  rund::task::IoResult read_result{};
+  rund::task::IoResult write_result{};
+  rund::task::IoResult suffix_result{};
+  rund::task::Status closer_yield{};
+  rund::task::Status joined{};
+  bool read_started = false;
+  bool write_started = false;
+  bool suffix_started = false;
+  bool raw_closed = false;
+  bool suffix_raw_closed = false;
+  const rund::Session::Result report = rund::run(
+      rund::SessionConfig{
+          .workers = 1u,
+          .scheduler =
+              {
+                  .task_capacity = 8u,
+                  .ready_queue_capacity = 8u,
+                  .reactor_wait_capacity = 8u,
+                  .reactor_ready_budget = 1u,
+                  .observation_capacity = 32u,
+                  .host_event_capacity = 32u,
+              },
+      },
+      [&] {
+        auto read = [&]() -> rund::task::Task<void> {
+          read_started = true;
+          read_result = co_await rund::host::io::readable(view);
+        };
+        auto write = [&]() -> rund::task::Task<void> {
+          write_started = true;
+          write_result = co_await rund::host::io::writable(view);
+        };
+        auto suffix = [&]() -> rund::task::Task<void> {
+          suffix_started = true;
+          suffix_result = co_await rund::host::io::readable(suffix_view);
+        };
+        auto close = [&]() -> rund::task::Task<void> {
+          closer_yield = co_await rund::task::yield();
+          raw_closed = ::close(native) == 0;
+          suffix_raw_closed = ::close(suffix_native) == 0;
+        };
+        const rund::task::Handle reader =
+            rund::task::spawn("invalid-budget-reader", read());
+        const rund::task::Handle writer =
+            rund::task::spawn("invalid-budget-writer", write());
+        const rund::task::Handle suffix_reader =
+            rund::task::spawn("invalid-budget-suffix", suffix());
+        const rund::task::Handle closer =
+            rund::task::spawn("invalid-budget-closer", close());
+        joined = rund::task::join(reader, writer, suffix_reader, closer);
+      });
+
+  static_cast<void>(fd.close());
+  static_cast<void>(suffix_fd.close());
+  TEST_ASSERT(report.ok());
+  TEST_ASSERT(joined.ok());
+  TEST_ASSERT(closer_yield.ok());
+  TEST_ASSERT(read_started);
+  TEST_ASSERT(write_started);
+  TEST_ASSERT(suffix_started);
+  TEST_ASSERT(raw_closed);
+  TEST_ASSERT(suffix_raw_closed);
+  TEST_ASSERT(!read_result.ok());
+  TEST_ASSERT(read_result.code() == rund::ReasonCode::IoFdInvalid);
+  TEST_ASSERT(!write_result.ok());
+  TEST_ASSERT(write_result.code() == rund::ReasonCode::IoFdInvalid);
+  TEST_ASSERT(!suffix_result.ok());
+  TEST_ASSERT(suffix_result.code() == rund::ReasonCode::IoFdInvalid);
+}
+
 } // namespace
 
 int RunRuntimeTaskReactorBudgetContract() {
+  const rund::node::ReactorHandle invalid_fd =
+      rund::node::ReactorHandleFromPublic(11);
+  const std::vector<rund::node::ReactorReady> same_invalid_fd{
+      rund::node::ReactorReady{
+          .wait_id = 1u,
+          .fd = invalid_fd,
+          .disposition = rund::node::ReactorReadyDisposition::Invalid},
+      rund::node::ReactorReady{
+          .wait_id = 2u,
+          .fd = invalid_fd,
+          .disposition = rund::node::ReactorReadyDisposition::Invalid}};
+  TEST_ASSERT(rund::node::ReactorBudgetExtendInvalidFdPrefix(same_invalid_fd,
+                                                             1u) == 2u);
+  std::vector<rund::node::ReactorReady> distinct_invalid_fds = same_invalid_fd;
+  distinct_invalid_fds[1].fd = rund::node::ReactorHandleFromPublic(12);
+  TEST_ASSERT(rund::node::ReactorBudgetExtendInvalidFdPrefix(
+                  distinct_invalid_fds, 1u) == 1u);
+  const rund::node::ReactorHandle chained_fd =
+      rund::node::ReactorHandleFromPublic(13);
+  std::vector<rund::node::ReactorReady> chained_invalid_fds = same_invalid_fd;
+  chained_invalid_fds.insert(
+      chained_invalid_fds.begin() + 1,
+      rund::node::ReactorReady{
+          .wait_id = 3u,
+          .fd = chained_fd,
+          .disposition = rund::node::ReactorReadyDisposition::Invalid});
+  chained_invalid_fds.push_back(rund::node::ReactorReady{
+      .wait_id = 4u,
+      .fd = chained_fd,
+      .disposition = rund::node::ReactorReadyDisposition::Invalid});
+  TEST_ASSERT(rund::node::ReactorBudgetExtendInvalidFdPrefix(
+                  chained_invalid_fds, 1u) == 4u);
+  std::vector<rund::node::ReactorReady> ready_prefix = same_invalid_fd;
+  ready_prefix[0].disposition = rund::node::ReactorReadyDisposition::Ready;
+  TEST_ASSERT(
+      rund::node::ReactorBudgetExtendInvalidFdPrefix(ready_prefix, 1u) == 1u);
+
+  VerifyInvalidFdBudgetRetirement();
+
   constexpr std::size_t kTasks = 16u;
   constexpr std::uint32_t kBudget = 4u;
   std::array<PipePair, kTasks> pipes{};

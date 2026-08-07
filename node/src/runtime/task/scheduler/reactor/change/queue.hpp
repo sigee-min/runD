@@ -8,4 +8,8 @@ namespace rund::node {
 ReactorChangeQueueApply(ReactorRuntime &reactor,
                         ::rund::detail::task::StatStorage &stats) noexcept;
 
+[[nodiscard]] bool
+ReactorChangeQueueAcknowledgeInvalid(ReactorRuntime &reactor,
+                                     ReactorInvalidChangeToken token) noexcept;
+
 } // namespace rund::node

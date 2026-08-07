@@ -21,34 +21,49 @@ int RunRuntimeTaskReactorResultContract() {
   static_assert(std::is_trivially_copyable_v<ReactorProbeResult>);
   static_assert(!std::is_aggregate_v<ReactorApplyResult>);
   static_assert(std::is_trivially_copyable_v<ReactorApplyResult>);
+  static_assert(!std::is_aggregate_v<ReactorInvalidChangeToken>);
+  static_assert(std::is_trivially_copyable_v<ReactorInvalidChangeToken>);
 
   constexpr ReactorApplyResult apply_success = ReactorApplyResult::success();
   static_assert(apply_success.disposition() ==
                 ReactorApplyDisposition::Success);
-  static_assert(apply_success.invalid_handle() == kInvalidReactorHandle);
+  static_assert(!apply_success.invalid_change().valid());
+  static_assert(ReactorApplyAllowsLogicalProgress(apply_success));
 
   constexpr ReactorHandle invalid_apply_handle = ReactorHandleFromPublic(17);
+  constexpr std::uint64_t invalid_apply_generation = 19u;
   constexpr ReactorApplyResult apply_invalid =
-      ReactorApplyResult::invalid(invalid_apply_handle);
+      ReactorApplyResult::invalid(invalid_apply_handle,
+                                  invalid_apply_generation);
   static_assert(apply_invalid.disposition() ==
                 ReactorApplyDisposition::Invalid);
-  static_assert(apply_invalid.invalid_handle() == invalid_apply_handle);
+  static_assert(apply_invalid.invalid_change().handle() ==
+                invalid_apply_handle);
+  static_assert(apply_invalid.invalid_change().fd_generation() ==
+                invalid_apply_generation);
+  static_assert(ReactorApplyAllowsLogicalProgress(apply_invalid));
 
   constexpr ReactorApplyResult missing_invalid =
-      ReactorApplyResult::invalid(kInvalidReactorHandle);
+      ReactorApplyResult::invalid(kInvalidReactorHandle, 23u);
   static_assert(missing_invalid.disposition() ==
                 ReactorApplyDisposition::Failed);
-  static_assert(missing_invalid.invalid_handle() == kInvalidReactorHandle);
+  static_assert(!missing_invalid.invalid_change().valid());
+  static_assert(missing_invalid.invalid_change().handle() ==
+                kInvalidReactorHandle);
+  static_assert(missing_invalid.invalid_change().fd_generation() == 0u);
+  static_assert(!ReactorApplyAllowsLogicalProgress(missing_invalid));
 
   constexpr ReactorApplyResult apply_failed = ReactorApplyResult::failed();
   static_assert(apply_failed.disposition() == ReactorApplyDisposition::Failed);
-  static_assert(apply_failed.invalid_handle() == kInvalidReactorHandle);
+  static_assert(!apply_failed.invalid_change().valid());
+  static_assert(!ReactorApplyAllowsLogicalProgress(apply_failed));
 
   constexpr ReactorApplyResult apply_unavailable =
       ReactorApplyResult::backend_unavailable();
   static_assert(apply_unavailable.disposition() ==
                 ReactorApplyDisposition::BackendUnavailable);
-  static_assert(apply_unavailable.invalid_handle() == kInvalidReactorHandle);
+  static_assert(!apply_unavailable.invalid_change().valid());
+  static_assert(!ReactorApplyAllowsLogicalProgress(apply_unavailable));
 
   constexpr ReactorReady ready{};
   constexpr ReactorReady invalid_ready{

@@ -30,7 +30,7 @@ namespace {
     ok = false;
   }
   const ReactorApplyResult applied = ReactorBackendApplyChanges(reactor, stats);
-  if (applied.disposition() != ReactorApplyDisposition::Success) {
+  if (!ReactorApplyAllowsLogicalProgress(applied)) {
     ok = false;
   }
   return ok;

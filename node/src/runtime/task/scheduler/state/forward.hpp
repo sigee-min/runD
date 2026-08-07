@@ -2,6 +2,7 @@ class Scheduler;
 struct ScopeEvidence;
 struct ReadyManyEntry;
 struct ReadyManyAccess;
+class ReactorInvalidChangeToken;
 struct LaneJobFrame;
 struct LaneWorkerAccess;
 struct ExternalWake;

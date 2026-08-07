@@ -62,7 +62,8 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
   if (ReactorRegistryEmpty(reactor)) {
     if (!reactor.changes.empty()) {
       ReactorApplyPolicyRecordFlush(reactor, force_apply);
-      (void)ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
+      static_cast<void>(
+          ReactorBackendApplyChanges(reactor, state_->evidence.metrics));
     }
     return false;
   }
@@ -88,7 +89,8 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
                                   reactor.budget_ready_scratch)) {
       return false;
     }
-    return DrainReactorReadyBatch(reactor.budget_ready_scratch);
+    return DrainReactorReadyBatch(reactor.budget_ready_scratch,
+                                  ReactorInvalidChangeToken::none());
   }
 
   const bool defer_apply = ReactorApplyPolicyShouldDefer(
@@ -99,11 +101,14 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
   ReactorApplyPolicyRecordFlush(reactor, force_apply);
   const ReactorApplyResult applied =
       ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
+  ReactorInvalidChangeToken invalid_change = ReactorInvalidChangeToken::none();
   if (applied.disposition() != ReactorApplyDisposition::Success) {
     if (applied.disposition() == ReactorApplyDisposition::Invalid) {
-      if (!ReactorExpandInvalidHandle(reactor, applied.invalid_handle())) {
+      if (!ReactorExpandInvalidHandle(reactor,
+                                      applied.invalid_change().handle())) {
         return false;
       }
+      invalid_change = applied.invalid_change();
     } else if (!ReactorExpandPollFailure(reactor)) {
       return false;
     }
@@ -205,17 +210,24 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
     return false;
   };
   if (consumed < reactor.ordered_ready_scratch.size()) {
-    const std::size_t original_consumed = consumed;
-    std::size_t extended_consumed = original_consumed;
-    for (std::size_t index = original_consumed;
-         index < reactor.ordered_ready_scratch.size(); ++index) {
-      const std::uint64_t group_id =
-          many_group_for_task(reactor.ordered_ready_scratch[index].task_id);
-      if (prefix_contains_many_group(original_consumed, group_id)) {
-        extended_consumed = index + 1u;
+    std::size_t extended_consumed = consumed;
+    for (;;) {
+      const std::size_t previous_consumed = extended_consumed;
+      extended_consumed = ReactorBudgetExtendInvalidFdPrefix(
+          reactor.ordered_ready_scratch, extended_consumed);
+      for (std::size_t index = extended_consumed;
+           index < reactor.ordered_ready_scratch.size(); ++index) {
+        const std::uint64_t group_id =
+            many_group_for_task(reactor.ordered_ready_scratch[index].task_id);
+        if (prefix_contains_many_group(extended_consumed, group_id)) {
+          extended_consumed = index + 1u;
+        }
+      }
+      if (extended_consumed == previous_consumed) {
+        break;
       }
     }
-    if (extended_consumed != original_consumed) {
+    if (extended_consumed != consumed) {
       try {
         reactor.budget_ready_scratch.clear();
         reactor.budget_ready_scratch.reserve(extended_consumed);
@@ -236,7 +248,7 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
     return false;
   }
   const std::vector<ReactorReady> &ordered = *selected_ready;
-  return DrainReactorReadyBatch(ordered);
+  return DrainReactorReadyBatch(ordered, invalid_change);
 }
 
 } // namespace rund::node

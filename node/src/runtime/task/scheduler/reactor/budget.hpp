@@ -18,4 +18,8 @@ ReactorBudgetSelect(ReactorRuntime &reactor,
                     const std::vector<ReactorReady> &ordered,
                     std::size_t budget) noexcept;
 
+[[nodiscard]] std::size_t
+ReactorBudgetExtendInvalidFdPrefix(const std::vector<ReactorReady> &ordered,
+                                   std::size_t consumed) noexcept;
+
 } // namespace rund::node

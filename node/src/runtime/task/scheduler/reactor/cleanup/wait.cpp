@@ -41,7 +41,7 @@ bool CleanupSingleWait(Scheduler &scheduler,
   }
   const ReactorApplyResult applied =
       ReactorBackendApplyChanges(reactor, scheduler.state_->evidence.metrics);
-  if (applied.disposition() != ReactorApplyDisposition::Success) {
+  if (!ReactorApplyAllowsLogicalProgress(applied)) {
     cleanup_ok = false;
   }
   if (request.cancel_timeout_timer &&

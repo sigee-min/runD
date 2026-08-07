@@ -4,6 +4,7 @@
 #include "../../state/storage.hpp"
 #include "../apply/policy.hpp"
 #include "../backend.hpp"
+#include "../change/queue.hpp"
 #include "../cleanup/operations.hpp"
 #include "../cleanup/request.hpp"
 #include "../generation.hpp"
@@ -21,7 +22,8 @@
 namespace rund::node {
 
 bool Scheduler::DrainReactorReadyBatch(
-    const std::vector<ReactorReady> &ordered) noexcept {
+    const std::vector<ReactorReady> &ordered,
+    const ReactorInvalidChangeToken invalid_change) noexcept {
   ReactorRuntime &reactor = state_->reactor.reactor;
   ReactorLeaseScope leases{state_->reactor.reactor_socket_lease_scratch};
   if (!leases.acquire(ordered, [&reactor](const ReactorReady &ready) noexcept {
@@ -48,12 +50,20 @@ bool Scheduler::DrainReactorReadyBatch(
   }
 
   ReactorDrainBatch batch = ReactorBuildDrainBatch(reactor, ordered);
+  if (batch.ok && invalid_change.valid() &&
+      (ReactorRegistryFirstWait(reactor, invalid_change.handle()) !=
+           kNoReactorSlot ||
+       !ReactorChangeQueueAcknowledgeInvalid(reactor, invalid_change))) {
+    batch.ok = false;
+  }
   ReactorApplyResult remove_applied = ReactorApplyResult::failed();
   if (batch.ok) {
     ReactorApplyPolicyRecordFlush(reactor, true);
     remove_applied =
         ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
   }
+  const bool registration_cleanup_ok =
+      ReactorApplyAllowsLogicalProgress(remove_applied);
   if (batch.ready == nullptr || batch.removed_waits == nullptr ||
       batch.ready->size() != batch.removed_waits->size()) {
     return false;
@@ -73,8 +83,7 @@ bool Scheduler::DrainReactorReadyBatch(
     const ReactorWait &wait = batch_removed_waits[index];
     ReasonCode ready_code = ReasonCode::Ok;
     task::ObservationKind observation_kind = task::ObservationKind::IoReady;
-    if (!batch.ok ||
-        remove_applied.disposition() != ReactorApplyDisposition::Success ||
+    if (!batch.ok || !registration_cleanup_ok ||
         ready.disposition == ReactorReadyDisposition::PollFailed) {
       ready_code = ReasonCode::IoPollFailed;
       observation_kind = task::ObservationKind::IoPollFailed;

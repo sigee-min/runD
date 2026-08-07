@@ -7,6 +7,7 @@
 #include "../../../../src/runtime/reactor/platform.hpp"
 #include "../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../src/runtime/task/scheduler/reactor/backend.hpp"
+#include "../../../../src/runtime/task/scheduler/reactor/model.hpp"
 
 #include <rund/host/io.hpp>
 #include <rund/net/listener.hpp>
@@ -85,7 +86,7 @@ void AssertUnavailable(const rund::node::BatchIoProbeResult result) {
 void AssertUnavailable(const rund::node::ReactorApplyResult result) {
   TEST_ASSERT(result.disposition() ==
               rund::node::ReactorApplyDisposition::BackendUnavailable);
-  TEST_ASSERT(result.invalid_handle() == rund::node::kInvalidReactorHandle);
+  TEST_ASSERT(!result.invalid_change().valid());
 }
 
 void AssertNativeProjection(const rund::node::NativeCallState state,

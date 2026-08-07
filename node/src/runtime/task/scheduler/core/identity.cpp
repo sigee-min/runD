@@ -226,6 +226,7 @@ bool Scheduler::Configure(const ::rund::SchedulerConfig config,
   state_->reactor.reactor_many_event_slots_scratch.reserve(reactor_capacity);
   state_->reactor.reactor_many_poll_request_scratch.reserve(reactor_capacity);
   state_->reactor.reactor_many_ready_result_scratch.reserve(reactor_capacity);
+  state_->reactor.reactor_host_event_scratch.reserve(reactor_capacity);
   state_->reactor.reactor_ready_code_scratch.reserve(reactor_capacity);
   state_->reactor.reactor_socket_lease_scratch.reserve(reactor_capacity);
   state_->reactor.reactor_ready_sets.reserve(
