@@ -1,8 +1,10 @@
 #include "local.hpp"
 #include "../../../reactor/diagnostics.hpp"
+#include "../../../reactor/readiness/mask.hpp"
 
 #if defined(__APPLE__) || defined(__FreeBSD__)
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <limits>
@@ -30,6 +32,7 @@ ReactorPlatformPollResult PollReactorPlatform(
     return ReactorPlatformPollResult::failed(ENOMEM);
   }
   const std::size_t event_capacity = max_events * 2u;
+  ReactorPlatformState& state = MacReactorState(handle);
   try {
     out.reserve(event_capacity);
   } catch (...) {
@@ -42,7 +45,7 @@ ReactorPlatformPollResult PollReactorPlatform(
       return ReactorPlatformPollResult::success();
     }
   }
-  std::vector<struct kevent>& events = MacReactorState(handle).events;
+  std::vector<struct kevent>& events = state.events;
   try {
     events.resize(event_capacity);
   } catch (...) {
@@ -53,7 +56,7 @@ ReactorPlatformPollResult PollReactorPlatform(
   int native = 0;
   do {
     errno = 0;
-    native = ::kevent(MacReactorState(handle).native, nullptr, 0, events.data(),
+    native = ::kevent(state.native, nullptr, 0, events.data(),
                       static_cast<int>(events.size()), timeout_ptr);
   } while (native < 0 && errno == EINTR);
   const int saved_errno = errno;
@@ -63,6 +66,12 @@ ReactorPlatformPollResult PollReactorPlatform(
                : ReactorPlatformPollResult::failed(saved_errno);
   }
   try {
+    std::sort(events.begin(), events.begin() + native,
+              [](const struct kevent& left,
+                 const struct kevent& right) noexcept {
+                return reinterpret_cast<uintptr_t>(left.udata) <
+                       reinterpret_cast<uintptr_t>(right.udata);
+              });
     for (int index = 0; index < native; ++index) {
       const struct kevent& event = events[static_cast<std::size_t>(index)];
       const ReactorHandle native_handle =
@@ -71,11 +80,17 @@ ReactorPlatformPollResult PollReactorPlatform(
           KqueueInterestForHandle(handle, native_handle);
       const bool invalid = ((event.flags & EV_ERROR) != 0 &&
                             (event.data == EBADF || event.data == EINVAL));
-      out.push_back(ReactorPlatformReady{
+      const ReactorPlatformReady ready{
           .handle = native_handle,
           .events = KqueueReadyEvents(event, interest),
           .invalid = invalid,
-      });
+      };
+      if (!out.empty() && out.back().handle == native_handle) {
+        out.back().events |= ready.events;
+        out.back().invalid = out.back().invalid || ready.invalid;
+        continue;
+      }
+      out.push_back(ready);
     }
   } catch (...) {
     out.clear();

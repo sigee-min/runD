@@ -318,12 +318,7 @@ int RunRuntimeTaskReactorPlatformContract() {
   TEST_ASSERT(duplex_poll.disposition() ==
               ReactorPlatformPollDisposition::Success);
   TEST_ASSERT(duplex_poll.platform_error() == 0);
-  TEST_ASSERT(!duplex_ready.empty());
-#if defined(__APPLE__) || defined(__FreeBSD__)
-  TEST_ASSERT(duplex_ready.size() <= 2u);
-#else
   TEST_ASSERT(duplex_ready.size() == 1u);
-#endif
   ReactorEvent duplex_events = ReactorEvent::None;
   for (const ReactorPlatformReady &ready_event : duplex_ready) {
     duplex_events |= ready_event.events;

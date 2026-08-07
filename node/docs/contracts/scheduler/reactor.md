@@ -62,23 +62,28 @@ descriptors, and `R` matching waits, expansion costs
 read/write reference counts, so one descriptor lookup costs `O(log F)` and
 interest projection is `O(1)` rather than scanning its `K` waits.
 
-`ReactorRuntime::platform_ready` is the only reusable owner of normalized
-platform-ready descriptors, while `ReactorRuntime::ready` owns only expanded
-scheduler-ready values. The native poll result owns status and platform error
-only; it never borrows or mirrors the caller-owned vector. Configure requests
-storage for `2C` platform entries at reactor capacity `C`: epoll and portable
-poll publish at most one entry per descriptor, while kqueue may publish
-separate read and write filters. Platform-private state therefore retains only
-native event buffers and registration metadata. Failure to reserve this poll
-scratch during configuration remains a reactor-capacity failure and projects
-to `ReactorWaitCapacityExceeded`, alongside native reactor preparation failure.
+`ReactorRuntime::platform_ready` is the only reusable owner of normalized,
+descriptor-unique platform readiness, while `ReactorRuntime::ready` owns only
+expanded scheduler-ready values. The native poll result owns status and
+platform error only; it never borrows or mirrors the caller-owned vector.
+Configure requests storage for `2C` platform entries at reactor capacity `C`.
+Epoll and portable poll naturally publish at most one entry per descriptor.
+Kqueue retains a platform-private `2C` native-filter buffer and folds every
+read/write observation for one descriptor into one caller entry by unioning
+events and propagating any invalid observation. Its caller bound remains `2C`
+because one native batch can contain distinct stale and current descriptors;
+normalization removes same-descriptor duplication, not stale observations.
+Platform-private state therefore retains only native event buffers and
+registration metadata. Failure to reserve caller poll scratch during
+configuration remains a reactor-capacity failure and projects to
+`ReactorWaitCapacityExceeded`, alongside native reactor preparation failure.
 
 On the supported 64-bit ABI, a canonical wait is 88 bytes. The fixed arena uses
 a 96-byte wait slot plus one 4-byte ordered slot id and one 4-byte free slot id
 per configured wait. The fd state is 80 bytes. Warm add, remove, re-arm, and
-apply-invalid drain stay inside configured storage; descriptor-capacity
-pressure deterministically flushes already-deferred removes before rejecting a
-new descriptor.
+batch drain stay inside configured storage; descriptor-capacity pressure
+deterministically flushes already-deferred removes before rejecting a new
+descriptor.
 
 Batch removal validates the ordered success prefix, unlinks each selected slot
 in `O(1)`, and compacts the 32-bit canonical order once. The first selected
