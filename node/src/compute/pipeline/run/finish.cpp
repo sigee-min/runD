@@ -116,8 +116,13 @@ PipelineOutcome finish_accel_pipeline(
         coordinate(evidence.control.failed_outer_window);
     stats.pipeline.failed_inner_iteration =
         coordinate(evidence.control.failed_inner_iteration);
-    stats.pipeline.failed_nested_phase =
-        static_cast<PipelineNestedPhase>(evidence.control.failed_nested_phase);
+    PipelineNestedPhase failed_nested_phase{};
+    if (!node::accel::detail::DecodePipelineNestedPhase(
+            evidence.control.failed_nested_phase, failed_nested_phase)) {
+      result.status = Status::fail(Reason::CompletionInvalid);
+    } else {
+      stats.pipeline.failed_nested_phase = failed_nested_phase;
+    }
     stats.pipeline.executed_outer_window_count =
         evidence.control.executed_outer_window_count;
     stats.pipeline.skipped_outer_window_count =

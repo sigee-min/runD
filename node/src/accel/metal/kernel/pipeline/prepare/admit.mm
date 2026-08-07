@@ -484,6 +484,10 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       if (template_index >= status.active_step_count) {
         return rund::AccelCheck{false, "accel_kernel_run_invalid"};
       }
+      std::uint32_t phase = 0u;
+      if (!EncodeBackendWindowPhase(window->phase, phase)) {
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
       native_windows.push_back(MetalWindow{
           .resident = count.device_buffer,
           .terminals = {terminals[0].device_buffer, terminals[1].device_buffer,
@@ -512,7 +516,7 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
                   .state = window->state,
                   .has_terminal =
                       static_cast<std::uint32_t>(window->has_terminal),
-                  .phase = static_cast<std::uint32_t>(window->phase),
+                  .phase = phase,
                   .declared_step = status.declared_steps[template_index],
                   .overflow_reason = static_cast<std::uint32_t>(
                       rund::compute::Reason::BoundedCountInvalid),

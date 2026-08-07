@@ -218,8 +218,11 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
               return Result<node::accel::detail::PreparedKernelPipeline>::fail(
                   Reason::PipelineInvalid);
             }
-            phase = node::accel::detail::ProjectNestedBackendWindowPhase(
-                projection.phase);
+            if (!node::accel::detail::ProjectNestedBackendWindowPhase(
+                    projection.phase, phase)) {
+              return Result<node::accel::detail::PreparedKernelPipeline>::fail(
+                  Reason::PipelineInvalid);
+            }
             outer_iteration = projection.outer_iteration;
             outer_bound = projection.outer_bound;
             inner_iteration = projection.inner_iteration;

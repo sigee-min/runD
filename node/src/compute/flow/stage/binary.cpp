@@ -1,5 +1,7 @@
 #include "../recipe.hpp"
 
+#include "../../type.hpp"
+
 #include <array>
 #include <memory>
 #include <span>
@@ -22,7 +24,7 @@ std::uint32_t flow_binary_values(const std::shared_ptr<FlowState> &flow,
   }
   FixedFormat fixed_format{};
   bool fixed_format_set = false;
-  if (is_fixed(output_type)) {
+  if (type_fixed(output_type)) {
     for (const std::uint32_t input : inputs) {
       const FlowValue &source = flow->values[input - 1u];
       if (source.type != output_type) {
@@ -80,7 +82,7 @@ std::uint32_t flow_complex_side(const std::shared_ptr<FlowState> &flow,
     reject(*flow, Reason::TransformShapeMismatch);
     return 0u;
   }
-  if (is_fixed(real.type) &&
+  if (type_fixed(real.type) &&
       (fixed_format.integer_bits != real.fixed_format.integer_bits ||
        fixed_format.fraction_bits != real.fixed_format.fraction_bits)) {
     reject(*flow, Reason::FixedFormatMismatch);
@@ -99,14 +101,14 @@ ComplexIds flow_transform(const std::shared_ptr<FlowState> &flow,
   const FlowValue value = flow->values[real - 1u];
   if (flow->values[imag - 1u].type != value.type ||
       flow->values[imag - 1u].count != value.count ||
-      (is_fixed(value.type) &&
+      (type_fixed(value.type) &&
        !same_fixed_storage_policy(flow->values[imag - 1u].fixed_format,
                                   value.fixed_format))) {
     reject(*flow, Reason::TransformShapeMismatch);
     return {};
   }
   FixedFormat fixed_format = value.fixed_format;
-  if (is_fixed(value.type)) {
+  if (type_fixed(value.type)) {
     fixed_format.approximation = Approximation::Deterministic;
   }
   const std::uint32_t output_real =

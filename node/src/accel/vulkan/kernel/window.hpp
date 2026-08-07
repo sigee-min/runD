@@ -71,6 +71,7 @@ struct VulkanWindowResources final {
 };
 
 [[nodiscard]] std::string_view VulkanWindowSourceText() noexcept;
+[[nodiscard]] bool VulkanWindowSourceBytes(std::uint64_t &bytes) noexcept;
 [[nodiscard]] std::string_view VulkanGateSourceText() noexcept;
 
 [[nodiscard]] rund::AccelCheck PrepareVulkanWindow(

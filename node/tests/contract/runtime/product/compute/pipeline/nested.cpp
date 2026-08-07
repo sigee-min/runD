@@ -148,6 +148,58 @@ int NestedWorkTotals(rund::Session &session, rund::compute::Device &device) {
         static_cast<unsigned long long>(stats.command_submits));
     return 3;
   }
+
+  // Session execution enters the asynchronous Pipeline completion path. A
+  // count overflow is detected while a synthetic Fold descriptor prepares the
+  // next window, but the semantic failure coordinate remains the first Seed.
+  constexpr std::array<std::uint32_t, 1u> overflow_count_values{
+      static_cast<std::uint32_t>(first_maximum + 1u)};
+  auto overflow_outer = device.upload<std::uint32_t>(first_initial);
+  auto overflow_count = device.upload<std::uint32_t>(overflow_count_values);
+  auto overflow_output = device.buffer<std::uint32_t>(1u);
+  if (!overflow_outer || !overflow_count || !overflow_output) {
+    return 4;
+  }
+  auto overflow = pipeline(device)
+                      .windows<first_maximum, first_tile>(
+                          first_body, rund::compute::window(*overflow_count),
+                          read(*overflow_outer), write_final(*overflow_output))
+                      .prepare();
+  if (!overflow) {
+    return 5;
+  }
+  const Completion failed = session.compute(*overflow).submit().wait();
+  const Stats failed_stats = failed.stats();
+  if (failed || failed.reason() != Reason::BoundedCountInvalid ||
+      failed_stats.pipeline.verified_step_count != 0u ||
+      failed_stats.pipeline.failed_step_index != 0u ||
+      failed_stats.pipeline.failed_nested_phase != PipelineNestedPhase::Seed ||
+      failed_stats.pipeline.failed_outer_window != 0u ||
+      failed_stats.pipeline.failed_inner_iteration !=
+          PipelineStats::no_coordinate ||
+      failed_stats.pipeline.executed_outer_window_count != 0u ||
+      failed_stats.pipeline.executed_inner_iteration_count != 0u) {
+    std::fprintf(
+        stderr,
+        "runtime nested overflow completion=%u/%u verified=%llu failed=%llu "
+        "phase=%u coordinates=%llu/%llu outer=%llu inner=%llu\n",
+        static_cast<unsigned>(failed.ok()),
+        static_cast<unsigned>(failed.reason()),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.verified_step_count),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.failed_step_index),
+        static_cast<unsigned>(failed_stats.pipeline.failed_nested_phase),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.failed_outer_window),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.failed_inner_iteration),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.executed_outer_window_count),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.executed_inner_iteration_count));
+    return 6;
+  }
   return 0;
 }
 

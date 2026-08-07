@@ -39,4 +39,5 @@ struct NetStatsSocketCloseGuard {
 
 [[nodiscard]] int NetStatsNestedVisibility();
 [[nodiscard]] int NetStatsByteAccounting();
+[[nodiscard]] int NetStatsSaturatingCounters();
 [[nodiscard]] int NetStatsCloseTimeoutCancellation();

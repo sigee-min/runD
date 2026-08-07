@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../../state/segment.hpp"
@@ -55,8 +56,10 @@ bool Scheduler::CommitLaneOwnedTerminalEffect(
     effect.record->failure_code = ReasonCode::Ok;
     effect.record->quantum_active = false;
     DestroyLaneCallable(*effect.record);
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::Completed);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(state_->evidence.metrics,
+                                   ::rund::detail::task::StatSlot::Completed),
+        1u);
     ++::rund::detail::task::Stat(
         state_->evidence.metrics,
         ::rund::detail::task::StatSlot::LaneLocalTasksCompleted);

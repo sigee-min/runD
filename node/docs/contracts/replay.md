@@ -273,6 +273,17 @@ captures counter bases and publishes checked deltas. Session lifecycle trace
 such as configure, start, drain, and stop is not part of an individual replay
 record.
 
+The ten pure additive task totals selected by the semantic hash—spawned,
+completed, yields, joins, timers, channel sends/receives/closes, observations,
+and dropped observations—consume the repository saturating counter owner at
+every producer. At mathematical overflow, a newly executed scope therefore
+retains `UINT64_MAX` in its task evidence and semantic hash input instead of
+wrapping; the persisted field order, codec grammar, and hash mixing algorithm
+do not change. `Failed` is not claimed by this rule yet because scheduler
+progress also reads its value change as a host-replay activity signal.
+Separating that control responsibility is required before its additive
+producers can safely adopt the same absorbing boundary.
+
 Variable replay evidence has two distinct lifetime owners. The Session reuses
 prepared capacity `C` while a returned result independently retains its `B`
 published bytes. Publication therefore requires `Omega(B)` byte work and

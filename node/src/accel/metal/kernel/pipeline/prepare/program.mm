@@ -108,8 +108,10 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
       const auto encode_window_control = [&](const std::uint32_t stage) {
         bool encoded = false;
         for (auto route = window_begin; route != window_end; ++route) {
-          const auto phase =
-              static_cast<BackendWindowPhase>(route->params.phase);
+          BackendWindowPhase phase{};
+          if (!DecodeBackendWindowPhase(route->params.phase, phase)) {
+            return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+          }
           const bool selected =
               phase == BackendWindowPhase::NestedSeed
                   ? stage == 0u
@@ -337,11 +339,14 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         const std::uint32_t no_coordinate = PreparedPipelineNoStep;
         std::uint32_t failed_outer = no_coordinate;
         std::uint32_t failed_inner = no_coordinate;
-        std::uint32_t failed_phase = 0u;
+        std::uint32_t failed_phase = PipelineNestedPhaseNoneCode;
         if (resident_window != nullptr && resident_window->nested()) {
           failed_outer = resident_window->outer_iteration;
-          failed_phase =
-              static_cast<std::uint32_t>(resident_window->nested_phase());
+          rund::compute::PipelineNestedPhase public_phase{};
+          if (!resident_window->nested_phase(public_phase) ||
+              !EncodePipelineNestedPhase(public_phase, failed_phase)) {
+            return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+          }
           if (resident_window->phase == BackendWindowPhase::NestedAction) {
             failed_inner = resident_window->inner_iteration;
           }
@@ -352,7 +357,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         for (MetalPipelineStatusSourceMeta &source : occurrence_sources) {
           if (source.failed_outer_window != no_coordinate ||
               source.failed_inner_iteration != no_coordinate ||
-              source.failed_nested_phase != 0u) {
+              source.failed_nested_phase != PipelineNestedPhaseNoneCode) {
             return rund::AccelCheck{false, "accel_kernel_run_invalid"};
           }
           source.failed_outer_window = failed_outer;
@@ -387,7 +392,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         for (MetalPipelineStatusSourceMeta &source : occurrence_sources) {
           source.failed_outer_window = no_coordinate;
           source.failed_inner_iteration = no_coordinate;
-          source.failed_nested_phase = 0u;
+          source.failed_nested_phase = PipelineNestedPhaseNoneCode;
         }
         [encoder setBytes:&fold length:sizeof(fold) atIndex:4u];
         id<MTLBuffer> const states =

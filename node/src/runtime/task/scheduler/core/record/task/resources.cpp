@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../../state/storage/check.hpp"
@@ -34,9 +35,10 @@ void Scheduler::RecordLaneLocalYieldBatch(
       state_->evidence.metrics,
       ::rund::detail::task::StatSlot::YieldLaneLocalReadyRingLogicalYields) +=
       logical_yields;
-  ::rund::detail::task::Stat(state_->evidence.metrics,
-                             ::rund::detail::task::StatSlot::Yields) +=
-      logical_yields;
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Yields),
+      logical_yields);
   ::rund::detail::task::Stat(state_->evidence.metrics,
                              ::rund::detail::task::StatSlot::Parked) +=
       logical_yields;
@@ -119,9 +121,10 @@ void Scheduler::RecordLaneLocalYieldEpochBatch(
       state_->evidence.metrics,
       ::rund::detail::task::StatSlot::YieldLaneLocalEpochLogicalYields) +=
       logical_yields;
-  ::rund::detail::task::Stat(state_->evidence.metrics,
-                             ::rund::detail::task::StatSlot::Yields) +=
-      logical_yields;
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Yields),
+      logical_yields);
   ::rund::detail::task::Stat(state_->evidence.metrics,
                              ::rund::detail::task::StatSlot::Parked) +=
       logical_yields;

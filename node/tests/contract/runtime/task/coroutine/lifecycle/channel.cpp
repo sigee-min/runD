@@ -33,8 +33,13 @@ int CheckCoroutineChannelSend() {
                       static_cast<bool>(sender) && static_cast<bool>(receiver);
                   joined = rund::task::join(sender, receiver);
                 });
-  return AssertCoroutineAwaitSuccess(report, joined, handle_valid, after, 2u,
-                                     2u);
+  if (AssertCoroutineAwaitSuccess(report, joined, handle_valid, after, 2u,
+                                  2u) != 0) {
+    return 1;
+  }
+  TEST_ASSERT(report.tasks().channel_sends() == 1u);
+  TEST_ASSERT(report.tasks().channel_recvs() == 1u);
+  return 0;
 }
 
 int CheckCoroutineChannelRecv() {
@@ -67,6 +72,8 @@ int CheckCoroutineChannelRecv() {
     return 1;
   }
   TEST_ASSERT(value == 11);
+  TEST_ASSERT(report.tasks().channel_sends() == 1u);
+  TEST_ASSERT(report.tasks().channel_recvs() == 1u);
   return 0;
 }
 

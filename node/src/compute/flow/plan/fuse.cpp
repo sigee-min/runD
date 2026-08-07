@@ -1,5 +1,7 @@
 #include "state.hpp"
 
+#include "../../type.hpp"
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -56,7 +58,7 @@ enum class Compose : unsigned char {
       selected = true;
       return true;
     }
-    const bool fixed = type == Type::FixedLane32 || type == Type::FixedLane64;
+    const bool fixed = type_fixed(type);
     return candidate.type == type &&
            (!fixed || candidate.fixed_format == format);
   };

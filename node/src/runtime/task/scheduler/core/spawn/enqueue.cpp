@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../state/model/context.hpp"
@@ -42,8 +43,10 @@ task::Handle Scheduler::EnqueuePreparedSpawnTask(
   }
   record.resource_live = true;
   state_->resources.live_tasks.fetch_add(1u, std::memory_order_relaxed);
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Spawned);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Spawned),
+      1u);
   RecordSpawnBatch(record.id, parent_id, record.scope_id, name_hash);
 
   task::Handle handle = ::rund::detail::task::HandleAccess::Make(

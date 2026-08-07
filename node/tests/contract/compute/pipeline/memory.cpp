@@ -3,9 +3,11 @@
 #include <node/runtime/compute/access.hpp>
 
 #include "src/accel/kernel/prepared/failure.hpp"
+#include "src/compute/job/control/model.hpp"
 #include "src/compute/job/local.hpp"
 #include "src/compute/memory/arena.hpp"
 #include "src/compute/memory/cpu.hpp"
+#include "src/compute/pipeline/plan/arena.hpp"
 #include "src/compute/pipeline/plan/local.hpp"
 #include "src/compute/pipeline/state.hpp"
 #include "src/compute/status.hpp"
@@ -47,6 +49,40 @@ namespace rund_node_test_pipeline {
   if (!first || !second || !first_source || !second_source || !first_output ||
       !second_output) {
     return 1;
+  }
+  const std::shared_ptr<detail::ProgramState> &first_program =
+      detail::ProgramAccess::state(*first);
+  auto standalone = first->resident(first_input);
+  const std::shared_ptr<detail::JobState> standalone_state =
+      standalone ? detail::JobAccess::state(*standalone)
+                 : std::shared_ptr<detail::JobState>{};
+  auto missing_workspace = std::make_shared<detail::JobState>();
+  missing_workspace->program = first_program;
+  const Status missing_status = detail::prepare_job_state(
+      missing_workspace, detail::JobBindings::ReadOnly,
+      detail::JobGraphBufferMode::SealedPipeline);
+  auto invalid_mode = std::make_shared<detail::JobState>();
+  invalid_mode->program = first_program;
+  const Status invalid_mode_status =
+      detail::prepare_job_state(invalid_mode, detail::JobBindings::ReadOnly,
+                                static_cast<detail::JobGraphBufferMode>(0xffu));
+  auto prepopulated = std::make_shared<detail::JobState>();
+  prepopulated->program = first_program;
+  prepopulated->graph_buffers.resize(1u);
+  const Status prepopulated_status =
+      detail::prepare_job_state(prepopulated, detail::JobBindings::ReadOnly,
+                                detail::JobGraphBufferMode::SealedPipeline);
+  if (first_program == nullptr || first_program->chunks.empty() ||
+      standalone_state == nullptr || standalone_state->workspace != nullptr ||
+      standalone_state->graph_buffers.size() != first_program->chunks.size() ||
+      missing_status || missing_status.reason() != Reason::PipelineInvalid ||
+      !missing_workspace->graph_buffers.empty() || invalid_mode_status ||
+      invalid_mode_status.reason() != Reason::PipelineInvalid ||
+      !invalid_mode->graph_buffers.empty() || prepopulated_status ||
+      prepopulated_status.reason() != Reason::PipelineInvalid ||
+      prepopulated->graph_buffers.size() != 1u ||
+      prepopulated->graph_buffers.front() != nullptr) {
+    return 27;
   }
   auto builder =
       pipeline(device)
@@ -375,6 +411,37 @@ namespace rund_node_test_pipeline {
   arena_step.program = arena_program;
   arena_step.logical_step = 0u;
   arena_build.steps.push_back(std::move(arena_step));
+
+  // The arena planner receives a compact route, so its public largest/peak
+  // phase must consume the common route projector without inventing an outer
+  // occurrence for the reusable Fold route.
+  std::array<detail::PipelineBuildStep, 1u> fold_steps{};
+  fold_steps.front().program = arena_program;
+  fold_steps.front().logical_step = 7u;
+  fold_steps.front().iteration = 2u;
+  fold_steps.front().route = detail::PipelineRoute::NestedFold;
+  detail::PipelineMemoryPlan fold_plan{};
+  const Status fold_planned = detail::plan_pipeline_arena(
+      *arena_build.device,
+      std::span<const detail::PipelineBuildStep>{fold_steps}, fold_plan);
+  if (!fold_planned ||
+      fold_plan.summary.largest_nested_phase != PipelineNestedPhase::Fold ||
+      fold_plan.summary.peak_nested_phase != PipelineNestedPhase::Fold ||
+      fold_plan.summary.largest_step != 7u ||
+      fold_plan.summary.largest_iteration != 2u ||
+      fold_plan.summary.peak_step != 7u ||
+      fold_plan.summary.peak_iteration != 2u ||
+      fold_plan.summary.largest_outer_window !=
+          std::numeric_limits<std::size_t>::max() ||
+      fold_plan.summary.largest_inner_iteration !=
+          std::numeric_limits<std::size_t>::max() ||
+      fold_plan.summary.peak_outer_window !=
+          std::numeric_limits<std::size_t>::max() ||
+      fold_plan.summary.peak_inner_iteration !=
+          std::numeric_limits<std::size_t>::max()) {
+    return 25;
+  }
+
   const auto arena_plan = detail::plan_memory(arena_build);
   if (!arena_plan || (*arena_plan)->frozen == nullptr ||
       (*arena_plan)->summary.allocation_count != 1u ||
@@ -451,6 +518,43 @@ namespace rund_node_test_pipeline {
               workspace->buffers[1u] == arena_memory->buffers.front());
     }
     return 12;
+  }
+
+  // A present recurrence follower cannot copy a null materialized owner and
+  // fall through to private Job allocation. Corrupt only the owner's sealed
+  // presence record; the follower must reject instead of becoming null.
+  detail::PipelineBuildState follower_build{};
+  follower_build.device = arena_build.device;
+  for (std::size_t iteration = 0u; iteration < 2u; ++iteration) {
+    detail::PipelineBuildStep follower{};
+    follower.program = arena_program;
+    follower.logical_step = 3u;
+    follower.iteration = iteration;
+    follower.iteration_bound = 2u;
+    follower_build.steps.push_back(std::move(follower));
+  }
+  const auto follower_plan = detail::plan_memory(follower_build);
+  if (!follower_plan || (*follower_plan)->frozen == nullptr ||
+      (*follower_plan)->workspace_routes.size() != 2u ||
+      !(*follower_plan)->workspace_routes[0u].owns(0u) ||
+      (*follower_plan)->workspace_routes[1u].owner != 0u) {
+    return 26;
+  }
+  const auto follower_memory = detail::make_pipeline_memory(
+      follower_build.device, (*follower_plan)->frozen->steps, **follower_plan);
+  if (!follower_memory || follower_memory->steps.size() != 2u ||
+      follower_memory->steps[0u] == nullptr ||
+      follower_memory->steps[0u] != follower_memory->steps[1u] ||
+      follower_memory->steps[0u]->arena != nullptr) {
+    return 26;
+  }
+  detail::PipelineMemoryPlan missing_owner = **follower_plan;
+  missing_owner.workspace_routes[0u] = {};
+  const auto rejected_follower = detail::make_pipeline_memory(
+      follower_build.device, missing_owner.frozen->steps, missing_owner);
+  if (rejected_follower ||
+      rejected_follower.reason() != Reason::PipelineInvalid) {
+    return 26;
   }
 
   auto chunked = std::make_shared<detail::ProgramState>();

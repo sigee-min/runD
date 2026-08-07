@@ -68,8 +68,7 @@ struct ReadyManyAccess {
   Park(Scheduler &scheduler, ReadyManyEntry &entry,
        std::optional<std::chrono::nanoseconds> timeout,
        std::uint64_t stop_source_id, std::uint64_t stop_generation,
-       std::uint64_t stop_epoch, std::uint64_t ready_set_id,
-       std::uint64_t ready_set_generation) noexcept;
+       std::uint64_t stop_epoch, ::rund::net::ready::Set ready_set) noexcept;
   [[nodiscard]] static bool
   ParkRegisterWaits(Scheduler &scheduler, ReadyManyEntry &entry,
                     std::uint64_t stop_source_id, std::uint64_t stop_generation,

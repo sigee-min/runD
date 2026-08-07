@@ -25,16 +25,10 @@ ReadResult read(ready::Ticket &&ticket, const std::span<std::byte> buffer,
   if (handler == nullptr || InvalidBuffer(buffer.data(), buffer.size())) {
     return fail_read(::rund::ReasonCode::TaskInvalid);
   }
-  ready::detail::Operation operation = ready::detail::prepare(claim);
-  if (!operation) {
-    return fail_read(operation.code());
-  }
-
   ReadResult result{::rund::ReasonCode::Ok};
   for (std::uint32_t attempt = 0u; attempt < budget.max_operations; ++attempt) {
-    const ReceiveResult received = ::rund::net::detail::complete_receive(
-        operation.id(), buffer,
-        node::NativeTryRecv(operation.native(), buffer));
+    const ReceiveResult received =
+        ::rund::net::detail::receive_attempt(claim, buffer);
     if (!received) {
       if (received.code() == ::rund::ReasonCode::IoWouldBlock) {
         result.would_block = true;
@@ -82,16 +76,10 @@ WriteResult write(ready::Ticket &&ticket, std::span<const std::byte> bytes,
   if (handler == nullptr || InvalidBuffer(bytes.data(), bytes.size())) {
     return fail_write(::rund::ReasonCode::TaskInvalid);
   }
-  ready::detail::Operation operation = ready::detail::prepare(claim);
-  if (!operation) {
-    return fail_write(operation.code());
-  }
-
   WriteResult result{::rund::ReasonCode::Ok};
   std::uint64_t completed_offset = 0u;
   for (std::uint32_t attempt = 0u; attempt < budget.max_operations; ++attempt) {
-    const SendResult sent = ::rund::net::detail::complete_send(
-        operation.id(), bytes, node::NativeTrySend(operation.native(), bytes));
+    const SendResult sent = ::rund::net::detail::send_attempt(claim, bytes);
     if (!sent) {
       if (sent.code() == ::rund::ReasonCode::IoWouldBlock) {
         result.would_block = true;

@@ -31,9 +31,12 @@ struct CpuViewTransfer final {
 };
 
 // A recurrence owns one Program-internal value workspace for its complete
-// lifetime. Its occurrences have distinct external binding routes, but they
-// execute serially behind the owning Pipeline gate and therefore share these
-// dead-after-occurrence buffers without changing value or operation order.
+// lifetime. It carries the Program chunk table and, when present, the shared
+// Pipeline JobArena used by accelerator View/scratch bindings. Its occurrences
+// have distinct external binding routes, but execute serially behind the
+// owning Pipeline gate and share this carrier without changing value or
+// operation order. CPU dense-View transfers remain Job-owned and do not make a
+// workspace present.
 struct JobWorkspace final {
   JobWorkspace() noexcept = default;
   JobWorkspace(const JobWorkspace &) = delete;

@@ -415,14 +415,11 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
       profile.index = declared.logical_step;
       profile.iteration = declared.iteration;
       profile.iteration_bound = declared.iteration_bound;
+      profile.nested_phase = pipeline_nested_phase(declared.route);
       if (declared.route == PipelineRoute::NestedSeed) {
         profile.outer_window = declared.iteration;
-        profile.nested_phase = PipelineNestedPhase::Seed;
       } else if (declared.route == PipelineRoute::NestedAction) {
         profile.inner_iteration = declared.iteration;
-        profile.nested_phase = PipelineNestedPhase::Action;
-      } else if (declared.route == PipelineRoute::NestedFold) {
-        profile.nested_phase = PipelineNestedPhase::Fold;
       }
       if (declared.nested != 0u) {
         const PipelineFrozenNestedWindow &nested =

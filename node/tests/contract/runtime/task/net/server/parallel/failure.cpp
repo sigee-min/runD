@@ -100,6 +100,35 @@ struct ClosePeerHandler final {
   return 0;
 }
 
+[[nodiscard]] bool MixedTerminalOrderSelectsLowest(
+    const bool lower_index_first) noexcept {
+  rund::net::server::Result served{rund::ReasonCode::Ok};
+  served.accepted = 2u;
+  served.started = 2u;
+  rund::net::server::detail::Outcomes outcomes{.result = &served};
+  const auto record_lower = [&] {
+    rund::net::server::detail::record(
+        outcomes, 0u, rund::net::server::PeerResult::stop());
+  };
+  const auto record_higher = [&] {
+    rund::net::server::detail::record(
+        outcomes, 1u, rund::net::server::PeerResult::fail(
+                          rund::ReasonCode::IoUnsupported));
+  };
+  if (lower_index_first) {
+    record_lower();
+    record_higher();
+  } else {
+    record_higher();
+    record_lower();
+  }
+  rund::net::server::detail::finish(
+      served, rund::task::Status::success(), outcomes);
+  return served.code() == rund::ReasonCode::NetPeerHandlerStopped &&
+         served.completed == 0u && served.failed == 1u &&
+         served.stopped == 1u && ServerCountsAreConsistent(served, 2u);
+}
+
 [[nodiscard]] int RunServerParallelFailureOrderCase() {
   constexpr std::size_t kClients = 2u;
   ServerParallelLoopbackFixture fixture{};
@@ -150,8 +179,7 @@ struct ClosePeerHandler final {
         while (!higher_finished.load(std::memory_order_acquire)) {
           static_cast<void>(co_await rund::task::yield());
         }
-        co_return rund::net::server::PeerResult::fail(
-            rund::ReasonCode::IoPollFailed);
+        co_return rund::net::server::PeerResult::stop();
       };
       served = co_await rund::net::server::serve(options, peer_tasks,
                                                  std::move(handler));
@@ -162,12 +190,12 @@ struct ClosePeerHandler final {
 
   TEST_ASSERT(run.ok());
   TEST_ASSERT(joined.ok());
-  TEST_ASSERT(served.code() == rund::ReasonCode::IoPollFailed);
+  TEST_ASSERT(served.code() == rund::ReasonCode::NetPeerHandlerStopped);
   TEST_ASSERT(served.accepted == kClients);
   TEST_ASSERT(served.started == kClients);
   TEST_ASSERT(served.completed == 0u);
-  TEST_ASSERT(served.failed == kClients);
-  TEST_ASSERT(served.stopped == 0u);
+  TEST_ASSERT(served.failed == 1u);
+  TEST_ASSERT(served.stopped == 1u);
   TEST_ASSERT(ServerCountsAreConsistent(served, kClients));
   return 0;
 }
@@ -362,6 +390,8 @@ int RunServerParallelHandlerFailureCase() {
                   rund::ReasonCode::IoUnsupported) == 0);
   TEST_ASSERT(operation_failed_close.ok());
   TEST_ASSERT(RunServerParallelMissingTerminalCase() == 0);
+  TEST_ASSERT(MixedTerminalOrderSelectsLowest(false));
+  TEST_ASSERT(MixedTerminalOrderSelectsLowest(true));
   TEST_ASSERT(RunServerParallelFailureOrderCase() == 0);
   TEST_ASSERT(RunServerParallelReadyQueueSaturationCase() == 0);
   TEST_ASSERT(RunServerParallelTaskCapacityCase() == 0);

@@ -21,8 +21,7 @@ admit_flow_input(const std::shared_ptr<FlowState> &flow, const HostView input,
     reject(*flow, Reason::ShapeMismatch);
     return 0u;
   }
-  const bool fixed_input =
-      input.type == Type::FixedLane32 || input.type == Type::FixedLane64;
+  const bool fixed_input = type_fixed(input.type);
   const bool format_present =
       fixed_format.integer_bits != 0u || fixed_format.fraction_bits != 0u;
   const std::size_t format_width =

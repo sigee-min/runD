@@ -33,7 +33,7 @@ expression_state_ok(const ExprState &state, const std::span<const Type> inputs,
       if (node.left >= inputs.size() || node.type != inputs[node.left]) {
         return false;
       }
-      if (node.type == Type::FixedLane32 || node.type == Type::FixedLane64) {
+      if (type_fixed(node.type)) {
         const auto bit = static_cast<std::uint16_t>(
             std::uint16_t{1u} << static_cast<std::size_t>(node.left));
         if ((validation.fixed_input_mask & bit) == 0u) {
@@ -109,8 +109,7 @@ bool expressions_ok(const std::span<const Type> outputs,
                expression.fixed_format) {
       state_validations[state_index].fallback_consistent = false;
     }
-    if (outputs[index] == Type::FixedLane32 ||
-        outputs[index] == Type::FixedLane64) {
+    if (type_fixed(outputs[index])) {
       const ExprOp root =
           expression.state->nodes[expression.node - 1u].operation;
       if (root != ExprOp::Input && root != ExprOp::Quantize &&
@@ -155,8 +154,7 @@ bool fixed_output_missing_quantize(
     return false;
   }
   for (std::size_t index = 0u; index < outputs.size(); ++index) {
-    if (outputs[index] != Type::FixedLane32 &&
-        outputs[index] != Type::FixedLane64) {
+    if (!type_fixed(outputs[index])) {
       continue;
     }
     const ExprRef &expression = expressions[index];

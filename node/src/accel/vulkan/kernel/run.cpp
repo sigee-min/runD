@@ -1584,7 +1584,8 @@ rund::AccelCheck PlanVulkanPipelineRecurrence(
        !add_pipeline_source(VulkanCanonicalStatusSourceText().size())) ||
       (reservation.backend_telemetry_count != 0u &&
        !add_pipeline_source(telemetry_source_bytes)) ||
-      (has_windows && !add_pipeline_source(VulkanWindowSourceText().size())) ||
+      (has_windows &&
+       (!VulkanWindowSourceBytes(bytes) || !add_pipeline_source(bytes))) ||
       (reservation.backend_indirect_dispatch_count != 0u &&
        !add_pipeline_source(VulkanGateSourceText().size())) ||
       (reservation.backend_publication_count != 0u &&

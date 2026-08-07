@@ -1,5 +1,7 @@
 #pragma once
 
+#include "phase.hpp"
+
 #include "../bindings/build.hpp"
 #include "../plan.hpp"
 #include "../publication.hpp"
@@ -225,17 +227,6 @@ static_assert(alignof(ResidentState) == alignof(std::uint32_t));
 static_assert(offsetof(ResidentState, current) == 0u);
 static_assert(offsetof(ResidentState, stopped) == 4u);
 
-// A compact nested Pipeline retains one route template for every outer seed,
-// inner action, and fold-bank transition. Cold native capture expands those
-// templates into physical command occurrences without manufacturing another
-// Job/prepared-resource owner per occurrence.
-enum class BackendWindowPhase : std::uint8_t {
-  Ordinary,
-  NestedSeed,
-  NestedAction,
-  NestedFold,
-};
-
 // Authored recurrence identity is carried from Pipeline planning so a backend
 // never guesses that an ordinary ping-pong chain is disposable. A bound of one
 // is the canonical non-recurrence value.
@@ -286,7 +277,7 @@ struct BackendWindow final {
   bool has_terminal{};
 
   [[nodiscard]] constexpr bool nested() const noexcept {
-    return phase != BackendWindowPhase::Ordinary;
+    return BackendWindowPhaseIsNested(phase);
   }
 
   [[nodiscard]] constexpr bool advances_outer_state() const noexcept {
@@ -318,19 +309,9 @@ struct BackendWindow final {
     return false;
   }
 
-  [[nodiscard]] constexpr rund::compute::PipelineNestedPhase
-  nested_phase() const noexcept {
-    switch (phase) {
-    case BackendWindowPhase::NestedSeed:
-      return rund::compute::PipelineNestedPhase::Seed;
-    case BackendWindowPhase::NestedAction:
-      return rund::compute::PipelineNestedPhase::Action;
-    case BackendWindowPhase::NestedFold:
-      return rund::compute::PipelineNestedPhase::Fold;
-    case BackendWindowPhase::Ordinary:
-      return rund::compute::PipelineNestedPhase::None;
-    }
-    return rund::compute::PipelineNestedPhase::None;
+  [[nodiscard]] constexpr bool nested_phase(
+      rund::compute::PipelineNestedPhase &out) const noexcept {
+    return ProjectBackendWindowPhase(phase, out);
   }
 };
 

@@ -127,16 +127,13 @@ namespace rund_node_test_pipeline {
                 : std::shared_ptr<detail::PipelineState>{};
   const std::shared_ptr<detail::ProgramState> &advance_state =
       detail::ProgramAccess::state(*advance);
-  const bool needs_workspace =
-      advance_state != nullptr && !advance_state->chunks.empty();
   if (recurrent_state == nullptr || advance_state == nullptr ||
-      recurrent_state->steps.size() != 2u ||
+      !advance_state->chunks.empty() || recurrent_state->steps.size() != 2u ||
       recurrent_state->steps[0].job == nullptr ||
       recurrent_state->steps[1].job == nullptr ||
       recurrent_state->steps[0].alternate_job == nullptr ||
       recurrent_state->steps[1].alternate_job == nullptr ||
-      (recurrent_state->steps[0].job->workspace != nullptr) !=
-          needs_workspace ||
+      recurrent_state->steps[0].job->workspace != nullptr ||
       recurrent_state->steps[0].job->workspace !=
           recurrent_state->steps[1].job->workspace ||
       recurrent_state->steps[0].job->workspace !=

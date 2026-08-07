@@ -32,6 +32,25 @@ struct Outcomes final {
   std::atomic<std::uint64_t> first_failure{no_failure};
 };
 
+enum class PeerTerminalClass : std::uint8_t {
+  Completed,
+  Stopped,
+  Failed,
+};
+
+[[nodiscard]] inline constexpr PeerTerminalClass
+classify_peer_terminal(const PeerResult terminal) noexcept {
+  if (terminal) {
+    return PeerTerminalClass::Completed;
+  }
+  return terminal.stopped() ? PeerTerminalClass::Stopped
+                            : PeerTerminalClass::Failed;
+}
+
+[[nodiscard]] inline PeerResult handler_invocation_failure() noexcept {
+  return PeerResult::fail(::rund::ReasonCode::NetPeerHandlerFailed);
+}
+
 [[nodiscard]] inline constexpr std::uint64_t
 pack_failure(const std::uint32_t index,
              const ::rund::ReasonCode code) noexcept {
@@ -55,14 +74,16 @@ inline void increment(std::uint32_t &value) noexcept {
 
 inline void record(Outcomes &outcomes, const std::uint32_t index,
                    const PeerResult terminal) noexcept {
-  if (terminal) {
+  switch (classify_peer_terminal(terminal)) {
+  case PeerTerminalClass::Completed:
     increment(outcomes.result->completed);
     return;
-  }
-  if (terminal.stopped()) {
+  case PeerTerminalClass::Stopped:
     increment(outcomes.result->stopped);
-  } else {
+    break;
+  case PeerTerminalClass::Failed:
     increment(outcomes.result->failed);
+    break;
   }
 
   const std::uint64_t candidate = pack_failure(index, terminal.code());
@@ -88,8 +109,7 @@ template <typename Handler>
     record(*outcomes, index,
            flatten(co_await std::invoke(*handler, std::move(peer))));
   } catch (...) {
-    record(*outcomes, index,
-           PeerResult::fail(::rund::ReasonCode::NetPeerHandlerFailed));
+    record(*outcomes, index, handler_invocation_failure());
   }
 }
 
@@ -162,24 +182,23 @@ template <typename Handler>
 
     ++result.accepted;
     ++result.started;
+    PeerResult handled{};
     try {
-      const PeerResult handled =
-          flatten(co_await std::invoke(handler, std::move(next.peer)));
-      if (!handled && !handled.stopped()) {
-        ++result.failed;
-        net::result::Access::set(result, handled.code());
-        co_return result;
-      }
-      if (handled.stopped()) {
-        ++result.stopped;
-        net::result::Access::set(result, handled.code());
-        co_return result;
-      }
-      ++result.completed;
+      handled = flatten(co_await std::invoke(handler, std::move(next.peer)));
     } catch (...) {
+      handled = handler_invocation_failure();
+    }
+    switch (classify_peer_terminal(handled)) {
+    case PeerTerminalClass::Completed:
+      ++result.completed;
+      break;
+    case PeerTerminalClass::Stopped:
+      ++result.stopped;
+      net::result::Access::set(result, handled.code());
+      co_return result;
+    case PeerTerminalClass::Failed:
       ++result.failed;
-      net::result::Access::set(result,
-                               ::rund::ReasonCode::NetPeerHandlerFailed);
+      net::result::Access::set(result, handled.code());
       co_return result;
     }
   }

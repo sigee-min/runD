@@ -1150,6 +1150,47 @@ Seed and Fold identify
 their phase and have no fabricated inner iteration. The product `k * N + j`
 is never a storage, capacity, ordering, or failure authority.
 
+Within Compute, the frozen `PipelineRoute` has one route-to-public-phase
+projection. Publication locations, memory-plan summaries, cold and reset
+profile rows, and synchronous and asynchronous failure evidence all consume
+that projection; none keeps a separate Seed/Action/Fold mapping. Coordinate
+selection remains contextual: a compact Seed route identifies its outer
+ordinal, a compact Action route identifies its inner ordinal, and reusable
+Action/Fold routes do not manufacture an outer occurrence. Backend-window and
+native packed-control phase encodings do not replace this Compute-owned
+mapping.
+
+`PipelineNestedPhase` owns the stable public and device numeric contract:
+`None = 0`, `Seed = 1`, `Action = 2`, and `Fold = 3`, with a U8 underlying
+type. Its one constexpr contract table owns the admitted phase set, public
+outer/inner coordinate shape, and generated-source key. The internal checked
+codec and source emitter consume that table to derive `BackendWindowPhase`,
+prepared recurrence identity bytes, packed-control U32 values, Metal/Vulkan
+constants, and the common device validity function. No host codec or backend
+source retains a second four-phase switch or OR-list. Encode, decode, and
+projection reject an unknown enum or U32 without substituting `None` or
+`Ordinary`.
+`NestedTemplatePhase` remains an intentionally different topology type whose
+Seed ordinal is zero; only its semantic switch may project it to a backend
+phase, so ordinal casts are forbidden. The prepared recurrence identity keeps
+its 52-byte layout and phase byte at offset 48, and its fingerprint mixes the
+checked canonical code.
+
+Vulkan may combine the backend Seed code with one canonical high preflight
+bit in a transient push parameter. One internal preflight-phase constant feeds
+both the checked host codec and the generated packed-parameter decoder. The
+decoder returns the validated base phase and preflight projection to the
+Vulkan body, which does not unpack the parameter again. No
+other high bit or phase/preflight pair is valid; in particular, masking an
+unknown value into the range zero through three is forbidden. Host decoding
+rejects it before capture. Generated device code also treats an invalid value
+as `PipelineInvalid`, closes the resident state, and clears every indirect
+argument owned by that state before any later
+payload dispatch. Metal records the same canonical failure and closes the
+state for an invalid phase. Source-size accounting and compiler artifacts
+consume the same allocation-free constant-emission recipe, so generated
+decimal spellings cannot drift from planned source bytes.
+
 Each backend-neutral window descriptor carries its outer coordinate exactly
 once as `outer_iteration` and `outer_bound`. A compact nested Action or Fold
 template initially carries an unmaterialized outer coordinate. In the fallback
@@ -2500,8 +2541,10 @@ The public projection converts the sentinel to
 The eight legacy telemetry U64 fields and four nested-work U64 fields are
 generated and accumulated by the device in canonical occurrence and primitive
 order through the first failing Program, inclusive. The three nested failure
-coordinates use `UINT32_MAX` when unknown; the fourth U32 preserves eight-byte
-alignment. Each telemetry dispatch reads the state immediately after its
+coordinates use `UINT32_MAX` when unknown. `failed_nested_phase` is the U32
+encoding of the canonical public phase and accepts only the four values above;
+the fourth U32 preserves eight-byte alignment. Each telemetry dispatch reads
+the state immediately after its
 occurrence, then a compute-visibility barrier publishes that accumulation
 before the next occurrence may reuse the same route. A Program boundary fold
 merges that Program's status-owned telemetry exactly once and records its
@@ -3214,13 +3257,44 @@ retained authority; they are not an additive global-owner inventory.
 Each distinct private Job is included once in the coordinator metadata group.
 A transactional route owns two Jobs because native bindings are frozen; both
 are counted, while a nontransactional route retains only the primary. Every
-Program with a real workspace consumer receives one frozen workspace route;
-all occurrences of one recurrence and both transactional routes reuse it. A
-CPU Program with no chunks, dense Views, or other workspace consumer retains
-an intentional null workspace. Non-null CPU workspace objects and their
+compact route has one frozen typed workspace record that is either absent,
+self-owned, or borrowed from an earlier phase-local recurrence root. Let
+
+```text
+C(r) = Program r has an internal chunk
+V(r) = accelerator KernelViewLayout r is nonempty
+A    = the Pipeline has a global JobArena View chunk or scratch page
+E(r) = Program r has nonzero work
+
+W(r) = C(r) || V(r) || (A && E(r))
+```
+
+This is the sole workspace-presence decision. It is sealed after Program
+arena, accelerator View, and scratch planning and before CPU slices,
+accelerator preflight, host reservation, or materialization. A recurrence
+continuation copies the complete record from the preceding occurrence in the
+same Program/logical-step/phase; a new phase starts a new root. All consumers
+read the record and cannot re-evaluate `W`. Both transactional Jobs borrow the
+same record.
+
+`A` remains a distinct global-arena authority. In particular, a chunks-only
+workspace is present while its `JobArena` pointer is null. Conversely, when
+`A` is true every nonempty accelerator Program receives a workspace carrier,
+even if its buffer and offset arrays are empty, so native preflight and runtime
+hash the same non-null View/scratch layouts. A zero-work Program remains
+absent. CPU `CpuViewTransferLayout` is Job-owned and is not `V(r)`; a CPU
+Program with no chunks therefore retains an intentional null workspace even
+when it has a dense View transfer. Non-null CPU workspace objects and their
 buffer/offset arrays live inside the one sealed arena; accelerator workspace
-owners retain the heap formula above. The host reservation and materializer
-consume the same owner map instead of interpreting iteration fields twice.
+owners retain the heap formula above.
+
+Materialization is a one-way handoff from the cold record to a workspace
+pointer. A present owner must materialize, and a present borrower must observe
+that non-null self-owner. Pipeline Job preparation may validate this sealed
+storage but may not fall through to the standalone Job graph-buffer allocator;
+only standalone Jobs retain that allocation path. The host reservation and
+materializer therefore consume the same route without interpreting Program,
+View, arena, or iteration state again.
 
 Independently, a CPU Pipeline owns exactly one `CpuGraphStorage` per distinct
 Program through `PipelineState::cpu_storage`, and exactly one

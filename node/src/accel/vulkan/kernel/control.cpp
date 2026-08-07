@@ -3,6 +3,7 @@
 #include "pipeline/source_artifact.hpp"
 
 #include "../../../hash/fnv.hpp"
+#include "../../kernel/backend/phase_source.hpp"
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
@@ -49,7 +50,7 @@ struct ControlParams final {
   std::uint32_t phase{};
   std::uint32_t failed_outer_window{PreparedPipelineNoStep};
   std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
-  std::uint32_t failed_nested_phase{};
+  std::uint32_t failed_nested_phase{PipelineNestedPhaseNoneCode};
   std::uint32_t reserved{};
   std::uint32_t generation_stride{};
   std::uint32_t declared_step_count{};
@@ -119,8 +120,11 @@ void main() {
 )GLSL";
 }
 
-[[nodiscard]] constexpr std::string_view ReduceSource() noexcept {
-  return R"GLSL(#version 450
+inline constexpr std::string_view VulkanReduceStatusPreamble =
+    R"GLSL(#version 450
+)GLSL";
+
+inline constexpr std::string_view VulkanReduceStatusBody = R"GLSL(
 layout(local_size_x = 256) in;
 layout(set = 0, binding = 0, std430) readonly buffer CanonicalStatus {
   uint status_values[];
@@ -154,7 +158,7 @@ void main() {
       control[19] = 0xffffffffu;
       control[20] = 0xffffffffu;
       control[21] = 0xffffffffu;
-      control[22] = 0u;
+      control[22] = rund_pipeline_phase_none;
       control[23] = 0u;
       for (uint index = 24u; index < 32u; ++index) { control[index] = 0u; }
     }
@@ -169,6 +173,18 @@ void main() {
       } else {
         control[3] = control[2];
       }
+    }
+    return;
+  }
+  const bool valid_failed_phase =
+      rund_pipeline_phase_valid(p.failed_nested_phase);
+  if (!valid_failed_phase) {
+    if (lane == 0u && control[1] == 0u) {
+      control[1] = rund_pipeline_reason_invalid;
+      control[2] = p.declared_step;
+      control[20] = 0xffffffffu;
+      control[21] = 0xffffffffu;
+      control[22] = rund_pipeline_phase_none;
     }
     return;
   }
@@ -203,6 +219,22 @@ void main() {
   }
 }
 )GLSL";
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanReduceStatusSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  return sink.append(VulkanReduceStatusPreamble) &&
+         EmitPipelineNestedPhaseContract(
+             sink, PipelineNestedPhaseSourceLanguage::Vulkan) &&
+         sink.append(VulkanReduceStatusBody);
+}
+
+[[nodiscard]] std::string_view ReduceSource() noexcept {
+  static const auto source = backend_source_recipe::materialize_fixed<
+      VulkanReduceStatusPreamble.size() + VulkanReduceStatusBody.size() +
+      1024u>(
+      [](auto &sink) noexcept { return EmitVulkanReduceStatusSource(sink); });
+  return source.text();
 }
 
 void ReleaseDescriptorLeases(VulkanPipelineControlResources &control) {
@@ -442,11 +474,14 @@ namespace {
 EncodeVulkanPipelineControl(const VkCommandBuffer command,
                             const VulkanPipelineControlResources &control,
                             ControlParams params) noexcept {
+  rund::compute::PipelineNestedPhase failed_phase{};
   if (command == VK_NULL_HANDLE || control.reduce_pipeline == nullptr ||
       control.reduce_descriptor == VK_NULL_HANDLE ||
       control.summary.buffer == VK_NULL_HANDLE ||
       (params.phase == 0u &&
-       (params.count == 0u || control.arena.buffer == VK_NULL_HANDLE))) {
+       (params.count == 0u || control.arena.buffer == VK_NULL_HANDLE ||
+        !DecodePipelineNestedPhase(params.failed_nested_phase,
+                                   failed_phase)))) {
     return false;
   }
   params.generation_stride = control.generation_stride;

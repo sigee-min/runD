@@ -11,10 +11,6 @@
 
 namespace rund::compute::detail {
 
-[[nodiscard]] constexpr bool is_fixed(const Type type) noexcept {
-  return type == Type::FixedLane32 || type == Type::FixedLane64;
-}
-
 [[nodiscard]] constexpr bool
 same_fixed_storage_policy(const FixedFormat left,
                           const FixedFormat right) noexcept {

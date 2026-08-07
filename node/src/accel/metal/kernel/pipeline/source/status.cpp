@@ -1,12 +1,16 @@
 #include "../source.hpp"
 
-namespace rund::node::accel::detail {
+#include "../../../../kernel/backend/phase_source.hpp"
 
-std::string_view MetalPipelineStatusSource() noexcept {
-  return R"rundmetal(
+namespace rund::node::accel::detail {
+namespace {
+
+inline constexpr std::string_view MetalPipelineStatusPreamble = R"rundmetal(
 #include <metal_stdlib>
 using namespace metal;
+)rundmetal";
 
+inline constexpr std::string_view MetalPipelineStatusBody = R"rundmetal(
 struct StatusSource {
   uint encoding;
   uint declared_step;
@@ -142,7 +146,7 @@ inline void reset_telemetry(device PipelineControl *control) {
   control->overflow_ordinal = 0xfffffffffffffffful;
   control->failed_outer_window = 0xffffffffu;
   control->failed_inner_iteration = 0xffffffffu;
-  control->failed_nested_phase = 0u;
+  control->failed_nested_phase = rund_pipeline_phase_none;
   control->reserved = 0u;
   control->executed_outer_window_count = 0ul;
   control->skipped_outer_window_count = 0ul;
@@ -337,7 +341,19 @@ kernel void rund_pipeline_advance(
   if (gid != 0u) { return; }
   device ResidentState &state = states[params.state];
   uint active = 0u;
-  if (params.phase == 3u) {
+  const bool valid_phase = rund_pipeline_phase_valid(params.phase);
+  if (!valid_phase) {
+    if (control->reason == 0u) {
+      control->reason = rund_pipeline_reason_invalid;
+      control->failed_step = params.declared_step;
+      control->failed_outer_window = 0xffffffffu;
+      control->failed_inner_iteration = 0xffffffffu;
+      control->failed_nested_phase = rund_pipeline_phase_none;
+    }
+    state.stopped = params.iteration + 1u;
+    return;
+  }
+  if (params.phase == rund_pipeline_phase_fold) {
     if (state.stopped == 0u && params.inner_advance != 0u) {
       control->executed_inner_iteration_count =
           ulong(params.inner_advance) >
@@ -358,7 +374,7 @@ kernel void rund_pipeline_advance(
               ? 0xfffffffffffffffful
               : control->executed_outer_window_count + 1ul;
     }
-  } else if (params.phase == 2u) {
+  } else if (params.phase == rund_pipeline_phase_action) {
     active = state.stopped == 0u && control->reason == 0u ? 1u : 0u;
     if (active != 0u) {
       control->executed_inner_iteration_count =
@@ -375,7 +391,7 @@ kernel void rund_pipeline_advance(
     //
     // old: Seed(i) -> ... -> Fold(i) -> advance Fold(i) -> Seed(i+1)
     // new: Seed(i) -> ... -> Fold(i) -> Seed(i+1, completes Fold(i))
-    if (params.phase == 1u && params.iteration != 0u &&
+    if (params.phase == rund_pipeline_phase_seed && params.iteration != 0u &&
         state.stopped == 0u && control->reason == 0u) {
       control->executed_inner_iteration_count =
           ulong(params.inner_advance) >
@@ -410,15 +426,20 @@ kernel void rund_pipeline_advance(
       control->failed_step = params.declared_step;
       control->overflow_ordinal = ulong(params.maximum);
       control->failed_outer_window =
-          params.phase == 1u ? params.iteration : 0xffffffffu;
+          params.phase == rund_pipeline_phase_seed ? params.iteration
+                                                    : 0xffffffffu;
       control->failed_inner_iteration = 0xffffffffu;
-      control->failed_nested_phase = params.phase == 1u ? 1u : 0u;
+      control->failed_nested_phase =
+          params.phase == rund_pipeline_phase_seed
+              ? rund_pipeline_phase_seed
+              : rund_pipeline_phase_none;
     }
     active = state.stopped == 0u && control->reason == 0u &&
                      base < ulong(items) && !ended
                  ? 1u
                  : 0u;
-    if (params.phase == 1u && control->reason == 0u && active == 0u) {
+    if (params.phase == rund_pipeline_phase_seed && control->reason == 0u &&
+        active == 0u) {
       control->skipped_iteration_count =
           control->skipped_iteration_count == 0xfffffffffffffffful
               ? 0xfffffffffffffffful
@@ -437,7 +458,8 @@ kernel void rund_pipeline_advance(
     }
   }
   if (active != 0u) {
-    if (params.phase == 0u || params.phase == 3u) {
+    if (params.phase == rund_pipeline_phase_none ||
+        params.phase == rund_pipeline_phase_fold) {
       state.current = 1u + (params.iteration & 1u);
     }
   } else if (state.stopped == 0u) {
@@ -794,6 +816,24 @@ kernel void rund_pipeline_status_reduce_profiled(
 }
 
 )rundmetal";
+
+template <typename Sink>
+[[nodiscard]] bool EmitMetalPipelineStatusSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  return sink.append(MetalPipelineStatusPreamble) &&
+         EmitPipelineNestedPhaseContract(
+             sink, PipelineNestedPhaseSourceLanguage::Metal) &&
+         sink.append(MetalPipelineStatusBody);
+}
+
+} // namespace
+
+std::string_view MetalPipelineStatusSource() noexcept {
+  static const auto source = backend_source_recipe::materialize_fixed<
+      MetalPipelineStatusPreamble.size() + MetalPipelineStatusBody.size() +
+      1024u>(
+      [](auto &sink) noexcept { return EmitMetalPipelineStatusSource(sink); });
+  return source.text();
 }
 
 } // namespace rund::node::accel::detail

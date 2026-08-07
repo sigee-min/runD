@@ -20,10 +20,12 @@ YieldOnce(std::atomic<std::uint32_t> *const after_await) {
 }
 
 rund::task::Task<void>
-SleepOnce(std::atomic<std::uint32_t> *const after_await) {
-  const rund::task::Status slept =
-      co_await rund::task::sleep(std::chrono::nanoseconds{1});
-  (void)slept;
+SleepTwice(std::atomic<std::uint32_t> *const after_await) {
+  for (std::uint32_t index = 0u; index < 2u; ++index) {
+    const rund::task::Status slept =
+        co_await rund::task::sleep(std::chrono::nanoseconds{1});
+    (void)slept;
+  }
   after_await->fetch_add(1u, std::memory_order_release);
 }
 
@@ -133,11 +135,12 @@ int CheckCoroutineSleep() {
               {
                   .task_capacity = 4u,
                   .ready_queue_capacity = 4u,
+                  .observation_capacity = 1u,
               },
       },
       [&] {
         const rund::task::Handle task =
-            rund::task::spawn("coroutine-sleep-once", SleepOnce(&after_sleep));
+            rund::task::spawn("coroutine-sleep-twice", SleepTwice(&after_sleep));
         handle_valid = static_cast<bool>(task);
         joined = rund::task::join(task);
       });
@@ -150,12 +153,15 @@ int CheckCoroutineSleep() {
   TEST_ASSERT(report.tasks().spawned() == 1u);
   TEST_ASSERT(report.tasks().completed() == 1u);
   TEST_ASSERT(report.tasks().failed() == 0u);
-  TEST_ASSERT(report.tasks().timers() == 1u);
-  TEST_ASSERT(report.tasks().parked() == 1u);
+  TEST_ASSERT(report.tasks().timers() == 2u);
+  TEST_ASSERT(report.tasks().observations() == 2u);
+  TEST_ASSERT(report.observations().size() == 1u);
+  TEST_ASSERT(report.tasks().observation_dropped() == 1u);
+  TEST_ASSERT(report.tasks().parked() == 2u);
   TEST_ASSERT(report.tasks().coroutine_tasks_admitted() == 1u);
-  TEST_ASSERT(report.tasks().coroutine_resumes() == 2u);
-  TEST_ASSERT(report.tasks().coroutine_parks() == 1u);
-  TEST_ASSERT(report.tasks().coroutine_wakes() == 1u);
+  TEST_ASSERT(report.tasks().coroutine_resumes() == 3u);
+  TEST_ASSERT(report.tasks().coroutine_parks() == 2u);
+  TEST_ASSERT(report.tasks().coroutine_wakes() == 2u);
   TEST_ASSERT(report.tasks().coroutine_completions() == 1u);
   TEST_ASSERT(report.tasks().coroutine_failures() == 0u);
   TEST_ASSERT(report.tasks().coroutine_frame_destroys() == 1u);

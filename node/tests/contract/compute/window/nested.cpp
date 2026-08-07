@@ -54,6 +54,24 @@ constexpr std::array<std::uint32_t, 7u> kCounts{
 static_assert(kOuter == 3u);
 static_assert(kOuter * kInner < rund::compute::PipelineIterationCapacity);
 
+[[nodiscard]] constexpr bool PipelineRoutePhaseProjectionIsCanonical() {
+  using rund::compute::PipelineNestedPhase;
+  using rund::compute::detail::pipeline_nested_phase;
+  using rund::compute::detail::PipelineRoute;
+  return pipeline_nested_phase(PipelineRoute::Ordinary) ==
+             PipelineNestedPhase::None &&
+         pipeline_nested_phase(PipelineRoute::NestedSeed) ==
+             PipelineNestedPhase::Seed &&
+         pipeline_nested_phase(PipelineRoute::NestedAction) ==
+             PipelineNestedPhase::Action &&
+         pipeline_nested_phase(PipelineRoute::NestedFold) ==
+             PipelineNestedPhase::Fold &&
+         pipeline_nested_phase(static_cast<PipelineRoute>(0xffu)) ==
+             PipelineNestedPhase::None;
+}
+
+static_assert(PipelineRoutePhaseProjectionIsCanonical());
+
 [[nodiscard]] bool
 CpuRouteOwnershipIsExact(const rund::compute::Pipeline &pipeline) {
   using namespace rund::compute;
@@ -1026,6 +1044,9 @@ CheckCount(rund::compute::Device &device, const rund::compute::Backend backend,
         prepared->generation() != 0u || stats.command_submits != submits ||
         stats.pipeline.verified_step_count != 0u ||
         stats.pipeline.failed_step_index != 0u ||
+        stats.pipeline.failed_nested_phase != PipelineNestedPhase::Seed ||
+        stats.pipeline.failed_outer_window != 0u ||
+        stats.pipeline.failed_inner_iteration != PipelineStats::no_coordinate ||
         stats.pipeline.executed_outer_window_count != 0u ||
         stats.pipeline.executed_inner_iteration_count != 0u ||
         stats.pipeline.rebinding_count != 0u ||
@@ -1033,14 +1054,19 @@ CheckCount(rund::compute::Device &device, const rund::compute::Backend backend,
       std::fprintf(
           stderr,
           "nested overflow backend=%u status=%u reason=%u generation=%llu "
-          "submits=%llu verified=%llu failed=%llu outer=%llu inner=%llu "
-          "ordinal=%llu mutation=%llu bindings=%u\n",
+          "submits=%llu verified=%llu failed=%llu phase=%u "
+          "coordinate=%llu/%llu "
+          "outer=%llu inner=%llu ordinal=%llu mutation=%llu bindings=%u\n",
           static_cast<unsigned>(backend), static_cast<unsigned>(failed.ok()),
           static_cast<unsigned>(failed.reason()),
           static_cast<unsigned long long>(prepared->generation()),
           static_cast<unsigned long long>(stats.command_submits),
           static_cast<unsigned long long>(stats.pipeline.verified_step_count),
           static_cast<unsigned long long>(stats.pipeline.failed_step_index),
+          static_cast<unsigned>(stats.pipeline.failed_nested_phase),
+          static_cast<unsigned long long>(stats.pipeline.failed_outer_window),
+          static_cast<unsigned long long>(
+              stats.pipeline.failed_inner_iteration),
           static_cast<unsigned long long>(
               stats.pipeline.executed_outer_window_count),
           static_cast<unsigned long long>(
@@ -1568,6 +1594,51 @@ template <class Seed, class Action, class Fold>
   auto prepared = std::move(builder)
                       .budget(MemoryBudget{.bytes = plan->peak_bytes})
                       .prepare();
+  const graph::Fingerprint seed_fingerprint = seed.fingerprint();
+  const graph::Fingerprint action_fingerprint = action.fingerprint();
+  const graph::Fingerprint fold_fingerprint = fold.fingerprint();
+  const auto rows_exact = [&](const auto &candidate,
+                              std::size_t &mismatch) noexcept {
+    for (std::size_t index = 0u; index < candidate.size(); ++index) {
+      const PipelineStepProfile &row = candidate[index];
+      const bool seed_row = index < kOuter;
+      const bool action_row = index >= kOuter && index < kOuter + kInner;
+      const std::uint32_t expected_iteration =
+          seed_row     ? static_cast<std::uint32_t>(index)
+          : action_row ? static_cast<std::uint32_t>(index - kOuter)
+                       : static_cast<std::uint32_t>(index - kOuter - kInner);
+      const PipelineNestedPhase expected_phase =
+          seed_row     ? PipelineNestedPhase::Seed
+          : action_row ? PipelineNestedPhase::Action
+                       : PipelineNestedPhase::Fold;
+      const graph::Fingerprint expected_program =
+          seed_row ? seed_fingerprint
+                   : (action_row ? action_fingerprint : fold_fingerprint);
+      if (row.index != 0u || row.iteration != expected_iteration ||
+          row.outer_window_bound != kOuter ||
+          row.inner_iteration_bound != kInner ||
+          row.nested_phase != expected_phase ||
+          row.program != expected_program ||
+          row.outer_window != (seed_row ? expected_iteration
+                                        : PipelineStepProfile::no_coordinate) ||
+          row.inner_iteration != (action_row
+                                      ? expected_iteration
+                                      : PipelineStepProfile::no_coordinate)) {
+        mismatch = index;
+        return false;
+      }
+    }
+    mismatch = candidate.size();
+    return true;
+  };
+  std::array<PipelineStepProfile, kTemplates> cold_rows{};
+  const auto cold_profile =
+      prepared ? prepared->profile(cold_rows)
+               : Result<PipelineProfileSnapshot>::fail(prepared.reason());
+  std::size_t cold_mismatch = cold_rows.size();
+  const bool cold_exact = cold_profile && cold_profile->written == kTemplates &&
+                          cold_profile->total == kTemplates &&
+                          rows_exact(cold_rows, cold_mismatch);
   std::array<std::uint32_t, 1u> actual{};
   const Status ran =
       prepared ? prepared->run() : Status::fail(prepared.reason());
@@ -1575,8 +1646,9 @@ template <class Seed, class Action, class Fold>
   const auto profile =
       prepared ? prepared->profile(rows)
                : Result<PipelineProfileSnapshot>::fail(prepared.reason());
-  if (!prepared || !ran || !profile || profile->written != kTemplates ||
-      profile->total != kTemplates || !prepared->read(*output, actual) ||
+  if (!prepared || !cold_exact || !ran || !profile ||
+      profile->written != kTemplates || profile->total != kTemplates ||
+      !prepared->read(*output, actual) ||
       actual[0] != SerialOracle(active_count) ||
       (backend == Backend::Metal &&
        (profile->execution.dispatches != 2u ||
@@ -1588,10 +1660,17 @@ template <class Seed, class Action, class Fold>
           (backend == Backend::Cpu ? 0u : 1u)) {
     std::fprintf(
         stderr,
-        "nested profile backend=%u prepared=%u run=%u/%u profile=%u/%u "
-        "rows=%llu/%llu output=%u/%u outer=%llu inner=%llu submits=%llu "
-        "dispatches=%llu control=%llu\n",
+        "nested profile backend=%u prepared=%u cold=%u/%u rows=%llu/%llu "
+        "mismatch=%llu run=%u/%u profile=%u/%u rows=%llu/%llu output=%u/%u "
+        "outer=%llu inner=%llu submits=%llu dispatches=%llu control=%llu\n",
         static_cast<unsigned>(backend), static_cast<unsigned>(prepared.ok()),
+        static_cast<unsigned>(cold_profile.ok()),
+        static_cast<unsigned>(cold_profile.reason()),
+        static_cast<unsigned long long>(cold_profile ? cold_profile->written
+                                                     : 0u),
+        static_cast<unsigned long long>(cold_profile ? cold_profile->total
+                                                     : 0u),
+        static_cast<unsigned long long>(cold_mismatch),
         static_cast<unsigned>(ran.ok()), static_cast<unsigned>(ran.reason()),
         static_cast<unsigned>(profile.ok()),
         static_cast<unsigned>(profile.reason()),
@@ -1692,50 +1771,12 @@ template <class Seed, class Action, class Fold>
     }
   }
 
-  const graph::Fingerprint seed_fingerprint = seed.fingerprint();
-  const graph::Fingerprint action_fingerprint = action.fingerprint();
-  const graph::Fingerprint fold_fingerprint = fold.fingerprint();
-  for (std::size_t index = 0u; index < rows.size(); ++index) {
-    const PipelineStepProfile &row = rows[index];
-    const bool seed_row = index < kOuter;
-    const bool action_row = index >= kOuter && index < kOuter + kInner;
-    const std::uint32_t expected_iteration =
-        seed_row     ? static_cast<std::uint32_t>(index)
-        : action_row ? static_cast<std::uint32_t>(index - kOuter)
-                     : static_cast<std::uint32_t>(index - kOuter - kInner);
-    const PipelineNestedPhase expected_phase =
-        seed_row     ? PipelineNestedPhase::Seed
-        : action_row ? PipelineNestedPhase::Action
-                     : PipelineNestedPhase::Fold;
-    const graph::Fingerprint expected_program = seed_row ? seed_fingerprint
-                                                : action_row
-                                                    ? action_fingerprint
-                                                    : fold_fingerprint;
-    if (row.index != 0u || row.iteration != expected_iteration ||
-        row.outer_window_bound != kOuter ||
-        row.inner_iteration_bound != kInner ||
-        row.nested_phase != expected_phase || row.program != expected_program ||
-        row.outer_window != (seed_row ? expected_iteration
-                                      : PipelineStepProfile::no_coordinate) ||
-        row.inner_iteration != (action_row
-                                    ? expected_iteration
-                                    : PipelineStepProfile::no_coordinate)) {
-      std::fprintf(
-          stderr,
-          "nested profile row backend=%u row=%llu index=%u iteration=%u/%u "
-          "bounds=%u/%u phase=%u/%u coords=%u/%u program=%016llx:%016llx/"
-          "%016llx:%016llx\n",
-          static_cast<unsigned>(backend),
-          static_cast<unsigned long long>(index), row.index, row.iteration,
-          expected_iteration, row.outer_window_bound, row.inner_iteration_bound,
-          static_cast<unsigned>(row.nested_phase),
-          static_cast<unsigned>(expected_phase), row.outer_window,
-          row.inner_iteration, static_cast<unsigned long long>(row.program.hi),
-          static_cast<unsigned long long>(row.program.lo),
-          static_cast<unsigned long long>(expected_program.hi),
-          static_cast<unsigned long long>(expected_program.lo));
-      return 5;
-    }
+  std::size_t warm_mismatch = rows.size();
+  if (!rows_exact(rows, warm_mismatch)) {
+    std::fprintf(stderr, "nested profile row backend=%u mismatch=%llu\n",
+                 static_cast<unsigned>(backend),
+                 static_cast<unsigned long long>(warm_mismatch));
+    return 5;
   }
   return 0;
 }

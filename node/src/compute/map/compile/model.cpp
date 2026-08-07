@@ -16,15 +16,14 @@ std::optional<kernel::IrOp> binary_op(const ExprOp operation,
   case ExprOp::MultiplyWrap:
     return kernel::IrOp::MulWrap;
   case ExprOp::Divide:
-    switch (type) {
-    case Type::I32:
-    case Type::I64:
+    switch (type_domain(type)) {
+    case kernel::ComputeDomain::I32:
+    case kernel::ComputeDomain::I64:
       return kernel::IrOp::DivSigned;
-    case Type::U32:
-    case Type::U64:
+    case kernel::ComputeDomain::U32:
+    case kernel::ComputeDomain::U64:
       return kernel::IrOp::DivUnsigned;
-    case Type::FixedLane32:
-    case Type::FixedLane64:
+    case kernel::ComputeDomain::Fixed:
       return kernel::IrOp::DivFixed;
     }
     return std::nullopt;

@@ -170,7 +170,7 @@ ValueIds flow_map_multi_controlled(const std::shared_ptr<FlowState> &flow,
       }
       const FlowValue &source = flow->values[inputs[node.left] - 1u];
       if (node.type != source.type ||
-          (is_fixed(node.type) && node.fixed_format != source.fixed_format)) {
+          (type_fixed(node.type) && node.fixed_format != source.fixed_format)) {
         reject(*flow, Reason::GraphTypeMismatch);
         return {};
       }

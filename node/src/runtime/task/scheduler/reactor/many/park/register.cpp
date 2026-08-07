@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "local.hpp"
@@ -12,8 +13,7 @@ bool ReadyManyParkCreateGroupAndRequests(
     SchedulerState &state, ReadyManyEntry &entry, const std::uint64_t group_id,
     const std::uint64_t timer_wait_id, const std::uint64_t stop_source_id,
     const std::uint64_t stop_generation, const std::uint64_t stop_epoch,
-    const std::uint64_t ready_set_id,
-    const std::uint64_t ready_set_generation) noexcept {
+    const ::rund::net::ready::Set ready_set) noexcept {
   const std::size_t request_count = entry.requests.size();
   const std::size_t first_request = state.reactor.reactor_many_requests.size();
   if (request_count == 0u ||
@@ -49,8 +49,7 @@ bool ReadyManyParkCreateGroupAndRequests(
     state.reactor.reactor_many_groups.push_back(ReactorManyGroup{
         .group_id = group_id,
         .task_id = entry.record->id,
-        .ready_set_id = ready_set_id,
-        .ready_set_generation = ready_set_generation,
+        .ready_set = ready_set,
         .timer_wait_id = timer_wait_id,
         .stop_source_id = stop_source_id,
         .stop_generation = stop_generation,
@@ -112,8 +111,11 @@ bool ReadyManyAccess::ParkRegisterWaits(
         !ReactorRegistryCollectChangesForWaitAdd(state.reactor.reactor, wait)) {
       return false;
     }
-    ++::rund::detail::task::Stat(state.evidence.metrics,
-                                 ::rund::detail::task::StatSlot::ReactorWaits);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state.evidence.metrics,
+            ::rund::detail::task::StatSlot::ReactorWaits),
+        1u);
     RecordReactorWaitRegistered(state.evidence.metrics);
     scheduler.Record(::rund::detail::task::OperationKind::IoPark,
                      ReasonCode::Ok, entry.record->id, 0u, request.wait_id, 0u,

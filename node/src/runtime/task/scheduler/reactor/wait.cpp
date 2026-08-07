@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../../reactor/platform.hpp"
@@ -152,20 +153,27 @@ Scheduler::WaitReactor(const int fd, const short interest,
       CompletePrimitiveCommit();
       return result;
     }
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::ReactorWaits);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::ReactorWaits),
+        1u);
     RecordReactorWaitRegistered(state_->evidence.metrics);
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::Parked);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(state_->evidence.metrics,
+                                   ::rund::detail::task::StatSlot::Parked),
+        1u);
     record->state = TaskState::IoBlocked;
     record->wait_id = wait_id;
     Record(::rund::detail::task::OperationKind::IoPark, ReasonCode::Ok,
            record->id, 0u, wait_id, 0u, fd, interest, 0);
     record->dynamic_scope_id = CurrentScopeId();
     record->lane_segment_side_exit = true;
-    ++::rund::detail::task::Stat(
-        state_->evidence.metrics,
-        ::rund::detail::task::StatSlot::CoroutineParks);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::CoroutineParks),
+        1u);
     record->coroutine_parked = true;
     return ::rund::detail::task::IoDecision{.status = task::Status::success(),
                                             .suspend = true};

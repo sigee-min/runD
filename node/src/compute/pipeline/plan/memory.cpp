@@ -62,6 +62,50 @@ pipeline_output_count(const PipelineMemoryPlan &plan) {
   return Result<std::size_t>::success(count);
 }
 
+[[nodiscard]] Status
+seal_pipeline_workspace_routes(const PipelineBuildState &build,
+                               PipelineMemoryPlan &plan) {
+  if (plan.views.size() != build.steps.size()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  plan.workspace_routes.assign(build.steps.size(), {});
+  const bool has_job_arena = !plan.view_chunks.empty() || !plan.scratch.empty();
+  for (std::size_t index = 0u; index < build.steps.size(); ++index) {
+    const PipelineBuildStep &step = build.steps[index];
+    if (step.program == nullptr) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    // This is the sole workspace-presence decision. CPU dense-View transfer
+    // layouts are deliberately absent: they are owned by each private Job.
+    const bool present = !step.program->chunks.empty() ||
+                         !plan.views[index].empty() ||
+                         (has_job_arena && !step.program->empty());
+    if (step.iteration_bound > 1u && step.iteration != 0u) {
+      if (index == 0u) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      const PipelineBuildStep &previous = build.steps[index - 1u];
+      const PipelineWorkspaceRoute previous_route =
+          plan.workspace_routes[index - 1u];
+      if (previous.program != step.program ||
+          previous.logical_step != step.logical_step ||
+          previous.iteration_bound != step.iteration_bound ||
+          previous.nested != step.nested || previous.route != step.route ||
+          previous.iteration == std::numeric_limits<std::uint32_t>::max() ||
+          step.iteration != previous.iteration + 1u ||
+          previous_route.present() != present) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
+      plan.workspace_routes[index] = previous_route;
+      continue;
+    }
+    if (present) {
+      plan.workspace_routes[index].owner = index;
+    }
+  }
+  return Status::success();
+}
+
 [[nodiscard]] Status append_program_binding_identity(
     const PipelineResolvedViewPlan &view, const std::uint32_t usage,
     std::vector<node::accel::detail::PreparedKernelProgramBindingIdentity>
@@ -85,9 +129,9 @@ pipeline_output_count(const PipelineMemoryPlan &plan) {
     std::vector<node::accel::detail::PreparedKernelProgramBindingIdentity>
         &out) {
   const ProgramState *const program = step.program.get();
-  if (program == nullptr || step_index >= plan.workspace_owners.size() ||
+  if (program == nullptr || step_index >= plan.workspace_routes.size() ||
       step_index >= plan.step_resources.size() ||
-      plan.steps.size() != plan.workspace_owners.size() + 1u) {
+      plan.steps.size() != plan.workspace_routes.size() + 1u) {
     return Status::fail(Reason::PipelineInvalid);
   }
   const PipelineStepResourcePlan &sealed = plan.step_resources[step_index];
@@ -137,10 +181,15 @@ pipeline_output_count(const PipelineMemoryPlan &plan) {
         route.count == 0u) {
       return Status::fail(Reason::GraphBindingInvalid);
     }
-    const std::size_t workspace_index = plan.workspace_owners[step_index];
+    const PipelineWorkspaceRoute workspace = plan.workspace_routes[step_index];
+    if (!workspace.present()) {
+      return Status::fail(Reason::PipelineInvalid);
+    }
+    const std::size_t workspace_index = workspace.owner;
     if (workspace_index >= step_index + 1u ||
         workspace_index + 1u >= plan.steps.size() ||
-        workspace_index >= plan.workspace_owners.size()) {
+        workspace_index >= plan.workspace_routes.size() ||
+        !plan.workspace_routes[workspace_index].owns(workspace_index)) {
       return Status::fail(Reason::PipelineInvalid);
     }
     const std::size_t begin = plan.steps[workspace_index];
@@ -175,21 +224,6 @@ pipeline_output_count(const PipelineMemoryPlan &plan) {
   return out.size() == program->graph_bindings.size()
              ? Status::success()
              : Status::fail(Reason::GraphBindingInvalid);
-}
-
-[[nodiscard]] constexpr PipelineNestedPhase
-pipeline_nested_phase(const PipelineRoute route) noexcept {
-  switch (route) {
-  case PipelineRoute::NestedSeed:
-    return PipelineNestedPhase::Seed;
-  case PipelineRoute::NestedAction:
-    return PipelineNestedPhase::Action;
-  case PipelineRoute::NestedFold:
-    return PipelineNestedPhase::Fold;
-  case PipelineRoute::Ordinary:
-    return PipelineNestedPhase::None;
-  }
-  return PipelineNestedPhase::None;
 }
 
 [[nodiscard]] std::size_t
@@ -374,22 +408,17 @@ plan_pipeline_cpu_prepared_storage(const PipelineBuildState &build,
     return Status::success();
   }
   if (plan.job_owners.size() != build.steps.size() ||
-      plan.workspace_owners.size() != build.steps.size() ||
+      plan.workspace_routes.size() != build.steps.size() ||
       plan.views.size() != build.steps.size() ||
       plan.cpu_view_layouts.size() != build.steps.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  const bool has_job_arena = !plan.view_chunks.empty() || !plan.scratch.empty();
   for (std::size_t index = 0u; index < build.steps.size(); ++index) {
-    if (plan.workspace_owners[index] != index) {
+    if (!plan.workspace_routes[index].owns(index)) {
       continue;
     }
     const PipelineBuildStep &step = build.steps[index];
-    const bool needs_workspace = !step.program->chunks.empty() ||
-                                 !plan.views[index].empty() ||
-                                 (has_job_arena && !step.program->empty());
-    if (needs_workspace &&
-        !append_cpu_workspace_slice(plan.cpu_prepared_arena,
+    if (!append_cpu_workspace_slice(plan.cpu_prepared_arena,
                                     step.program->chunks.size(),
                                     plan.cpu_workspace_slices[index])) {
       return Status::fail(Reason::PipelineCapacity);
@@ -458,6 +487,7 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
   const DeviceOps *const ops = build.device->ops;
   if (ops == nullptr || ops->plan_pipeline_preparation == nullptr ||
       plan.job_owners.size() != build.steps.size() ||
+      plan.workspace_routes.size() != build.steps.size() ||
       plan.views.size() != build.steps.size() ||
       plan.window_states.size() != build.steps.size()) {
     return Status::fail(Reason::DeviceInvalid);
@@ -543,8 +573,7 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
         identity.outer_iteration = step.iteration;
         identity.outer_bound = step.iteration_bound;
         identity.inner_bound = 1u;
-        identity.phase = static_cast<std::uint8_t>(
-            node::accel::detail::BackendWindowPhase::Ordinary);
+        identity.phase = node::accel::detail::BackendWindowPhase::Ordinary;
         identity.has_window = true;
         identity.has_terminal =
             control->terminal != std::numeric_limits<std::uint32_t>::max();
@@ -561,8 +590,10 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
           ++window_descriptor_state_count;
         }
       }
-      node::accel::detail::MixPreparedKernelRecurrenceFingerprint(
-          recurrence_hi[owner], recurrence_lo[owner], identity);
+      if (!node::accel::detail::MixPreparedKernelRecurrenceFingerprint(
+              recurrence_hi[owner], recurrence_lo[owner], identity)) {
+        return Status::fail(Reason::PipelineInvalid);
+      }
       if (!kernel::checked::add(entry_counts[owner], 1u, entry_counts[owner]) ||
           !kernel::checked::add(occurrence_counts[owner], occurrences,
                                 occurrence_counts[owner]) ||
@@ -649,6 +680,14 @@ plan_pipeline_accel_preparation(const PipelineBuildState &build,
       if (plan.job_owners[index] != index || step.program == nullptr ||
           step.program->empty()) {
         continue;
+      }
+      const PipelineWorkspaceRoute workspace = plan.workspace_routes[index];
+      if ((has_arena && !workspace.present()) ||
+          (workspace.present() &&
+           (workspace.owner > index || workspace.owner >= build.steps.size() ||
+            !plan.workspace_routes[workspace.owner].owns(workspace.owner) ||
+            build.steps[workspace.owner].program != step.program))) {
+        return Status::fail(Reason::PipelineInvalid);
       }
       if (step.program->accel == nullptr || entry_counts[index] == 0u) {
         return Status::fail(Reason::AccelProgramInvalid);
@@ -828,20 +867,14 @@ plan_pipeline_host_preparation(const PipelineBuildState &build,
     }
   }
 
-  if (plan.workspace_owners.size() != step_count ||
+  if (plan.workspace_routes.size() != step_count ||
       (build.device->backend == Backend::Cpu &&
        plan.cpu_workspace_slices.size() != step_count)) {
     return Status::fail(Reason::PipelineInvalid);
   }
   for (std::size_t index = 0u; index < step_count; ++index) {
     const PipelineBuildStep &step = build.steps[index];
-    if (plan.workspace_owners[index] != index) {
-      continue;
-    }
-    const bool workspace = !step.program->chunks.empty() ||
-                           !plan.views[index].empty() ||
-                           (has_arena && !step.program->empty());
-    if (!workspace) {
+    if (!plan.workspace_routes[index].owns(index)) {
       continue;
     }
     if (build.device->backend != Backend::Cpu &&
@@ -949,7 +982,6 @@ plan_memory(const PipelineBuildState &build) {
       result->cpu_alternate_route_slices.resize(build.steps.size());
     }
     result->job_owners.resize(build.steps.size());
-    result->workspace_owners.resize(build.steps.size());
     for (std::size_t index = 0u; index < build.steps.size(); ++index) {
       const PipelineBuildStep &step = build.steps[index];
       if (step.program == nullptr) {
@@ -1055,15 +1087,6 @@ plan_memory(const PipelineBuildState &build) {
         }
       }
       result->job_owners[index] = owner;
-      std::size_t workspace_owner = index;
-      if (step.iteration_bound > 1u && step.iteration != 0u) {
-        if (index == 0u || build.steps[index - 1u].program != step.program) {
-          return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
-              Reason::PipelineInvalid);
-        }
-        workspace_owner = result->workspace_owners[index - 1u];
-      }
-      result->workspace_owners[index] = workspace_owner;
     }
     const bool transactional = !build.state_pairs.empty();
     for (std::size_t index = 0u; index < build.steps.size(); ++index) {
@@ -1326,6 +1349,12 @@ plan_memory(const PipelineBuildState &build) {
       return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
           scratch.reason());
     }
+    const Status workspace_routes =
+        seal_pipeline_workspace_routes(build, *result);
+    if (!workspace_routes) {
+      return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
+          workspace_routes.reason());
+    }
     const Status cpu_views = plan_pipeline_cpu_views(build, *result);
     if (!cpu_views) {
       return Result<std::shared_ptr<const PipelineMemoryPlan>>::fail(
@@ -1556,7 +1585,7 @@ make_pipeline_memory(const std::shared_ptr<DeviceState> &device,
     PipelineMemorySet result;
     result.steps.resize(steps.size());
     if (plan.cpu_storage_by_step.size() != steps.size() ||
-        plan.workspace_owners.size() != steps.size() ||
+        plan.workspace_routes.size() != steps.size() ||
         plan.cpu_route_slices.size() != steps.size() ||
         (device->backend == Backend::Cpu &&
          (plan.cpu_job_slices.size() != steps.size() ||
@@ -1682,18 +1711,20 @@ make_pipeline_memory(const std::shared_ptr<DeviceState> &device,
     for (std::size_t step_index = 0u; step_index < steps.size(); ++step_index) {
       const PipelineFrozenStep &step = steps[step_index];
       const auto &chunks = step.program->chunks;
-      const std::size_t workspace_owner = plan.workspace_owners[step_index];
+      const PipelineWorkspaceRoute workspace_route =
+          plan.workspace_routes[step_index];
+      if (!workspace_route.present()) {
+        continue;
+      }
+      const std::size_t workspace_owner = workspace_route.owner;
       if (workspace_owner != step_index) {
         if (workspace_owner >= step_index ||
-            (result.steps[workspace_owner] != nullptr &&
-             result.steps[workspace_owner]->program != step.program)) {
+            !plan.workspace_routes[workspace_owner].owns(workspace_owner) ||
+            result.steps[workspace_owner] == nullptr ||
+            result.steps[workspace_owner]->program != step.program) {
           return Result<PipelineMemorySet>::fail(Reason::PipelineInvalid);
         }
         result.steps[step_index] = result.steps[workspace_owner];
-        continue;
-      }
-      if (chunks.empty() && plan.views[step_index].empty() &&
-          (result.arena == nullptr || step.program->empty())) {
         continue;
       }
       const std::vector<std::uint32_t> &order = step.program->chunk_order;

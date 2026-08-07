@@ -101,7 +101,9 @@ SimulationFingerprint(const SchedulerState &state) noexcept {
   MixHash(hash, state.identity.next_spawn_index);
   MixHash(hash, state.identity.next_wait_id);
   MixHash(hash, state.identity.next_reactor_many_group_id);
-  MixHash(hash, state.identity.next_reactor_ready_set_id);
+  MixHash(hash,
+          static_cast<std::uint64_t>(state.reactor.reactor_ready_sets.size()) +
+              1u);
   MixHash(hash, state.identity.next_stop_source_id);
   MixHash(hash, state.identity.next_timer_sequence);
   MixHash(hash, state.identity.next_channel_id);

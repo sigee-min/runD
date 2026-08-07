@@ -1,5 +1,5 @@
-#include "src/host/net/test/ticket.hpp"
 #include "src/host/net/test/socket.hpp"
+#include "src/host/net/test/ticket.hpp"
 #include "test/assert.hpp"
 
 #include <rund/net/bytes.hpp>
@@ -94,5 +94,81 @@ int RunRuntimeTaskNetDrainContract() {
   TEST_ASSERT(zero.bytes == 0u);
   TEST_ASSERT(zero_callbacks == 0u);
   TEST_ASSERT(zero_ticket.consumed());
+
+  int close_sockets[2] = {-1, -1};
+  TEST_ASSERT(::socketpair(AF_UNIX, SOCK_STREAM, 0, close_sockets) == 0);
+  rund::net::Socket close_reader =
+      rund::node::test::net::admit(close_sockets[0]);
+  rund::net::Socket close_writer =
+      rund::node::test::net::admit(close_sockets[1]);
+  TEST_ASSERT(rund::net::nonblocking(close_reader.view(), true).ok());
+  TEST_ASSERT(rund::net::nonblocking(close_writer.view(), true).ok());
+  rund::net::drain::ReadResult close_drained{};
+  rund::net::CloseResult callback_close{};
+  std::uint32_t callback_readers = ~std::uint32_t{0u};
+  std::uint64_t close_callbacks = 0u;
+  rund::task::Status close_joined{};
+  const rund::Session::Result close_report = rund::run(
+      rund::SessionConfig{
+          .workers = 1u,
+          .scheduler =
+              {
+                  .task_capacity = 4u,
+                  .ready_queue_capacity = 4u,
+                  .reactor_wait_capacity = 4u,
+                  .observation_capacity = 32u,
+                  .host_event_capacity = 32u,
+              },
+      },
+      [&] {
+        const std::array<std::byte, 1u> payload{std::byte{0x71}};
+        const rund::net::SendResult sent = rund::net::send(
+            rund::node::test::net::ticket(close_writer.view(),
+                                          rund::net::ready::Interest::Writable),
+            payload);
+        if (!sent.ok() || sent.bytes != 1) {
+          return;
+        }
+        auto read_then_close = [&]() -> rund::task::Task<void> {
+          auto readable = co_await rund::net::ready::read(close_reader.view());
+          close_drained = rund::net::drain::read(
+              std::move(readable), buffer,
+              rund::net::drain::Budget{.max_operations = 2u},
+              [&](const std::span<const std::byte> chunk) noexcept {
+                ++close_callbacks;
+                callback_readers =
+                    rund::node::test::net::reader_count(close_reader.view());
+                if (callback_readers != 0u || chunk.size() != 1u) {
+                  return false;
+                }
+                callback_close = close_reader.close();
+                return true;
+              });
+          co_return;
+        };
+        const rund::task::Handle handle =
+            rund::task::spawn("net-drain-close-reader", read_then_close());
+        close_joined = rund::task::join(handle);
+      });
+
+  TEST_ASSERT(close_report.ok());
+  TEST_ASSERT(close_joined.ok());
+  TEST_ASSERT(callback_close.ok());
+  TEST_ASSERT(!close_reader);
+  TEST_ASSERT(callback_readers == 0u);
+  TEST_ASSERT(close_callbacks == 1u);
+  TEST_ASSERT(!close_drained.ok());
+  TEST_ASSERT(close_drained.code() == rund::ReasonCode::IoFdInvalid);
+  TEST_ASSERT(close_drained.reads == 1u);
+  TEST_ASSERT(close_drained.bytes == 1u);
+  TEST_ASSERT(!close_drained.would_block);
+  TEST_ASSERT(!close_drained.budget_exhausted);
+  TEST_ASSERT(!close_drained.handler_stopped);
+  TEST_ASSERT(close_report.tasks().network().recv_calls() == 1u);
+  TEST_ASSERT(close_report.events().size() >= 2u);
+  TEST_ASSERT(close_report.events()[close_report.events().size() - 2u].kind ==
+              rund::host::EventKind::NetRecv);
+  TEST_ASSERT(close_report.events().back().kind ==
+              rund::host::EventKind::IoClose);
   return 0;
 }

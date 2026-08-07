@@ -77,8 +77,7 @@ MakeTimerDeadline(std::chrono::nanoseconds duration) const noexcept;
     ::rund::net::ready::many::Budget budget,
     std::uint64_t stop_scheduler_id = 0u, std::uint64_t stop_source_id = 0u,
     std::uint64_t stop_generation = 0u, std::uint64_t stop_epoch = 0u,
-    std::uint64_t ready_set_id = 0u,
-    std::uint64_t ready_set_generation = 0u) noexcept;
+    ::rund::net::ready::Set ready_set = {}) noexcept;
 [[nodiscard]] bool
 ProbeReactorManyReady(std::span<const ReactorManyRequest> requests,
                       std::uint64_t task_id, std::uint64_t group_id,
@@ -92,8 +91,7 @@ CopyReactorManyEvents(std::uint64_t group_id,
                                                 ReasonCode code,
                                                 ReactorEvent events,
                                                 bool store_event) noexcept;
-[[nodiscard]] bool CancelReadySetWaitGroups(std::uint64_t set_id,
-                                            std::uint64_t set_generation,
+[[nodiscard]] bool CancelReadySetWaitGroups(::rund::net::ready::Set set,
                                             ReasonCode code) noexcept;
 [[nodiscard]] int TimerBoundIoPollTimeoutMs() const noexcept;
 [[nodiscard]] bool DrainReadyReactor(int timeout_ms,

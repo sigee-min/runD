@@ -132,6 +132,14 @@ bodies remain parallel. A Compute submission cannot create a lane, OS thread,
 Session drain closes Compute admission, and close/teardown reset the persistent
 runtime only after accepted Compute work is complete.
 
+Scheduler reset clears ready-set storage but does not reset the process-wide
+ready-set slot-id issuer. A `ready::Set` may persist across scopes of the same
+open Session, but a handle from an earlier reset/open lifetime or another
+Session is stale even when used through the currently active Scheduler. Raw
+ready-set numbers remain opaque and are excluded from deterministic trace,
+host-event, ordering, and replay identity; only the scheduler-local physical
+slot count participates in capture-mutation state.
+
 The Runtime control gate serializes external callers; it is not a second
 Scheduler-state lock. External Compute wait may retire one completed
 coordinator while another coordinator is still committing. Pending root-join

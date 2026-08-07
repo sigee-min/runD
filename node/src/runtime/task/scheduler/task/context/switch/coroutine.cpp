@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../local.hpp"
@@ -75,8 +76,11 @@ void Scheduler::RunCoroutineQuantum(TaskRecord &record,
       }
     }
     if (record.state == TaskState::Completed) {
-      ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                   ::rund::detail::task::StatSlot::Completed);
+      ::rund::detail::counter::Accumulate(
+          ::rund::detail::task::Stat(
+              state_->evidence.metrics,
+              ::rund::detail::task::StatSlot::Completed),
+          1u);
       ++::rund::detail::task::Stat(
           state_->evidence.metrics,
           ::rund::detail::task::StatSlot::CoroutineCompletions);

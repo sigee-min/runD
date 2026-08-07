@@ -39,7 +39,7 @@ struct MetalPipelineStatusSourceMeta final {
   std::uint32_t work_item_count_high{};
   std::uint32_t failed_outer_window{PreparedPipelineNoStep};
   std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
-  std::uint32_t failed_nested_phase{};
+  std::uint32_t failed_nested_phase{PipelineNestedPhaseNoneCode};
 };
 
 struct MetalPipelineStatusEntryMeta final {

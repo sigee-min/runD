@@ -30,5 +30,6 @@ int RunRuntimeTaskJoinAllContract() {
   TEST_ASSERT(report.ok());
   TEST_ASSERT(joined.ok());
   TEST_ASSERT(ran[0] && ran[1] && ran[2]);
+  TEST_ASSERT(report.tasks().joins() == 1u);
   return 0;
 }

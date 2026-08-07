@@ -56,14 +56,10 @@ void Scheduler::RefreshResourceStats() noexcept {
       state_->resources.live_tasks.load(std::memory_order_relaxed);
   ::rund::detail::task::Stat(
       metrics, ::rund::detail::task::StatSlot::ResourceLiveReactorWaits) =
-      static_cast<std::uint64_t>(
-          ReactorRegistrySize(state_->reactor.reactor));
+      static_cast<std::uint64_t>(ReactorRegistrySize(state_->reactor.reactor));
   ::rund::detail::task::Stat(
       metrics, ::rund::detail::task::StatSlot::ResourceLiveReadySets) =
-      static_cast<std::uint64_t>(
-          std::count_if(state_->reactor.reactor_ready_sets.begin(),
-                        state_->reactor.reactor_ready_sets.end(),
-                        [](const ReactorReadySet &set) { return set.live; }));
+      ReactorReadySetLiveCount(state_->reactor.reactor_ready_sets);
   ::rund::detail::task::Stat(
       metrics, ::rund::detail::task::StatSlot::ResourceLiveReadySetMembers) =
       ReactorReadySetMemberCount(state_->reactor.reactor_ready_sets);

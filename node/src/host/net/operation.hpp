@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rund/net/ready/many.hpp>
+#include <rund/net/ready/set.hpp>
 #include <rund/net/ready/timed.hpp>
 
 #include "ready/ticket.hpp"
@@ -55,8 +56,7 @@ struct Context final {
   std::uint64_t stop_source_id = 0u;
   std::uint64_t stop_generation = 0u;
   std::uint64_t stop_epoch = 0u;
-  std::uint64_t ready_set_id = 0u;
-  std::uint64_t ready_set_generation = 0u;
+  ::rund::net::ready::Set ready_set{};
 };
 
 class Access final {
@@ -75,8 +75,7 @@ public:
         const std::uint64_t stop_source_id = 0u,
         const std::uint64_t stop_generation = 0u,
         const std::uint64_t stop_epoch = 0u,
-        const std::uint64_t ready_set_id = 0u,
-        const std::uint64_t ready_set_generation = 0u) noexcept {
+        const ::rund::net::ready::Set ready_set = {}) noexcept {
     Wait operation{};
     net::result::Access::set(operation.result_, ::rund::ReasonCode::Ok);
     operation.deferred_ = true;
@@ -89,8 +88,8 @@ public:
     operation.stop_source_id_ = stop_source_id;
     operation.stop_generation_ = stop_generation;
     operation.stop_epoch_ = stop_epoch;
-    operation.ready_set_id_ = ready_set_id;
-    operation.ready_set_generation_ = ready_set_generation;
+    operation.ready_set_id_ = ready_set.id;
+    operation.ready_set_generation_ = ready_set.generation;
     return operation;
   }
 
@@ -121,8 +120,8 @@ public:
         .stop_source_id = operation.stop_source_id_,
         .stop_generation = operation.stop_generation_,
         .stop_epoch = operation.stop_epoch_,
-        .ready_set_id = operation.ready_set_id_,
-        .ready_set_generation = operation.ready_set_generation_,
+        .ready_set = {.id = operation.ready_set_id_,
+                      .generation = operation.ready_set_generation_},
     };
   }
 
@@ -136,8 +135,8 @@ public:
     operation.stop_source_id_ = context.stop_source_id;
     operation.stop_generation_ = context.stop_generation;
     operation.stop_epoch_ = context.stop_epoch;
-    operation.ready_set_id_ = context.ready_set_id;
-    operation.ready_set_generation_ = context.ready_set_generation;
+    operation.ready_set_id_ = context.ready_set.id;
+    operation.ready_set_generation_ = context.ready_set.generation;
   }
 
   static void Reject(Wait &operation, const ReasonCode code) noexcept {

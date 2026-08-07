@@ -2,6 +2,7 @@
 
 #include "../state/model/timer.hpp"
 #include "../state/storage.hpp"
+#include "ready/set/identity.hpp"
 #include "registry.hpp"
 
 namespace rund::node {
@@ -37,8 +38,8 @@ Scheduler::ValidateReactorCleanupInvariants() noexcept {
 
   snapshot.ok = true;
   snapshot.reason = "ok";
-  snapshot.waits = static_cast<std::uint64_t>(
-      ReactorRegistrySize(state_->reactor.reactor));
+  snapshot.waits =
+      static_cast<std::uint64_t>(ReactorRegistrySize(state_->reactor.reactor));
   snapshot.ready_backlog_entries =
       static_cast<std::uint64_t>(state_->reactor.reactor.ready_backlog.size());
   snapshot.many_groups =
@@ -62,7 +63,7 @@ Scheduler::ValidateReactorCleanupInvariants() noexcept {
   }
 
   for (const ReactorManyGroup &group : state_->reactor.reactor_many_groups) {
-    if (group.ready_set_id != 0u) {
+    if (!ReactorReadySetIdentityOwner::empty(group.ready_set)) {
       ++snapshot.ready_set_waits;
     }
   }

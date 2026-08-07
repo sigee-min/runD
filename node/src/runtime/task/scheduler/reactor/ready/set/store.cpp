@@ -5,41 +5,60 @@
 
 namespace rund::node {
 
-[[nodiscard]] ReactorReadySet* ReactorReadySetFind(
-    std::vector<ReactorReadySet>& sets, const ::rund::net::ready::Set handle) noexcept {
-  for (ReactorReadySet& set : sets) {
-    if (set.live && set.id == handle.id &&
-        set.generation == handle.generation) {
+[[nodiscard]] ReactorReadySet *
+ReactorReadySetFind(std::vector<ReactorReadySet> &sets,
+                    const ::rund::net::ready::Set handle) noexcept {
+  for (ReactorReadySet &set : sets) {
+    if (ReactorReadySetIdentityOwner::matches(set.identity, handle)) {
       return &set;
     }
   }
   return nullptr;
 }
 
-[[nodiscard]] const ReactorReadySet* ReactorReadySetFind(
-    const std::vector<ReactorReadySet>& sets,
-    const ::rund::net::ready::Set handle) noexcept {
-  for (const ReactorReadySet& set : sets) {
-    if (set.live && set.id == handle.id &&
-        set.generation == handle.generation) {
+[[nodiscard]] const ReactorReadySet *
+ReactorReadySetFind(const std::vector<ReactorReadySet> &sets,
+                    const ::rund::net::ready::Set handle) noexcept {
+  for (const ReactorReadySet &set : sets) {
+    if (ReactorReadySetIdentityOwner::matches(set.identity, handle)) {
       return &set;
     }
   }
   return nullptr;
 }
 
-[[nodiscard]] std::uint32_t ReactorReadySetLiveCount(
-    const std::vector<ReactorReadySet>& sets) noexcept {
+[[nodiscard]] std::uint32_t
+ReactorReadySetLiveCount(const std::vector<ReactorReadySet> &sets) noexcept {
   return static_cast<std::uint32_t>(
-      std::count_if(sets.begin(), sets.end(),
-                    [](const ReactorReadySet& set) { return set.live; }));
+      std::count_if(sets.begin(), sets.end(), [](const ReactorReadySet &set) {
+        return ReactorReadySetIdentityOwner::live(set.identity);
+      }));
 }
 
-[[nodiscard]] std::uint32_t ReactorReadySetMemberCount(
-    const std::vector<ReactorReadySet>& sets) noexcept {
+[[nodiscard]] ReactorReadySet *ReactorReadySetSelectActivationSlot(
+    std::vector<ReactorReadySet> &sets) noexcept {
+  ReactorReadySet *needs_slot_id = nullptr;
+  for (ReactorReadySet &set : sets) {
+    switch (ReactorReadySetIdentityOwner::activation(set.identity)) {
+    case ReactorReadySetActivation::ReuseGeneration:
+      return &set;
+    case ReactorReadySetActivation::NeedsSlotId:
+      if (needs_slot_id == nullptr) {
+        needs_slot_id = &set;
+      }
+      break;
+    case ReactorReadySetActivation::Invalid:
+      break;
+    }
+  }
+  return needs_slot_id;
+}
+
+[[nodiscard]] std::uint32_t
+ReactorReadySetMemberCount(const std::vector<ReactorReadySet> &sets) noexcept {
   std::uint64_t count = 0u;
-  for (const ReactorReadySet& set : sets) {
-    if (set.live) {
+  for (const ReactorReadySet &set : sets) {
+    if (ReactorReadySetIdentityOwner::live(set.identity)) {
       count += set.members.size();
     }
   }
@@ -48,13 +67,14 @@ namespace rund::node {
              : static_cast<std::uint32_t>(count);
 }
 
-[[nodiscard]] bool ReactorReadySetHasDuplicate(
-    const ReactorReadySet& set, const ::rund::net::SocketView socket,
-    const ReactorInterest interest) noexcept {
-  if (!set.live) {
+[[nodiscard]] bool
+ReactorReadySetHasDuplicate(const ReactorReadySet &set,
+                            const ::rund::net::SocketView socket,
+                            const ReactorInterest interest) noexcept {
+  if (!ReactorReadySetIdentityOwner::live(set.identity)) {
     return false;
   }
-  for (const ReactorReadySetMember& member : set.members) {
+  for (const ReactorReadySetMember &member : set.members) {
     if (member.socket == socket && member.interest == interest) {
       return true;
     }
@@ -62,9 +82,9 @@ namespace rund::node {
   return false;
 }
 
-[[nodiscard]] std::uint32_t ReactorReadySetClearMembers(
-    ReactorReadySet& set) noexcept {
-  if (!set.live) {
+[[nodiscard]] std::uint32_t
+ReactorReadySetClearMembers(ReactorReadySet &set) noexcept {
+  if (!ReactorReadySetIdentityOwner::live(set.identity)) {
     set.members.clear();
     return 0u;
   }
@@ -73,4 +93,4 @@ namespace rund::node {
   return removed;
 }
 
-}  // namespace rund::node
+} // namespace rund::node

@@ -56,10 +56,8 @@ ScopeEvidence Scheduler::CaptureScope(const std::size_t observation_begin,
   std::lock_guard lock{state_->evidence.mutex};
   (void)TrapLaneOwnedSegmentPrimitive();
   EnsureCurrentCommit();
-  const std::uint32_t ready_sets = static_cast<std::uint32_t>(
-      std::count_if(state_->reactor.reactor_ready_sets.begin(),
-                    state_->reactor.reactor_ready_sets.end(),
-                    [](const ReactorReadySet &set) { return set.live; }));
+  const std::uint32_t ready_sets =
+      ReactorReadySetLiveCount(state_->reactor.reactor_ready_sets);
   const std::uint32_t ready_set_members =
       ReactorReadySetMemberCount(state_->reactor.reactor_ready_sets);
   ::rund::net::Limits limits{ReasonCode::Ok};

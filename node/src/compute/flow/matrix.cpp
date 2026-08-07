@@ -1,6 +1,7 @@
 #include "recipe.hpp"
 
 #include "../size.hpp"
+#include "../type.hpp"
 
 #include <algorithm>
 #include <array>
@@ -105,7 +106,7 @@ FactorIds flow_factor(const std::shared_ptr<FlowState> &flow,
     return {};
   }
   FixedFormat fixed_format = value.fixed_format;
-  if (is_fixed(value.type)) {
+  if (type_fixed(value.type)) {
     fixed_format.approximation = Approximation::Deterministic;
   }
   const std::uint32_t packed =
@@ -207,7 +208,7 @@ SolveIds flow_matrix_solve(const std::shared_ptr<FlowState> &flow,
   }
   const FlowValue &left = flow->values[matrix - 1u];
   const FlowValue &right = flow->values[rhs - 1u];
-  if (!is_fixed(left.type) || left.count != expected_matrix ||
+  if (!type_fixed(left.type) || left.count != expected_matrix ||
       right.type != left.type || right.count != rhs_count ||
       !same_fixed_storage_policy(right.fixed_format, left.fixed_format)) {
     reject(*flow, Reason::SolveShapeMismatch);
@@ -274,7 +275,7 @@ SpectrumIds flow_spectrum(const std::shared_ptr<FlowState> &flow,
   const FlowValue &source = flow->values[flow->output - 1u];
   const Type type = source.type;
   FixedFormat fixed_format = source.fixed_format;
-  if (is_fixed(type)) {
+  if (type_fixed(type)) {
     fixed_format.approximation = Approximation::Deterministic;
   }
   const std::uint32_t values = append(*flow, type, value_count, fixed_format);

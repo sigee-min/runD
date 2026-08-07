@@ -214,7 +214,7 @@ GraphOut graph_primitive(const std::shared_ptr<GraphState> &graph,
       primitive == Primitive::Partition && inputs.size() == 2u
           ? inputs[1u].fixed_format
           : inputs.front().fixed_format;
-  if (payload_type == Type::FixedLane32 || payload_type == Type::FixedLane64) {
+  if (type_fixed(payload_type)) {
     if (primitive == Primitive::Transform || primitive == Primitive::Factor ||
         primitive == Primitive::Solve || primitive == Primitive::Spectrum) {
       payload_format.approximation = Approximation::Deterministic;

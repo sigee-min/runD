@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/session/config.hpp>
 #include <rund/task/stats/slots.hpp>
 
@@ -276,9 +277,11 @@ bool Scheduler::TryAdmitNetworkSocketRegistry() noexcept {
   std::shared_ptr<std::atomic<std::uint32_t>> live_entries =
       state_->reactor.live_net_socket_registry_entries;
   if (!live_entries) {
-    ++::rund::detail::task::Stat(
-        state_->evidence.metrics,
-        ::rund::detail::task::StatSlot::NetworkAdmissionRejections);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::NetworkAdmissionRejections),
+        1u);
     CompletePrimitiveCommit();
     return false;
   }
@@ -291,9 +294,11 @@ bool Scheduler::TryAdmitNetworkSocketRegistry() noexcept {
       return true;
     }
   }
-  ++::rund::detail::task::Stat(
-      state_->evidence.metrics,
-      ::rund::detail::task::StatSlot::NetworkAdmissionRejections);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(
+          state_->evidence.metrics,
+          ::rund::detail::task::StatSlot::NetworkAdmissionRejections),
+      1u);
   CompletePrimitiveCommit();
   return false;
 }

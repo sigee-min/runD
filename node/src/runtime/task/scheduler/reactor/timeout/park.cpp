@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../../../reactor/readiness/handle.hpp"
@@ -92,14 +93,20 @@ bool Scheduler::ParkTimedReactorWait(
     return false;
   }
 
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::ReactorWaits);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::ReactorWaits),
+      1u);
   RecordReactorWaitRegistered(state_->evidence.metrics);
   RecordReactorTimedWaitRegistered(state_->evidence.metrics);
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Timers);
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Parked);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Timers),
+      1u);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Parked),
+      1u);
   record.state = TaskState::IoBlocked;
   record.wait_id = wait_id;
   record.io_result = ReasonCode::Ok;

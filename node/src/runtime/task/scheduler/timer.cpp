@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "state/model/task.hpp"
@@ -129,8 +130,10 @@ Scheduler::Sleep(const std::chrono::nanoseconds duration) noexcept {
     CompletePrimitiveCommit();
     return result;
   }
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Timers);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Timers),
+      1u);
   ++::rund::detail::task::Stat(state_->evidence.metrics,
                                ::rund::detail::task::StatSlot::Parked);
   record->state = TaskState::Sleeping;

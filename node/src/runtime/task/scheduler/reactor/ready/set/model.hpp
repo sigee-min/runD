@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../../../../../reactor/readiness/state.hpp"
+#include "identity.hpp"
 
 namespace rund::node {
 
@@ -16,12 +17,10 @@ struct ReactorReadySetMember {
 };
 
 struct ReactorReadySet {
-  std::uint64_t id = 0u;
-  std::uint64_t generation = 0u;
+  ReactorReadySetIdentityState identity{};
   std::vector<ReactorReadySetMember> members{};
   std::uint32_t max_members = 0u;
   std::uint32_t next_member_index = 0u;
-  bool live = false;
 };
 
-}  // namespace rund::node
+} // namespace rund::node

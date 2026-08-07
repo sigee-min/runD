@@ -1,5 +1,7 @@
 #include "../recipe.hpp"
 
+#include "../../type.hpp"
+
 #include <array>
 #include <limits>
 #include <memory>
@@ -17,8 +19,9 @@ std::uint32_t flow_unary_value(const std::shared_ptr<FlowState> &flow,
   }
   const FlowValue &source = flow->values[input - 1u];
   const FixedFormat fixed_format =
-      is_fixed(output_type) && source.type == output_type ? source.fixed_format
-                                                          : FixedFormat{};
+      type_fixed(output_type) && source.type == output_type
+          ? source.fixed_format
+          : FixedFormat{};
   const std::uint32_t output = append(*flow, output_type, count, fixed_format);
   if (output == 0u) {
     return 0u;

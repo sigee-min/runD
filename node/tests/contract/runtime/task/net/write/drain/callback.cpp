@@ -1,5 +1,5 @@
-#include "src/host/net/test/socket.hpp"
 #include "local.hpp"
+#include "src/host/net/test/socket.hpp"
 #include <rund/task/api.hpp>
 
 #include "test/assert.hpp"
@@ -20,6 +20,8 @@ int RunWriteDrainCallbackCase() {
   TEST_ASSERT(rund::net::nonblocking(callback_writer.view(), true).ok());
   rund::net::drain::WriteResult callback_drained{};
   rund::net::SendResult callback_send{};
+  rund::net::CloseResult callback_close{};
+  std::uint32_t callback_readers = ~std::uint32_t{0u};
   std::uint64_t callback_offset = 0u;
   std::uint64_t callback_calls = 0u;
   rund::task::Status callback_joined{};
@@ -37,6 +39,11 @@ int RunWriteDrainCallbackCase() {
                 ++callback_calls;
                 callback_offset = completed_offset;
                 callback_send = result;
+                callback_readers =
+                    rund::node::test::net::reader_count(callback_writer.view());
+                if (callback_readers == 0u) {
+                  callback_close = callback_writer.close();
+                }
                 return false;
               });
           co_return;
@@ -54,5 +61,15 @@ int RunWriteDrainCallbackCase() {
   TEST_ASSERT(callback_send.ok());
   TEST_ASSERT(callback_offset == callback_drained.bytes);
   TEST_ASSERT(callback_drained.bytes > 0u);
+  TEST_ASSERT(callback_close.ok());
+  TEST_ASSERT(!callback_writer);
+  TEST_ASSERT(callback_readers == 0u);
+  TEST_ASSERT(callback_report.tasks().network().send_calls() == 1u);
+  TEST_ASSERT(callback_report.events().size() >= 2u);
+  TEST_ASSERT(
+      callback_report.events()[callback_report.events().size() - 2u].kind ==
+      rund::host::EventKind::NetSend);
+  TEST_ASSERT(callback_report.events().back().kind ==
+              rund::host::EventKind::IoClose);
   return 0;
 }

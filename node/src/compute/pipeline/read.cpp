@@ -3,6 +3,7 @@
 
 #include "../../hash/fnv.hpp"
 #include "../backend.hpp"
+#include "../type.hpp"
 #include "claim.hpp"
 #include "state.hpp"
 
@@ -92,7 +93,7 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
   }
   if (shape.type != type || shape.count != count || shape.bytes != bytes ||
       (data == nullptr && bytes != 0u) ||
-      ((type == Type::FixedLane32 || type == Type::FixedLane64) &&
+      (type_fixed(type) &&
        (shape.format.integer_bits != format.integer_bits ||
         shape.format.fraction_bits != format.fraction_bits))) {
     return Status::fail(Reason::ShapeMismatch);

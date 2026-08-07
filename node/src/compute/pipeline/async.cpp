@@ -52,20 +52,8 @@ void record_pipeline_failure(PipelineState &state, const std::size_t index,
       logical_verified_steps(state, state.verified);
   state.stats.pipeline.failed_step_index = logical_step_index(state, index);
   if (index < state.steps.size()) {
-    switch (state.steps[index].route) {
-    case PipelineRoute::NestedSeed:
-      state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Seed;
-      break;
-    case PipelineRoute::NestedAction:
-      state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Action;
-      break;
-    case PipelineRoute::NestedFold:
-      state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Fold;
-      break;
-    case PipelineRoute::Ordinary:
-      state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::None;
-      break;
-    }
+    state.stats.pipeline.failed_nested_phase =
+        pipeline_nested_phase(state.steps[index].route);
   }
   if (outer_known) {
     state.stats.pipeline.failed_outer_window = outer;

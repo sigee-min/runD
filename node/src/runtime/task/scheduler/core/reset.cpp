@@ -65,7 +65,6 @@ void Scheduler::Reset() noexcept {
   state_->identity.next_scope_id = 2u;
   state_->identity.next_wait_id = 1u;
   state_->identity.next_reactor_many_group_id = 1u;
-  state_->identity.next_reactor_ready_set_id = 1u;
   state_->identity.next_stop_source_id = 1u;
   ++state_->identity.stop_source_epoch;
   if (state_->identity.stop_source_epoch == 0u) {

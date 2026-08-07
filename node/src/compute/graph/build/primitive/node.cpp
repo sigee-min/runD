@@ -21,7 +21,7 @@ rund::AccelGraphNode make_node(const Primitive primitive,
   const Type type = primary == nullptr ? Type::U32 : primary->type;
   const std::uint64_t count = primary == nullptr ? 0 : primary->count;
   const bool wide = type_bytes(type) == 8;
-  const bool fixed = type == Type::FixedLane32 || type == Type::FixedLane64;
+  const bool fixed = type_fixed(type);
   const kernel::ComputeFixedFormat source_format =
       primary == nullptr ? kernel::ComputeFixedFormat{}
                          : kernel_format(primary->fixed_format);
@@ -33,12 +33,13 @@ rund::AccelGraphNode make_node(const Primitive primitive,
       fixed ? kernel::PrimitiveFixedFormat(
                   source_format, kernel::ComputeApproximation::Deterministic)
             : kernel::ComputeFixedFormat{};
+  const kernel::ComputeDomain domain = type_domain(type);
   const kernel::MatrixArithmetic matrix_arithmetic =
-      type == Type::FixedLane32 || type == Type::FixedLane64
-          ? kernel::MatrixArithmetic::Fixed
-          : (type == Type::I32 || type == Type::I64
-                 ? kernel::MatrixArithmetic::SignedWrap
-                 : kernel::MatrixArithmetic::UnsignedWrap);
+      fixed ? kernel::MatrixArithmetic::Fixed
+            : (domain == kernel::ComputeDomain::I32 ||
+                       domain == kernel::ComputeDomain::I64
+                   ? kernel::MatrixArithmetic::SignedWrap
+                   : kernel::MatrixArithmetic::UnsignedWrap);
   primary_write = primitive == Primitive::Argsort ? 1u : 0u;
   switch (primitive) {
   case Primitive::SegmentedScan: {

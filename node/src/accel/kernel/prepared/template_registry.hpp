@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../backend/phase.hpp"
+
 #include "../memory.hpp"
 #include "../publication.hpp"
 #include "../scratch.hpp"
@@ -75,7 +77,7 @@ struct PreparedKernelRecurrenceIdentity final {
   std::uint32_t inner_bound{};
   std::uint32_t route{};
   std::uint32_t state{};
-  std::uint8_t phase{};
+  BackendWindowPhase phase{BackendWindowPhase::Ordinary};
   bool writes_each_iteration{};
   bool has_window{};
   bool has_terminal{};
@@ -84,6 +86,15 @@ struct PreparedKernelRecurrenceIdentity final {
   operator==(const PreparedKernelRecurrenceIdentity &) const noexcept = default;
 };
 
+static_assert(sizeof(PreparedKernelRecurrenceIdentity) == 52u);
+static_assert(alignof(PreparedKernelRecurrenceIdentity) ==
+              alignof(std::uint32_t));
+static_assert(offsetof(PreparedKernelRecurrenceIdentity, phase) == 48u);
+static_assert(offsetof(PreparedKernelRecurrenceIdentity,
+                       writes_each_iteration) == 49u);
+static_assert(offsetof(PreparedKernelRecurrenceIdentity, has_window) == 50u);
+static_assert(offsetof(PreparedKernelRecurrenceIdentity, has_terminal) == 51u);
+
 inline void
 SeedPreparedKernelRecurrenceFingerprint(std::uint64_t &hi,
                                         std::uint64_t &lo) noexcept {
@@ -91,9 +102,13 @@ SeedPreparedKernelRecurrenceFingerprint(std::uint64_t &hi,
   lo = 0x757272656e63652eull;
 }
 
-inline void MixPreparedKernelRecurrenceFingerprint(
+[[nodiscard]] inline bool MixPreparedKernelRecurrenceFingerprint(
     std::uint64_t &hi, std::uint64_t &lo,
     const PreparedKernelRecurrenceIdentity &identity) noexcept {
+  std::uint32_t phase = 0u;
+  if (!EncodeBackendWindowPhase(identity.phase, phase)) {
+    return false;
+  }
   const auto mix = [](std::uint64_t &hash, const std::uint64_t value) {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
   };
@@ -103,7 +118,7 @@ inline void MixPreparedKernelRecurrenceFingerprint(
   mix(lo, static_cast<std::uint64_t>(identity.writes_each_iteration));
   mix(hi, static_cast<std::uint64_t>(identity.has_window));
   if (!identity.has_window) {
-    return;
+    return true;
   }
   mix(lo, identity.maximum);
   mix(hi, identity.tile);
@@ -114,8 +129,9 @@ inline void MixPreparedKernelRecurrenceFingerprint(
   mix(lo, identity.inner_bound);
   mix(hi, identity.route);
   mix(lo, identity.state);
-  mix(hi, identity.phase);
+  mix(hi, phase);
   mix(lo, static_cast<std::uint64_t>(identity.has_terminal));
+  return true;
 }
 
 // Public Pipeline planning has Program identity and route shape before private

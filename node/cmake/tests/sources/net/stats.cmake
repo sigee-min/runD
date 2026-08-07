@@ -10,4 +10,5 @@ set(NODE_TEST_NET_STATS_TEST_SOURCES
   tests/contract/runtime/task/net/stats/local/run.cpp
   tests/contract/runtime/task/net/stats/local/socket.cpp
   tests/contract/runtime/task/net/stats/nested.cpp
+  tests/contract/runtime/task/net/stats/saturation.cpp
 )

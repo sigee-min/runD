@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../reactor/apply/policy.hpp"
@@ -64,8 +65,10 @@ Scheduler::JoinManyWithProvidedSlots(const task::Handle *const handles,
   }
   {
     ControlCommitScope commit{*this};
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::Joins);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(state_->evidence.metrics,
+                                   ::rund::detail::task::StatSlot::Joins),
+        1u);
     state_->batches.root_single_join_streak = 0u;
     if (state_->batches.root_single_join_session_lane_active) {
       ++::rund::detail::task::Stat(

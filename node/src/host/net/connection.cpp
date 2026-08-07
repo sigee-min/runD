@@ -57,12 +57,27 @@ CompleteAccept(const std::uint64_t listener_id,
   return result;
 }
 
-[[nodiscard]] accept::Result AcceptOne(const std::uint64_t listener_id,
-                                       const int native) noexcept {
-  if (!node::NativeIsNonblockingFd(native)) {
+template <typename Lease>
+[[nodiscard]] accept::Result
+AttemptAccept(Lease lease, const ::rund::ReasonCode invalid) noexcept {
+  if (!lease) {
+    return fail_accept(invalid);
+  }
+  if (!node::NativeIsNonblockingFd(lease.native())) {
     return fail_accept(::rund::ReasonCode::TaskInvalid);
   }
-  return CompleteAccept(listener_id, node::NativeAccept(native));
+  return CompleteAccept(lease.id(), node::NativeAccept(lease.native()));
+}
+
+[[nodiscard]] accept::Result
+AttemptAccept(const ready::detail::Claim &claim) noexcept {
+  ready::detail::Operation operation = ready::detail::prepare(claim);
+  const ::rund::ReasonCode invalid = operation.code();
+  return AttemptAccept(std::move(operation), invalid);
+}
+
+[[nodiscard]] accept::Result AttemptAccept(const SocketView listener) noexcept {
+  return AttemptAccept(LeaseSocket(listener), ::rund::ReasonCode::IoFdInvalid);
 }
 
 [[nodiscard]] connect::Result fail_connect(
@@ -82,19 +97,11 @@ accept::Result accept::one(ready::Ticket &&ticket) noexcept {
   if (!claim) {
     return fail_accept(claim.code);
   }
-  ready::detail::Operation operation = ready::detail::prepare(claim);
-  if (!operation) {
-    return fail_accept(operation.code());
-  }
-  return AcceptOne(operation.id(), operation.native());
+  return AttemptAccept(claim);
 }
 
 accept::Result server::detail::next(const SocketView listener) noexcept {
-  SocketLease lease = LeaseSocket(listener);
-  if (!lease) {
-    return fail_accept(::rund::ReasonCode::IoFdInvalid);
-  }
-  return AcceptOne(lease.id(), lease.native());
+  return AttemptAccept(listener);
 }
 
 accept::Drain
@@ -114,18 +121,9 @@ accept::detail::drain(ready::Ticket &&ticket, const accept::Budget budget,
     result.budget_exhausted = true;
     return result;
   }
-  ready::detail::Operation operation = ready::detail::prepare(claim);
-  if (!operation) {
-    return accept::fail_drain(operation.code());
-  }
-  if (!node::NativeIsNonblockingFd(operation.native())) {
-    return accept::fail_drain(::rund::ReasonCode::TaskInvalid);
-  }
-
   accept::Drain result{::rund::ReasonCode::Ok};
   for (std::uint32_t attempt = 0u; attempt < budget.max_accepts; ++attempt) {
-    accept::Result accepted =
-        CompleteAccept(operation.id(), node::NativeAccept(operation.native()));
+    accept::Result accepted = AttemptAccept(claim);
     if (!accepted) {
       if (accepted.code() == ::rund::ReasonCode::IoWouldBlock) {
         result.would_block = true;

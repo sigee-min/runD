@@ -13,7 +13,7 @@ namespace {
 [[nodiscard]] KernelExpr emit_unary(const kernel::IrOp operation,
                                     const KernelExpr value,
                                     const ExprNode &node) {
-  return node.type == Type::FixedLane32 || node.type == Type::FixedLane64
+  return type_fixed(node.type)
              ? compute_dsl::detail::UnaryFormatted(
                    operation, value, kernel_format(node.fixed_format))
              : compute_dsl::detail::Unary(operation, value);
@@ -26,7 +26,7 @@ namespace {
   if (operation == kernel::IrOp::MulWrap) {
     return compute_dsl::detail::Binary(operation, left, right);
   }
-  return node.type == Type::FixedLane32 || node.type == Type::FixedLane64
+  return type_fixed(node.type)
              ? compute_dsl::detail::BinaryFormatted(
                    operation, left, right, kernel_format(node.fixed_format))
              : compute_dsl::detail::Binary(operation, left, right);
@@ -37,7 +37,7 @@ namespace {
                                       const KernelExpr second,
                                       const KernelExpr third,
                                       const ExprNode &node) {
-  return node.type == Type::FixedLane32 || node.type == Type::FixedLane64
+  return type_fixed(node.type)
              ? compute_dsl::detail::TernaryFormatted(
                    operation, first, second, third,
                    kernel_format(node.fixed_format))
@@ -96,7 +96,7 @@ replay(const ExprRef &expression, const std::span<const KernelExpr> inputs,
         break;
       case ExprOp::Constant:
         values[index] =
-            node.type == Type::FixedLane32 || node.type == Type::FixedLane64
+            type_fixed(node.type)
                 ? compute_dsl::detail::FormattedConstant(
                       constant_anchor, node.bits,
                       kernel_format(node.fixed_format))
@@ -104,11 +104,10 @@ replay(const ExprRef &expression, const std::span<const KernelExpr> inputs,
                       constant_anchor, numeric_mode(node.type), node.bits);
         break;
       case ExprOp::Index:
-        values[index] =
-            node.type == Type::FixedLane32 || node.type == Type::FixedLane64
-                ? logical_index
-                : compute_dsl::detail::TypedIndex(logical_index,
-                                                  numeric_mode(node.type));
+        values[index] = type_fixed(node.type)
+                            ? logical_index
+                            : compute_dsl::detail::TypedIndex(
+                                  logical_index, numeric_mode(node.type));
         break;
       case ExprOp::Negate:
       case ExprOp::Abs:
@@ -136,8 +135,10 @@ replay(const ExprRef &expression, const std::span<const KernelExpr> inputs,
             emit_unary(kernel::IrOp::Quantize, values[node.left - 1], node);
         break;
       case ExprOp::CheckedOrdinal:
-        if (expression.state->nodes[node.left - 1u].type == Type::I32 ||
-            expression.state->nodes[node.left - 1u].type == Type::I64) {
+        if (const kernel::ComputeDomain source_domain =
+                type_domain(expression.state->nodes[node.left - 1u].type);
+            source_domain == kernel::ComputeDomain::I32 ||
+            source_domain == kernel::ComputeDomain::I64) {
           const KernelExpr zero = compute_dsl::detail::TypedConstant(
               values[node.left - 1u],
               numeric_mode(expression.state->nodes[node.left - 1u].type), 0u);
@@ -148,7 +149,7 @@ replay(const ExprRef &expression, const std::span<const KernelExpr> inputs,
                                            values[node.left - 1u], zero);
         } else {
           const std::uint64_t maximum =
-              node.type == Type::I64
+              type_bytes(node.type) == 8u
                   ? static_cast<std::uint64_t>(
                         std::numeric_limits<std::int64_t>::max())
                   : static_cast<std::uint64_t>(

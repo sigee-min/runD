@@ -35,6 +35,7 @@ list(APPEND NODE_SOURCES
   src/runtime/task/scheduler/reactor/diagnostic/platform.cpp
   src/runtime/task/scheduler/reactor/poll.cpp
   src/runtime/task/scheduler/reactor/many/probe/raw.cpp
+  src/runtime/task/scheduler/reactor/ready/set/identity.cpp
   src/runtime/task/scheduler/reactor/ready/set/result.cpp
   src/runtime/task/scheduler/reactor/ready/set/lifecycle.cpp
   src/runtime/task/scheduler/reactor/ready/set/membership.cpp

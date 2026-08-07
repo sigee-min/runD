@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../state/storage.hpp"
@@ -86,9 +87,10 @@ Scheduler::RecordChannel(const ::rund::detail::task::OperationKind kind,
   (void)TrapLaneOwnedSegmentPrimitive(
       ::rund::detail::task::OperationKind::ChannelSend);
   EnsureCurrentCommit();
-  ::rund::detail::task::Stat(state_->evidence.metrics,
-                             ::rund::detail::task::StatSlot::ChannelSends) +=
-      logical_sends;
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::ChannelSends),
+      logical_sends);
   Record(::rund::detail::task::OperationKind::ChannelSend, ReasonCode::Ok,
          CurrentTaskId(), 0u, 0u, channel_id, -1, 0, 0, 0, value_count, 0u, 0u,
          0u, 0u, 0u, 0u, logical_sends);
@@ -100,14 +102,23 @@ void Scheduler::RecordCommittedChannel(
     const ::rund::detail::task::OperationKind kind,
     const std::uint64_t channel_id, const std::uint64_t value_count) noexcept {
   if (kind == ::rund::detail::task::OperationKind::ChannelSend) {
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::ChannelSends);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::ChannelSends),
+        1u);
   } else if (kind == ::rund::detail::task::OperationKind::ChannelRecv) {
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::ChannelRecvs);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::ChannelRecvs),
+        1u);
   } else if (kind == ::rund::detail::task::OperationKind::ChannelClose) {
-    ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::ChannelCloses);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::ChannelCloses),
+        1u);
   }
   const std::uint64_t task_id = CurrentTaskId();
   Record(kind, ReasonCode::Ok, task_id, 0u, 0u, channel_id, -1, 0, 0, 0,

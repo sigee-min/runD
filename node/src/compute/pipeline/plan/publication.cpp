@@ -22,21 +22,6 @@ namespace rund::compute::detail {
 
 namespace {
 
-[[nodiscard]] constexpr PipelineNestedPhase
-publication_phase(const PipelineRoute route) noexcept {
-  switch (route) {
-  case PipelineRoute::NestedSeed:
-    return PipelineNestedPhase::Seed;
-  case PipelineRoute::NestedAction:
-    return PipelineNestedPhase::Action;
-  case PipelineRoute::NestedFold:
-    return PipelineNestedPhase::Fold;
-  case PipelineRoute::Ordinary:
-    return PipelineNestedPhase::None;
-  }
-  return PipelineNestedPhase::None;
-}
-
 [[nodiscard]] Location
 publication_location(const PipelineBuildState &build,
                      const PipelinePublicationStepOrdinal step) noexcept {
@@ -47,7 +32,7 @@ publication_location(const PipelineBuildState &build,
   const PipelineBuildStep &authored = build.steps[step.value];
   location.step = authored.logical_step;
   location.iteration = authored.iteration;
-  location.nested_phase = publication_phase(authored.route);
+  location.nested_phase = pipeline_nested_phase(authored.route);
   return location;
 }
 

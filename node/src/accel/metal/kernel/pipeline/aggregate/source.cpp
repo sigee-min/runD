@@ -1,12 +1,16 @@
 #include "source.hpp"
 
-namespace rund::node::accel::detail {
+#include "../../../../kernel/backend/phase_source.hpp"
 
-std::string_view MetalNestedAggregateSource() noexcept {
-  return R"rundmetal(
+namespace rund::node::accel::detail {
+namespace {
+
+inline constexpr std::string_view MetalNestedAggregatePreamble = R"rundmetal(
 #include <metal_stdlib>
 using namespace metal;
+)rundmetal";
 
+inline constexpr std::string_view MetalNestedAggregateBody = R"rundmetal(
 struct PipelineControl {
   uint generation;
   uint reason;
@@ -143,7 +147,7 @@ inline void reset_control(device PipelineControl *control) {
   control->overflow_ordinal = 0xfffffffffffffffful;
   control->failed_outer_window = 0xffffffffu;
   control->failed_inner_iteration = 0xffffffffu;
-  control->failed_nested_phase = 0u;
+  control->failed_nested_phase = rund_pipeline_phase_none;
   control->reserved = 0u;
   control->executed_outer_window_count = 0ul;
   control->skipped_outer_window_count = 0ul;
@@ -204,7 +208,7 @@ inline void fail_seed(device PipelineControl *control, const uint reason,
   control->failed_step = declared_step;
   control->failed_outer_window = outer;
   control->failed_inner_iteration = 0xffffffffu;
-  control->failed_nested_phase = 1u;
+  control->failed_nested_phase = rund_pipeline_phase_seed;
 }
 
 kernel void rund_pipeline_nested_aggregate_reduce_u32(
@@ -416,6 +420,24 @@ kernel void rund_pipeline_nested_aggregate_finalize_u32(
   }
 }
 )rundmetal";
+
+template <typename Sink>
+[[nodiscard]] bool EmitMetalNestedAggregateSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  return sink.append(MetalNestedAggregatePreamble) &&
+         EmitPipelineNestedPhaseContract(
+             sink, PipelineNestedPhaseSourceLanguage::Metal) &&
+         sink.append(MetalNestedAggregateBody);
+}
+
+} // namespace
+
+std::string_view MetalNestedAggregateSource() noexcept {
+  static const auto source = backend_source_recipe::materialize_fixed<
+      MetalNestedAggregatePreamble.size() + MetalNestedAggregateBody.size() +
+      1024u>(
+      [](auto &sink) noexcept { return EmitMetalNestedAggregateSource(sink); });
+  return source.text();
 }
 
 } // namespace rund::node::accel::detail

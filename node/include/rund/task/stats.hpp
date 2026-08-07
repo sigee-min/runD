@@ -58,6 +58,9 @@ private:
 
 static_assert(sizeof(Stats) == sizeof(detail::task::StatStorage));
 static_assert(alignof(Stats) == alignof(detail::task::StatStorage));
+// This is an ABI cardinality check, not a getter-to-slot bijection: compatible
+// public aliases may project one canonical slot more than once while an old
+// physical position remains reserved.
 static_assert(detail::task::kRootPublicStatCount +
                   detail::task::kReactorPublicStatCount +
                   detail::task::kNetworkPublicStatCount +

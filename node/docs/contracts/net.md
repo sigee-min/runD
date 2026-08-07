@@ -172,11 +172,13 @@ Accepted sockets pass through `accept::prepare` before application handoff.
 Normal code does not author cleanup branches: owner destruction retires its
 generation and performs the one native close attempt. `Socket::close()` exists
 for explicit early release and consumes that owner even when the native close
-reports failure. Retirement waits for already-acquired operation leases, so a
-destructor can wait for an active bounded operation; no bounded destructor
-latency is promised. Move-only ownership makes duplicate close paths
-structurally unavailable. A stale view or ticket never becomes current again
-when the operating system reuses its descriptor.
+reports failure. Retirement waits for already-acquired native-attempt leases,
+so a destructor can wait for a concurrently completing native attempt and its
+host event. A callback-bearing bounded helper releases that lease after event
+completion and before arbitrary caller code; callback-driven close therefore
+cannot wait on its own stack frame. Move-only ownership makes duplicate close
+paths structurally unavailable. A stale view or ticket never becomes current
+again when the operating system reuses its descriptor.
 Recycling advances an active odd generation to an inactive even generation,
 waits until the reader count is zero, and advances to the next odd generation
 only on a later admission. The same slot and generation pair is therefore
@@ -283,6 +285,26 @@ Timed waits live under `ready::timed`; many-socket waits and their budget live
 under `ready::many`. Reusable membership lives in `ready::Set` and is managed
 only by `ready::{create,destroy,clear,add,remove}`.
 
+`ready::Set` is a 16-byte capability whose two public integers are opaque and
+equality-only. Their exact values, numeric order, persistence, and use as a
+replay branch are not contracts. A live capability belongs to its owning open
+Session and may be reused across that Session's scopes. Process-wide slot ids
+prevent a capability from another Scheduler or an earlier reset/open lifetime
+from selecting a coincidentally numbered set in the active Scheduler; the
+process issuer is not reset with a Session and is not part of trace, event,
+ordering, or replay identity.
+
+Create is the only operation that publishes a live incarnation. A new slot
+starts at generation 1. Destroy returns a non-live tombstone at the next even
+generation, and reuse publishes the following odd generation, so neither the
+old live handle nor the destroy result authorizes the replacement. If the
+maximum generation is retired, its numeric tuple remains a non-live tombstone
+and the next create rekeys that storage with a fresh process slot id at
+generation 1. Slot ids never emit zero or `UINT64_MAX` and never wrap; issuer
+exhaustion fails a creation that needs a fresh slot id without publishing a
+set. A reusable even-generation tombstone still succeeds without consulting
+the exhausted issuer.
+
 Many-readiness preserves request-index order. For equal observed readiness,
 the output event order is the canonical input order rather than worker or
 backend completion order. `Budget::max_events` bounds output work, and the
@@ -301,11 +323,14 @@ once. They do not leave a second polling or wake authority.
 
 `accept::one` consumes one readable ticket and makes at most one native accept
 attempt. `accept::drain` claims one readable ticket, validates interest, and
-rejects a missing handler or zero budget before acquiring its sole generation
-lease. An admitted drain then makes at most
-`accept::Budget::max_accepts` native accept attempts. It stops on would-block,
-failure, budget exhaustion, or the callback; the loop bound is the syscall
-bound. Scalar and drain paths share one accepted result mapping authority. The
+rejects a missing handler or zero budget before acquiring a generation lease.
+Each admitted iteration reacquires that claim's generation, checks the current
+listener's nonblocking state, performs one native attempt, and releases the
+lease after accepted-result mapping and its host event but before the callback.
+An admitted drain makes at most `accept::Budget::max_accepts` native accept
+attempts. It stops on would-block, failure, budget exhaustion, or the callback;
+the loop bound is the syscall bound. Scalar, server, and drain paths share that
+single-attempt and accepted-result authority. The
 caller owns peer-task slots for parallel serving; runD does not allocate a
 hidden task vector. After configured scheduler and socket storage are warm,
 drain and both server forms perform no runD heap allocation within their
@@ -331,22 +356,35 @@ socket; its normal coroutine lifetime closes it automatically. The handler
 returns
 `Task<server::PeerResult>`: `server::PeerResult::complete()` records
 completion, `server::PeerResult::stop()` requests a typed stop, and
-`server::PeerResult::fail(code)` preserves an exact valid non-success reason.
-The three factories are allocation-free and
+`server::PeerResult::fail(code)` preserves an exact valid failure reason other
+than the reserved `NetPeerHandlerStopped`; `Ok`, the reserved stop reason, and
+invalid values normalize to `NetPeerHandlerFailed`. The three factories are
+allocation-free and
 store only the inherited reason. There is no generic outcome conversion:
 operation-specific progress such as a partial frame or successful timeout must
 be interpreted by the handler before it chooses the terminal. The server
 closes only a prepared peer whose task spawn was rejected before the handler
 could receive ownership.
 
-The handler contract has one terminal shape. A peer coroutine failure
-preserves its `Task` reason, a synchronously thrown handler invocation becomes
-`NetPeerHandlerFailed`, and an explicit `PeerResult` preserves its exact
-reason. Sequential serving stops at that terminal. Parallel serving joins all
-admitted handlers, then selects the non-success terminal with the lowest
-canonical accept index; worker count and completion order cannot change the
-selected peer reason. Admission/coordinator failure takes precedence, followed
-by join failure, then the selected peer terminal.
+The handler contract has one terminal classification owner:
+`detail::classify_peer_terminal` maps a flattened `PeerResult` to exactly one
+of completed, stopped, or failed. Sequential and parallel serving consume that
+same classification; only their sequential update/early-return and atomic
+update/lowest-index selection mechanics differ.
+
+A failed peer coroutine reaches `flatten`, whose current compatibility behavior
+preserves valid failure reasons other than `Ok` and
+`NetPeerHandlerStopped`; those reserved reasons and invalid values normalize to
+`NetPeerHandlerFailed` through `PeerResult::fail`. Whether a failed
+`Task<PeerResult>` carrying `NetPeerHandlerStopped` should instead become a
+stopped terminal is an unresolved public result/counter meaning decision. A
+synchronously thrown handler invocation becomes `NetPeerHandlerFailed`, and an
+explicit `PeerResult` preserves its already-normalized reason. Sequential
+serving stops at that terminal. Parallel serving joins all admitted handlers,
+then selects the non-success terminal with the lowest canonical accept index;
+worker count, completion order, and stopped-versus-failed category cannot
+change the selected peer reason. Admission/coordinator failure takes
+precedence, followed by join failure, then the selected peer terminal.
 
 `server::serve` returns the move-only `server::Task`. Awaiting it yields exactly
 one `server::Result`:
@@ -367,6 +405,18 @@ boundary and adds no coroutine, allocation, queue entry, or fallback path.
 `drain::read` and `drain::write` share one `drain::Budget` and bound native
 attempts by `max_operations`. Their distinct `ReadResult` and `WriteResult`
 retain operation-specific progress without duplicating the budget authority.
+Each iteration consumes the scalar byte path's single-attempt owner: it
+reacquires the immutable claimed generation, performs the native call, and
+releases the lease after event completion but before the callback. This keeps
+the native attempt and event on one live host identity while excluding caller
+code from its lifetime. A callback that returns false reports successful
+accumulated progress with `handler_stopped`. If it returns true after closing
+the source and more native work is required, the requested next iteration
+fails its generation reacquisition with `IoFdInvalid`, makes no further native
+attempt or event, and preserves the completed read/write/byte counts. EOF,
+zero-progress, all-written, and the final budget attempt retain their existing
+terminal rules because they request no next native attempt.
+
 `frame::read` and `frame::write` carry a four-byte big-endian length followed
 by bytes and reject frames above the declared limit. `flow` performs pure
 bounded byte accounting. None of these helpers creates a packet schema, queue,
@@ -501,7 +551,8 @@ The release surface fixes these hot-path properties:
   consumers then make at most one native attempt;
 - explicit read, write, and accept drains and server batches make at most their
   declared budget of native attempts and stop on would-block, error, callback
-  stop, or the bound;
+  stop, or the bound; every drain iteration uses one short generation lease
+  that owns its host-event identity and ends before arbitrary caller code;
 - generation is checked at registration and again at consumption because a
   close/reuse transition may occur between them;
 - completed payload bytes are hashed in one ordered pass; ingress hashing and
@@ -614,6 +665,17 @@ adapter or duplicate status mapping.
 outcomes, and admission rejection. `result.tasks().reactor()` owns readiness
 registration, wake, cancellation, and capacity counters. Platform counters
 remain implementation diagnostics and do not mirror the public totals.
+The source-private scheduler host-event recorder is the single
+`EventKind -> call/lifecycle slot` owner. Every additive Network field consumes
+the repository `counter::Accumulate` law, so `UINT64_MAX` is absorbing for call,
+lifecycle, would-block, admission-rejection, and byte evidence; no field wraps
+to zero. Successful stream, datagram, and vectored events alone add their
+completed bytes, and lifecycle events never add bytes.
+Despite its category and spelling, the current compatibility meaning of
+`would_block()` counts every admitted host event with `Status::WouldBlock`,
+including non-network host I/O. Restricting that field to Network event kinds
+requires an explicit public telemetry decision; the recorder and contract test
+preserve the existing behavior until then.
 
 Ticket rejection is observable through its typed result, not counted as a
 native call. In the focused lifecycle contract, one accepted send and one
@@ -633,6 +695,7 @@ The focused product cases are:
 
 ```text
 runtime.task.net
+runtime.task.net-drain
 runtime.task.net-nonblocking
 runtime.task.net-readiness
 runtime.task.net-ready-many
@@ -642,6 +705,7 @@ runtime.task.net-options
 runtime.task.net-vectored
 runtime.task.net-accept-connect
 runtime.task.net-accept-drain
+runtime.task.net-write-drain
 runtime.task.net-accept-handoff
 runtime.task.net-server
 runtime.task.net-server-parallel

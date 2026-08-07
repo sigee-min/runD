@@ -110,7 +110,11 @@ private:
     if (window == nullptr) {
       return;
     }
-    nested_phase_ = window->nested_phase();
+    rund::compute::PipelineNestedPhase phase{};
+    if (!window->nested_phase(phase)) {
+      return;
+    }
+    nested_phase_ = phase;
     if (rund::compute::pipeline_nested_phase_has_outer(nested_phase_)) {
       outer_iteration_ = window->outer_iteration;
     }

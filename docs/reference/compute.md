@@ -873,13 +873,28 @@ Flow recipes and compiled Graph construction also share private `MapStep` and
 and expressions; Scan owns its input, output, active-count route, and operation.
 Neither record has a second Flow-only or Graph-only definition.
 
-Private `compute/type.hpp` is the sole `Type` projection authority. Its
-constexpr table maps the six storage types to byte width, validity, Kernel
-scalar width, and Kernel arithmetic domain. Device and Buffer state do not
-re-export those rules; every implementation that consumes a projection
-imports the leaf directly. Map IR canonicalization and primitive graph
-construction therefore use the same `type_domain()` result instead of
-reconstructing domain switches.
+Private `compute/type.hpp` is the sole `Type` projection authority. Its one
+constexpr `project_type()` decision maps the six storage types to byte width,
+Kernel scalar width, and Kernel arithmetic domain; `type_bytes()`,
+`valid_type()`, `type_scalar()`, and `type_domain()` are field projections of
+that result. `type_fixed()` is derived only from the projected Kernel domain.
+Device and Buffer state do not re-export those rules; every general planner,
+expression, validation, and graph implementation that consumes one of these
+projections imports the leaf directly. Map IR canonicalization and primitive
+graph construction therefore consume the same domain instead of reconstructing
+type lists. Backend execution switches that select a concrete C++ lane,
+backend opcode, or public description value remain intentional codomain-specific
+specializations; they do not define general width, validity, or Fixed-domain
+membership.
+
+An unknown internal `Type` projects to zero width and zero scalar/domain and is
+invalid. Expression retyping, checked ordinal conversion, shifts, and boundary
+masks test that validity before width or shift-count rules, so a structurally
+valid forged expression reports `compute_expression_type_mismatch` rather than
+being admitted as a four-byte lane. Flow retyping applies the same source and
+target validity before its same-type fast path and reports
+`compute_graph_type_mismatch`. These are malformed-detail contracts; the
+public overload set continues to construct only the six valid storage types.
 
 Private `compute/graph/scan.hpp` likewise owns the one constexpr
 `Type -> kernel::ScanElement` projection. Canonical graph description and

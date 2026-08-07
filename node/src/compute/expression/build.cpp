@@ -1,6 +1,7 @@
 #include "state.hpp"
 
 #include "../../hash/fnv.hpp"
+#include "../type.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -98,16 +99,6 @@ void set_error(const std::shared_ptr<ExprState> &state, Status status) {
   }
 }
 
-[[nodiscard]] constexpr bool fixed(const Type type) noexcept {
-  return type == Type::FixedLane32 || type == Type::FixedLane64;
-}
-
-[[nodiscard]] constexpr std::size_t bytes(const Type type) noexcept {
-  return type == Type::I64 || type == Type::U64 || type == Type::FixedLane64
-             ? 8u
-             : 4u;
-}
-
 [[nodiscard]] constexpr bool stored_unary(const ExprOp operation) noexcept {
   return operation == ExprOp::NegPositiveFixed || operation == ExprOp::BitNot ||
          operation == ExprOp::Reciprocal || operation == ExprOp::Sqrt ||
@@ -141,7 +132,7 @@ approximate_binary(const ExprOp operation) noexcept {
 [[nodiscard]] constexpr bool stored_format(const Type type,
                                            const FixedFormat format) noexcept {
   return static_cast<unsigned>(format.integer_bits) + format.fraction_bits ==
-         bytes(type) * 8u;
+         type_bytes(type) * 8u;
 }
 
 [[nodiscard]] ExprRef append(const std::shared_ptr<ExprState> &state,
@@ -220,16 +211,16 @@ ExprRef unary(const ExprOp operation, ExprRef value) {
     }
     return ExprRef{std::move(value.state), 0, value.type, value.fixed_format};
   }
-  if (fixed(value.type) && stored_unary(operation) &&
+  if (type_fixed(value.type) && stored_unary(operation) &&
       !stored_format(value.type, value.fixed_format)) {
     set_error(value.state, Status::fail(Reason::FixedQuantizeRequired));
     return ExprRef{std::move(value.state), 0u, value.type, value.fixed_format};
   }
   FixedFormat format = value.fixed_format;
-  if (fixed(value.type) && approximate_unary(operation)) {
+  if (type_fixed(value.type) && approximate_unary(operation)) {
     format.approximation = Approximation::Deterministic;
   }
-  if (fixed(value.type) &&
+  if (type_fixed(value.type) &&
       (operation == ExprOp::Negate || operation == ExprOp::Abs ||
        operation == ExprOp::AbsMagnitude)) {
     const unsigned width =
@@ -257,11 +248,16 @@ ExprRef shift(const ExprOp operation, ExprRef value,
     }
     return ExprRef{std::move(value.state), 0, value.type, value.fixed_format};
   }
-  if (amount >= bytes(value.type) * 8u) {
+  if (!valid_type(value.type)) {
+    set_error(value.state, Status::fail(Reason::ExpressionTypeMismatch));
+    return ExprRef{std::move(value.state), 0, value.type, value.fixed_format};
+  }
+  if (amount >= type_bytes(value.type) * 8u) {
     set_error(value.state, Status::fail(Reason::ShiftCountInvalid));
     return ExprRef{std::move(value.state), 0, value.type, value.fixed_format};
   }
-  if (fixed(value.type) && !stored_format(value.type, value.fixed_format)) {
+  if (type_fixed(value.type) &&
+      !stored_format(value.type, value.fixed_format)) {
     set_error(value.state, Status::fail(Reason::FixedQuantizeRequired));
     return ExprRef{std::move(value.state), 0u, value.type, value.fixed_format};
   }
@@ -273,7 +269,8 @@ ExprRef shift(const ExprOp operation, ExprRef value,
 }
 
 ExprRef retype_expr(ExprRef value, const Type type) {
-  if (!valid(value) || bytes(value.type) != bytes(type)) {
+  if (!valid(value) || !valid_type(value.type) || !valid_type(type) ||
+      type_bytes(value.type) != type_bytes(type)) {
     if (value.state != nullptr) {
       set_error(value.state, Status::fail(Reason::ExpressionTypeMismatch));
     }
@@ -284,8 +281,9 @@ ExprRef retype_expr(ExprRef value, const Type type) {
 }
 
 ExprRef checked_ordinal_expr(ExprRef value, const Type type) {
-  if (!valid(value) || fixed(value.type) || fixed(type) ||
-      bytes(value.type) != bytes(type)) {
+  if (!valid(value) || !valid_type(value.type) || !valid_type(type) ||
+      type_fixed(value.type) || type_fixed(type) ||
+      type_bytes(value.type) != type_bytes(type)) {
     if (value.state != nullptr) {
       set_error(value.state, Status::fail(Reason::ExpressionTypeMismatch));
     }
@@ -300,15 +298,14 @@ ExprRef checked_ordinal_expr(ExprRef value, const Type type) {
 
 ExprRef boundary_mask_expr(ExprRef value, const Type type,
                            const FixedFormat fixed_format) {
-  const bool source_integer = !fixed(value.type);
-  const bool target_supported = type == Type::I32 || type == Type::U32 ||
-                                type == Type::I64 || type == Type::U64 ||
-                                type == Type::FixedLane32 ||
-                                type == Type::FixedLane64;
-  const bool format_valid = fixed(type) ? stored_format(type, fixed_format)
-                                        : fixed_format == FixedFormat{};
-  if (!valid(value) || !source_integer || !target_supported ||
-      bytes(value.type) != bytes(type) || !format_valid) {
+  const bool source_supported = valid_type(value.type);
+  const bool target_supported = valid_type(type);
+  const bool source_integer = source_supported && !type_fixed(value.type);
+  const bool format_valid = type_fixed(type) ? stored_format(type, fixed_format)
+                                             : fixed_format == FixedFormat{};
+  if (!valid(value) || !source_supported || !source_integer ||
+      !target_supported || type_bytes(value.type) != type_bytes(type) ||
+      !format_valid) {
     if (value.state != nullptr) {
       set_error(value.state, Status::fail(Reason::ExpressionTypeMismatch));
     }
@@ -323,7 +320,7 @@ ExprRef boundary_mask_expr(ExprRef value, const Type type,
 }
 
 ExprRef with_fixed_format(ExprRef value, const FixedFormat fixed_format) {
-  if (!valid(value) || !fixed(value.type)) {
+  if (!valid(value) || !type_fixed(value.type)) {
     return value;
   }
   if (value.fixed_format.integer_bits != 0u) {
@@ -339,11 +336,11 @@ ExprRef quantize_expr(ExprRef value, const Type target,
   if (!valid(value) && value.state != nullptr && !value.state->status) {
     return ExprRef{std::move(value.state), 0u, target, fixed_format};
   }
-  if (!valid(value) || !fixed(value.type) || !fixed(target) ||
+  if (!valid(value) || !type_fixed(value.type) || !type_fixed(target) ||
       fixed_format.integer_bits == 0u || fixed_format.fraction_bits == 0u ||
       static_cast<unsigned>(fixed_format.integer_bits) +
               fixed_format.fraction_bits !=
-          bytes(target) * 8u) {
+          type_bytes(target) * 8u) {
     if (value.state != nullptr) {
       set_error(value.state, Status::fail(Reason::QuantizeFormatInvalid));
     }
@@ -394,8 +391,8 @@ bool is_width_mask(const ExprRef &expression, const Type input) noexcept {
   return expression.state != nullptr && expression.node != 0u &&
          expression.node <= expression.state->nodes.size() &&
          (expression.type == Type::U32 || expression.type == Type::U64) &&
-         (bytes(input) == sizeof(std::uint32_t) ||
-          bytes(input) == sizeof(std::uint64_t)) &&
+         (type_bytes(input) == sizeof(std::uint32_t) ||
+          type_bytes(input) == sizeof(std::uint64_t)) &&
          expression.state->nodes[expression.node - 1u].operation ==
              ExprOp::Mask;
 }
@@ -409,7 +406,7 @@ ExprRef binary(const ExprOp operation, ExprRef left, ExprRef right) {
     return ExprRef{std::move(left.state), 0, left.type, left.fixed_format};
   }
   FixedFormat format = left.fixed_format;
-  if (fixed(left.type)) {
+  if (type_fixed(left.type)) {
     if (left.fixed_format.integer_bits == 0u ||
         right.fixed_format.integer_bits == 0u ||
         left.fixed_format.rounding != right.fixed_format.rounding ||
@@ -487,7 +484,7 @@ ExprRef ternary(const ExprOp operation, ExprRef first, ExprRef second,
     return ExprRef{std::move(first.state), 0, second.type, second.fixed_format};
   }
   FixedFormat format = second.fixed_format;
-  if (fixed(second.type)) {
+  if (type_fixed(second.type)) {
     const auto same_policy = [](const FixedFormat left,
                                 const FixedFormat right) noexcept {
       return left.rounding == right.rounding && left.overflow == right.overflow;

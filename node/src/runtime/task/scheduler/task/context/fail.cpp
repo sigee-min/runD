@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "local.hpp"
@@ -16,8 +17,10 @@ namespace rund::node {
     SetLeafFailure(*record, ReasonCode::TaskLeafPrimitiveForbidden);
     return FailYield(ReasonCode::TaskLeafPrimitiveForbidden);
   }
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Yields);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Yields),
+      1u);
   ++::rund::detail::task::Stat(state_->evidence.metrics,
                                ::rund::detail::task::StatSlot::Parked);
   ++::rund::detail::task::Stat(state_->evidence.metrics,

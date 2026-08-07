@@ -303,6 +303,23 @@ struct PipelineStatePairResourcePlan final {
   std::uint32_t pending_first_full_write{resource::NoNode};
 };
 
+// One cold workspace route owns both presence and recurrence reuse.  The
+// absent sentinel is a complete state: consumers may not infer presence again
+// from Program chunks, backend Views, or the global JobArena.
+struct PipelineWorkspaceRoute final {
+  static constexpr std::size_t absent = std::numeric_limits<std::size_t>::max();
+
+  std::size_t owner{absent};
+
+  [[nodiscard]] constexpr bool present() const noexcept {
+    return owner != absent;
+  }
+
+  [[nodiscard]] constexpr bool owns(const std::size_t index) const noexcept {
+    return owner == index;
+  }
+};
+
 struct PipelineMemoryPlan final {
   struct ViewSlot final {
     std::size_t words{};
@@ -347,10 +364,10 @@ struct PipelineMemoryPlan final {
   // materialization, prepared-template counts, and memory admission consume
   // this one mapping instead of independently rediscovering parity reuse.
   std::vector<std::size_t> job_owners;
-  // Canonical workspace owner for every compact route. Serial recurrence
-  // steps borrow one Program workspace from their first phase; planning and
-  // materialization never re-interpret iteration fields independently.
-  std::vector<std::size_t> workspace_owners;
+  // Canonical workspace state for every compact route. Serial recurrence
+  // steps borrow one Program workspace from their phase root; absent routes
+  // remain explicit through planning and materialization.
+  std::vector<PipelineWorkspaceRoute> workspace_routes;
   // One sealed CPU preparation plan is the physical authority for the shared
   // serial execution envelope, every immutable route, and every private-Job
   // binding. cpu_storage_by_step indexes cpu_programs and never owns a second
@@ -414,6 +431,25 @@ pipeline_route(const node::accel::detail::NestedTemplatePhase phase) noexcept {
     return PipelineRoute::NestedFold;
   }
   return PipelineRoute::Ordinary;
+}
+
+// Sole Compute-owned projection from one frozen route to its public nested
+// phase. Planning diagnostics, profiles, and synchronous/asynchronous failure
+// paths consume this table; outer/inner coordinates remain contextual because
+// compact Action/Fold routes do not identify a physical outer occurrence.
+[[nodiscard]] inline constexpr PipelineNestedPhase
+pipeline_nested_phase(const PipelineRoute route) noexcept {
+  switch (route) {
+  case PipelineRoute::NestedSeed:
+    return PipelineNestedPhase::Seed;
+  case PipelineRoute::NestedAction:
+    return PipelineNestedPhase::Action;
+  case PipelineRoute::NestedFold:
+    return PipelineNestedPhase::Fold;
+  case PipelineRoute::Ordinary:
+    return PipelineNestedPhase::None;
+  }
+  return PipelineNestedPhase::None;
 }
 
 // One authored Window-control authority. Steps carry only this record's

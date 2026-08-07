@@ -114,11 +114,11 @@ CountEvents(const rund::Session::Result &run,
   rund::net::server::Result stopped{};
   rund::net::server::Result task_failed{};
   rund::net::server::Result invocation_failed{};
-  rund::net::server::Result operation_failed{};
+  rund::net::server::Result flattened_failed{};
   rund::net::CloseResult stopped_close{};
   rund::net::CloseResult task_failed_close{};
   rund::net::CloseResult invocation_failed_close{};
-  rund::net::CloseResult operation_failed_close{};
+  rund::net::CloseResult flattened_failed_close{};
   rund::task::Status joined{};
 
   const rund::Session::Result run = rund::run(NetServerRunSpec(), [&] {
@@ -143,13 +143,13 @@ CountEvents(const rund::Session::Result &run,
       invocation_failed = co_await rund::net::server::serve(
           options, SynchronousThrow{.closed = &invocation_failed_close});
 
-      operation_failed = co_await rund::net::server::serve(
+      flattened_failed = co_await rund::net::server::serve(
           options,
           [&](rund::net::server::Peer peer)
               -> rund::task::Task<rund::net::server::PeerResult> {
-            operation_failed_close = peer.socket.close();
-            co_return rund::net::server::PeerResult::fail(
-                rund::ReasonCode::IoUnsupported);
+            flattened_failed_close = peer.socket.close();
+            return rund::task::Task<rund::net::server::PeerResult>{
+                rund::ReasonCode::IoUnsupported};
           });
     };
     joined = rund::task::join(
@@ -165,12 +165,12 @@ CountEvents(const rund::Session::Result &run,
   TEST_ASSERT(invocation_failed.code() ==
               rund::ReasonCode::NetPeerHandlerFailed);
   TEST_ASSERT(HasCounts(invocation_failed, 0u, 1u, 0u));
-  TEST_ASSERT(operation_failed.code() == rund::ReasonCode::IoUnsupported);
-  TEST_ASSERT(HasCounts(operation_failed, 0u, 1u, 0u));
+  TEST_ASSERT(flattened_failed.code() == rund::ReasonCode::IoUnsupported);
+  TEST_ASSERT(HasCounts(flattened_failed, 0u, 1u, 0u));
   TEST_ASSERT(stopped_close.ok());
   TEST_ASSERT(task_failed_close.ok());
   TEST_ASSERT(invocation_failed_close.ok());
-  TEST_ASSERT(operation_failed_close.ok());
+  TEST_ASSERT(flattened_failed_close.ok());
   return 0;
 }
 

@@ -163,6 +163,10 @@ caller-required `R` full records; no second full-wait authority exists.
   status once, then bounded resume copies require no request-span lookup.
 - `reactor/ready/set/result.cpp`: shared ready-set result materialization and
   current-generation validation helpers.
+- `reactor/ready/set/identity.{hpp,cpp}`: the one ready-set capability shape,
+  equality, live-state transition, generation retirement, and process-wide
+  non-wrapping slot-id issuer. The compiled issuer is independent of Scheduler
+  reset and deterministic replay state.
 - `reactor/ready/set/model.hpp`: scheduler-owned set and member storage values.
 - `reactor/ready/set/store.cpp`: live-set lookup, bounded member counts,
   duplicate checks, and member clearing.
@@ -419,12 +423,47 @@ steady add/remove churn does not allocate or grow storage. A parked wait owns
 its pre-suspension membership snapshot, so later mutation affects only future
 waits.
 
+`ReactorReadySetIdentityOwner` is the sole authority for capability validity,
+exact-pair matching, and create/destroy transitions. Scheduler storage keeps
+the public pair and its live bit in one identity state; lookup, ready-set wait
+groups, cancellation, resource counts, and lifecycle code consume that owner
+rather than comparing independent id/generation fields. The live bit is the
+state authority: odd generation is necessary for a live incarnation, but the
+maximum odd generation can also be a retired non-live tombstone. Reusable even
+tombstones are selected before maximum-generation tombstones that require a
+new process id, so issuer exhaustion cannot strand locally reusable storage.
+
+All vector growth and member reservation complete before a process id is
+issued. After issuance, publication consists only of non-throwing identity and
+configuration assignments. The process issuer uses one compiled atomic CAS
+owner, emits `[1, UINT64_MAX-1]` once, and permanently treats `UINT64_MAX` as
+exhausted. It is deliberately excluded from replay fingerprints. The
+fingerprint retains the former deterministic scheduler-local meaning through
+the physical ready-set slot count plus one; activity in another Session cannot
+make an input capture appear mutated.
+
 Network callers see only the meaning-neutral ready-set API routed through the
 network contract. Public telemetry includes `ready_set_creates`,
 `ready_set_destroys`, `ready_set_members`, `ready_set_waits`,
-`ready_set_ready_events`, and `ready_set_invalidations`; the more specific
-added/removed/event counters are diagnostic aliases that do not replace those
-public ready-set proof fields.
+`ready_set_ready_events`, and `ready_set_invalidations`.
+`ready_set_members_added()` is a compatibility projection of the canonical
+cumulative `ready_set_members()` slot, and `ready_set_events()` is a
+compatibility projection of the canonical cumulative
+`ready_set_ready_events()` slot. They do not own independently mutable
+counters. Physical slots 186 and 190 remain reserved only to preserve the
+234-slot, 1,872-byte `Stats` layout; production code neither writes those
+reservations nor projects a current getter from them. A matched exact SDK
+artifact supplies both headers and the static library, so no old-header/new-
+library mixed tuple is supported. `ready_set_members_removed()` remains a
+separate cumulative removal-event counter, while
+`resources().live_ready_set_members()` remains the snapshot gauge derived from
+the current ready-set store. Add, remove, clear, and destroy therefore need not
+make those two distinct meanings equal.
+
+Every additive evidence mutation in the reactor implementation consumes
+`rund::detail::counter::Accumulate`; `UINT64_MAX` is absorbing and no reactor
+counter wraps. `max_backlog_depth` remains a maximum gauge rather than an
+addition, and wait/timer identity sequences are not telemetry counters.
 
 UDP datagrams, selected socket options, vectored IO, and network resource
 limit checks are routed by [Network](../net.md): datagrams are address-byte

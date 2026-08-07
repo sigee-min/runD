@@ -84,14 +84,11 @@ void reset_pipeline_profile(PipelineState &state) noexcept {
       row.outer_window_bound = nested->nested_shape.outer_bound();
       row.inner_iteration_bound = nested->nested_shape.inner_bound();
     }
+    row.nested_phase = pipeline_nested_phase(step.route);
     if (step.route == PipelineRoute::NestedSeed) {
       row.outer_window = step.iteration;
-      row.nested_phase = PipelineNestedPhase::Seed;
     } else if (step.route == PipelineRoute::NestedAction) {
       row.inner_iteration = step.iteration;
-      row.nested_phase = PipelineNestedPhase::Action;
-    } else if (step.route == PipelineRoute::NestedFold) {
-      row.nested_phase = PipelineNestedPhase::Fold;
     }
     profile.steps[index] = row;
   }

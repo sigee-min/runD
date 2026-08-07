@@ -38,21 +38,6 @@ struct View final {
   std::size_t alignment_words{1u};
 };
 
-[[nodiscard]] constexpr PipelineNestedPhase
-nested_phase(const PipelineRoute route) noexcept {
-  switch (route) {
-  case PipelineRoute::NestedSeed:
-    return PipelineNestedPhase::Seed;
-  case PipelineRoute::NestedAction:
-    return PipelineNestedPhase::Action;
-  case PipelineRoute::NestedFold:
-    return PipelineNestedPhase::Fold;
-  case PipelineRoute::Ordinary:
-    return PipelineNestedPhase::None;
-  }
-  return PipelineNestedPhase::None;
-}
-
 } // namespace
 
 Status plan_pipeline_views(const DeviceState &device,
@@ -154,8 +139,7 @@ Status plan_pipeline_views(const DeviceState &device,
                   route.index >= program.output_types.size()) {
                 return Status::fail(Reason::GraphBindingInvalid);
               }
-              const std::uint32_t source =
-                  sealed.physical_sources[route.index];
+              const std::uint32_t source = sealed.physical_sources[route.index];
               if (source >= sealed.outputs.size()) {
                 return Status::fail(Reason::GraphBindingInvalid);
               }
@@ -166,9 +150,8 @@ Status plan_pipeline_views(const DeviceState &device,
               continue;
             }
             const bool strided = view->count > 1u && view->stride != 1u;
-            const bool vulkan_dense =
-                backend == Backend::Vulkan &&
-                view->offset_bytes % alignment != 0u;
+            const bool vulkan_dense = backend == Backend::Vulkan &&
+                                      view->offset_bytes % alignment != 0u;
             if (!strided && !vulkan_dense) {
               continue;
             }
@@ -270,7 +253,8 @@ Status plan_pipeline_views(const DeviceState &device,
                 declared.route == PipelineRoute::NestedAction
                     ? static_cast<std::size_t>(declared.iteration)
                     : std::numeric_limits<std::size_t>::max();
-            plan.summary.view_nested_phase = nested_phase(declared.route);
+            plan.summary.view_nested_phase =
+                pipeline_nested_phase(declared.route);
             plan.summary.view_binding = view.binding;
           }
         }
@@ -428,7 +412,7 @@ Status plan_pipeline_arena(const DeviceState &device,
               step.route == PipelineRoute::NestedAction
                   ? static_cast<std::size_t>(step.iteration)
                   : std::numeric_limits<std::size_t>::max();
-          plan.summary.largest_nested_phase = nested_phase(step.route);
+          plan.summary.largest_nested_phase = pipeline_nested_phase(step.route);
           plan.summary.largest_chunk = ordinal;
         }
       }
@@ -565,7 +549,7 @@ Status plan_pipeline_arena(const DeviceState &device,
             step.route == PipelineRoute::NestedAction
                 ? static_cast<std::size_t>(step.iteration)
                 : std::numeric_limits<std::size_t>::max();
-        plan.summary.peak_nested_phase = nested_phase(step.route);
+        plan.summary.peak_nested_phase = pipeline_nested_phase(step.route);
       }
     }
 

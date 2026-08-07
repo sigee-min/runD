@@ -6,6 +6,7 @@
 #include "lease.hpp"
 #include "pipeline/source_artifact.hpp"
 
+#include "../../kernel/backend/phase_source.hpp"
 #include "../../kernel/footprint.hpp"
 #include "../../kernel/recurrence.hpp"
 #include "../buffer/resident/find.hpp"
@@ -29,9 +30,11 @@
 namespace rund::node::accel::detail {
 namespace {
 
-[[nodiscard]] constexpr std::string_view WindowSource() noexcept {
-  return R"GLSL(#version 450
+inline constexpr std::string_view VulkanWindowPreamble = R"GLSL(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+)GLSL";
+
+inline constexpr std::string_view VulkanWindowBody = R"GLSL(
 layout(local_size_x = 256) in;
 layout(set = 0, binding = 0, std430) readonly buffer Terminal0 {
   uint terminal0[];
@@ -89,16 +92,30 @@ void add64(uint word, uint64_t value) {
 }
 void main() {
   const uint lane = gl_LocalInvocationID.x;
-  const uint phase = p.phase & 3u;
-  const bool preflight = (p.phase & 0x80000000u) != 0u;
+  const uint raw_phase = p.phase;
+  uint phase = rund_pipeline_phase_none;
+  bool preflight = false;
+  const bool valid_phase = rund_pipeline_phase_parameter_decode(
+      raw_phase, phase, preflight);
   if (lane == 0u) {
     const uvec2 current = states[p.state];
     const bool failed = control[1] != 0u;
-    if (phase == 2u) {
+    if (!valid_phase) {
+      if (!failed) {
+        control[1] = rund_pipeline_reason_invalid;
+        control[2] = p.declared_step;
+        control[20] = 0xffffffffu;
+        control[21] = 0xffffffffu;
+        control[22] = rund_pipeline_phase_none;
+      }
+      states[p.state].y = p.iteration + 1u;
+      enabled = 0u;
+      fresh = 1u;
+    } else if (phase == rund_pipeline_phase_action) {
       enabled = current.y == 0u && !failed ? 1u : 0u;
       fresh = current.y == 0u && failed ? 1u : 0u;
       if (enabled != 0u) { add64(28u, uint64_t(p.inner_advance)); }
-    } else if (phase == 3u) {
+    } else if (phase == rund_pipeline_phase_fold) {
       if (current.y == 0u && p.inner_advance != 0u) {
         add64(28u, uint64_t(p.inner_advance));
       }
@@ -108,7 +125,7 @@ void main() {
         add64(12u, 1ul);
         add64(24u, 1ul);
       }
-    } else if (phase == 1u && !preflight) {
+    } else if (phase == rund_pipeline_phase_seed && !preflight) {
       enabled = current.y == 0u && !failed ? 1u : 0u;
       fresh = current.y == 0u && failed ? 1u : 0u;
     } else {
@@ -126,16 +143,20 @@ void main() {
         control[1] = p.overflow_reason;
         control[2] = p.declared_step;
         store64(18u, uint64_t(p.maximum));
-        control[20] = phase == 1u ? p.iteration : 0xffffffffu;
+        control[20] = phase == rund_pipeline_phase_seed ? p.iteration
+                                                        : 0xffffffffu;
         control[21] = 0xffffffffu;
-        control[22] = phase == 1u ? 1u : 0u;
+        control[22] = phase == rund_pipeline_phase_seed
+                          ? rund_pipeline_phase_seed
+                          : rund_pipeline_phase_none;
       }
       enabled = current.y == 0u && control[1] == 0u &&
                         base < uint64_t(items) && !ended
                     ? 1u
                     : 0u;
       fresh = current.y == 0u && enabled == 0u ? 1u : 0u;
-      if (phase == 1u && control[1] == 0u && enabled == 0u) {
+      if (phase == rund_pipeline_phase_seed && control[1] == 0u &&
+          enabled == 0u) {
         add64(14u, 1ul);
         add64(26u, 1ul);
         add64(30u, uint64_t(p.inner_bound));
@@ -156,7 +177,8 @@ void main() {
   barrier();
   if (lane == 0u) {
     if (enabled != 0u) {
-      if (phase == 0u || phase == 3u) {
+      if (phase == rund_pipeline_phase_none ||
+          phase == rund_pipeline_phase_fold) {
         states[p.state].x = 1u + (p.iteration & 1u);
       }
     } else if (states[p.state].y == 0u) {
@@ -165,6 +187,27 @@ void main() {
   }
 }
 )GLSL";
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanWindowSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  return sink.append(VulkanWindowPreamble) &&
+         EmitPipelineNestedPhaseContract(
+             sink, PipelineNestedPhaseSourceLanguage::Vulkan) &&
+         sink.append(VulkanWindowBody);
+}
+
+[[nodiscard]] std::string_view WindowSource() noexcept {
+  static const auto source =
+      backend_source_recipe::materialize_fixed<VulkanWindowPreamble.size() +
+                                               VulkanWindowBody.size() + 1024u>(
+          [](auto &sink) noexcept { return EmitVulkanWindowSource(sink); });
+  return source.text();
+}
+
+[[nodiscard]] rund::kernel::LoweringArtifact WindowArtifact() {
+  return VulkanSourceArtifact(
+      [](auto &sink) noexcept { return EmitVulkanWindowSource(sink); });
 }
 
 struct GateParams final {
@@ -213,8 +256,7 @@ AcquireWindowPipeline(VulkanAdapter &adapter) {
       .ok = true,
       .reason = "ok",
   };
-  const rund::kernel::LoweringArtifact artifact =
-      VulkanFixedSourceArtifact(WindowSource());
+  const rund::kernel::LoweringArtifact artifact = WindowArtifact();
   if (!artifact.ok) {
     return nullptr;
   }
@@ -371,6 +413,14 @@ void EncodeDispatchBarrier(const VkCommandBuffer command) noexcept {
 
 std::string_view VulkanWindowSourceText() noexcept { return WindowSource(); }
 
+bool VulkanWindowSourceBytes(std::uint64_t &bytes) noexcept {
+  return backend_source_recipe::bytes(
+      [](backend_source_recipe::CountSink &sink) noexcept {
+        return EmitVulkanWindowSource(sink);
+      },
+      bytes);
+}
+
 std::string_view VulkanGateSourceText() noexcept { return GateSource(); }
 
 rund::AccelCheck PrepareVulkanWindow(
@@ -523,6 +573,11 @@ rund::AccelCheck PrepareVulkanWindow(
           terminals[bank].ref = terminal.source;
         }
       }
+      std::uint32_t phase = 0u;
+      if (!EncodeBackendWindowPhase(window->phase, phase)) {
+        DestroyVulkanWindow(resources);
+        return rund::AccelCheck{false, "accel_kernel_run_invalid"};
+      }
       resources.routes.push_back(VulkanWindowRoute{
           .count = count,
           .terminals = terminals,
@@ -553,7 +608,7 @@ rund::AccelCheck PrepareVulkanWindow(
                       static_cast<std::uint32_t>(window->has_terminal),
                   .command_count =
                       static_cast<std::uint32_t>(dispatch_capacity),
-                  .phase = static_cast<std::uint32_t>(window->phase),
+                  .phase = phase,
                   .declared_step = status.declared_steps[template_index],
                   .overflow_reason = static_cast<std::uint32_t>(
                       rund::compute::Reason::BoundedCountInvalid),
@@ -689,8 +744,12 @@ bool EncodeVulkanWindow(const VkCommandBuffer command,
   BindVulkanPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                      resources.pipeline->pipeline);
   for (auto route = begin; route != end; ++route) {
-    const auto phase = static_cast<BackendWindowPhase>(route->params.phase);
+    BackendWindowPhase phase{};
+    bool stored_preflight = false;
     if (route->descriptor == VK_NULL_HANDLE ||
+        !DecodeBackendWindowParameter(route->params.phase, phase,
+                                      stored_preflight) ||
+        stored_preflight ||
         (preflight && phase != BackendWindowPhase::NestedSeed)) {
       return false;
     }
@@ -699,8 +758,8 @@ bool EncodeVulkanWindow(const VkCommandBuffer command,
       continue;
     }
     VulkanWindowParams params = route->params;
-    if (preflight) {
-      params.phase |= 0x80000000u;
+    if (!EncodeBackendWindowParameter(phase, preflight, params.phase)) {
+      return false;
     }
     BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                           resources.pipeline->pipeline_layout, 0u, 1u,

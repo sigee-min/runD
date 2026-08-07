@@ -115,41 +115,27 @@ SendResult complete_send(const std::uint64_t socket_id,
 
 } // namespace detail
 
-namespace {
-
-[[nodiscard]] ReceiveResult
-ReceivePrepared(const ready::detail::Claim &claim,
-                const std::span<std::byte> buffer) noexcept {
-  node::NativeCallResult native{};
-  std::uint64_t socket_id = 0u;
-  {
-    ready::detail::Operation operation = ready::detail::prepare(claim);
-    if (!operation) {
-      return FailRecv(operation.code());
-    }
-    socket_id = operation.id();
-    native = node::NativeTryRecv(operation.native(), buffer);
+ReceiveResult
+detail::receive_attempt(const ready::detail::Claim &claim,
+                        const std::span<std::byte> buffer) noexcept {
+  ready::detail::Operation operation = ready::detail::prepare(claim);
+  if (!operation) {
+    return FailRecv(operation.code());
   }
-  return detail::complete_receive(socket_id, buffer, native);
+  return detail::complete_receive(
+      operation.id(), buffer, node::NativeTryRecv(operation.native(), buffer));
 }
 
-[[nodiscard]] SendResult
-SendPrepared(const ready::detail::Claim &claim,
-             const std::span<const std::byte> buffer) noexcept {
-  node::NativeCallResult native{};
-  std::uint64_t socket_id = 0u;
-  {
-    ready::detail::Operation operation = ready::detail::prepare(claim);
-    if (!operation) {
-      return FailSend(operation.code());
-    }
-    socket_id = operation.id();
-    native = node::NativeTrySend(operation.native(), buffer);
+SendResult
+detail::send_attempt(const ready::detail::Claim &claim,
+                     const std::span<const std::byte> buffer) noexcept {
+  ready::detail::Operation operation = ready::detail::prepare(claim);
+  if (!operation) {
+    return FailSend(operation.code());
   }
-  return detail::complete_send(socket_id, buffer, native);
+  return detail::complete_send(operation.id(), buffer,
+                               node::NativeTrySend(operation.native(), buffer));
 }
-
-} // namespace
 
 namespace direct {
 
@@ -210,7 +196,7 @@ ReceiveResult receive(ready::Ticket &&ticket,
   if (shape != ::rund::ReasonCode::Ok) {
     return FailRecv(shape);
   }
-  return ReceivePrepared(claim, buffer);
+  return detail::receive_attempt(claim, buffer);
 }
 
 SendResult send(ready::Ticket &&ticket,
@@ -224,7 +210,7 @@ SendResult send(ready::Ticket &&ticket,
   if (shape != ::rund::ReasonCode::Ok) {
     return FailSend(shape);
   }
-  return SendPrepared(claim, buffer);
+  return detail::send_attempt(claim, buffer);
 }
 
 ReceiveResult detail::consume(ready::Ticket &&ticket,
@@ -234,7 +220,7 @@ ReceiveResult detail::consume(ready::Ticket &&ticket,
   if (!claim) {
     return FailRecv(claim.code);
   }
-  return ReceivePrepared(claim, buffer);
+  return detail::receive_attempt(claim, buffer);
 }
 
 SendResult detail::consume(ready::Ticket &&ticket,
@@ -244,7 +230,7 @@ SendResult detail::consume(ready::Ticket &&ticket,
   if (!claim) {
     return FailSend(claim.code);
   }
-  return SendPrepared(claim, buffer);
+  return detail::send_attempt(claim, buffer);
 }
 
 } // namespace rund::net

@@ -19,7 +19,8 @@ Result<std::shared_ptr<JobState>> bind_job_validated(
     state->program = program;
     state->inputs.assign(inputs.begin(), inputs.end());
     state->outputs.assign(outputs.begin(), outputs.end());
-    const Status prepared = prepare_job_state(state, JobBindings::ReadOnly);
+    const Status prepared = prepare_job_state(state, JobBindings::ReadOnly,
+                                              JobGraphBufferMode::Standalone);
     return finish_prepare(std::move(state), prepared);
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<JobState>>::fail(Reason::BufferCapacity);
@@ -53,7 +54,8 @@ finish_cpu_pipeline_job(std::shared_ptr<JobState> state,
     if (cpu_storage != nullptr || cpu_route_slice != nullptr) {
       prepared = Status::fail(Reason::PipelineInvalid);
     } else {
-      prepared = prepare_job_state(state, JobBindings::ReadOnly);
+      prepared = prepare_job_state(state, JobBindings::ReadOnly,
+                                   JobGraphBufferMode::SealedPipeline);
     }
   } else if (cpu_route_slice == nullptr) {
     prepared = Status::fail(Reason::PipelineInvalid);
@@ -91,7 +93,8 @@ prepare_accel_job(const std::shared_ptr<ProgramState> &program,
     state->input_views = std::move(input_views);
     state->output_views = std::move(output_views);
     state->views = std::move(views);
-    const Status prepared = prepare_job_state(state, JobBindings::ReadOnly);
+    const Status prepared = prepare_job_state(
+        state, JobBindings::ReadOnly, JobGraphBufferMode::SealedPipeline);
     return finish_prepare(std::move(state), prepared);
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<JobState>>::fail(Reason::BufferCapacity);

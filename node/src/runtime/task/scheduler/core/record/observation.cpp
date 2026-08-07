@@ -4,6 +4,7 @@
 #include "../../state/model/task.hpp"
 #include "../../state/storage.hpp"
 #include "../../state/storage/check.hpp"
+#include "network.hpp"
 #include <rund/counter.hpp>
 
 #include <limits>
@@ -30,92 +31,90 @@ SameStableHostEventFields(const ::rund::host::Event &expected,
          expected.payload_hash.value == actual.payload_hash.value;
 }
 
-void RecordNetworkStats(::rund::detail::task::StatStorage &stats,
-                        const ::rund::host::Event &event) noexcept {
+} // namespace
+
+void record_detail::RecordNetworkStats(
+    ::rund::detail::task::StatStorage &stats,
+    const ::rund::host::Event &event) noexcept {
   if (event.status == ::rund::host::Status::WouldBlock) {
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkWouldBlock);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            stats, ::rund::detail::task::StatSlot::NetworkWouldBlock),
+        1u);
   }
   if (event.status != ::rund::host::Status::Ok) {
     return;
   }
+  ::rund::detail::task::StatSlot call_slot =
+      ::rund::detail::task::StatSlot::Count;
   ::rund::detail::task::StatSlot byte_slot =
       ::rund::detail::task::StatSlot::Count;
   switch (event.kind) {
   case ::rund::host::EventKind::NetSocket:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSocketsOpened);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSocketsOpened;
     break;
   case ::rund::host::EventKind::NetBind:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSocketsBound);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSocketsBound;
     break;
   case ::rund::host::EventKind::NetListen:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSocketsListened);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSocketsListened;
     break;
   case ::rund::host::EventKind::NetShutdown:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSocketsShutdown);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSocketsShutdown;
     break;
   case ::rund::host::EventKind::NetLocalAddress:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkLocalAddressReads);
+    call_slot = ::rund::detail::task::StatSlot::NetworkLocalAddressReads;
     break;
   case ::rund::host::EventKind::NetAccept:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkAccepts);
+    call_slot = ::rund::detail::task::StatSlot::NetworkAccepts;
     break;
   case ::rund::host::EventKind::NetConnect:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkConnects);
+    call_slot = ::rund::detail::task::StatSlot::NetworkConnects;
     break;
   case ::rund::host::EventKind::NetRecv:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkRecvCalls);
+    call_slot = ::rund::detail::task::StatSlot::NetworkRecvCalls;
     byte_slot = ::rund::detail::task::StatSlot::NetworkBytesReceived;
     break;
   case ::rund::host::EventKind::NetSend:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSendCalls);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSendCalls;
     byte_slot = ::rund::detail::task::StatSlot::NetworkBytesSent;
     break;
   case ::rund::host::EventKind::NetRecvDatagram:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkDatagramRecvCalls);
+    call_slot = ::rund::detail::task::StatSlot::NetworkDatagramRecvCalls;
     byte_slot = ::rund::detail::task::StatSlot::NetworkBytesReceived;
     break;
   case ::rund::host::EventKind::NetSendDatagram:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkDatagramSendCalls);
+    call_slot = ::rund::detail::task::StatSlot::NetworkDatagramSendCalls;
     byte_slot = ::rund::detail::task::StatSlot::NetworkBytesSent;
     break;
   case ::rund::host::EventKind::NetSetSocketOption:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSocketOptionsSet);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSocketOptionsSet;
     break;
   case ::rund::host::EventKind::NetGetSocketOption:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkSocketOptionsRead);
+    call_slot = ::rund::detail::task::StatSlot::NetworkSocketOptionsRead;
     break;
   case ::rund::host::EventKind::NetRecvVectored:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkVectoredRecvCalls);
+    call_slot = ::rund::detail::task::StatSlot::NetworkVectoredRecvCalls;
     byte_slot = ::rund::detail::task::StatSlot::NetworkBytesReceived;
     break;
   case ::rund::host::EventKind::NetSendVectored:
-    ++::rund::detail::task::Stat(
-        stats, ::rund::detail::task::StatSlot::NetworkVectoredSendCalls);
+    call_slot = ::rund::detail::task::StatSlot::NetworkVectoredSendCalls;
     byte_slot = ::rund::detail::task::StatSlot::NetworkBytesSent;
     break;
   default:
     break;
+  }
+  if (call_slot != ::rund::detail::task::StatSlot::Count) {
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(stats, call_slot), 1u);
   }
   if (byte_slot != ::rund::detail::task::StatSlot::Count) {
     ::rund::detail::counter::Accumulate(
         ::rund::detail::task::Stat(stats, byte_slot), event.completed_bytes);
   }
 }
+
+namespace {
 
 [[nodiscard]] bool FitsHostPayloadCapacity(const SchedulerState &state,
                                            const std::size_t bytes) noexcept {
@@ -165,16 +164,20 @@ void Scheduler::RecordObservation(const task::ObservationKind kind,
   if (state_->plan.failure != ReasonCode::Ok) {
     return;
   }
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Observations);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Observations),
+      1u);
   if (state_->resources.limits.observation_capacity == 0u ||
       state_->evidence.observations.size() <
           state_->resources.limits.observation_capacity) {
     state_->evidence.observations.push_back(observation);
   } else {
-    ++::rund::detail::task::Stat(
-        state_->evidence.metrics,
-        ::rund::detail::task::StatSlot::ObservationDropped);
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            state_->evidence.metrics,
+            ::rund::detail::task::StatSlot::ObservationDropped),
+        1u);
   }
   HashObservation(state_->evidence.metrics, observation);
 }
@@ -236,7 +239,7 @@ Scheduler::HostEventCommitResult Scheduler::CommitHostEvent(
   }
   ++::rund::detail::task::Stat(state_->evidence.metrics,
                                ::rund::detail::task::StatSlot::HostEvents);
-  RecordNetworkStats(state_->evidence.metrics, event);
+  record_detail::RecordNetworkStats(state_->evidence.metrics, event);
   HashHost(state_->evidence.metrics, ::rund::host::hash_event(event).value);
   if (state_->plan.mode() == ::rund::replay::detail::scope::Mode::Replay &&
       !state_->identity.host_replay_failed) {

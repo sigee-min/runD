@@ -4,6 +4,7 @@
 #include "../../../host/net/socket/access.hpp"
 #include "../../platform/io.hpp"
 #include "../scheduler/access.hpp"
+#include "../scheduler/reactor/ready/set/identity.hpp"
 #include "../scheduler/state/model/task.hpp"
 #include "../scheduler/state/storage.hpp"
 
@@ -224,18 +225,15 @@ AwaitAccess::CompleteCoroutineNetIo(const IoDecision decision) noexcept {
           ? std::optional<std::chrono::nanoseconds>{std::chrono::nanoseconds{
                 context.timeout_ns}}
           : std::nullopt;
+  const ::rund::net::ready::Set ready_set = context.ready_set;
   ::rund::net::ready::many::Wait suspended =
-      context.ready_set_id == 0u
+      ::rund::node::ReactorReadySetIdentityOwner::empty(ready_set)
           ? scheduler->WaitReactorMany(
                 context.requests, context.out, timeout, context.budget,
                 context.stop_scheduler_id, context.stop_source_id,
                 context.stop_generation, context.stop_epoch)
-          : scheduler->WaitReadySet(
-                ::rund::net::ready::Set{
-                    .id = context.ready_set_id,
-                    .generation = context.ready_set_generation,
-                },
-                context.out, timeout, context.budget);
+          : scheduler->WaitReadySet(ready_set, context.out, timeout,
+                                    context.budget);
   ::rund::net::ready::many::detail::Access::Restore(suspended, context);
   return suspended;
 }

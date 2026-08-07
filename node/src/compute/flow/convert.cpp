@@ -24,7 +24,7 @@ std::uint32_t flow_retype_value(const std::shared_ptr<FlowState> &flow,
   }
   const FlowValue source = flow->values[input - 1u];
   const bool canonical_unsigned_mask =
-      boundary_mask && !is_fixed(source.type) &&
+      boundary_mask && !type_fixed(source.type) &&
       (output_type == Type::U32 || output_type == Type::U64) &&
       output_format == FixedFormat{};
   if (type_bytes(source.type) != type_bytes(output_type) &&
@@ -64,11 +64,16 @@ std::uint32_t flow_retype(const std::shared_ptr<FlowState> &flow,
       input > flow->values.size()) {
     return 0u;
   }
-  if (is_fixed(flow->values[input - 1u].type) || is_fixed(output_type)) {
+  const Type input_type = flow->values[input - 1u].type;
+  if (!valid_type(input_type) || !valid_type(output_type)) {
+    reject(*flow, Reason::GraphTypeMismatch);
+    return 0u;
+  }
+  if (type_fixed(input_type) || type_fixed(output_type)) {
     reject(*flow, Reason::FixedFormatMismatch);
     return 0u;
   }
-  if (flow->values[input - 1u].type == output_type) {
+  if (input_type == output_type) {
     return input;
   }
   return flow_retype_value(flow, input, output_type, {}, false);
@@ -84,6 +89,10 @@ std::uint32_t flow_retype_like(const std::shared_ptr<FlowState> &flow,
   }
   const FlowValue &target = flow->values[format_source - 1u];
   const FlowValue &source = flow->values[input - 1u];
+  if (!valid_type(source.type) || !valid_type(target.type)) {
+    reject(*flow, Reason::GraphTypeMismatch);
+    return 0u;
+  }
   if (source.type == target.type &&
       source.fixed_format == target.fixed_format) {
     return input;
@@ -103,7 +112,7 @@ std::uint32_t flow_fixed_select_value(const std::shared_ptr<FlowState> &flow,
   }
   const FlowValue &source = flow->values[value - 1u];
   const FlowValue &selector = flow->values[selected - 1u];
-  if (!is_fixed(source.type) || selector.type != source.type ||
+  if (!type_fixed(source.type) || selector.type != source.type ||
       selector.count != source.count ||
       selector.fixed_format != source.fixed_format) {
     reject(*flow, Reason::FixedFormatMismatch);
@@ -139,7 +148,7 @@ std::uint32_t flow_fixed_merge_values(const std::shared_ptr<FlowState> &flow,
   }
   const FlowValue &left_value = flow->values[left - 1u];
   const FlowValue &right_value = flow->values[right - 1u];
-  if (!is_fixed(left_value.type) || right_value.type != left_value.type ||
+  if (!type_fixed(left_value.type) || right_value.type != left_value.type ||
       right_value.count != left_value.count ||
       !same_fixed_storage_policy(right_value.fixed_format,
                                  left_value.fixed_format)) {

@@ -104,7 +104,8 @@ namespace {
           outcome.failed_step = shape.first();
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Seed;
+          state.stats.pipeline.failed_nested_phase =
+              pipeline_nested_phase(step.route);
           nested.stopped = true;
           return outcome;
         }
@@ -119,7 +120,8 @@ namespace {
           outcome.failed_step = seed_index;
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Seed;
+          state.stats.pipeline.failed_nested_phase =
+              pipeline_nested_phase(state.steps[seed_index].route);
           nested.stopped = true;
           return outcome;
         }
@@ -133,7 +135,7 @@ namespace {
             state.stats.pipeline.failed_outer_window = outer;
             state.stats.pipeline.failed_inner_iteration = inner;
             state.stats.pipeline.failed_nested_phase =
-                PipelineNestedPhase::Action;
+                pipeline_nested_phase(state.steps[action_index].route);
             nested.stopped = true;
             return outcome;
           }
@@ -154,7 +156,8 @@ namespace {
           outcome.failed_step = fold_index;
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Fold;
+          state.stats.pipeline.failed_nested_phase =
+              pipeline_nested_phase(state.steps[fold_index].route);
           nested.stopped = true;
           return outcome;
         }
@@ -167,7 +170,8 @@ namespace {
           outcome.failed_step = fold_index;
           outcome.failure_step_known = true;
           state.stats.pipeline.failed_outer_window = outer;
-          state.stats.pipeline.failed_nested_phase = PipelineNestedPhase::Fold;
+          state.stats.pipeline.failed_nested_phase =
+              pipeline_nested_phase(state.steps[fold_index].route);
           nested.stopped = true;
           return outcome;
         }

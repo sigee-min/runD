@@ -9,9 +9,8 @@ namespace rund::node {
     const std::optional<std::chrono::nanoseconds> timeout,
     const ::rund::net::ready::many::Budget budget,
     const std::uint64_t stop_scheduler_id, const std::uint64_t stop_source_id,
-    const std::uint64_t stop_generation, const std::uint64_t stop_epoch,
-    const std::uint64_t ready_set_id,
-    const std::uint64_t ready_set_generation) noexcept {
+    const std::uint64_t stop_generation,
+    const std::uint64_t stop_epoch) noexcept {
   if (requests.size() > state_->resources.limits.reactor_wait_capacity ||
       requests.size() >
           state_->reactor.reactor_socket_lease_scratch.capacity()) {
@@ -27,10 +26,9 @@ namespace rund::node {
                                 state_->reactor.reactor_many_request_scratch)) {
     return FailManyCode(ReasonCode::ReactorWaitCapacityExceeded);
   }
-  return WaitReactorManyPrepared(state_->reactor.reactor_many_request_scratch,
-                                 out, timeout, budget, stop_scheduler_id,
-                                 stop_source_id, stop_generation, stop_epoch,
-                                 ready_set_id, ready_set_generation);
+  return WaitReactorManyPrepared(
+      state_->reactor.reactor_many_request_scratch, out, timeout, budget,
+      stop_scheduler_id, stop_source_id, stop_generation, stop_epoch, {});
 }
 
 ::rund::net::ready::many::Wait Scheduler::WaitReactorManyPrepared(
@@ -40,8 +38,7 @@ namespace rund::node {
     const ::rund::net::ready::many::Budget budget,
     const std::uint64_t stop_scheduler_id, const std::uint64_t stop_source_id,
     const std::uint64_t stop_generation, const std::uint64_t stop_epoch,
-    const std::uint64_t ready_set_id,
-    const std::uint64_t ready_set_generation) noexcept {
+    const ::rund::net::ready::Set ready_set) noexcept {
   ReadyManyEntry entry = ReadyManyAccess::PrepareEntry(
       *this, requests, out, budget, stop_scheduler_id, stop_source_id,
       stop_generation, stop_epoch);
@@ -56,9 +53,9 @@ namespace rund::node {
     return immediate;
   }
 
-  ::rund::net::ready::many::Wait parked = ReadyManyAccess::Park(
-      *this, entry, timeout, stop_source_id, stop_generation, stop_epoch,
-      ready_set_id, ready_set_generation);
+  ::rund::net::ready::many::Wait parked =
+      ReadyManyAccess::Park(*this, entry, timeout, stop_source_id,
+                            stop_generation, stop_epoch, ready_set);
   if (::rund::net::ready::many::detail::Access::ResultOf(parked).code() !=
           ReasonCode::NetReadyManyNotReady ||
       ::rund::net::ready::many::detail::Access::Suspended(parked)) {

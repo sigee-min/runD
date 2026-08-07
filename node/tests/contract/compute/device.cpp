@@ -10,6 +10,7 @@
 #include "../../../src/compute/type.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <span>
@@ -21,12 +22,47 @@ namespace {
 using rund::compute::detail::Type;
 constexpr Type kUnknownType = static_cast<Type>(0xffu);
 
-static_assert(!rund::compute::detail::valid_type(kUnknownType));
-static_assert(rund::compute::detail::type_bytes(kUnknownType) == 0u);
-static_assert(static_cast<unsigned>(
-                  rund::compute::detail::type_scalar(kUnknownType)) == 0u);
-static_assert(static_cast<unsigned>(
-                  rund::compute::detail::type_domain(kUnknownType)) == 0u);
+struct TypeProjectionCase final {
+  Type type;
+  std::size_t bytes;
+  rund::kernel::ComputeScalar scalar;
+  rund::kernel::ComputeDomain domain;
+  bool fixed;
+  bool valid;
+};
+
+constexpr std::array kTypeProjectionCases{
+    TypeProjectionCase{Type::I32, 4u, rund::kernel::ComputeScalar::Lane32,
+                       rund::kernel::ComputeDomain::I32, false, true},
+    TypeProjectionCase{Type::U32, 4u, rund::kernel::ComputeScalar::Lane32,
+                       rund::kernel::ComputeDomain::U32, false, true},
+    TypeProjectionCase{Type::I64, 8u, rund::kernel::ComputeScalar::Lane64,
+                       rund::kernel::ComputeDomain::I64, false, true},
+    TypeProjectionCase{Type::U64, 8u, rund::kernel::ComputeScalar::Lane64,
+                       rund::kernel::ComputeDomain::U64, false, true},
+    TypeProjectionCase{Type::FixedLane32, 4u,
+                       rund::kernel::ComputeScalar::Lane32,
+                       rund::kernel::ComputeDomain::Fixed, true, true},
+    TypeProjectionCase{Type::FixedLane64, 8u,
+                       rund::kernel::ComputeScalar::Lane64,
+                       rund::kernel::ComputeDomain::Fixed, true, true},
+    TypeProjectionCase{
+        kUnknownType, 0u, static_cast<rund::kernel::ComputeScalar>(0u),
+        static_cast<rund::kernel::ComputeDomain>(0u), false, false},
+};
+
+static_assert([] {
+  for (const TypeProjectionCase entry : kTypeProjectionCases) {
+    if (rund::compute::detail::type_bytes(entry.type) != entry.bytes ||
+        rund::compute::detail::type_scalar(entry.type) != entry.scalar ||
+        rund::compute::detail::type_domain(entry.type) != entry.domain ||
+        rund::compute::detail::type_fixed(entry.type) != entry.fixed ||
+        rund::compute::detail::valid_type(entry.type) != entry.valid) {
+      return false;
+    }
+  }
+  return true;
+}());
 
 [[nodiscard]] std::string
 StrategyName(const rund::kernel::CpuSimdStrategy strategy) {

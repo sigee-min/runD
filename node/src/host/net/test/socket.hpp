@@ -45,4 +45,15 @@ generation(const ::rund::net::Socket &socket) noexcept {
   return ::rund::net::detail::SocketAccess::generation(socket.view());
 }
 
+// Test-only observation for proving that arbitrary user callbacks execute
+// outside every registry generation lease. A nonzero result lets a regression
+// fail without calling close() and parking forever on its own reader.
+[[nodiscard]] inline std::uint32_t
+reader_count(const ::rund::net::SocketView socket) noexcept {
+  const ::rund::net::SocketSlot *const slot =
+      ::rund::net::detail::SocketAccess::slot(socket);
+  return slot == nullptr ? 0u
+                         : slot->hot.readers.load(std::memory_order_acquire);
+}
+
 } // namespace rund::node::test::net

@@ -7,7 +7,6 @@ struct SchedulerIdentityState {
   std::uint64_t next_spawn_index = 1u;
   std::uint64_t next_wait_id = 1u;
   std::uint64_t next_reactor_many_group_id = 1u;
-  std::uint64_t next_reactor_ready_set_id = 1u;
   std::uint64_t next_stop_source_id = 1u;
   std::uint64_t stop_source_epoch = 1u;
   std::uint64_t next_timer_sequence = 1u;

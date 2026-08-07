@@ -198,6 +198,25 @@ private:
   bool ok_{true};
 };
 
+template <std::size_t Capacity> struct FixedSource final {
+  std::array<char, Capacity> storage{};
+  std::size_t size{};
+
+  [[nodiscard]] std::string_view text() const noexcept {
+    return std::string_view{storage.data(), size};
+  }
+};
+
+template <std::size_t Capacity, typename Emit>
+[[nodiscard]] FixedSource<Capacity> materialize_fixed(Emit &&emit) noexcept {
+  FixedSource<Capacity> source{};
+  FixedBufferSink<Capacity> sink{source.storage};
+  if (emit(sink) && sink.valid()) {
+    source.size = sink.text().size();
+  }
+  return source;
+}
+
 template <typename Sink>
 [[nodiscard]] bool
 append_hex64_digits(Sink &sink, const std::uint64_t value) noexcept(

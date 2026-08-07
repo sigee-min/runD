@@ -4,6 +4,7 @@
 #include <rund/compute/math.hpp>
 
 #include "../allocation.hpp"
+#include "src/compute/pipeline/plan/arena.hpp"
 #include "src/compute/pipeline/state.hpp"
 
 #include <cstdio>
@@ -12,8 +13,8 @@
 namespace rund_node_test_pipeline {
 namespace {
 
-[[nodiscard]] std::size_t CpuViewTransferCount(
-    const rund::compute::detail::JobState &job) noexcept {
+[[nodiscard]] std::size_t
+CpuViewTransferCount(const rund::compute::detail::JobState &job) noexcept {
   return job.cpu_view_inputs.size() + job.cpu_view_outputs.size();
 }
 
@@ -102,25 +103,23 @@ template <class T>
   auto index_buffer = Upload(device, indices);
   auto count_buffer = Upload(device, counts);
   auto output_buffer = device.buffer<std::int32_t>(4u);
-  auto exact =
-      on(device)
-          .input<std::int32_t>(4u)
-          .zip_input<std::uint32_t>(4u)
-          .branch([](auto input, auto targets) {
-            return input.scatter_reduce(targets, 2u, Reduce::Sum);
-          })
-          .compile();
-  auto bounded =
-      on(device)
-          .input<Bounded<std::int32_t>>(4u)
-          .branch([](auto input) {
-            auto targets = input.indices().map(
-                "pipeline-scatter-target", [](auto ordinal) {
-                  return ordinal & std::uint32_t{1};
-                });
-            return input.scatter_reduce(targets, 2u, Reduce::Sum);
-          })
-          .compile();
+  auto exact = on(device)
+                   .input<std::int32_t>(4u)
+                   .zip_input<std::uint32_t>(4u)
+                   .branch([](auto input, auto targets) {
+                     return input.scatter_reduce(targets, 2u, Reduce::Sum);
+                   })
+                   .compile();
+  auto bounded = on(device)
+                     .input<Bounded<std::int32_t>>(4u)
+                     .branch([](auto input) {
+                       auto targets = input.indices().map(
+                           "pipeline-scatter-target", [](auto ordinal) {
+                             return ordinal & std::uint32_t{1};
+                           });
+                       return input.scatter_reduce(targets, 2u, Reduce::Sum);
+                     })
+                     .compile();
   if (!value_buffer || !index_buffer || !count_buffer || !output_buffer ||
       !exact || !bounded) {
     return false;
@@ -151,11 +150,105 @@ template <class T>
          observed == std::array<std::int32_t, 4u>{0, 16, 20, 0};
 }
 
+[[nodiscard]] bool CheckNestedCpuViewPhase(rund::compute::Device &device) {
+  using namespace rund::compute;
+  constexpr std::array<std::uint32_t, 4u> initial_values{1u, 2u, 3u, 4u};
+  constexpr std::array<std::uint32_t, 8u> backing_values{99u, 1u, 99u, 2u,
+                                                         99u, 3u, 99u, 4u};
+  constexpr std::array<std::uint32_t, 1u> count_value{2u};
+  auto seed = on(device)
+                  .input<std::uint32_t>(4u)
+                  .zip_input<std::uint32_t>(1u)
+                  .zip_input<std::uint32_t>(1u)
+                  .branch([](auto external, auto total, auto ordinal) {
+                    (void)total;
+                    auto sum = external.reduce(Reduce::Sum);
+                    return sum.combine(
+                        "pipeline-view-nested-seed", ordinal.scalar(),
+                        [](auto value, auto outer) { return value + outer; });
+                  })
+                  .compile();
+  auto fold =
+      on(device)
+          .input<std::uint32_t>(4u)
+          .zip_input<std::uint32_t>(1u)
+          .branch([](auto outer, auto tile) {
+            return outer.combine(
+                "pipeline-view-nested-fold", tile.scalar(),
+                [](auto value, auto increment) { return value + increment; });
+          })
+          .compile();
+  auto initial = device.upload<std::uint32_t>(initial_values);
+  auto backing = device.upload<std::uint32_t>(backing_values);
+  auto count = device.upload<std::uint32_t>(count_value);
+  auto target = device.buffer<std::uint32_t>(4u);
+  if (!seed || !fold || !initial || !backing || !count || !target) {
+    return false;
+  }
+  auto external = backing->view(1u, 4u, 2u);
+  if (!external) {
+    return false;
+  }
+  // Fold consumes the sealed dense recurrent banks, so the reachable CPU View
+  // transfer is the Seed-only external input. This proves record_cpu_view uses
+  // the common route projector while retaining the compact Seed outer ordinal.
+  const auto body = tile_repeat<0u>(*seed, *fold);
+  auto builder = pipeline(device);
+  builder.windows<2u, 1u>(body, window(*count), read(*initial, *external),
+                          write_final(*target));
+  const auto plan = builder.plan();
+  if (!plan || plan->view_nested_phase != PipelineNestedPhase::Seed ||
+      plan->view_outer_window != 0u ||
+      plan->view_inner_iteration != std::numeric_limits<std::size_t>::max() ||
+      plan->view_count != 4u ||
+      plan->view_stride_bytes != 2u * sizeof(std::uint32_t) ||
+      plan->view_span_bytes != 7u * sizeof(std::uint32_t)) {
+    std::fprintf(
+        stderr,
+        "nested CPU view plan status=%u reason=%u phase=%u step=%llu "
+        "iteration=%llu coordinates=%llu/%llu count=%llu stride=%llu "
+        "span=%llu\n",
+        static_cast<unsigned>(plan.ok()), static_cast<unsigned>(plan.reason()),
+        static_cast<unsigned>(plan ? plan->view_nested_phase
+                                   : PipelineNestedPhase::None),
+        static_cast<unsigned long long>(plan ? plan->view_step : 0u),
+        static_cast<unsigned long long>(plan ? plan->view_iteration : 0u),
+        static_cast<unsigned long long>(plan ? plan->view_outer_window : 0u),
+        static_cast<unsigned long long>(plan ? plan->view_inner_iteration : 0u),
+        static_cast<unsigned long long>(plan ? plan->view_count : 0u),
+        static_cast<unsigned long long>(plan ? plan->view_stride_bytes : 0u),
+        static_cast<unsigned long long>(plan ? plan->view_span_bytes : 0u));
+    return false;
+  }
+  auto prepared = std::move(builder).prepare();
+  std::array<std::uint32_t, 4u> observed{};
+  const Status ran =
+      prepared ? prepared->run() : Status::fail(prepared.reason());
+  const bool read = prepared && ReadExact(*prepared, *target, observed);
+  if (!prepared || !ran || !read ||
+      observed != std::array<std::uint32_t, 4u>{22u, 23u, 24u, 25u}) {
+    std::fprintf(stderr,
+                 "nested CPU view run prepared=%u/%u run=%u/%u read=%u "
+                 "values=%u,%u,%u,%u\n",
+                 static_cast<unsigned>(prepared.ok()),
+                 static_cast<unsigned>(prepared.reason()),
+                 static_cast<unsigned>(ran.ok()),
+                 static_cast<unsigned>(ran.reason()),
+                 static_cast<unsigned>(read), observed[0u], observed[1u],
+                 observed[2u], observed[3u]);
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 [[nodiscard]] int CheckViews(rund::compute::Device &device,
                              const Backend backend) {
   using namespace rund::compute;
+  if (backend == Backend::Cpu && !CheckNestedCpuViewPhase(device)) {
+    return 9;
+  }
   constexpr std::array<std::int32_t, 8u> source_values{0, 1, 2, 3, 4, 5, 6, 7};
   auto source = Upload(device, source_values);
   auto target = device.buffer<std::int32_t>(source_values.size());
@@ -252,8 +345,7 @@ template <class T>
   const bool vulkan_output_dense =
       backend == Backend::Vulkan && sizeof(std::int32_t) % view_alignment != 0u;
   const std::uint64_t expected_view_buffer =
-      backend == Backend::Cpu || backend == Backend::Metal
-          ? input_bytes
+      backend == Backend::Cpu || backend == Backend::Metal ? input_bytes
       : vulkan_output_dense
           ? ((input_bytes + view_alignment - 1u) & ~(view_alignment - 1u)) +
                 sizeof(std::int32_t)
@@ -263,6 +355,65 @@ template <class T>
                                         : vulkan_output_dense       ? 2u
                                                                     : 1u;
   const std::size_t expected_owners = backend == Backend::Cpu ? 0u : 1u;
+
+  // Exercise the view-summary consumer independently from nested topology.
+  // Fold is reusable, so the phase is known but no physical outer coordinate
+  // may be manufactured by this compact planning surface.
+  if (backend != Backend::Cpu) {
+    std::array<detail::PipelineBuildStep, 1u> fold_steps{};
+    fold_steps.front().program = detail::ProgramAccess::state(*reduce);
+    fold_steps.front().logical_step = 9u;
+    fold_steps.front().iteration = 2u;
+    fold_steps.front().route = detail::PipelineRoute::NestedFold;
+    detail::PipelineMemoryPlan fold_plan{};
+    fold_plan.job_owners = {0u};
+    fold_plan.step_resources.resize(1u);
+    detail::PipelineStepResourcePlan &sealed = fold_plan.step_resources.front();
+    sealed.inputs.push_back(detail::PipelineResolvedViewPlan{
+        .declared_backing_bytes = source_values.size() * sizeof(std::int32_t),
+        .offset = 1u,
+        .count = 4u,
+        .stride = 2u,
+        .element_bytes = sizeof(std::int32_t),
+        .alignment = sizeof(std::int32_t),
+        .offset_bytes = sizeof(std::int32_t),
+        .stride_bytes = 2u * sizeof(std::int32_t),
+        .payload_bytes = 4u * sizeof(std::int32_t),
+        .span_bytes = 7u * sizeof(std::int32_t),
+    });
+    sealed.outputs.push_back(detail::PipelineResolvedOutputPlan{
+        .view =
+            detail::PipelineResolvedViewPlan{
+                .declared_access = detail::ResourceAccess::Write,
+                .declared_backing_bytes = 3u * sizeof(std::int32_t),
+                .offset = 1u,
+                .count = 1u,
+                .stride = 2u,
+                .element_bytes = sizeof(std::int32_t),
+                .alignment = sizeof(std::int32_t),
+                .offset_bytes = sizeof(std::int32_t),
+                .stride_bytes = 2u * sizeof(std::int32_t),
+                .payload_bytes = sizeof(std::int32_t),
+                .span_bytes = sizeof(std::int32_t),
+            },
+        .physical = 0u,
+    });
+    sealed.physical_sources = {0u};
+    const Status fold_planned = detail::plan_pipeline_views(
+        *device_state, std::span<const detail::PipelineBuildStep>{fold_steps},
+        fold_plan);
+    if (!fold_planned ||
+        fold_plan.summary.view_nested_phase != PipelineNestedPhase::Fold ||
+        fold_plan.summary.view_step != 9u ||
+        fold_plan.summary.view_iteration != 2u ||
+        fold_plan.summary.view_outer_window !=
+            std::numeric_limits<std::size_t>::max() ||
+        fold_plan.summary.view_inner_iteration !=
+            std::numeric_limits<std::size_t>::max()) {
+      return 8;
+    }
+  }
+
   if (!reduced_plan ||
       reduced_plan->prepared_buffer_bytes !=
           expected_view_buffer + reduced_plan->scratch_bytes ||
@@ -280,8 +431,7 @@ template <class T>
       reduced_plan->view_count != 4u ||
       reduced_plan->view_alignment != sizeof(std::int32_t) ||
       reduced_plan->view_step != 0u || reduced_plan->view_iteration != 0u ||
-      reduced_plan->view_binding ==
-          std::numeric_limits<std::size_t>::max() ||
+      reduced_plan->view_binding == std::numeric_limits<std::size_t>::max() ||
       reduced_plan->peak_bytes != reduced_plan->state_bytes +
                                       reduced_plan->transient_bytes +
                                       reduced_plan->prepared_bytes ||
@@ -419,9 +569,8 @@ template <class T>
     return 11;
   }
   const std::uint64_t expected_shared_buffer =
-      backend == Backend::Cpu
-          ? 2u * input_bytes + shared_plan->scratch_bytes
-          : reduced_plan->prepared_buffer_bytes;
+      backend == Backend::Cpu ? 2u * input_bytes + shared_plan->scratch_bytes
+                              : reduced_plan->prepared_buffer_bytes;
   if (shared_plan->prepared_buffer_bytes != expected_shared_buffer ||
       shared_plan->prepared_host_bytes <= reduced_plan->prepared_host_bytes) {
     return 11;

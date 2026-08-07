@@ -707,7 +707,10 @@ struct VulkanPipelineDescriptionCapacity final {
                 PreparedKernelPublicationKind::Terminal)));
   }
   for (const VulkanWindowRoute &window : pipeline->window.routes) {
-    const auto phase = static_cast<BackendWindowPhase>(window.params.phase);
+    BackendWindowPhase phase{};
+    if (!DecodeBackendWindowPhase(window.params.phase, phase)) {
+      return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
+    }
     window_transition_count = ::rund::detail::counter::SaturatingAdd(
         window_transition_count,
         static_cast<std::uint64_t>(phase != BackendWindowPhase::NestedAction ||
@@ -935,11 +938,14 @@ struct VulkanPipelineDescriptionCapacity final {
                 resident_window->phase == BackendWindowPhase::NestedAction
             ? resident_window->inner_iteration
             : PreparedPipelineNoStep;
-    const std::uint32_t failed_nested_phase =
-        resident_window == nullptr
-            ? static_cast<std::uint32_t>(
-                  rund::compute::PipelineNestedPhase::None)
-            : static_cast<std::uint32_t>(resident_window->nested_phase());
+    std::uint32_t failed_nested_phase = PipelineNestedPhaseNoneCode;
+    if (resident_window != nullptr) {
+      rund::compute::PipelineNestedPhase public_phase{};
+      if (!resident_window->nested_phase(public_phase) ||
+          !EncodePipelineNestedPhase(public_phase, failed_nested_phase)) {
+        return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
+      }
+    }
     if (resident_window != nullptr &&
         resident_window->phase == BackendWindowPhase::NestedSeed &&
         !EncodeVulkanWindow(recording, pipeline->window,

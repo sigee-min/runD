@@ -1,13 +1,8 @@
 #include "contract.hpp"
 
+#include "../../type.hpp"
+
 namespace rund::compute::detail {
-namespace {
-
-[[nodiscard]] bool fixed_type(const Type type) noexcept {
-  return type == Type::FixedLane32 || type == Type::FixedLane64;
-}
-
-} // namespace
 
 PipelineHash::PipelineHash() noexcept {
   text("rund.compute.pipeline");
@@ -47,12 +42,12 @@ graph::Fingerprint PipelineHash::finish() const noexcept {
 }
 
 bool valid_format(const Type type, const FixedFormat format) noexcept {
-  if (!fixed_type(type)) {
+  if (!type_fixed(type)) {
     return format == FixedFormat{};
   }
   const unsigned width = static_cast<unsigned>(format.integer_bits) +
                          static_cast<unsigned>(format.fraction_bits);
-  const unsigned required = type == Type::FixedLane32 ? 32u : 64u;
+  const std::size_t required = type_bytes(type) * 8u;
   return format.integer_bits != 0u && format.fraction_bits != 0u &&
          width == required &&
          static_cast<unsigned>(format.rounding) <=
@@ -68,7 +63,7 @@ bool typed_format_matches(const Type type, const FixedFormat typed,
   if (!valid_format(type, slot)) {
     return false;
   }
-  if (!fixed_type(type)) {
+  if (!type_fixed(type)) {
     return typed == FixedFormat{};
   }
   return typed.integer_bits == slot.integer_bits &&

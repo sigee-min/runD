@@ -16,6 +16,10 @@ int RunRuntimeTaskNetReadySetContract() {
   TEST_ASSERT(
       rund::node::test_contract::NetReadySetWaitUsesMembershipSnapshot());
   TEST_ASSERT(rund::node::test_contract::NetReadySetChurnStoragePlateaus());
+  TEST_ASSERT(
+      rund::node::test_contract::NetReadySetIdentityTransitionsAreClosed());
+  TEST_ASSERT(rund::node::test_contract::NetReadySetCapabilitiesDoNotAlias());
+  TEST_ASSERT(rund::node::test_contract::NetReadySetTelemetryHasOneAuthority());
   TEST_ASSERT(rund::node::test_contract::
                   NetReadySetStaleMemberRemoveAndWaitFailClosed());
   return 0;

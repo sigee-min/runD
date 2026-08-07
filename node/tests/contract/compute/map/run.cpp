@@ -8,6 +8,7 @@
 #include "src/compute/graph/state.hpp"
 #include "src/compute/map/build.hpp"
 #include "src/compute/program/state.hpp"
+#include "src/compute/type.hpp"
 #include "tests/contract/target/selection.hpp"
 
 #include <array>
@@ -18,12 +19,100 @@
 #include <vector>
 
 namespace compute_map_contract {
+namespace {
+
+[[nodiscard]] bool RejectsUnknownTypeProjection() {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  constexpr Type unknown = static_cast<Type>(0xffu);
+
+  const auto expression_rejected = [](const std::shared_ptr<ExprState> &state,
+                                      const ExprRef result) {
+    return result.node == 0u && state != nullptr && !state->status &&
+           state->status.reason() == Reason::ExpressionTypeMismatch;
+  };
+
+  auto state = make_expr();
+  if (!expression_rejected(
+          state, retype_expr(detail::input(state, unknown, 0u), Type::I32))) {
+    return false;
+  }
+  state = make_expr();
+  if (!expression_rejected(
+          state, retype_expr(detail::input(state, Type::I32, 0u), unknown))) {
+    return false;
+  }
+  state = make_expr();
+  if (!expression_rejected(
+          state, retype_expr(detail::input(state, unknown, 0u), unknown))) {
+    return false;
+  }
+
+  state = make_expr();
+  if (!expression_rejected(
+          state,
+          checked_ordinal_expr(detail::input(state, unknown, 0u), Type::I32))) {
+    return false;
+  }
+  state = make_expr();
+  if (!expression_rejected(
+          state,
+          checked_ordinal_expr(detail::input(state, Type::I32, 0u), unknown))) {
+    return false;
+  }
+
+  state = make_expr();
+  if (!expression_rejected(
+          state,
+          shift(ExprOp::ShiftLeft, detail::input(state, unknown, 0u), 0u))) {
+    return false;
+  }
+
+  state = make_expr();
+  if (!expression_rejected(state,
+                           boundary_mask_expr(detail::input(state, unknown, 0u),
+                                              Type::U32, {}))) {
+    return false;
+  }
+  state = make_expr();
+  if (!expression_rejected(
+          state, boundary_mask_expr(detail::input(state, Type::I32, 0u),
+                                    unknown, {}))) {
+    return false;
+  }
+
+  const auto flow_rejected = [](const std::shared_ptr<FlowState> &flow,
+                                const std::uint32_t result) {
+    return result == 0u && flow != nullptr && !flow->status &&
+           flow->status.reason() == Reason::GraphTypeMismatch;
+  };
+  auto flow = make_flow(Target::cpu(), unknown, 1u);
+  if (!flow_rejected(flow, flow_retype(flow, 1u, Type::I32))) {
+    return false;
+  }
+  flow = make_flow(Target::cpu(), Type::I32, 1u);
+  if (!flow_rejected(flow, flow_retype(flow, 1u, unknown))) {
+    return false;
+  }
+  flow = make_flow(Target::cpu(), unknown, 1u);
+  if (!flow_rejected(flow, flow_retype(flow, 1u, unknown))) {
+    return false;
+  }
+  flow = make_flow(Target::cpu(), unknown, 1u);
+  return flow_rejected(flow, flow_retype_like(flow, 1u, 1u));
+}
+
+} // namespace
+
 int Run() {
   if (!Canonical()) {
     return 17;
   }
   if (!Replay()) {
     return 19;
+  }
+  if (!RejectsUnknownTypeProjection()) {
+    return 20;
   }
   auto device = rund::compute::open(rund::compute::Target::cpu());
   if (!device) {

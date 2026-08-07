@@ -136,13 +136,17 @@ private state dependency to unrelated socket translation units.
 - `task/stats/storage.hpp`: `detail::task::StatStorage`, the fixed 234-slot live telemetry
   block. It owns no public field spelling and performs no allocation.
 - `task/stats/schema/slots.def`: the sole exact numeric slot identity and
-  storage-layout schema. Deleting a counter removes its row and compacts every
-  following internal index. `storage.hpp` derives its count from these rows;
-  `slots.hpp` validates their contiguous indices and owns the internal counter
-  access primitive.
+  storage-layout schema. Deleting an unreserved counter removes its row and
+  compacts every following internal index. A compatibility hard cut may instead
+  rename an old position to an explicit reservation when the current by-value
+  layout must remain fixed; reserved positions have no live writer or public
+  getter. `storage.hpp` derives its count from these rows; `slots.hpp` validates
+  their contiguous indices and owns the internal counter access primitive.
 - `task/stats/schema/public/*.def`: the sole category-specific mapping from
-  short public getter spelling to stable internal slot. No storage index or
-  replay order is repeated in these mappings.
+  short public getter spelling to stable internal slot. Compatibility getter
+  spellings may project the same canonical slot, so the total public getter
+  count is an ABI cardinality check rather than a getter-to-slot bijection. No
+  storage index or replay order is repeated in these mappings.
 - `task/stats/{reactor,network,resource}.hpp`: small owning category snapshots
   returned by `reactor()`, `network()`, and `resources()`; they never retain a
   pointer into a temporary full snapshot.
@@ -452,13 +456,19 @@ worker or per batch.
 network host-event activity, and scheduler resources. The live reactor slots
 are mutated only by scheduler reactor owners. The live network slots are
 incremented from scheduler host-event admission for successful network
-lifecycle and byte/connection events, with would-block counted from
-would-block network host events. `NetworkStats::bytes_received()` and
-`bytes_sent()` saturate at `UINT64_MAX` and sum successful basic, datagram, and
-vectored event `completed_bytes` at that same O(1) commit point. Zero-byte,
-would-block, and failed events add zero. Operation results and network wrappers
-do not mutate the scheduler snapshot returned by `Session::Result::tasks()` or
-copy local stats snapshots.
+lifecycle and byte/connection events. For compatibility, `would_block()`
+currently counts every admitted host event whose status is `WouldBlock`,
+including non-network host I/O; restricting it to Network event kinds would be
+a public telemetry meaning change and remains unresolved. The source-private
+network recorder owns the one `EventKind -> call/lifecycle slot` projection.
+Every additive Network slot uses `counter::Accumulate`, so call, lifecycle,
+would-block,
+admission-rejection, and byte evidence all saturate at `UINT64_MAX`.
+`NetworkStats::bytes_received()` and `bytes_sent()` sum successful basic,
+datagram, and vectored event `completed_bytes` at that same O(1) commit point.
+Zero-byte, would-block, and failed events add zero bytes. Operation results and
+network wrappers do not mutate the scheduler snapshot returned by
+`Session::Result::tasks()` or copy local stats snapshots.
 
 ## Public API
 

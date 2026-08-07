@@ -15,7 +15,20 @@
 namespace rund::compute::detail {
 namespace {
 
-[[nodiscard]] Status prepare_graph_buffers(JobState &state) {
+[[nodiscard]] Status prepare_graph_buffers(JobState &state,
+                                           const JobGraphBufferMode mode) {
+  if (mode != JobGraphBufferMode::Standalone &&
+      mode != JobGraphBufferMode::SealedPipeline) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  // Pipeline materialization has already consumed its sealed workspace route.
+  // It may validate that owner here, but it may never fall through to the
+  // standalone per-Job allocator and recreate a second storage authority.
+  if (mode == JobGraphBufferMode::SealedPipeline &&
+      (!state.graph_buffers.empty() ||
+       (state.workspace == nullptr && !state.program->chunks.empty()))) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
   if (state.program->graph_bindings.empty()) {
     return Status::success();
   }
@@ -106,14 +119,15 @@ Result<RunState> empty_run(const std::shared_ptr<JobState> &state) {
 }
 
 Status prepare_job_state(const std::shared_ptr<JobState> &state,
-                         const JobBindings mode) {
+                         const JobBindings mode,
+                         const JobGraphBufferMode graph_buffers) {
   if (state == nullptr || state->program == nullptr ||
       state->program->device == nullptr) {
     return Status::fail(Reason::ProgramInvalid);
   }
-  const Status graph_buffers = prepare_graph_buffers(*state);
-  if (!graph_buffers) {
-    return graph_buffers;
+  const Status graph_status = prepare_graph_buffers(*state, graph_buffers);
+  if (!graph_status) {
+    return graph_status;
   }
   if (state->program->device->backend == Backend::Cpu) {
     const Status cpu_prepared = prepare_cpu_run(*state);
@@ -137,7 +151,8 @@ prepare_cpu_pipeline_job_state(const std::shared_ptr<JobState> &state,
       cpu_storage == nullptr || prepared_arena == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  const Status graph_buffers = prepare_graph_buffers(*state);
+  const Status graph_buffers =
+      prepare_graph_buffers(*state, JobGraphBufferMode::SealedPipeline);
   if (!graph_buffers) {
     return graph_buffers;
   }
@@ -215,7 +230,8 @@ make_job_values(const std::shared_ptr<ProgramState> &program,
       }
       state->outputs.push_back(std::move(output).value());
     }
-    const Status prepared = prepare_job_state(state, bindings);
+    const Status prepared =
+        prepare_job_state(state, bindings, JobGraphBufferMode::Standalone);
     return finish_prepare(std::move(state), prepared);
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<JobState>>::fail(Reason::BufferCapacity);

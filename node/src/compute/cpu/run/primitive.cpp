@@ -11,6 +11,7 @@
 #include "../../backend.hpp"
 #include "../../host.hpp"
 #include "../../program/state.hpp"
+#include "../../type.hpp"
 #include "../bounded.hpp"
 #include "../graph.hpp"
 #include "../scratch.hpp"
@@ -198,9 +199,10 @@ namespace {
   case Primitive::Sort:
   case Primitive::Argsort: {
     const Type type = cpu.runtime->values[primitive.inputs.front() - 1u].type;
-    const bool signed_order = type == Type::I32 || type == Type::I64 ||
-                              type == Type::FixedLane32 ||
-                              type == Type::FixedLane64;
+    const kernel::ComputeDomain domain = type_domain(type);
+    const bool signed_order = domain == kernel::ComputeDomain::I32 ||
+                              domain == kernel::ComputeDomain::I64 ||
+                              domain == kernel::ComputeDomain::Fixed;
     const auto &plan = std::get<kernel::SortPlan>(primitive.plan);
     kernel::u32 active_count = static_cast<kernel::u32>(plan.element_count);
     const bool bounded = primitive.inputs.size() == 2u;

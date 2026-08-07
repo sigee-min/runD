@@ -1,5 +1,7 @@
 #include "resume/local.hpp"
 
+#include "../ready/set/identity.hpp"
+
 namespace rund::node {
 
 ::rund::net::ready::many::Wait
@@ -36,7 +38,8 @@ ReadyManyAccess::Resume(Scheduler &scheduler, ReadyManyEntry &entry,
 
   ReasonCode ready_code = timed_out ? ReasonCode::IoTimedOut : wake_code;
   const bool group_budget_exhausted = group->budget_exhausted;
-  const bool ready_set_wait = group->ready_set_id != 0u;
+  const bool ready_set_wait =
+      !ReactorReadySetIdentityOwner::empty(group->ready_set);
   std::uint32_t copied = 0u;
   const bool copied_ok =
       scheduler.CopyReactorManyEvents(group_id, out, &copied);

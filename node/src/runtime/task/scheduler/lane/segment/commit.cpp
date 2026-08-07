@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../../state/segment.hpp"
@@ -79,9 +80,10 @@ bool Scheduler::CommitSuccessfulLaneOwnedSegments(
       state_->evidence.metrics,
       ::rund::detail::task::StatSlot::DeterministicCommitLogicalEvents) +=
       summary.commit_logical_events;
-  ::rund::detail::task::Stat(state_->evidence.metrics,
-                             ::rund::detail::task::StatSlot::Completed) +=
-      logical_tasks;
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Completed),
+      logical_tasks);
   ::rund::detail::task::Stat(
       state_->evidence.metrics,
       ::rund::detail::task::StatSlot::LaneLocalTasksCompleted) += logical_tasks;

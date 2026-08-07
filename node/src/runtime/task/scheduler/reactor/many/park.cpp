@@ -1,15 +1,17 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "park/local.hpp"
 
 namespace rund::node {
 
-::rund::net::ready::many::Wait ReadyManyAccess::Park(
-    Scheduler &scheduler, ReadyManyEntry &entry,
-    const std::optional<std::chrono::nanoseconds> timeout,
-    const std::uint64_t stop_source_id, const std::uint64_t stop_generation,
-    const std::uint64_t stop_epoch, const std::uint64_t ready_set_id,
-    const std::uint64_t ready_set_generation) noexcept {
+::rund::net::ready::many::Wait
+ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
+                      const std::optional<std::chrono::nanoseconds> timeout,
+                      const std::uint64_t stop_source_id,
+                      const std::uint64_t stop_generation,
+                      const std::uint64_t stop_epoch,
+                      const ::rund::net::ready::Set ready_set) noexcept {
   SchedulerState &state = *scheduler.state_;
   const bool use_timeout = timeout.has_value();
   if (ReactorRegistrySize(state.reactor.reactor) + entry.requests.size() >
@@ -42,7 +44,7 @@ namespace rund::node {
       use_timeout ? scheduler.MakeTimerDeadline(*timeout) : TimerDeadline{};
   if (!ReadyManyParkCreateGroupAndRequests(
           state, entry, group_id, timer_wait_id, stop_source_id,
-          stop_generation, stop_epoch, ready_set_id, ready_set_generation)) {
+          stop_generation, stop_epoch, ready_set)) {
     static_cast<void>(ReactorCleanupWait(
         scheduler,
         ReactorCleanupRequest{.wait_id = 0u,
@@ -96,8 +98,10 @@ namespace rund::node {
       return result;
     }
   }
-  ++::rund::detail::task::Stat(state.evidence.metrics,
-                               ::rund::detail::task::StatSlot::Parked);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state.evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Parked),
+      1u);
   entry.record->state = TaskState::IoBlocked;
   entry.record->wait_id = group_id;
   entry.record->wait_source_id = group_id;
@@ -106,8 +110,11 @@ namespace rund::node {
   entry.record->dynamic_scope_id = scheduler.CurrentScopeId();
   entry.record->lane_segment_side_exit = true;
   entry.record->coroutine_parked = true;
-  ++::rund::detail::task::Stat(state.evidence.metrics,
-                               ::rund::detail::task::StatSlot::CoroutineParks);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(
+          state.evidence.metrics,
+          ::rund::detail::task::StatSlot::CoroutineParks),
+      1u);
   if (use_timeout) {
     scheduler.Record(::rund::detail::task::OperationKind::TimerPark,
                      ReasonCode::Ok, entry.record->id, 0u, timer_wait_id, 0u,

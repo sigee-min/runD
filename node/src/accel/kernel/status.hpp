@@ -4,6 +4,7 @@
 #include <rund/compute/reason.hpp>
 #include <rund/compute/stats.hpp>
 
+#include "backend/phase.hpp"
 #include "profile.hpp"
 
 #include <array>
@@ -65,7 +66,7 @@ struct PreparedPipelineControl final {
   std::uint64_t overflow_ordinal{std::numeric_limits<std::uint64_t>::max()};
   std::uint32_t failed_outer_window{PreparedPipelineNoStep};
   std::uint32_t failed_inner_iteration{PreparedPipelineNoStep};
-  std::uint32_t failed_nested_phase{};
+  std::uint32_t failed_nested_phase{PipelineNestedPhaseNoneCode};
   std::uint32_t reserved{};
   std::uint64_t executed_outer_window_count{};
   std::uint64_t skipped_outer_window_count{};
@@ -348,8 +349,10 @@ SetPreparedProgramStatusSlice(PreparedPipelineStatusLayout &layout,
 
 [[nodiscard]] constexpr bool ValidPreparedPipelineFailureCoordinate(
     const PreparedPipelineControl &control) noexcept {
-  const auto phase = static_cast<rund::compute::PipelineNestedPhase>(
-      control.failed_nested_phase);
+  rund::compute::PipelineNestedPhase phase{};
+  if (!DecodePipelineNestedPhase(control.failed_nested_phase, phase)) {
+    return false;
+  }
   return rund::compute::valid_pipeline_nested_coordinate(
       phase, control.failed_outer_window != PreparedPipelineNoStep,
       control.failed_inner_iteration != PreparedPipelineNoStep);
@@ -360,9 +363,6 @@ SetPreparedProgramStatusSlice(PreparedPipelineStatusLayout &layout,
     const PreparedPipelineStatusLayout &layout) noexcept {
   if (!CanonicalReasonStatus(control.reason) ||
       control.verified_prefix > layout.declared_step_count ||
-      control.failed_nested_phase >
-          static_cast<std::uint32_t>(
-              rund::compute::PipelineNestedPhase::Fold) ||
       control.reserved != 0u ||
       !ValidPreparedPipelineFailureCoordinate(control)) {
     return false;
@@ -372,9 +372,7 @@ SetPreparedProgramStatusSlice(PreparedPipelineStatusLayout &layout,
   if (success) {
     return control.failed_step == PreparedPipelineNoStep &&
            control.verified_prefix == layout.declared_step_count &&
-           control.failed_nested_phase ==
-               static_cast<std::uint32_t>(
-                   rund::compute::PipelineNestedPhase::None);
+           control.failed_nested_phase == PipelineNestedPhaseNoneCode;
   }
   if (control.failed_step == PreparedPipelineNoStep) {
     return true;

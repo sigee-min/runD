@@ -1,15 +1,49 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace rund::compute {
 
 enum class PipelineNestedPhase : std::uint8_t {
-  None,
-  Seed,
-  Action,
-  Fold,
+  None = 0u,
+  Seed = 1u,
+  Action = 2u,
+  Fold = 3u,
 };
+
+namespace detail {
+
+// This table is the sole owner of the admitted public phase set, its
+// coordinate shape, and the stable source key used by generated device code.
+// Consumers must look up a row rather than recreate a four-way validity list.
+struct PipelineNestedPhaseContract final {
+  PipelineNestedPhase phase;
+  const char *source_key;
+  bool has_outer;
+  bool has_inner;
+};
+
+inline constexpr std::array<PipelineNestedPhaseContract, 4u>
+    PipelineNestedPhaseContracts{{
+        {PipelineNestedPhase::None, "none", false, false},
+        {PipelineNestedPhase::Seed, "seed", true, false},
+        {PipelineNestedPhase::Action, "action", true, true},
+        {PipelineNestedPhase::Fold, "fold", true, false},
+    }};
+
+[[nodiscard]] constexpr const PipelineNestedPhaseContract *
+pipeline_nested_phase_contract(const PipelineNestedPhase phase) noexcept {
+  for (const PipelineNestedPhaseContract &contract :
+       PipelineNestedPhaseContracts) {
+    if (contract.phase == phase) {
+      return &contract;
+    }
+  }
+  return nullptr;
+}
+
+} // namespace detail
 
 // Nested coordinates have one canonical public shape. Ordinary work has no
 // nested coordinates, Seed/Fold identify only their outer window, and Action
@@ -19,34 +53,31 @@ enum class PipelineNestedPhase : std::uint8_t {
 // work.
 [[nodiscard]] constexpr bool
 pipeline_nested_phase_valid(const PipelineNestedPhase phase) noexcept {
-  switch (phase) {
-  case PipelineNestedPhase::None:
-  case PipelineNestedPhase::Seed:
-  case PipelineNestedPhase::Action:
-  case PipelineNestedPhase::Fold:
-    return true;
-  }
-  return false;
+  return detail::pipeline_nested_phase_contract(phase) != nullptr;
 }
 
 [[nodiscard]] constexpr bool
 pipeline_nested_phase_has_outer(const PipelineNestedPhase phase) noexcept {
-  return phase == PipelineNestedPhase::Seed ||
-         phase == PipelineNestedPhase::Action ||
-         phase == PipelineNestedPhase::Fold;
+  const detail::PipelineNestedPhaseContract *const contract =
+      detail::pipeline_nested_phase_contract(phase);
+  return contract != nullptr && contract->has_outer;
 }
 
 [[nodiscard]] constexpr bool
 pipeline_nested_phase_has_inner(const PipelineNestedPhase phase) noexcept {
-  return phase == PipelineNestedPhase::Action;
+  const detail::PipelineNestedPhaseContract *const contract =
+      detail::pipeline_nested_phase_contract(phase);
+  return contract != nullptr && contract->has_inner;
 }
 
-[[nodiscard]] constexpr bool valid_pipeline_nested_coordinate(
-    const PipelineNestedPhase phase, const bool outer_known,
-    const bool inner_known) noexcept {
-  return pipeline_nested_phase_valid(phase) &&
-         outer_known == pipeline_nested_phase_has_outer(phase) &&
-         inner_known == pipeline_nested_phase_has_inner(phase);
+[[nodiscard]] constexpr bool
+valid_pipeline_nested_coordinate(const PipelineNestedPhase phase,
+                                 const bool outer_known,
+                                 const bool inner_known) noexcept {
+  const detail::PipelineNestedPhaseContract *const contract =
+      detail::pipeline_nested_phase_contract(phase);
+  return contract != nullptr && outer_known == contract->has_outer &&
+         inner_known == contract->has_inner;
 }
 
 } // namespace rund::compute

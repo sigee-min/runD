@@ -1,3 +1,4 @@
+#include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
 #include "../lane/residual.hpp"
@@ -46,8 +47,10 @@ Scheduler::BeginJoinAwait(const task::Handle *const handles,
     return ::rund::detail::task::AwaitDecision{
         .status = task::Status::fail(ReasonCode::TaskDeadlock)};
   }
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Joins);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Joins),
+      1u);
   if (target->state == TaskState::Completed ||
       target->state == TaskState::Failed) {
     const ReasonCode code = target->state == TaskState::Failed
@@ -121,8 +124,11 @@ task::Status Scheduler::Join(const task::Handle *const handles,
       if (Matches(handles[0], committed) &&
           committed->state == TaskState::Completed) {
         RecordLaneResidualJoinOwnerChecks(state_->evidence.metrics, 1u);
-        ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                     ::rund::detail::task::StatSlot::Joins);
+        ::rund::detail::counter::Accumulate(
+            ::rund::detail::task::Stat(
+                state_->evidence.metrics,
+                ::rund::detail::task::StatSlot::Joins),
+            1u);
         ++::rund::detail::task::Stat(
             state_->evidence.metrics,
             ::rund::detail::task::StatSlot::RootJoinTerminalRecordReuses);
@@ -146,8 +152,10 @@ task::Status Scheduler::Join(const task::Handle *const handles,
         continue;
       }
       ControlCommitScope commit{*this};
-      ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                   ::rund::detail::task::StatSlot::Joins);
+      ::rund::detail::counter::Accumulate(
+          ::rund::detail::task::Stat(state_->evidence.metrics,
+                                     ::rund::detail::task::StatSlot::Joins),
+          1u);
       Record(::rund::detail::task::OperationKind::JoinPark,
              ReasonCode::TaskDeadlock, CurrentTaskId(), handles[0].id());
       return FailJoin(ReasonCode::TaskDeadlock);
@@ -165,8 +173,11 @@ task::Status Scheduler::Join(const task::Handle *const handles,
         if (Matches(handles[0], committed) &&
             committed->state == TaskState::Completed) {
           RecordLaneResidualJoinOwnerChecks(state_->evidence.metrics, 1u);
-          ++::rund::detail::task::Stat(state_->evidence.metrics,
-                                       ::rund::detail::task::StatSlot::Joins);
+          ::rund::detail::counter::Accumulate(
+              ::rund::detail::task::Stat(
+                  state_->evidence.metrics,
+                  ::rund::detail::task::StatSlot::Joins),
+              1u);
           ++::rund::detail::task::Stat(
               state_->evidence.metrics,
               ::rund::detail::task::StatSlot::RootJoinTerminalRecordReuses);
@@ -177,8 +188,10 @@ task::Status Scheduler::Join(const task::Handle *const handles,
     }
   }
   ControlCommitScope commit{*this};
-  ++::rund::detail::task::Stat(state_->evidence.metrics,
-                               ::rund::detail::task::StatSlot::Joins);
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(state_->evidence.metrics,
+                                 ::rund::detail::task::StatSlot::Joins),
+      1u);
   TaskRecord *const record = state_->FindAt(join_slot, handles[0].id());
   const bool matches = record != nullptr && Matches(handles[0], record);
   const ReasonCode code =

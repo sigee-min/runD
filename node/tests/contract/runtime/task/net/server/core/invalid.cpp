@@ -19,6 +19,15 @@ static_assert(noexcept(
 static_assert(std::is_trivially_copyable_v<rund::net::server::PeerResult>);
 static_assert(sizeof(rund::net::server::PeerResult) ==
               sizeof(rund::net::Status));
+static_assert(rund::net::server::detail::classify_peer_terminal(
+                  rund::net::server::PeerResult::complete()) ==
+              rund::net::server::detail::PeerTerminalClass::Completed);
+static_assert(rund::net::server::detail::classify_peer_terminal(
+                  rund::net::server::PeerResult::stop()) ==
+              rund::net::server::detail::PeerTerminalClass::Stopped);
+static_assert(rund::net::server::detail::classify_peer_terminal(
+                  rund::net::server::PeerResult{}) ==
+              rund::net::server::detail::PeerTerminalClass::Failed);
 
 int RunServerInvalidListenerCase() {
   runtime_task_allocation::Start();
@@ -33,16 +42,30 @@ int RunServerInvalidListenerCase() {
   TEST_ASSERT(complete.code() == rund::ReasonCode::Ok);
   TEST_ASSERT(stopped.code() == rund::ReasonCode::NetPeerHandlerStopped);
   TEST_ASSERT(failed.code() == rund::ReasonCode::IoUnsupported);
+  TEST_ASSERT(rund::net::server::detail::classify_peer_terminal(failed) ==
+              rund::net::server::detail::PeerTerminalClass::Failed);
   TEST_ASSERT(
       rund::net::server::PeerResult::fail(rund::ReasonCode::Ok).code() ==
       rund::ReasonCode::NetPeerHandlerFailed);
+  TEST_ASSERT(rund::net::server::detail::classify_peer_terminal(
+                  rund::net::server::PeerResult::fail(rund::ReasonCode::Ok)) ==
+              rund::net::server::detail::PeerTerminalClass::Failed);
   TEST_ASSERT(rund::net::server::PeerResult::fail(
                   rund::ReasonCode::NetPeerHandlerStopped)
                   .code() == rund::ReasonCode::NetPeerHandlerFailed);
+  TEST_ASSERT(rund::net::server::detail::classify_peer_terminal(
+                  rund::net::server::PeerResult::fail(
+                      rund::ReasonCode::NetPeerHandlerStopped)) ==
+              rund::net::server::detail::PeerTerminalClass::Failed);
   TEST_ASSERT(rund::net::server::PeerResult::fail(
                   static_cast<rund::ReasonCode>(
                       std::numeric_limits<std::uint16_t>::max()))
                   .code() == rund::ReasonCode::NetPeerHandlerFailed);
+  TEST_ASSERT(
+      rund::net::server::detail::classify_peer_terminal(
+          rund::net::server::PeerResult::fail(static_cast<rund::ReasonCode>(
+              std::numeric_limits<std::uint16_t>::max()))) ==
+      rund::net::server::detail::PeerTerminalClass::Failed);
 
   bool callback_ran = false;
   rund::net::server::Options options{};

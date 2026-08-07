@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <rund/net/ready/set.hpp>
 #include <rund/net/socket.hpp>
 #include <rund/reason.hpp>
 
@@ -37,8 +38,7 @@ struct ReactorManyEventSlot {
 struct ReactorManyGroup {
   std::uint64_t group_id = 0u;
   std::uint64_t task_id = 0u;
-  std::uint64_t ready_set_id = 0u;
-  std::uint64_t ready_set_generation = 0u;
+  ::rund::net::ready::Set ready_set{};
   std::uint64_t timer_wait_id = 0u;
   std::uint64_t stop_source_id = 0u;
   std::uint64_t stop_generation = 0u;

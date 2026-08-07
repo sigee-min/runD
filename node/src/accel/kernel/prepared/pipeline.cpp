@@ -928,7 +928,7 @@ recurrence_identity(const BackendRecurrence &recurrence) noexcept {
   identity.inner_bound = window->inner_bound;
   identity.route = window->route;
   identity.state = window->state;
-  identity.phase = static_cast<std::uint8_t>(window->phase);
+  identity.phase = window->phase;
   identity.has_window = true;
   identity.has_terminal = window->has_terminal;
   return identity;
@@ -980,9 +980,11 @@ recurrence_identity(const BackendRecurrence &recurrence) noexcept {
         return false;
       }
       if (item->owner.get() == route_owner) {
-        MixPreparedKernelRecurrenceFingerprint(
-            recurrence_hi, recurrence_lo,
-            recurrence_identity(recurrences[index]));
+        if (!MixPreparedKernelRecurrenceFingerprint(
+                recurrence_hi, recurrence_lo,
+                recurrence_identity(recurrences[index]))) {
+          return false;
+        }
       }
       ++index;
       continue;
@@ -1019,8 +1021,10 @@ recurrence_identity(const BackendRecurrence &recurrence) noexcept {
           !accumulate(window_count, route.occurrence_count)) {
         return false;
       }
-      MixPreparedKernelRecurrenceFingerprint(recurrence_hi, recurrence_lo,
-                                             identity);
+      if (!MixPreparedKernelRecurrenceFingerprint(recurrence_hi, recurrence_lo,
+                                                  identity)) {
+        return false;
+      }
     }
     if (runs[index]->owner.get() == route_owner &&
         !accumulate(nested_group_count, 1u)) {

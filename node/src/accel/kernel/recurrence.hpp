@@ -330,17 +330,20 @@ recurrence(const BackendBatchEntry &value) noexcept {
 
 } // namespace nested_template_detail
 
-[[nodiscard]] inline constexpr BackendWindowPhase
-ProjectNestedBackendWindowPhase(const NestedTemplatePhase phase) noexcept {
+[[nodiscard]] inline constexpr bool ProjectNestedBackendWindowPhase(
+    const NestedTemplatePhase phase, BackendWindowPhase &backend) noexcept {
   switch (phase) {
   case NestedTemplatePhase::Seed:
-    return BackendWindowPhase::NestedSeed;
+    backend = BackendWindowPhase::NestedSeed;
+    return true;
   case NestedTemplatePhase::Action:
-    return BackendWindowPhase::NestedAction;
+    backend = BackendWindowPhase::NestedAction;
+    return true;
   case NestedTemplatePhase::Fold:
-    return BackendWindowPhase::NestedFold;
+    backend = BackendWindowPhase::NestedFold;
+    return true;
   }
-  return BackendWindowPhase::Ordinary;
+  return false;
 }
 
 struct NestedTemplateRecurrenceIdentityBase final {
@@ -361,6 +364,10 @@ struct NestedTemplateRecurrenceIdentityBase final {
   if (!shape.project(template_index, route)) {
     return false;
   }
+  BackendWindowPhase phase{};
+  if (!ProjectNestedBackendWindowPhase(route.phase, phase)) {
+    return false;
+  }
   out = PreparedKernelRecurrenceIdentity{
       .logical_step = base.logical_step,
       .iteration = route.iteration,
@@ -374,8 +381,7 @@ struct NestedTemplateRecurrenceIdentityBase final {
       .inner_bound = route.inner_bound,
       .route = route.route,
       .state = base.state,
-      .phase = static_cast<std::uint8_t>(
-          ProjectNestedBackendWindowPhase(route.phase)),
+      .phase = phase,
       .writes_each_iteration = false,
       .has_window = true,
       .has_terminal = base.has_terminal,
@@ -412,11 +418,13 @@ ProveNestedTemplateGeometry(const std::span<const Entry> templates,
         nested_template_detail::recurrence(templates[index]);
     const BackendWindow *const current = current_recurrence.window;
     NestedTemplateRouteProjection route{};
+    BackendWindowPhase phase{};
     if (current == nullptr || current_recurrence.writes_each_iteration ||
         !nested_template_detail::same_window(*source, *current) ||
         current_recurrence.logical_step != source_recurrence.logical_step ||
         !shape.project(index, route) ||
-        current->phase != ProjectNestedBackendWindowPhase(route.phase) ||
+        !ProjectNestedBackendWindowPhase(route.phase, phase) ||
+        current->phase != phase ||
         current_recurrence.iteration != route.iteration ||
         current_recurrence.bound != route.bound ||
         current->outer_iteration != route.outer_iteration ||

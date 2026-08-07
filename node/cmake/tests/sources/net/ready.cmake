@@ -41,4 +41,5 @@ set(NODE_TEST_NET_READY_SET_TEST_SOURCES
   tests/contract/runtime/task/net/ready/sets/capacity/set.cpp
   tests/contract/runtime/task/net/ready/sets/capacity/zero.cpp
   tests/contract/runtime/task/net/ready/sets/index.cpp
+  tests/contract/runtime/task/net/ready/sets/stats.cpp
 )

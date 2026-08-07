@@ -7,6 +7,9 @@ int RunRuntimeTaskNetStatsContract() {
   if (const int rc = NetStatsByteAccounting(); rc != 0) {
     return rc;
   }
+  if (const int rc = NetStatsSaturatingCounters(); rc != 0) {
+    return rc;
+  }
   if (const int rc = NetStatsCloseTimeoutCancellation(); rc != 0) {
     return rc;
   }

@@ -11,6 +11,7 @@
 #include "../../../host.hpp"
 #include "../../../program/state.hpp"
 #include "../../../status.hpp"
+#include "../../../type.hpp"
 #include "../../graph.hpp"
 #include "../../scratch.hpp"
 
@@ -55,9 +56,10 @@ Status run_stencil(PrimitiveContext &context) {
   const auto &plan = std::get<kernel::StencilPlan>(primitive.plan);
   const Type type =
       context.cpu.runtime->values[primitive.inputs.front() - 1u].type;
-  const bool signed_domain = type == Type::I32 || type == Type::I64 ||
-                             type == Type::FixedLane32 ||
-                             type == Type::FixedLane64;
+  const kernel::ComputeDomain domain = type_domain(type);
+  const bool signed_domain = domain == kernel::ComputeDomain::I32 ||
+                             domain == kernel::ComputeDomain::I64 ||
+                             domain == kernel::ComputeDomain::Fixed;
   kernel::StencilResult result{};
   if (signed_domain && plan.element == kernel::StencilElement::U32) {
     result = node::accel::detail::ExecuteSignedStencilReference(

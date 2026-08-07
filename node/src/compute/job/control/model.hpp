@@ -16,6 +16,11 @@ enum class JobBindings : unsigned char {
   Writable,
 };
 
+enum class JobGraphBufferMode : unsigned char {
+  Standalone,
+  SealedPipeline,
+};
+
 [[nodiscard]] Status
 validate_host_inputs(const ProgramState &program,
                      std::span<const HostView> inputs) noexcept;
@@ -25,7 +30,8 @@ validate_bound_buffers(const std::shared_ptr<ProgramState> &program,
                        std::span<const std::shared_ptr<BufferState>> outputs,
                        bool check_poison = true) noexcept;
 [[nodiscard]] Status prepare_job_state(const std::shared_ptr<JobState> &state,
-                                       JobBindings mode);
+                                       JobBindings mode,
+                                       JobGraphBufferMode graph_buffers);
 [[nodiscard]] Status
 prepare_cpu_pipeline_job_state(const std::shared_ptr<JobState> &state,
                                JobBindings mode,
