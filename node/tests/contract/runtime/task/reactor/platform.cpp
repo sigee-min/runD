@@ -20,6 +20,36 @@ int RunRuntimeTaskReactorPlatformContract() {
   static_assert(ReactorInterestBits(ReactorInterest::Write) == 4);
   static_assert(!std::is_aggregate_v<BatchIoProbeResult>);
   static_assert(std::is_trivially_copyable_v<BatchIoProbeResult>);
+  static_assert(!std::is_aggregate_v<ReactorPlatformBatchResult>);
+  static_assert(std::is_trivially_copyable_v<ReactorPlatformBatchResult>);
+
+  constexpr ReactorPlatformBatchResult batch_success =
+      ReactorPlatformBatchResult::success();
+  static_assert(batch_success.disposition() ==
+                ReactorPlatformBatchDisposition::Success);
+  static_assert(batch_success.platform_error() == 0);
+  static_assert(batch_success.failed_index() == 0u);
+
+  constexpr ReactorPlatformBatchResult batch_invalid =
+      ReactorPlatformBatchResult::invalid(EBADF, 3u);
+  static_assert(batch_invalid.disposition() ==
+                ReactorPlatformBatchDisposition::Invalid);
+  static_assert(batch_invalid.platform_error() == EBADF);
+  static_assert(batch_invalid.failed_index() == 3u);
+
+  constexpr ReactorPlatformBatchResult batch_failed =
+      ReactorPlatformBatchResult::failed(ENOMEM, 4u);
+  static_assert(batch_failed.disposition() ==
+                ReactorPlatformBatchDisposition::Failed);
+  static_assert(batch_failed.platform_error() == ENOMEM);
+  static_assert(batch_failed.failed_index() == 4u);
+
+  constexpr ReactorPlatformBatchResult batch_unavailable =
+      ReactorPlatformBatchResult::backend_unavailable();
+  static_assert(batch_unavailable.disposition() ==
+                ReactorPlatformBatchDisposition::BackendUnavailable);
+  static_assert(batch_unavailable.platform_error() == 0);
+  static_assert(batch_unavailable.failed_index() == 0u);
 
   // This contract is compiled against the neutral interface only. Platform
   // SDK records are deliberately unavailable at this boundary.

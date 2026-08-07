@@ -32,6 +32,27 @@ void KqueuePushReceiptFilter(std::vector<struct kevent>& changes,
   ignore_missing.push_back(ignore_enoent);
 }
 
+[[nodiscard]] ReactorPlatformOpResult
+ProjectBatchOperationResult(const ReactorPlatformBatchResult result) noexcept {
+  switch (result.disposition()) {
+  case ReactorPlatformBatchDisposition::Invalid:
+    return ReactorPlatformOpResult{
+        .ok = false,
+        .invalid = true,
+        .platform_error = result.platform_error(),
+    };
+  case ReactorPlatformBatchDisposition::Failed:
+    return ReactorPlatformOpResult{
+        .ok = false,
+        .platform_error = result.platform_error(),
+    };
+  case ReactorPlatformBatchDisposition::BackendUnavailable:
+    return ReactorPlatformOpResult{.ok = false, .unavailable = true};
+  case ReactorPlatformBatchDisposition::Success:
+    return {};
+  }
+}
+
 ReactorPlatformOpResult KqueueSubmit(ReactorPlatform& platform,
                                      struct kevent* const changes,
                                      const int count,
@@ -58,12 +79,7 @@ ReactorPlatformOpResult KqueueSubmit(ReactorPlatform& platform,
       return ReactorPlatformOpResult{.ok = false, .platform_error = ENOMEM};
     }
     const ReactorPlatformBatchResult submitted = KqueueSubmitBatch(platform);
-    return ReactorPlatformOpResult{
-        .ok = submitted.ok,
-        .invalid = submitted.invalid,
-        .unavailable = submitted.unavailable,
-        .platform_error = submitted.platform_error,
-    };
+    return ProjectBatchOperationResult(submitted);
   }
 
   errno = 0;
@@ -85,13 +101,13 @@ ReactorPlatformBatchResult KqueueSubmitBatch(ReactorPlatform& handle) noexcept {
   auto& owners = MacReactorState(handle).owners;
   auto& ignore_missing = MacReactorState(handle).ignore_missing;
   if (changes.empty()) {
-    return {};
+    return ReactorPlatformBatchResult::success();
   }
   std::vector<struct kevent>& receipts = MacReactorState(handle).receipts;
   try {
     receipts.resize(changes.size());
   } catch (...) {
-    return ReactorPlatformBatchResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformBatchResult::failed(ENOMEM, 0u);
   }
   errno = 0;
   const int rc = ::kevent(MacReactorState(handle).native, changes.data(),
@@ -99,12 +115,10 @@ ReactorPlatformBatchResult KqueueSubmitBatch(ReactorPlatform& handle) noexcept {
                           static_cast<int>(receipts.size()), nullptr);
   const int saved_errno = errno;
   if (rc < 0) {
-    return ReactorPlatformBatchResult{
-        .ok = false,
-        .invalid = saved_errno == EBADF || saved_errno == EINVAL,
-        .platform_error = saved_errno,
-        .failed_index = owners.empty() ? 0u : owners.front(),
-    };
+    const std::size_t failed_index = owners.empty() ? 0u : owners.front();
+    return saved_errno == EBADF || saved_errno == EINVAL
+               ? ReactorPlatformBatchResult::invalid(saved_errno, failed_index)
+               : ReactorPlatformBatchResult::failed(saved_errno, failed_index);
   }
   const std::size_t receipt_count =
       std::min<std::size_t>(static_cast<std::size_t>(rc), receipts.size());
@@ -117,14 +131,11 @@ ReactorPlatformBatchResult KqueueSubmitBatch(ReactorPlatform& handle) noexcept {
     if (ignore_missing[index] && event_errno == ENOENT) {
       continue;
     }
-    return ReactorPlatformBatchResult{
-        .ok = false,
-        .invalid = event_errno == EBADF || event_errno == EINVAL,
-        .platform_error = event_errno,
-        .failed_index = owners[index],
-    };
+    return event_errno == EBADF || event_errno == EINVAL
+               ? ReactorPlatformBatchResult::invalid(event_errno, owners[index])
+               : ReactorPlatformBatchResult::failed(event_errno, owners[index]);
   }
-  return {};
+  return ReactorPlatformBatchResult::success();
 }
 
 ReactorPlatformOpResult KqueueAddInterest(

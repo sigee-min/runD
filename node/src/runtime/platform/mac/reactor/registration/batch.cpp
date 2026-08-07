@@ -8,6 +8,26 @@
 #include <cerrno>
 
 namespace rund::node {
+namespace {
+
+[[nodiscard]] ReactorPlatformBatchResult
+RebaseBatchFailure(const ReactorPlatformBatchResult result,
+                   const std::size_t offset) noexcept {
+  switch (result.disposition()) {
+  case ReactorPlatformBatchDisposition::Invalid:
+    return ReactorPlatformBatchResult::invalid(result.platform_error(),
+                                               offset + result.failed_index());
+  case ReactorPlatformBatchDisposition::Failed:
+    return ReactorPlatformBatchResult::failed(result.platform_error(),
+                                              offset + result.failed_index());
+  case ReactorPlatformBatchDisposition::BackendUnavailable:
+    return ReactorPlatformBatchResult::backend_unavailable();
+  case ReactorPlatformBatchDisposition::Success:
+    return ReactorPlatformBatchResult::success();
+  }
+}
+
+} // namespace
 
 ReactorPlatformOpResult KqueueApplyOneChange(
     ReactorPlatform& handle, const ReactorRegistrationChange& change) noexcept {
@@ -27,7 +47,7 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
     ReactorPlatform& handle, const ReactorRegistrationChange* const changes,
     const std::size_t count) noexcept {
   if (changes == nullptr || count == 0u) {
-    return {};
+    return ReactorPlatformBatchResult::success();
   }
 
   for (std::size_t index = 0u; index < count; ++index) {
@@ -41,35 +61,32 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
       if (index != 0u) {
         const ReactorPlatformBatchResult prefix =
             ApplyReactorPlatformChanges(handle, changes, index);
-        if (!prefix.ok) {
+        if (prefix.disposition() != ReactorPlatformBatchDisposition::Success) {
           return prefix;
         }
       }
       const ReactorPlatformOpResult one = KqueueApplyOneChange(handle, change);
       if (!one.ok) {
-        return ReactorPlatformBatchResult{.ok = false,
-                                          .invalid = one.invalid,
-                                          .platform_error = one.platform_error,
-                                          .failed_index = index};
+        return one.invalid
+                   ? ReactorPlatformBatchResult::invalid(one.platform_error,
+                                                         index)
+                   : ReactorPlatformBatchResult::failed(one.platform_error,
+                                                        index);
       }
       if (index + 1u == count) {
-        return {};
+        return ReactorPlatformBatchResult::success();
       }
       const ReactorPlatformBatchResult suffix = ApplyReactorPlatformChanges(
           handle, changes + index + 1u, count - index - 1u);
-      if (!suffix.ok) {
-        return ReactorPlatformBatchResult{
-            .ok = false,
-            .invalid = suffix.invalid,
-            .platform_error = suffix.platform_error,
-            .failed_index = index + 1u + suffix.failed_index};
+      if (suffix.disposition() != ReactorPlatformBatchDisposition::Success) {
+        return RebaseBatchFailure(suffix, index + 1u);
       }
-      return {};
+      return ReactorPlatformBatchResult::success();
     }
   }
 
   if (!KqueueReserveBatchInterestStorage(handle, changes, count)) {
-    return ReactorPlatformBatchResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformBatchResult::failed(ENOMEM, 0u);
   }
 
   auto& native_changes = MacReactorState(handle).changes;
@@ -124,17 +141,18 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
       }
     }
   } catch (...) {
-    return ReactorPlatformBatchResult{.ok = false, .platform_error = ENOMEM};
+    return ReactorPlatformBatchResult::failed(ENOMEM, 0u);
   }
 
   const ReactorPlatformBatchResult submitted = KqueueSubmitBatch(handle);
-  if (!submitted.ok) {
+  if (submitted.disposition() != ReactorPlatformBatchDisposition::Success) {
     KqueueRememberBatchInterest(
-        handle, changes, std::min<std::size_t>(submitted.failed_index, count));
+        handle, changes,
+        std::min<std::size_t>(submitted.failed_index(), count));
     return submitted;
   }
   KqueueRememberBatchInterest(handle, changes, count);
-  return {};
+  return ReactorPlatformBatchResult::success();
 }
 
 }  // namespace rund::node

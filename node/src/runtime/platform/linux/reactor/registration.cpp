@@ -133,7 +133,9 @@ ReactorPlatformOpResult RemoveReactorPlatformInterest(
 ReactorPlatformBatchResult ApplyReactorPlatformChanges(
     ReactorPlatform& platform, const ReactorRegistrationChange* const changes,
     const std::size_t count) noexcept {
-  if (changes == nullptr || count == 0u) return {};
+  if (changes == nullptr || count == 0u) {
+    return ReactorPlatformBatchResult::success();
+  }
   for (std::size_t index = 0u; index < count; ++index) {
     ReactorPlatformOpResult result{};
     const ReactorRegistrationChange& change = changes[index];
@@ -151,13 +153,14 @@ ReactorPlatformBatchResult ApplyReactorPlatformChanges(
         break;
     }
     if (!result.ok) {
-      return ReactorPlatformBatchResult{.ok = false,
-                                        .invalid = result.invalid,
-                                        .platform_error = result.platform_error,
-                                        .failed_index = index};
+      return result.invalid
+                 ? ReactorPlatformBatchResult::invalid(result.platform_error,
+                                                       index)
+                 : ReactorPlatformBatchResult::failed(result.platform_error,
+                                                      index);
     }
   }
-  return {};
+  return ReactorPlatformBatchResult::success();
 }
 
 }  // namespace rund::node

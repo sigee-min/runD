@@ -78,6 +78,16 @@ counters are owned once by `scheduler/reactor/diagnostic/platform.cpp`. Platform
 backends only translate the neutral contract and issue native calls; they do
 not copy either orchestration or policy counters.
 
+The registration-batch operation has exactly one disposition: `Success`,
+`Invalid`, `Failed`, or `BackendUnavailable`. `Success` and
+`BackendUnavailable` fix the platform error and failed index to zero.
+`Invalid` and `Failed` carry the native or allocation error plus the first
+failed logical change index. That index acknowledges the successful logical
+prefix; it is not a native rollback frontier. Linux and the portable backend
+stop at that change, while a kqueue receipt batch may already have applied a
+later native filter. The scheduler removes only the acknowledged prefix and
+retains the failed logical change and suffix for normalized retry.
+
 The batch immediate-probe operation has exactly one disposition: `Success`,
 `Failed`, or `BackendUnavailable`. `Success` includes an empty ready set. The
 caller-provided `BatchIoReady` vector is the only ready payload and count

@@ -66,11 +66,10 @@ void AssertUnavailable(const rund::node::ReactorPlatformOpResult result) {
 }
 
 void AssertUnavailable(const rund::node::ReactorPlatformBatchResult result) {
-  TEST_ASSERT(!result.ok);
-  TEST_ASSERT(!result.invalid);
-  TEST_ASSERT(result.unavailable);
-  TEST_ASSERT(result.platform_error == 0);
-  TEST_ASSERT(result.failed_index == 0u);
+  TEST_ASSERT(result.disposition() ==
+              rund::node::ReactorPlatformBatchDisposition::BackendUnavailable);
+  TEST_ASSERT(result.platform_error() == 0);
+  TEST_ASSERT(result.failed_index() == 0u);
 }
 
 void AssertUnavailable(const rund::node::ReactorPlatformPollResult &result) {

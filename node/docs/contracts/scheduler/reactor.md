@@ -195,6 +195,7 @@ caller-required `R` full records; no second full-wait authority exists.
   platform reactor boundary.
 - `reactor/change/queue.cpp`: cursor-based queued registration apply owner; it
   snapshots the failed change identity before erasing an applied prefix,
+  consumes the platform batch disposition without a boolean result mirror,
   drains successful prefixes without repeated front erases, and preserves
   best-effort invalid-remove semantics.
 - The scheduler-facing apply result has exactly one disposition: `Success`,

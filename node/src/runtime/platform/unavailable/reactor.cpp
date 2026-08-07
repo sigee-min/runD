@@ -62,7 +62,7 @@ ApplyReactorPlatformChanges(ReactorPlatform &platform,
   (void)platform;
   (void)changes;
   (void)count;
-  return ReactorPlatformBatchResult{.ok = false, .unavailable = true};
+  return ReactorPlatformBatchResult::backend_unavailable();
 }
 
 ReactorPlatformPollResult

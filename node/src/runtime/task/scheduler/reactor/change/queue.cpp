@@ -15,7 +15,7 @@ IgnorableInvalidRemove(const ReactorRegistrationChange &change,
                        const ReactorPlatformBatchResult &result) noexcept {
   return change.best_effort &&
          change.kind == ReactorRegistrationChange::Kind::Remove &&
-         result.invalid;
+         result.disposition() == ReactorPlatformBatchDisposition::Invalid;
 }
 
 void RecordApplied(::rund::detail::task::StatStorage &stats,
@@ -28,13 +28,16 @@ void RecordApplied(::rund::detail::task::StatStorage &stats,
 [[nodiscard]] ReactorApplyResult
 ProjectApplyFailure(const ReactorPlatformBatchResult &result,
                     const ReactorHandle failed_handle) noexcept {
-  if (result.invalid) {
+  switch (result.disposition()) {
+  case ReactorPlatformBatchDisposition::Invalid:
     return ReactorApplyResult::invalid(failed_handle);
-  }
-  if (result.unavailable) {
+  case ReactorPlatformBatchDisposition::BackendUnavailable:
     return ReactorApplyResult::backend_unavailable();
+  case ReactorPlatformBatchDisposition::Failed:
+    return ReactorApplyResult::failed();
+  case ReactorPlatformBatchDisposition::Success:
+    return ReactorApplyResult::success();
   }
-  return ReactorApplyResult::failed();
 }
 
 } // namespace
@@ -57,14 +60,14 @@ ReactorChangeQueueApply(ReactorRuntime &reactor,
     const std::size_t remaining = reactor.changes.size() - cursor;
     const ReactorPlatformBatchResult result =
         ApplyReactorPlatformChanges(reactor.platform, first, remaining);
-    if (result.ok) {
+    if (result.disposition() == ReactorPlatformBatchDisposition::Success) {
       RecordApplied(stats, remaining);
       reactor.changes.clear();
       return ReactorApplyResult::success();
     }
 
     const std::size_t failed_offset =
-        std::min<std::size_t>(result.failed_index, remaining - 1u);
+        std::min<std::size_t>(result.failed_index(), remaining - 1u);
     RecordApplied(stats, failed_offset);
     const std::size_t failed_index = cursor + failed_offset;
     const ReactorRegistrationChange failed = reactor.changes[failed_index];
