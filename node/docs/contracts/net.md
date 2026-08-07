@@ -293,6 +293,10 @@ prevent a capability from another Scheduler or an earlier reset/open lifetime
 from selecting a coincidentally numbered set in the active Scheduler; the
 process issuer is not reset with a Session and is not part of trace, event,
 ordering, or replay identity.
+`ready/set/identity.hpp` is the sole storage-shape owner for that capability;
+`ready/set.hpp` adds lifecycle and membership operations. A deferred
+`ready::many::Wait` retains one complete `Set` value and never splits or
+reconstructs its id and generation as parallel fields.
 
 Create is the only operation that publishes a live incarnation. A new slot
 starts at generation 1. Destroy returns a non-live tombstone at the next even
@@ -318,6 +322,12 @@ A timed result distinguishes three states:
 
 Cancellation and timeout cleanup remove their scheduler registration exactly
 once. They do not leave a second polling or wake authority.
+
+Cancellation-aware timed and many waits retain one complete internal
+`StopIdentity` from defer through coroutine suspension. The scheduler validates
+that value once at reactor admission and stores its complete scheduler-local
+source projection; network awaitables do not mirror or reconstruct the four
+identity components.
 
 ## Bounded Helpers
 

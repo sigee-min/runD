@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <rund/task/cancel/identity.hpp>
 
 namespace rund::node {
 
@@ -23,9 +24,7 @@ struct TimerWait {
   TimerWaitKind kind = TimerWaitKind::Sleep;
   std::uint64_t task_id = 0u;
   std::uint64_t wait_id = 0u;
-  std::uint64_t stop_source_id = 0u;
-  std::uint64_t stop_generation = 0u;
-  std::uint64_t stop_epoch = 0u;
+  ::rund::detail::task::StopSourceIdentity stop{};
   Clock::time_point deadline{};
   std::int64_t deadline_ns = 0;
   std::uint64_t sequence = 0u;

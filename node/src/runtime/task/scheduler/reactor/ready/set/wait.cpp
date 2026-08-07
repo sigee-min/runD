@@ -119,7 +119,7 @@ namespace rund::node {
   }
 
   ::rund::net::ready::many::Wait result = WaitReactorManyPrepared(
-      requests, out, timeout, budget, 0u, 0u, 0u, 0u, set->identity.handle);
+      requests, out, timeout, budget, {}, set->identity.handle);
   EnsureCurrentCommit();
   RecordReactorReadySetEvents(
       state_->evidence.metrics,

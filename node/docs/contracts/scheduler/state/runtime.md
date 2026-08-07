@@ -12,6 +12,17 @@ cancellation work. Scheduler id prevents tokens from one runtime object from
 aliasing another runtime object, and reset epoch prevents tokens from an older
 scope from aliasing records after `Reset()`.
 
+`rund/task/cancel/identity.hpp` is the sole storage-shape authority for this
+identity. `StopIdentity` carries the scheduler id together with one
+`StopSourceIdentity` value `(source id, generation, epoch)`. A public stop
+token, a deferred network wait, and the scheduler stop-source record carry that
+value intact. After scheduler ownership and requested state are validated, a
+reactor wait, timeout timer, or many-wait group retains only the complete
+`StopSourceIdentity` projection needed for scheduler-local cancellation. No
+layer mirrors the tuple as parallel fields or reconstructs it through output
+pointers. All-zero values mean no cancellation source; malformed partially
+zero values fail validation rather than behaving as empty values.
+
 A first `request_stop()` transition removes matching timed reactor waits,
 many-wait groups, paired timeout timers, and ready backlog entries, then wakes
 affected tasks in task-id order with `TaskCancelled`. Repeated requests for the

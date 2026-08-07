@@ -8,9 +8,6 @@ namespace rund::node {
 ::rund::net::ready::many::Wait
 ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
                       const std::optional<std::chrono::nanoseconds> timeout,
-                      const std::uint64_t stop_source_id,
-                      const std::uint64_t stop_generation,
-                      const std::uint64_t stop_epoch,
                       const ::rund::net::ready::Set ready_set) noexcept {
   SchedulerState &state = *scheduler.state_;
   const bool use_timeout = timeout.has_value();
@@ -43,8 +40,7 @@ ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
   const TimerDeadline timer_deadline =
       use_timeout ? scheduler.MakeTimerDeadline(*timeout) : TimerDeadline{};
   if (!ReadyManyParkCreateGroupAndRequests(
-          state, entry, group_id, timer_wait_id, stop_source_id,
-          stop_generation, stop_epoch, ready_set)) {
+          state, entry, group_id, timer_wait_id, ready_set)) {
     static_cast<void>(ReactorCleanupWait(
         scheduler,
         ReactorCleanupRequest{.wait_id = 0u,
@@ -61,8 +57,7 @@ ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
     return result;
   }
 
-  if (!ReadyManyAccess::ParkRegisterWaits(scheduler, entry, stop_source_id,
-                                          stop_generation, stop_epoch)) {
+  if (!ReadyManyAccess::ParkRegisterWaits(scheduler, entry)) {
     static_cast<void>(ReactorCleanupWait(
         scheduler,
         ReactorCleanupRequest{.wait_id = 0u,
@@ -81,8 +76,7 @@ ReadyManyAccess::Park(Scheduler &scheduler, ReadyManyEntry &entry,
 
   if (use_timeout) {
     if (!ReadyManyAccess::ParkRegisterTimeout(scheduler, entry, timer_wait_id,
-                                              stop_source_id, stop_generation,
-                                              stop_epoch, timer_deadline)) {
+                                              timer_deadline)) {
       static_cast<void>(ReactorCleanupWait(
           scheduler,
           ReactorCleanupRequest{.wait_id = 0u,

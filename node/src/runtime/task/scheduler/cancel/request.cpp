@@ -9,15 +9,9 @@ namespace rund::node {
 namespace {
 
 [[nodiscard]] bool MatchesStop(
-    const std::uint64_t stop_source_id,
-    const std::uint64_t stop_generation,
-    const std::uint64_t stop_epoch,
-    const std::uint64_t source_id,
-    const std::uint64_t generation,
-    const std::uint64_t epoch) noexcept {
-  return source_id != 0u && generation != 0u && epoch != 0u &&
-         stop_source_id == source_id && stop_generation == generation &&
-         stop_epoch == epoch;
+    const ::rund::detail::task::StopSourceIdentity wait,
+    const ::rund::detail::task::StopSourceIdentity requested) noexcept {
+  return requested.valid() && wait == requested;
 }
 
 void SortCanceledWaits(std::vector<ReactorWait>& waits) noexcept {
@@ -38,22 +32,18 @@ void SortCanceledWaits(std::vector<ReactorWait>& waits) noexcept {
 
 }  // namespace
 
-task::StopState Scheduler::StopRequested(const std::uint64_t scheduler_id,
-                                    const std::uint64_t source_id,
-                                    const std::uint64_t generation,
-                                    const std::uint64_t epoch) noexcept {
+task::StopState Scheduler::StopRequested(
+    const ::rund::detail::task::StopIdentity identity) noexcept {
   (void)TrapLaneOwnedSegmentPrimitive();
   EnsureCurrentCommit();
   task::StopState result =
-      StopRequestedUnsequenced(scheduler_id, source_id, generation, epoch);
+      StopRequestedUnsequenced(identity);
   CompletePrimitiveCommit();
   return result;
 }
 
-task::Status Scheduler::RequestStop(const std::uint64_t scheduler_id,
-                                  const std::uint64_t source_id,
-                                  const std::uint64_t generation,
-                                  const std::uint64_t epoch) noexcept {
+task::Status Scheduler::RequestStop(
+    const ::rund::detail::task::StopIdentity identity) noexcept {
   (void)TrapLaneOwnedSegmentPrimitive();
   EnsureCurrentCommit();
   const auto finish = [this](task::Status result) noexcept {
@@ -62,7 +52,7 @@ task::Status Scheduler::RequestStop(const std::uint64_t scheduler_id,
   };
 
   StopSourceRecord *const source = scheduler_cancel::FindStopSource(
-      state_->reactor.stop_sources, scheduler_id, source_id, generation, epoch);
+      state_->reactor.stop_sources, identity);
   if (source == nullptr) {
     return finish(task::Status::fail(ReasonCode::TaskInvalid));
   }
@@ -78,8 +68,7 @@ task::Status Scheduler::RequestStop(const std::uint64_t scheduler_id,
     for (std::size_t index = 0u; index < count; ++index) {
       const ReactorWait &wait =
           ReactorRegistryWaitAt(state_->reactor.reactor, index);
-      if (MatchesStop(wait.stop_source_id, wait.stop_generation,
-                      wait.stop_epoch, source_id, generation, epoch)) {
+      if (MatchesStop(wait.stop, identity.source())) {
         canceled.push_back(wait);
       }
     }

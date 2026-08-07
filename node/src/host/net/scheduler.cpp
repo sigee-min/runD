@@ -42,27 +42,19 @@ bool RecordHostEvent(::rund::host::Event event) noexcept {
 ::rund::detail::task::IoDecision
 WaitReactorTimed(const SocketView socket, const short interest,
                  const std::chrono::nanoseconds timeout,
-                 const std::uint64_t stop_scheduler_id,
-                 const std::uint64_t stop_source_id,
-                 const std::uint64_t stop_generation,
-                 const std::uint64_t stop_epoch) noexcept {
+                 const ::rund::detail::task::StopIdentity stop) noexcept {
   node::Scheduler *const scheduler = node::scheduler_access::ActiveScheduler();
   if (scheduler == nullptr) {
     return ::rund::detail::task::IoDecision{
         .status = task::Status::fail(::rund::ReasonCode::NodeRuntimeMissing)};
   }
-  return WaitReactorTimed(*scheduler, socket, interest, timeout,
-                          stop_scheduler_id, stop_source_id, stop_generation,
-                          stop_epoch);
+  return WaitReactorTimed(*scheduler, socket, interest, timeout, stop);
 }
 
 ::rund::detail::task::IoDecision
 WaitReactorTimed(node::Scheduler &scheduler, const SocketView socket,
                  const short interest, const std::chrono::nanoseconds timeout,
-                 const std::uint64_t stop_scheduler_id,
-                 const std::uint64_t stop_source_id,
-                 const std::uint64_t stop_generation,
-                 const std::uint64_t stop_epoch) noexcept {
+                 const ::rund::detail::task::StopIdentity stop) noexcept {
   SocketLease lease = LeaseSocket(socket);
   if (!lease) {
     return ::rund::detail::task::IoDecision{
@@ -70,8 +62,7 @@ WaitReactorTimed(node::Scheduler &scheduler, const SocketView socket,
   }
   return scheduler.WaitReactorTimed(
       lease.native(), interest, timeout, lease.id(),
-      detail::SocketAccess::generation(socket), stop_scheduler_id,
-      stop_source_id, stop_generation, stop_epoch, socket);
+      detail::SocketAccess::generation(socket), stop, socket);
 }
 
 } // namespace rund::net

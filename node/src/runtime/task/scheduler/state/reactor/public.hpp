@@ -7,16 +7,14 @@ CloseSocket(::rund::net::SocketView socket, int native_socket) noexcept;
 [[nodiscard]] ::rund::detail::task::IoDecision WaitReactorTimed(
     int fd, short interest, std::chrono::nanoseconds timeout,
     std::uint64_t host_handle_id = 0u, std::uint64_t fd_generation = 0u,
-    std::uint64_t stop_scheduler_id = 0u, std::uint64_t stop_source_id = 0u,
-    std::uint64_t stop_generation = 0u, std::uint64_t stop_epoch = 0u,
+    ::rund::detail::task::StopIdentity stop = {},
     ::rund::net::SocketView socket = {}) noexcept;
 [[nodiscard]] ::rund::net::ready::many::Wait WaitReactorMany(
     std::span<const ::rund::net::ready::Request> requests,
     std::span<::rund::net::ready::Event> out,
     std::optional<std::chrono::nanoseconds> timeout,
     ::rund::net::ready::many::Budget budget,
-    std::uint64_t stop_scheduler_id = 0u, std::uint64_t stop_source_id = 0u,
-    std::uint64_t stop_generation = 0u, std::uint64_t stop_epoch = 0u) noexcept;
+    ::rund::detail::task::StopIdentity stop = {}) noexcept;
 [[nodiscard]] ::rund::net::ready::many::Wait
 ResumeReactorMany(std::span<::rund::net::ready::Event> out,
                   std::uint64_t group_id) noexcept;

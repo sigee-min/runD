@@ -7,16 +7,12 @@ stop_source stop_source::create() noexcept {
   if (scheduler == nullptr) {
     return {};
   }
-  std::uint64_t source_id = 0u;
-  std::uint64_t generation = 0u;
-  std::uint64_t epoch = 0u;
-  std::uint64_t scheduler_id = 0u;
-  const Status result = scheduler->CreateStopSource(
-      &scheduler_id, &source_id, &generation, &epoch);
-  if (!result) {
+  const ::rund::detail::task::StopIdentity identity =
+      scheduler->CreateStopSource();
+  if (!identity) {
     return {};
   }
-  return stop_source{stop_token{scheduler_id, source_id, generation, epoch}};
+  return stop_source{stop_token{identity}};
 }
 
 Status stop_source::request_stop() const noexcept {
@@ -24,8 +20,7 @@ Status stop_source::request_stop() const noexcept {
   if (scheduler == nullptr) {
     return Status::fail(ReasonCode::NodeRuntimeMissing);
   }
-  return scheduler->RequestStop(token_.scheduler_id_, token_.source_id_,
-                                token_.generation_, token_.epoch_);
+  return scheduler->RequestStop(token_.identity_);
 }
 
 StopState stop_token::state() const noexcept {
@@ -33,8 +28,7 @@ StopState stop_token::state() const noexcept {
   if (scheduler == nullptr) {
     return StopState::fail(ReasonCode::NodeRuntimeMissing);
   }
-  return scheduler->StopRequested(scheduler_id_, source_id_, generation_,
-                                  epoch_);
+  return scheduler->StopRequested(identity_);
 }
 
 }  // namespace rund::task

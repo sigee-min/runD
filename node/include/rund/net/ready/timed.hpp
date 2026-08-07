@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rund/net/ready/ticket.hpp>
+#include <rund/task/cancel/identity.hpp>
 
 #include <chrono>
 #include <coroutine>
@@ -49,10 +50,7 @@ private:
         std::exchange(other.public_interest_, Interest::Readable);
     interest_ = std::exchange(other.interest_, 0);
     timeout_ns_ = std::exchange(other.timeout_ns_, 0);
-    stop_scheduler_id_ = std::exchange(other.stop_scheduler_id_, 0u);
-    stop_source_id_ = std::exchange(other.stop_source_id_, 0u);
-    stop_generation_ = std::exchange(other.stop_generation_, 0u);
-    stop_epoch_ = std::exchange(other.stop_epoch_, 0u);
+    stop_ = std::exchange(other.stop_, ::rund::detail::task::StopIdentity{});
   }
 
   Ticket result_{};
@@ -63,10 +61,7 @@ private:
   Interest public_interest_ = Interest::Readable;
   short interest_ = 0;
   std::int64_t timeout_ns_ = 0;
-  std::uint64_t stop_scheduler_id_ = 0u;
-  std::uint64_t stop_source_id_ = 0u;
-  std::uint64_t stop_generation_ = 0u;
-  std::uint64_t stop_epoch_ = 0u;
+  ::rund::detail::task::StopIdentity stop_{};
 };
 
 class Awaiter final {

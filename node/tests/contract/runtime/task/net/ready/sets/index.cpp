@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "src/host/net/operation.hpp"
 #include "src/host/net/test/ticket.hpp"
 #include <rund/net/bytes.hpp>
 #include <rund/net/ready/many.hpp>
@@ -272,6 +273,15 @@ bool NetReadySetIdentityTransitionsAreClosed() {
   ReactorReadySetIdentityOwner exhausted{maximum};
   ReactorReadySetIdentityState unchanged{};
   const ::rund::net::ready::Set sentinel{.id = 71u, .generation = 73u};
+  ::rund::net::ready::many::Wait deferred =
+      ::rund::net::ready::many::detail::Access::Defer({}, {}, {}, 0, false, {},
+                                                      sentinel);
+  ::rund::net::ready::many::Wait moved{std::move(deferred)};
+  READY_SET_ASSERT(ReactorReadySetIdentityOwner::same(
+      ::rund::net::ready::many::detail::Access::Snapshot(moved).ready_set,
+      sentinel));
+  READY_SET_ASSERT(ReactorReadySetIdentityOwner::empty(
+      ::rund::net::ready::many::detail::Access::Snapshot(deferred).ready_set));
   ::rund::net::ready::Set output = sentinel;
   READY_SET_ASSERT(!exhausted.activate(unchanged, &output));
   READY_SET_ASSERT(ReactorReadySetIdentityOwner::empty(unchanged.handle));

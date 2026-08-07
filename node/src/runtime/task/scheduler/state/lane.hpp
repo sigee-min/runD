@@ -75,8 +75,7 @@ MakeTimerDeadline(std::chrono::nanoseconds duration) const noexcept;
     std::span<::rund::net::ready::Event> out,
     std::optional<std::chrono::nanoseconds> timeout,
     ::rund::net::ready::many::Budget budget,
-    std::uint64_t stop_scheduler_id = 0u, std::uint64_t stop_source_id = 0u,
-    std::uint64_t stop_generation = 0u, std::uint64_t stop_epoch = 0u,
+    ::rund::detail::task::StopIdentity stop = {},
     ::rund::net::ready::Set ready_set = {}) noexcept;
 [[nodiscard]] bool
 ProbeReactorManyReady(std::span<const ReactorManyRequest> requests,

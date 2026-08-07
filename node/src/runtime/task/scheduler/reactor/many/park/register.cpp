@@ -11,8 +11,7 @@ namespace rund::node {
 
 bool ReadyManyParkCreateGroupAndRequests(
     SchedulerState &state, ReadyManyEntry &entry, const std::uint64_t group_id,
-    const std::uint64_t timer_wait_id, const std::uint64_t stop_source_id,
-    const std::uint64_t stop_generation, const std::uint64_t stop_epoch,
+    const std::uint64_t timer_wait_id,
     const ::rund::net::ready::Set ready_set) noexcept {
   const std::size_t request_count = entry.requests.size();
   const std::size_t first_request = state.reactor.reactor_many_requests.size();
@@ -51,9 +50,7 @@ bool ReadyManyParkCreateGroupAndRequests(
         .task_id = entry.record->id,
         .ready_set = ready_set,
         .timer_wait_id = timer_wait_id,
-        .stop_source_id = stop_source_id,
-        .stop_generation = stop_generation,
-        .stop_epoch = stop_epoch,
+        .stop = entry.stop,
         .first_request = static_cast<std::uint32_t>(first_request),
         .request_count = static_cast<std::uint32_t>(request_count),
         .max_events = entry.output_limit,
@@ -77,10 +74,8 @@ bool ReadyManyParkCreateGroupAndRequests(
   return true;
 }
 
-bool ReadyManyAccess::ParkRegisterWaits(
-    Scheduler &scheduler, ReadyManyEntry &entry,
-    const std::uint64_t stop_source_id, const std::uint64_t stop_generation,
-    const std::uint64_t stop_epoch) noexcept {
+bool ReadyManyAccess::ParkRegisterWaits(Scheduler &scheduler,
+                                        ReadyManyEntry &entry) noexcept {
   SchedulerState &state = *scheduler.state_;
   const ReactorManyGroup *const group =
       ReactorManyFindGroup(state.reactor.reactor_many_groups, entry.group_id);
@@ -101,9 +96,7 @@ bool ReadyManyAccess::ParkRegisterWaits(
             ReactorHandleForPublic(request.fd)),
         .fd_generation =
             ::rund::net::detail::SocketAccess::generation(request.socket),
-        .stop_source_id = stop_source_id,
-        .stop_generation = stop_generation,
-        .stop_epoch = stop_epoch,
+        .stop = entry.stop,
         .fd = request.fd,
         .interest = request.interest,
     };

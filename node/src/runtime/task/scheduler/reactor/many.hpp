@@ -40,9 +40,7 @@ struct ReactorManyGroup {
   std::uint64_t task_id = 0u;
   ::rund::net::ready::Set ready_set{};
   std::uint64_t timer_wait_id = 0u;
-  std::uint64_t stop_source_id = 0u;
-  std::uint64_t stop_generation = 0u;
-  std::uint64_t stop_epoch = 0u;
+  ::rund::detail::task::StopSourceIdentity stop{};
   std::uint32_t first_request = 0u;
   std::uint32_t request_count = 0u;
   std::uint32_t max_events = 0u;

@@ -38,6 +38,7 @@ struct ReadyManyEntry {
   std::uint64_t group_id = 0u;
   std::uint32_t output_limit = 0u;
   std::span<const ReactorManyRequest> requests{};
+  ::rund::detail::task::StopSourceIdentity stop{};
   ReasonCode code = ReasonCode::TaskInvalid;
 
   [[nodiscard]] constexpr bool ok() const noexcept {
@@ -57,9 +58,8 @@ struct ReadyManyAccess {
   [[nodiscard]] static ReadyManyEntry PrepareEntry(
       Scheduler &scheduler, std::span<const ReactorManyRequest> requests,
       std::span<::rund::net::ready::Event> out,
-      ::rund::net::ready::many::Budget budget, std::uint64_t stop_scheduler_id,
-      std::uint64_t stop_source_id, std::uint64_t stop_generation,
-      std::uint64_t stop_epoch) noexcept;
+      ::rund::net::ready::many::Budget budget,
+      ::rund::detail::task::StopIdentity stop) noexcept;
   [[nodiscard]] static ::rund::net::ready::many::Wait
   TryImmediate(Scheduler &scheduler, ReadyManyEntry &entry,
                std::span<::rund::net::ready::Event> out,
@@ -67,16 +67,12 @@ struct ReadyManyAccess {
   [[nodiscard]] static ::rund::net::ready::many::Wait
   Park(Scheduler &scheduler, ReadyManyEntry &entry,
        std::optional<std::chrono::nanoseconds> timeout,
-       std::uint64_t stop_source_id, std::uint64_t stop_generation,
-       std::uint64_t stop_epoch, ::rund::net::ready::Set ready_set) noexcept;
+       ::rund::net::ready::Set ready_set) noexcept;
   [[nodiscard]] static bool
-  ParkRegisterWaits(Scheduler &scheduler, ReadyManyEntry &entry,
-                    std::uint64_t stop_source_id, std::uint64_t stop_generation,
-                    std::uint64_t stop_epoch) noexcept;
+  ParkRegisterWaits(Scheduler &scheduler, ReadyManyEntry &entry) noexcept;
   [[nodiscard]] static bool
   ParkRegisterTimeout(Scheduler &scheduler, ReadyManyEntry &entry,
-                      std::uint64_t timer_wait_id, std::uint64_t stop_source_id,
-                      std::uint64_t stop_generation, std::uint64_t stop_epoch,
+                      std::uint64_t timer_wait_id,
                       const TimerDeadline &timer_deadline) noexcept;
   [[nodiscard]] static ::rund::net::ready::many::Wait
   Resume(Scheduler &scheduler, ReadyManyEntry &entry,

@@ -18,8 +18,8 @@ bool Scheduler::ParkTimedReactorWait(
     TaskRecord &record, const int fd, const short interest,
     const std::chrono::nanoseconds timeout,
     const std::uint64_t wait_host_handle_id, const std::uint64_t fd_generation,
-    const std::uint64_t stop_source_id, const std::uint64_t stop_generation,
-    const std::uint64_t stop_epoch, const ::rund::net::SocketView socket,
+    const ::rund::detail::task::StopSourceIdentity stop,
+    const ::rund::net::SocketView socket,
     std::uint64_t &wait_id, ::rund::detail::task::IoDecision &result) noexcept {
   if (!record.coroutine_task) {
     result = FailIo(ReasonCode::TaskLeafPrimitiveForbidden);
@@ -51,9 +51,7 @@ bool Scheduler::ParkTimedReactorWait(
                          .wait_id = wait_id,
                          .host_handle_id = wait_host_handle_id,
                          .fd_generation = fd_generation,
-                         .stop_source_id = stop_source_id,
-                         .stop_generation = stop_generation,
-                         .stop_epoch = stop_epoch,
+                         .stop = stop,
                          .fd = ReactorHandleFromPublic(fd),
                          .interest = ReactorInterestFromBits(interest)};
   if (!ReactorRegistryAddWait(state_->reactor.reactor, wait)) {
@@ -74,9 +72,7 @@ bool Scheduler::ParkTimedReactorWait(
           TimerWait{.kind = TimerWaitKind::ReactorTimeout,
                     .task_id = record.id,
                     .wait_id = wait_id,
-                    .stop_source_id = stop_source_id,
-                    .stop_generation = stop_generation,
-                    .stop_epoch = stop_epoch,
+                    .stop = stop,
                     .deadline = timer_deadline.deadline,
                     .deadline_ns = timer_deadline.deadline_ns,
                     .sequence = state_->identity.next_timer_sequence++,

@@ -163,10 +163,11 @@ caller-required `R` full records; no second full-wait authority exists.
   status once, then bounded resume copies require no request-span lookup.
 - `reactor/ready/set/result.cpp`: shared ready-set result materialization and
   current-generation validation helpers.
-- `reactor/ready/set/identity.{hpp,cpp}`: the one ready-set capability shape,
-  equality, live-state transition, generation retirement, and process-wide
-  non-wrapping slot-id issuer. The compiled issuer is independent of Scheduler
-  reset and deterministic replay state.
+- `reactor/ready/set/identity.{hpp,cpp}`: the one ready-set capability
+  validity, equality, live-state transition, generation retirement, and
+  process-wide non-wrapping slot-id issuer. The public carrier shape is owned
+  by `rund/net/ready/set/identity.hpp`; the compiled issuer is independent of
+  Scheduler reset and deterministic replay state.
 - `reactor/ready/set/model.hpp`: scheduler-owned set and member storage values.
 - `reactor/ready/set/store.cpp`: live-set lookup, bounded member counts,
   duplicate checks, and member clearing.
@@ -245,6 +246,13 @@ wait id. `timer.cpp` owns wall-clock deadline calculation and due-timer
 ordering, then delegates reactor-timeout cleanup to the reactor timeout owner.
 Exactly one side may complete the task. The losing reactor wait or timer entry
 is removed before the task resumes.
+
+Timed and many-wait ingress receives one scheduler-qualified `StopIdentity`.
+Preflight validates that complete value against the active scheduler source
+record and its requested state. Only then does the reactor retain its complete
+`StopSourceIdentity` projection in the wait, paired timer, and many-wait group.
+Cancellation joins those records by exact value equality; there are no
+independent source-id, generation, or epoch fields that can drift apart.
 
 When IO readiness wins, the ready drain cancels the paired timeout timer before
 waking the task. When timeout, stop-token cancellation, fd close, stale
@@ -409,6 +417,9 @@ request order remains unchanged for probing and public event ordering.
 
 Persistent ready sets are scheduler-owned fd readiness membership records.
 They are persistent fd readiness carriers, not connection registries.
+The public `Set` carrier remains one intact value through deferred ReadyMany
+operations; no scheduler or network bridge decomposes it into mirrored id and
+generation storage.
 The `reactor/ready/set/` split owners cover create, destroy, clear, add,
 remove, wait snapshot, insertion-index ordering, generation
 revalidation, and ready-set telemetry. A ready set stores only fd readiness

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rund/net/socket.hpp>
+#include <rund/task/cancel/identity.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -17,9 +18,7 @@ struct ReactorWait {
   std::uint64_t wait_id = 0u;
   std::uint64_t host_handle_id = 0u;
   std::uint64_t fd_generation = 0u;
-  std::uint64_t stop_source_id = 0u;
-  std::uint64_t stop_generation = 0u;
-  std::uint64_t stop_epoch = 0u;
+  ::rund::detail::task::StopSourceIdentity stop{};
   ReactorHandle fd = kInvalidReactorHandle;
   ReactorInterest interest = ReactorInterest::None;
 };

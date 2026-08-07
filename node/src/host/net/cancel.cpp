@@ -38,12 +38,9 @@ ready::timed::Wait ready::timed::read(const SocketView socket,
         ready::detail::Access::make(::rund::ReasonCode::TimerDurationInvalid,
                                     socket, ready::Interest::Readable));
   }
-  std::uint64_t scheduler_id = 0u;
-  std::uint64_t source_id = 0u;
-  std::uint64_t generation = 0u;
-  std::uint64_t epoch = 0u;
-  if (!node::scheduler_access::StopTokenIdentity(
-          token, &scheduler_id, &source_id, &generation, &epoch)) {
+  const ::rund::detail::task::StopIdentity stop =
+      node::scheduler_access::StopTokenIdentity(token);
+  if (!stop) {
     return ready::timed::detail::Access::Complete(ready::detail::Access::make(
         ::rund::ReasonCode::TaskInvalid, socket, ready::Interest::Readable));
   }
@@ -59,12 +56,12 @@ ready::timed::Wait ready::timed::read(const SocketView socket,
     return ready::timed::detail::Access::Defer(
         socket, ready::Interest::Readable,
         node::ReactorInterestBits(node::ReactorInterest::Read), timeout.count(),
-        scheduler_id, source_id, generation, epoch);
+        stop);
   }
   return ready::timed::detail::Access::Complete(TimedReadyFromIo(
       WaitReactorTimed(*scheduler, socket,
                        node::ReactorInterestBits(node::ReactorInterest::Read),
-                       timeout, scheduler_id, source_id, generation, epoch),
+                       timeout, stop),
       socket, ready::Interest::Readable));
 }
 
@@ -76,12 +73,9 @@ ready::timed::Wait ready::timed::write(const SocketView socket,
         ready::detail::Access::make(::rund::ReasonCode::TimerDurationInvalid,
                                     socket, ready::Interest::Writable));
   }
-  std::uint64_t scheduler_id = 0u;
-  std::uint64_t source_id = 0u;
-  std::uint64_t generation = 0u;
-  std::uint64_t epoch = 0u;
-  if (!node::scheduler_access::StopTokenIdentity(
-          token, &scheduler_id, &source_id, &generation, &epoch)) {
+  const ::rund::detail::task::StopIdentity stop =
+      node::scheduler_access::StopTokenIdentity(token);
+  if (!stop) {
     return ready::timed::detail::Access::Complete(ready::detail::Access::make(
         ::rund::ReasonCode::TaskInvalid, socket, ready::Interest::Writable));
   }
@@ -97,12 +91,12 @@ ready::timed::Wait ready::timed::write(const SocketView socket,
     return ready::timed::detail::Access::Defer(
         socket, ready::Interest::Writable,
         node::ReactorInterestBits(node::ReactorInterest::Write),
-        timeout.count(), scheduler_id, source_id, generation, epoch);
+        timeout.count(), stop);
   }
   return ready::timed::detail::Access::Complete(TimedReadyFromIo(
       WaitReactorTimed(*scheduler, socket,
                        node::ReactorInterestBits(node::ReactorInterest::Write),
-                       timeout, scheduler_id, source_id, generation, epoch),
+                       timeout, stop),
       socket, ready::Interest::Writable));
 }
 
@@ -114,12 +108,9 @@ ready::many::Wait ready::many::wait(
     return ready::many::detail::Access::Complete(
         FailReadyMany(::rund::ReasonCode::TimerDurationInvalid));
   }
-  std::uint64_t scheduler_id = 0u;
-  std::uint64_t source_id = 0u;
-  std::uint64_t generation = 0u;
-  std::uint64_t epoch = 0u;
-  if (!node::scheduler_access::StopTokenIdentity(
-          token, &scheduler_id, &source_id, &generation, &epoch)) {
+  const ::rund::detail::task::StopIdentity stop =
+      node::scheduler_access::StopTokenIdentity(token);
+  if (!stop) {
     return ready::many::detail::Access::Complete(
         FailReadyMany(::rund::ReasonCode::TaskInvalid));
   }
@@ -137,11 +128,9 @@ ready::many::Wait ready::many::wait(
   }
   if (scheduler->CurrentTaskIsCoroutine()) {
     return ready::many::detail::Access::Defer(
-        requests, out, budget, timeout.count(), true, scheduler_id, source_id,
-        generation, epoch);
+        requests, out, budget, timeout.count(), true, stop);
   }
-  return scheduler->WaitReactorMany(requests, out, timeout, budget,
-                                    scheduler_id, source_id, generation, epoch);
+  return scheduler->WaitReactorMany(requests, out, timeout, budget, stop);
 }
 
 } // namespace rund::net

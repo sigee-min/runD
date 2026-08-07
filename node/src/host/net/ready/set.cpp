@@ -96,8 +96,8 @@ ready::many::Wait ready::many::wait(const ready::Set set,
         FailReadySetWait(::rund::ReasonCode::NodeRuntimeMissing));
   }
   if (scheduler->CurrentTaskIsCoroutine()) {
-    return ready::many::detail::Access::Defer({}, out, budget, 0, false, 0u, 0u,
-                                              0u, 0u, set);
+    return ready::many::detail::Access::Defer({}, out, budget, 0, false, {},
+                                              set);
   }
   return scheduler->WaitReadySet(set, out, std::nullopt, budget);
 }
@@ -122,7 +122,7 @@ ready::many::Wait ready::many::wait(const ready::Set set,
   }
   if (scheduler->CurrentTaskIsCoroutine()) {
     return ready::many::detail::Access::Defer({}, out, budget, timeout.count(),
-                                              true, 0u, 0u, 0u, 0u, set);
+                                              true, {}, set);
   }
   return scheduler->WaitReadySet(set, out, timeout, budget);
 }

@@ -10,9 +10,9 @@ namespace rund::node {
 bool Scheduler::ValidateTimedReactorWait(
     const int fd, const std::chrono::nanoseconds timeout,
     const std::uint64_t task_id, const std::uint64_t host_handle_id,
-    const std::uint64_t fd_generation, const std::uint64_t stop_scheduler_id,
-    const std::uint64_t stop_source_id, const std::uint64_t stop_generation,
-    const std::uint64_t stop_epoch, TaskRecord *&record,
+    const std::uint64_t fd_generation,
+    const ::rund::detail::task::StopIdentity stop_identity,
+    TaskRecord *&record,
     std::uint64_t &wait_host_handle_id,
     ::rund::detail::task::IoDecision &result) noexcept {
   record = state_->Find(task_id);
@@ -31,9 +31,8 @@ bool Scheduler::ValidateTimedReactorWait(
     CompletePrimitiveCommit();
     return false;
   }
-  if (stop_source_id != 0u || stop_generation != 0u || stop_epoch != 0u) {
-    const task::StopState stop = StopRequestedUnsequenced(
-        stop_scheduler_id, stop_source_id, stop_generation, stop_epoch);
+  if (!stop_identity.empty()) {
+    const task::StopState stop = StopRequestedUnsequenced(stop_identity);
     if (!stop) {
       result = FailIo(stop.code());
       CompletePrimitiveCommit();

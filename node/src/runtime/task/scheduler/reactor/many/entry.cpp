@@ -8,9 +8,7 @@ ReadyManyEntry ReadyManyAccess::PrepareEntry(
     Scheduler &scheduler, const std::span<const ReactorManyRequest> requests,
     const std::span<::rund::net::ready::Event> out,
     const ::rund::net::ready::many::Budget budget,
-    const std::uint64_t stop_scheduler_id, const std::uint64_t stop_source_id,
-    const std::uint64_t stop_generation,
-    const std::uint64_t stop_epoch) noexcept {
+    const ::rund::detail::task::StopIdentity stop_identity) noexcept {
   SchedulerState &state = *scheduler.state_;
   ReadyManyEntry entry{};
   (void)scheduler.TrapLaneOwnedSegmentPrimitive(
@@ -30,9 +28,9 @@ ReadyManyEntry ReadyManyAccess::PrepareEntry(
     scheduler.CompletePrimitiveCommit();
     return entry;
   }
-  if (stop_source_id != 0u || stop_generation != 0u || stop_epoch != 0u) {
-    const task::StopState stop = scheduler.StopRequestedUnsequenced(
-        stop_scheduler_id, stop_source_id, stop_generation, stop_epoch);
+  if (!stop_identity.empty()) {
+    const task::StopState stop =
+        scheduler.StopRequestedUnsequenced(stop_identity);
     if (!stop) {
       entry.code = stop.code();
       scheduler.CompletePrimitiveCommit();
@@ -44,6 +42,7 @@ ReadyManyEntry ReadyManyAccess::PrepareEntry(
       return entry;
     }
   }
+  entry.stop = stop_identity.source();
 
   entry.output_limit = OutputLimit(out, budget);
   RecordReactorReadyManyRequest(state.evidence.metrics);

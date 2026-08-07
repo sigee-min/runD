@@ -1,6 +1,8 @@
 #pragma once
 
+#include <rund/net/ready/set/identity.hpp>
 #include <rund/net/ready/ticket.hpp>
+#include <rund/task/cancel/identity.hpp>
 
 #include <chrono>
 #include <coroutine>
@@ -19,8 +21,6 @@ struct Event {
   std::uint32_t index = 0u;
   Ticket ticket{};
 };
-
-struct Set;
 
 namespace many {
 
@@ -86,12 +86,8 @@ private:
     timeout_ns_ = std::exchange(other.timeout_ns_, 0);
     has_timeout_ = std::exchange(other.has_timeout_, false);
     group_id_ = std::exchange(other.group_id_, 0u);
-    ready_set_id_ = std::exchange(other.ready_set_id_, 0u);
-    ready_set_generation_ = std::exchange(other.ready_set_generation_, 0u);
-    stop_scheduler_id_ = std::exchange(other.stop_scheduler_id_, 0u);
-    stop_source_id_ = std::exchange(other.stop_source_id_, 0u);
-    stop_generation_ = std::exchange(other.stop_generation_, 0u);
-    stop_epoch_ = std::exchange(other.stop_epoch_, 0u);
+    ready_set_ = std::exchange(other.ready_set_, Set{});
+    stop_ = std::exchange(other.stop_, ::rund::detail::task::StopIdentity{});
   }
 
   Result result_{};
@@ -103,12 +99,8 @@ private:
   std::int64_t timeout_ns_ = 0;
   bool has_timeout_ = false;
   std::uint64_t group_id_ = 0u;
-  std::uint64_t ready_set_id_ = 0u;
-  std::uint64_t ready_set_generation_ = 0u;
-  std::uint64_t stop_scheduler_id_ = 0u;
-  std::uint64_t stop_source_id_ = 0u;
-  std::uint64_t stop_generation_ = 0u;
-  std::uint64_t stop_epoch_ = 0u;
+  Set ready_set_{};
+  ::rund::detail::task::StopIdentity stop_{};
 };
 
 class Awaiter final {

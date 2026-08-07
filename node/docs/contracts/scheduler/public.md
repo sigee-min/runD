@@ -131,6 +131,10 @@ private state dependency to unrelated socket translation units.
   process heap.
 - `task/cancel.hpp`: scheduler-owned stop source and stop token cancellation
   surface.
+- `task/cancel/identity.hpp`: the sole storage-shape owner for the source-only
+  stop identity carried by public token and network-awaitable internals. It
+  defines one scheduler-qualified identity and its complete scheduler-local
+  source projection; consumers do not repeat their component fields.
 - `task/stats.hpp`: read-only scheduler telemetry snapshot and direct getter
   surface.
 - `task/stats/storage.hpp`: `detail::task::StatStorage`, the fixed 234-slot live telemetry
@@ -176,7 +180,8 @@ private state dependency to unrelated socket translation units.
   `channel<T>` class-body fragments into scheduler-owned channel runtime
   authority.
 - `node/src/runtime/task/scheduler/cancel/access.hpp`: the source-only
-  `detail::task::StopAccess` stop-token identity extraction bridge
+  `detail::task::StopAccess` bridge that extracts one complete stop-identity
+  value
   for source-owned cancellation integrations; callable source wrappers for
   timed-ready completion and stop-token identity are declared only under the
   source tree, not from public bridge headers.

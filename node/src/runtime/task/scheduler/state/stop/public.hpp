@@ -1,20 +1,7 @@
-  [[nodiscard]] task::Status CreateStopSource(
-      std::uint64_t* scheduler_id,
-      std::uint64_t* source_id,
-      std::uint64_t* generation,
-      std::uint64_t* epoch) noexcept;
+  [[nodiscard]] ::rund::detail::task::StopIdentity CreateStopSource() noexcept;
   [[nodiscard]] task::Status RequestStop(
-      std::uint64_t scheduler_id,
-      std::uint64_t source_id,
-      std::uint64_t generation,
-      std::uint64_t epoch) noexcept;
+      ::rund::detail::task::StopIdentity identity) noexcept;
   [[nodiscard]] task::StopState StopRequested(
-      std::uint64_t scheduler_id,
-      std::uint64_t source_id,
-      std::uint64_t generation,
-      std::uint64_t epoch) noexcept;
+      ::rund::detail::task::StopIdentity identity) noexcept;
   [[nodiscard]] task::StopState StopRequestedUnsequenced(
-      std::uint64_t scheduler_id,
-      std::uint64_t source_id,
-      std::uint64_t generation,
-      std::uint64_t epoch) const noexcept;
+      ::rund::detail::task::StopIdentity identity) const noexcept;

@@ -22,10 +22,7 @@ public:
   [[nodiscard]] static Wait
   Defer(const SocketView socket, const Interest public_interest,
         const short interest, const std::int64_t timeout_ns,
-        const std::uint64_t stop_scheduler_id = 0u,
-        const std::uint64_t stop_source_id = 0u,
-        const std::uint64_t stop_generation = 0u,
-        const std::uint64_t stop_epoch = 0u) noexcept {
+        const ::rund::detail::task::StopIdentity stop = {}) noexcept {
     Wait operation{};
     operation.result_ = ready::detail::Access::make(::rund::ReasonCode::Ok,
                                                     socket, public_interest);
@@ -34,10 +31,7 @@ public:
     operation.public_interest_ = public_interest;
     operation.interest_ = interest;
     operation.timeout_ns_ = timeout_ns;
-    operation.stop_scheduler_id_ = stop_scheduler_id;
-    operation.stop_source_id_ = stop_source_id;
-    operation.stop_generation_ = stop_generation;
-    operation.stop_epoch_ = stop_epoch;
+    operation.stop_ = stop;
     return operation;
   }
 };
@@ -52,10 +46,7 @@ struct Context final {
   Budget budget{};
   std::int64_t timeout_ns = 0;
   bool has_timeout = false;
-  std::uint64_t stop_scheduler_id = 0u;
-  std::uint64_t stop_source_id = 0u;
-  std::uint64_t stop_generation = 0u;
-  std::uint64_t stop_epoch = 0u;
+  ::rund::detail::task::StopIdentity stop{};
   ::rund::net::ready::Set ready_set{};
 };
 
@@ -71,10 +62,7 @@ public:
   Defer(const std::span<const Request> requests, const std::span<Event> out,
         const Budget budget, const std::int64_t timeout_ns = 0,
         const bool has_timeout = false,
-        const std::uint64_t stop_scheduler_id = 0u,
-        const std::uint64_t stop_source_id = 0u,
-        const std::uint64_t stop_generation = 0u,
-        const std::uint64_t stop_epoch = 0u,
+        const ::rund::detail::task::StopIdentity stop = {},
         const ::rund::net::ready::Set ready_set = {}) noexcept {
     Wait operation{};
     net::result::Access::set(operation.result_, ::rund::ReasonCode::Ok);
@@ -84,12 +72,8 @@ public:
     operation.budget_ = budget;
     operation.timeout_ns_ = timeout_ns;
     operation.has_timeout_ = has_timeout;
-    operation.stop_scheduler_id_ = stop_scheduler_id;
-    operation.stop_source_id_ = stop_source_id;
-    operation.stop_generation_ = stop_generation;
-    operation.stop_epoch_ = stop_epoch;
-    operation.ready_set_id_ = ready_set.id;
-    operation.ready_set_generation_ = ready_set.generation;
+    operation.stop_ = stop;
+    operation.ready_set_ = ready_set;
     return operation;
   }
 
@@ -116,12 +100,8 @@ public:
         .budget = operation.budget_,
         .timeout_ns = operation.timeout_ns_,
         .has_timeout = operation.has_timeout_,
-        .stop_scheduler_id = operation.stop_scheduler_id_,
-        .stop_source_id = operation.stop_source_id_,
-        .stop_generation = operation.stop_generation_,
-        .stop_epoch = operation.stop_epoch_,
-        .ready_set = {.id = operation.ready_set_id_,
-                      .generation = operation.ready_set_generation_},
+        .stop = operation.stop_,
+        .ready_set = operation.ready_set_,
     };
   }
 
@@ -131,12 +111,8 @@ public:
     operation.budget_ = context.budget;
     operation.timeout_ns_ = context.timeout_ns;
     operation.has_timeout_ = context.has_timeout;
-    operation.stop_scheduler_id_ = context.stop_scheduler_id;
-    operation.stop_source_id_ = context.stop_source_id;
-    operation.stop_generation_ = context.stop_generation;
-    operation.stop_epoch_ = context.stop_epoch;
-    operation.ready_set_id_ = context.ready_set.id;
-    operation.ready_set_generation_ = context.ready_set.generation;
+    operation.stop_ = context.stop;
+    operation.ready_set_ = context.ready_set;
   }
 
   static void Reject(Wait &operation, const ReasonCode code) noexcept {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <rund/task/cancel/identity.hpp>
 #include <rund/task/status.hpp>
 
 #include <cstdint>
@@ -50,25 +51,20 @@ class stop_token {
 public:
   constexpr stop_token() noexcept = default;
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
-    return scheduler_id_ != 0u && source_id_ != 0u && generation_ != 0u &&
-           epoch_ != 0u;
+    return identity_.valid();
   }
   [[nodiscard]] StopState state() const noexcept;
 
 private:
   friend class stop_source;
   friend class ::rund::detail::task::StopAccess;
-  constexpr stop_token(const std::uint64_t scheduler_id,
-                       const std::uint64_t source_id,
-                       const std::uint64_t generation,
-                       const std::uint64_t epoch) noexcept
-      : scheduler_id_(scheduler_id), source_id_(source_id),
-        generation_(generation), epoch_(epoch) {}
-  std::uint64_t scheduler_id_ = 0u;
-  std::uint64_t source_id_ = 0u;
-  std::uint64_t generation_ = 0u;
-  std::uint64_t epoch_ = 0u;
+  explicit constexpr stop_token(
+      const ::rund::detail::task::StopIdentity identity) noexcept
+      : identity_(identity) {}
+  ::rund::detail::task::StopIdentity identity_{};
 };
+
+static_assert(sizeof(stop_token) == sizeof(::rund::detail::task::StopIdentity));
 
 class stop_source {
 public:

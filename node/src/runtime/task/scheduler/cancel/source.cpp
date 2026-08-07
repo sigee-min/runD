@@ -4,13 +4,9 @@ namespace rund::node::scheduler_cancel {
 
 StopSourceRecord* FindStopSource(
     std::vector<StopSourceRecord>& sources,
-    const std::uint64_t scheduler_id,
-    const std::uint64_t source_id,
-    const std::uint64_t generation,
-    const std::uint64_t epoch) noexcept {
+    const ::rund::detail::task::StopIdentity identity) noexcept {
   for (StopSourceRecord& source : sources) {
-    if (source.scheduler_id == scheduler_id && source.id == source_id &&
-        source.generation == generation && source.epoch == epoch) {
+    if (source.identity == identity) {
       return &source;
     }
   }
@@ -19,13 +15,9 @@ StopSourceRecord* FindStopSource(
 
 const StopSourceRecord* FindStopSource(
     const std::vector<StopSourceRecord>& sources,
-    const std::uint64_t scheduler_id,
-    const std::uint64_t source_id,
-    const std::uint64_t generation,
-    const std::uint64_t epoch) noexcept {
+    const ::rund::detail::task::StopIdentity identity) noexcept {
   for (const StopSourceRecord& source : sources) {
-    if (source.scheduler_id == scheduler_id && source.id == source_id &&
-        source.generation == generation && source.epoch == epoch) {
+    if (source.identity == identity) {
       return &source;
     }
   }
@@ -36,48 +28,36 @@ const StopSourceRecord* FindStopSource(
 
 namespace rund::node {
 
-task::Status Scheduler::CreateStopSource(std::uint64_t *const scheduler_id,
-                                       std::uint64_t *const source_id,
-                                       std::uint64_t *const generation,
-                                       std::uint64_t *const epoch) noexcept {
-  if (scheduler_id == nullptr || source_id == nullptr ||
-      generation == nullptr || epoch == nullptr) {
-    return task::Status::fail(ReasonCode::TaskInvalid);
-  }
+::rund::detail::task::StopIdentity Scheduler::CreateStopSource() noexcept {
   EnsureCurrentCommit();
   try {
     const std::uint64_t id = state_->identity.next_stop_source_id++;
     constexpr std::uint64_t kInitialGeneration = 1u;
-    state_->reactor.stop_sources.push_back(StopSourceRecord{
+    const ::rund::detail::task::StopIdentity identity{
         .scheduler_id = state_->identity.scheduler_id,
-        .id = id,
-        .generation = kInitialGeneration,
-        .epoch = state_->identity.stop_source_epoch,
+        .source_identity = {
+            .source_id = id,
+            .generation = kInitialGeneration,
+            .epoch = state_->identity.stop_source_epoch,
+        },
+    };
+    state_->reactor.stop_sources.push_back(StopSourceRecord{
+        .identity = identity,
         .requested = false,
     });
-    *scheduler_id = state_->identity.scheduler_id;
-    *source_id = id;
-    *generation = kInitialGeneration;
-    *epoch = state_->identity.stop_source_epoch;
+    return identity;
   } catch (...) {
-    *scheduler_id = 0u;
-    *source_id = 0u;
-    *generation = 0u;
-    *epoch = 0u;
-    return task::Status::fail(ReasonCode::TaskCapacityExceeded);
+    return {};
   }
-  return task::Status::success();
 }
 
 task::StopState Scheduler::StopRequestedUnsequenced(
-    const std::uint64_t scheduler_id, const std::uint64_t source_id,
-    const std::uint64_t generation, const std::uint64_t epoch) const noexcept {
-  if (scheduler_id == 0u || source_id == 0u || generation == 0u ||
-      epoch == 0u) {
+    const ::rund::detail::task::StopIdentity identity) const noexcept {
+  if (!identity) {
     return task::StopState::fail(ReasonCode::TaskInvalid);
   }
   const StopSourceRecord *const source = scheduler_cancel::FindStopSource(
-      state_->reactor.stop_sources, scheduler_id, source_id, generation, epoch);
+      state_->reactor.stop_sources, identity);
   if (source == nullptr) {
     return task::StopState::fail(ReasonCode::TaskInvalid);
   }

@@ -1,14 +1,11 @@
 #pragma once
 
-#include <cstdint>
+#include <rund/task/cancel/identity.hpp>
 
 namespace rund::node {
 
 struct StopSourceRecord {
-  std::uint64_t scheduler_id = 0u;
-  std::uint64_t id = 0u;
-  std::uint64_t generation = 0u;
-  std::uint64_t epoch = 0u;
+  ::rund::detail::task::StopIdentity identity{};
   bool requested = false;
 };
 

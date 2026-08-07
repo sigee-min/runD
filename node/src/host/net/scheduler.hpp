@@ -2,6 +2,7 @@
 
 #include <rund/host/event.hpp>
 #include <rund/net/socket.hpp>
+#include <rund/task/cancel/identity.hpp>
 #include <rund/task/results.hpp>
 
 #include <chrono>
@@ -21,12 +22,10 @@ WaitReactor(node::Scheduler &scheduler, SocketView socket,
             short interest) noexcept;
 [[nodiscard]] ::rund::detail::task::IoDecision WaitReactorTimed(
     SocketView socket, short interest, std::chrono::nanoseconds timeout,
-    std::uint64_t stop_scheduler_id = 0u, std::uint64_t stop_source_id = 0u,
-    std::uint64_t stop_generation = 0u, std::uint64_t stop_epoch = 0u) noexcept;
+    ::rund::detail::task::StopIdentity stop = {}) noexcept;
 [[nodiscard]] ::rund::detail::task::IoDecision WaitReactorTimed(
     node::Scheduler &scheduler, SocketView socket, short interest,
-    std::chrono::nanoseconds timeout, std::uint64_t stop_scheduler_id = 0u,
-    std::uint64_t stop_source_id = 0u, std::uint64_t stop_generation = 0u,
-    std::uint64_t stop_epoch = 0u) noexcept;
+    std::chrono::nanoseconds timeout,
+    ::rund::detail::task::StopIdentity stop = {}) noexcept;
 
 } // namespace rund::net

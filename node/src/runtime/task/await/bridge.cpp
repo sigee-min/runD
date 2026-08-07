@@ -198,9 +198,7 @@ AwaitAccess::CompleteCoroutineNetIo(const IoDecision decision) noexcept {
   }
   const IoDecision io = ::rund::net::WaitReactorTimed(
       *scheduler, operation.socket_, operation.interest_,
-      std::chrono::nanoseconds{operation.timeout_ns_},
-      operation.stop_scheduler_id_, operation.stop_source_id_,
-      operation.stop_generation_, operation.stop_epoch_);
+      std::chrono::nanoseconds{operation.timeout_ns_}, operation.stop_);
   operation.deferred_ = false;
   operation.suspended_ = io.suspend;
   operation.task_id_ = io.suspend ? scheduler->CurrentTaskId() : 0u;
@@ -230,8 +228,7 @@ AwaitAccess::CompleteCoroutineNetIo(const IoDecision decision) noexcept {
       ::rund::node::ReactorReadySetIdentityOwner::empty(ready_set)
           ? scheduler->WaitReactorMany(
                 context.requests, context.out, timeout, context.budget,
-                context.stop_scheduler_id, context.stop_source_id,
-                context.stop_generation, context.stop_epoch)
+                context.stop)
           : scheduler->WaitReadySet(ready_set, context.out, timeout,
                                     context.budget);
   ::rund::net::ready::many::detail::Access::Restore(suspended, context);

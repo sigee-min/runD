@@ -14,11 +14,8 @@ namespace scheduler_access {
 [[nodiscard]] ::rund::SchedulerConfig ActiveLimits() noexcept;
 [[nodiscard]] std::uint32_t
 CoroutineFrameByteLimit(const Scheduler &scheduler) noexcept;
-[[nodiscard]] bool StopTokenIdentity(task::stop_token token,
-                                     std::uint64_t *scheduler_id,
-                                     std::uint64_t *source_id,
-                                     std::uint64_t *generation,
-                                     std::uint64_t *epoch) noexcept;
+[[nodiscard]] ::rund::detail::task::StopIdentity
+StopTokenIdentity(task::stop_token token) noexcept;
 
 } // namespace scheduler_access
 
