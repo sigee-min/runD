@@ -1,8 +1,6 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <vector>
 
 #include "model.hpp"
 
@@ -23,9 +21,6 @@ ReactorRegistrationFlushDeferredRemoves(ReactorRuntime &reactor) noexcept;
 
 [[nodiscard]] bool
 ReactorRegistrationHasDeferredRemoves(const ReactorRuntime &reactor) noexcept;
-
-[[nodiscard]] std::size_t
-ReactorRegistrationDeferredRemoveCount(const ReactorRuntime &reactor) noexcept;
 
 void ReactorRegistrationForgetGeneration(
     ReactorRuntime &reactor, ReactorHandle fd,

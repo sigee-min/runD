@@ -6,9 +6,16 @@
 #include <rund/task/await.hpp>
 
 #include "../../../../../src/runtime/reactor/diagnostics.hpp"
+#include "../../../../../src/runtime/reactor/readiness/handle.hpp"
+#include "../../../../../src/runtime/reactor/readiness/mask.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/registration.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/registry.hpp"
 
+#include <cerrno>
+#include <type_traits>
 #include <vector>
 
+#include <fcntl.h>
 #include <unistd.h>
 
 namespace {
@@ -58,9 +65,241 @@ struct PipeCleanup {
   return pipe;
 }
 
+[[nodiscard]] int GetFdFlags(const int fd) noexcept {
+  int result = -1;
+  do {
+    errno = 0;
+    result = ::fcntl(fd, F_GETFD);
+  } while (result == -1 && errno == EINTR);
+  return result;
+}
+
+void VerifyFdRegistrationState() {
+  using rund::node::ReactorFdRegistration;
+  using rund::node::ReactorFdRegistrationPhase;
+  using rund::node::ReactorHandleFromPublic;
+  using rund::node::ReactorInterest;
+  using rund::node::ReactorRegistrationChange;
+  using rund::node::ReactorWait;
+
+  static_assert(!std::is_aggregate_v<ReactorFdRegistration>);
+  static_assert(std::is_trivially_copyable_v<ReactorFdRegistration>);
+  constexpr ReactorFdRegistration idle = ReactorFdRegistration::idle();
+  constexpr ReactorFdRegistration active =
+      ReactorFdRegistration::active(ReactorInterest::Read);
+  constexpr ReactorFdRegistration deferred =
+      ReactorFdRegistration::deferred_remove(ReactorInterest::Read |
+                                             ReactorInterest::Write);
+  static_assert(idle.is_idle());
+  static_assert(idle.interest() == ReactorInterest::None);
+  static_assert(active.phase() == ReactorFdRegistrationPhase::Active);
+  static_assert(active.interest() == ReactorInterest::Read);
+  static_assert(deferred.phase() ==
+                ReactorFdRegistrationPhase::DeferredRemove);
+  static_assert(deferred.interest() ==
+                (ReactorInterest::Read | ReactorInterest::Write));
+  static_assert(ReactorFdRegistration::active(ReactorInterest::None)
+                    .is_idle());
+  static_assert(
+      ReactorFdRegistration::deferred_remove(ReactorInterest::None)
+          .is_idle());
+
+  rund::node::ReactorRuntime reactor{};
+  reactor.changes.reserve(2u);
+  TEST_ASSERT(rund::node::ReactorRegistryPrepare(reactor, 2u));
+  constexpr std::uint64_t kGeneration = 7u;
+  const rund::node::ReactorHandle fd = ReactorHandleFromPublic(17);
+  const ReactorWait wait{.task_id = 3u,
+                         .wait_id = 5u,
+                         .fd_generation = kGeneration,
+                         .fd = fd,
+                         .interest = ReactorInterest::Read};
+  TEST_ASSERT(rund::node::ReactorRegistryAddWait(reactor, wait));
+  const rund::node::ReactorFdState *state =
+      rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->wait_count == 1u);
+  TEST_ASSERT(state->registration.is_idle());
+
+  TEST_ASSERT(
+      rund::node::ReactorRegistryCollectChangesForWaitAdd(reactor, wait));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+  TEST_ASSERT(state->registration.interest() == ReactorInterest::Read);
+  TEST_ASSERT(reactor.registry.deferred_removes == 0u);
+  TEST_ASSERT(reactor.changes.size() == 1u);
+  TEST_ASSERT(reactor.changes[0].kind() ==
+              ReactorRegistrationChange::Kind::Add);
+
+  rund::node::ReactorRegistrationForgetGeneration(reactor, fd,
+                                                   kGeneration + 1u);
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+  TEST_ASSERT(reactor.changes.size() == 1u);
+
+  rund::node::ReactorRegistrationForgetGeneration(reactor, fd, kGeneration);
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->wait_count == 1u);
+  TEST_ASSERT(state->registration.is_idle());
+  TEST_ASSERT(state->fd_generation == 0u);
+  TEST_ASSERT(reactor.changes.empty());
+  TEST_ASSERT(
+      rund::node::ReactorRegistryCollectChangesForWaitAdd(reactor, wait));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+  TEST_ASSERT(reactor.changes.size() == 1u);
+
+  ReactorWait removed{};
+  ReactorInterest previous = ReactorInterest::None;
+  TEST_ASSERT(rund::node::ReactorRegistryRemoveWait(
+      reactor, wait.wait_id, &removed, &previous));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->wait_count == 0u);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+
+  TEST_ASSERT(rund::node::ReactorRegistryCollectChangesForWaitRemove(
+      reactor, fd, previous));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::DeferredRemove);
+  TEST_ASSERT(state->registration.interest() == ReactorInterest::Read);
+  TEST_ASSERT(reactor.registry.deferred_removes == 1u);
+
+  TEST_ASSERT(rund::node::ReactorRegistryAddWait(reactor, wait));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->wait_count == 1u);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::DeferredRemove);
+
+  TEST_ASSERT(
+      rund::node::ReactorRegistryCollectChangesForWaitAdd(reactor, wait));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+  TEST_ASSERT(reactor.registry.deferred_removes == 0u);
+  TEST_ASSERT(reactor.changes.size() == 1u);
+
+  TEST_ASSERT(rund::node::ReactorRegistryRemoveWait(
+      reactor, wait.wait_id, &removed, &previous));
+  TEST_ASSERT(rund::node::ReactorRegistryCollectChangesForWaitRemove(
+      reactor, fd, previous));
+  TEST_ASSERT(reactor.registry.deferred_removes == 1u);
+  TEST_ASSERT(rund::node::ReactorRegistrationFlushDeferredRemoves(reactor));
+  TEST_ASSERT(reactor.registry.deferred_removes == 0u);
+  TEST_ASSERT(rund::node::ReactorRegistryFindFd(reactor, fd) == nullptr);
+  TEST_ASSERT(reactor.changes.size() == 2u);
+  TEST_ASSERT(reactor.changes[1].kind() ==
+              ReactorRegistrationChange::Kind::CleanupRemove);
+  TEST_ASSERT(reactor.changes[1].fd_generation() == kGeneration);
+}
+
+void VerifyRawFdRegistrationIdentity() {
+  using rund::node::ReactorFdRegistrationPhase;
+  using rund::node::ReactorHandleForPublic;
+  using rund::node::ReactorHandleFromPublic;
+  using rund::node::ReactorInterest;
+  using rund::node::ReactorPlatformHandleIdentityDisposition;
+  using rund::node::ReactorRegistrationChange;
+  using rund::node::ReactorWait;
+
+  PipeCleanup pipe = MakePipe();
+  TEST_ASSERT(pipe.read_fd >= 0 && pipe.write_fd >= 0);
+  rund::node::ReactorRuntime reactor{};
+  reactor.changes.reserve(3u);
+  TEST_ASSERT(rund::node::ReactorRegistryPrepare(reactor, 1u));
+  const rund::node::ReactorHandle fd =
+      ReactorHandleFromPublic(pipe.read_fd);
+  const ReactorWait wait{.task_id = 4u,
+                         .wait_id = 6u,
+                         .fd = fd,
+                         .interest = ReactorInterest::Read};
+  TEST_ASSERT(rund::node::ReactorRegistryAddWait(reactor, wait));
+  TEST_ASSERT(
+      rund::node::ReactorRegistryCollectChangesForWaitAdd(reactor, wait));
+  const rund::node::ReactorFdState *state =
+      rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+  TEST_ASSERT(state->fd_identity.disposition() ==
+              ReactorPlatformHandleIdentityDisposition::Described);
+  TEST_ASSERT(state->identity_guard !=
+              rund::node::kInvalidReactorHandle);
+  const int identity_guard = ReactorHandleForPublic(state->identity_guard);
+  TEST_ASSERT(identity_guard >= 0);
+  TEST_ASSERT(GetFdFlags(identity_guard) >= 0);
+
+  ReactorWait removed{};
+  ReactorInterest previous = ReactorInterest::None;
+  TEST_ASSERT(rund::node::ReactorRegistryRemoveWait(
+      reactor, wait.wait_id, &removed, &previous));
+  TEST_ASSERT(rund::node::ReactorRegistryCollectChangesForWaitRemove(
+      reactor, fd, previous));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::DeferredRemove);
+  TEST_ASSERT(ReactorHandleForPublic(state->identity_guard) == identity_guard);
+  TEST_ASSERT(GetFdFlags(identity_guard) >= 0);
+
+  PipeCleanup replacement = MakePipe();
+  TEST_ASSERT(replacement.read_fd >= 0 && replacement.write_fd >= 0);
+  const int reused_fd = pipe.read_fd;
+  TEST_ASSERT(::close(pipe.read_fd) == 0);
+  pipe.read_fd = -1;
+  TEST_ASSERT(::dup2(replacement.read_fd, reused_fd) == reused_fd);
+  pipe.read_fd = reused_fd;
+
+  TEST_ASSERT(rund::node::ReactorRegistryAddWait(reactor, wait));
+  TEST_ASSERT(
+      rund::node::ReactorRegistryCollectChangesForWaitAdd(reactor, wait));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::Active);
+  TEST_ASSERT(state->registration.interest() == ReactorInterest::Read);
+  TEST_ASSERT(reactor.registry.deferred_removes == 0u);
+  TEST_ASSERT(reactor.changes.size() == 2u);
+  TEST_ASSERT(reactor.changes[1].kind() ==
+              ReactorRegistrationChange::Kind::Modify);
+  TEST_ASSERT(GetFdFlags(identity_guard) == -1 && errno == EBADF);
+  const int replacement_guard =
+      ReactorHandleForPublic(state->identity_guard);
+  TEST_ASSERT(replacement_guard >= 0 && replacement_guard != identity_guard);
+  TEST_ASSERT(GetFdFlags(replacement_guard) >= 0);
+
+  TEST_ASSERT(rund::node::ReactorRegistryRemoveWait(
+      reactor, wait.wait_id, &removed, &previous));
+  TEST_ASSERT(rund::node::ReactorRegistryCollectChangesForWaitRemove(
+      reactor, fd, previous));
+  state = rund::node::ReactorRegistryFindFd(reactor, fd);
+  TEST_ASSERT(state != nullptr);
+  TEST_ASSERT(state->registration.phase() ==
+              ReactorFdRegistrationPhase::DeferredRemove);
+  TEST_ASSERT(reactor.registry.deferred_removes == 1u);
+
+  TEST_ASSERT(rund::node::ReactorRegistrationFlushDeferredRemoves(reactor));
+  TEST_ASSERT(rund::node::ReactorRegistryFindFd(reactor, fd) == nullptr);
+  TEST_ASSERT(GetFdFlags(replacement_guard) == -1 && errno == EBADF);
+}
+
 } // namespace
 
 int RunRuntimeTaskReactorRegistrationContract() {
+  VerifyFdRegistrationState();
+  VerifyRawFdRegistrationIdentity();
   PipeCleanup pipe = MakePipe();
   TEST_ASSERT(pipe.read_fd >= 0 && pipe.write_fd >= 0);
   rund::host::io::Fd ready_fd =

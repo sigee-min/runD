@@ -341,19 +341,31 @@ IO precedence:
 5. parked: record `IoPark`
 
 Persistent reactor registrations are keyed by native fd and aggregate the
-interests of all live waits for that fd. When a ready wait is removed, a
-zero-interest transition is first marked as a deferred native remove. If a
-later wait on the same still-live fd re-arms the same aggregate interest before
-the scheduler is otherwise idle, the deferred remove is cancelled and no
-native remove/add churn is emitted. Deferred removes flush when scheduler ready
-depth is zero as typed `CleanupRemove` changes. This is the only cleanup kind
-and the only missing-descriptor-tolerant registration command; strict remove,
-best-effort add, and best-effort modify are not representable states. An
-already-closed or already-missing fd records cleanup evidence and does not fail
-unrelated work. Kqueue applies paired read/write deletion with per-filter
-receipts: a missing read filter cannot mask removal of a live write filter, or
-vice versa. The platform registration projection is updated only after every
-non-missing filter result succeeds.
+interests of all live waits for that fd. Each fd stores one typed scheduler
+registration state: `Idle`, `Active(interest)`, or
+`DeferredRemove(interest)`. Phase and backend interest cannot be updated as
+independent fields. The registration transition owner also maintains the exact
+number of `DeferredRemove` states as an O(1) registry index; only phase
+crossings change that cached cardinality. These phases describe scheduler
+desired-registration publication, not confirmed native apply: `Active` may
+still have a queued Add or Modify, and `Idle` may still have a queued
+`CleanupRemove`. Wait membership is independent as well, so collect boundaries
+may observe an Idle fd with waits, an Active fd without waits, or a re-armed
+DeferredRemove fd with waits.
+
+When a ready wait is removed, a zero-interest transition is first marked as a
+deferred native remove. If a later wait on the same still-live fd re-arms the
+same aggregate interest before the scheduler is otherwise idle, the deferred
+remove is cancelled and no native remove/add churn is emitted. Deferred
+removes flush when scheduler ready depth is zero as typed `CleanupRemove`
+changes. This is the only cleanup kind and the only
+missing-descriptor-tolerant registration command; strict remove, best-effort
+add, and best-effort modify are not representable states. An already-closed or
+already-missing fd records cleanup evidence and does not fail unrelated work.
+Kqueue applies paired read/write deletion with per-filter receipts: a missing
+read filter cannot mask removal of a live write filter, or vice versa. The
+platform registration projection is updated only after every non-missing
+filter result succeeds.
 
 Admitted network sockets carry an in-memory fd generation in addition to their
 fd-derived host id. `WaitReactor` receives that generation from network

@@ -252,7 +252,7 @@ bool ReactorRegistryEraseFd(ReactorRuntime &reactor,
                             const ReactorHandle fd) noexcept {
   ReactorRegistry &registry = reactor.registry;
   const auto found = FindFd(registry, fd);
-  if (!FdMatches(found, registry.fds.end(), fd) || found->wait_count != 0u) {
+  if (!FdMatches(found, registry.fds.end(), fd) || !found->erasable()) {
     return false;
   }
   registry.fds.erase(found);
@@ -396,10 +396,7 @@ bool ReactorRegistryRemoveWait(
   registry.order.erase(found);
   ReleaseSlot(registry, index);
   fd = ReactorRegistryFindFd(reactor, removed_fd);
-  if (fd != nullptr && fd->wait_count == 0u && !fd->registered &&
-      fd->backend_interest == ReactorInterest::None &&
-      !fd->remove_deferred &&
-      fd->identity_guard == kInvalidReactorHandle) {
+  if (fd != nullptr && fd->erasable()) {
     static_cast<void>(ReactorRegistryEraseFd(reactor, removed_fd));
   }
   return true;

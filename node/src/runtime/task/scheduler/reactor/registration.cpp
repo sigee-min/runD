@@ -24,17 +24,20 @@ PushChange(ReactorRuntime &reactor,
   return true;
 }
 
-void SetDeferred(ReactorRuntime &reactor, ReactorFdState &state,
-                 const bool deferred) noexcept {
-  if (state.remove_deferred == deferred) {
-    return;
-  }
-  state.remove_deferred = deferred;
-  if (deferred) {
+void SetRegistration(ReactorRuntime &reactor, ReactorFdState &state,
+                     const ReactorFdRegistration registration) noexcept {
+  const bool was_deferred =
+      state.registration.phase() ==
+      ReactorFdRegistrationPhase::DeferredRemove;
+  const bool will_be_deferred =
+      registration.phase() == ReactorFdRegistrationPhase::DeferredRemove;
+  if (!was_deferred && will_be_deferred) {
     ++reactor.registry.deferred_removes;
-  } else {
+  } else if (was_deferred && !will_be_deferred &&
+             reactor.registry.deferred_removes != 0u) {
     --reactor.registry.deferred_removes;
   }
+  state.registration = registration;
 }
 
 void RememberDeferredStats(const ReactorRuntime &reactor) noexcept {
@@ -49,6 +52,12 @@ void ForgetRawFd(ReactorFdState &state) noexcept {
   state.fd_identity = ReactorPlatformHandleIdentity::invalid();
 }
 
+void ForgetRegistration(ReactorRuntime &reactor,
+                        ReactorFdState &state) noexcept {
+  SetRegistration(reactor, state, ReactorFdRegistration::idle());
+  ForgetRawFd(state);
+}
+
 [[nodiscard]] bool
 SameRawFd(const ReactorFdState &state,
           const ReactorPlatformHandleIdentity identity) noexcept {
@@ -61,12 +70,6 @@ void RememberRawFd(ReactorFdState &state,
   ForgetRawFd(state);
   state.fd_identity = identity;
   state.identity_guard = identity_guard;
-}
-
-[[nodiscard]] bool Empty(const ReactorFdState &state) noexcept {
-  return state.wait_count == 0u &&
-         state.backend_interest == ReactorInterest::None && !state.registered &&
-         !state.remove_deferred;
 }
 
 } // namespace
@@ -100,47 +103,43 @@ bool ReactorRegistrationCollectForWaitAdd(
       return false;
     }
     const ReactorRegistrationChange change =
-        state->registered
+        !state->registration.is_idle()
             ? ReactorRegistrationChange::modify(fd, current_interest, 0u)
             : ReactorRegistrationChange::add(fd, current_interest, 0u);
     state->fd_generation = 0u;
-    SetDeferred(reactor, *state, false);
     RememberRawFd(*state, raw_identity, identity_guard);
     if (!PushChange(reactor, change)) {
       return false;
     }
-    state->registered = true;
-    state->backend_interest = current_interest;
+    SetRegistration(reactor, *state,
+                    ReactorFdRegistration::active(current_interest));
     return true;
   }
   if (state->fd_generation != fd_generation) {
-    state->backend_interest = ReactorInterest::None;
+    ForgetRegistration(reactor, *state);
     state->fd_generation = fd_generation;
-    state->registered = false;
-    SetDeferred(reactor, *state, false);
-    RememberRawFd(*state, raw_identity, kInvalidReactorHandle);
   }
-  if (state->remove_deferred && state->registered &&
-      state->backend_interest == current_interest) {
-    SetDeferred(reactor, *state, false);
+  if (state->registration.phase() ==
+          ReactorFdRegistrationPhase::DeferredRemove &&
+      state->registration.interest() == current_interest) {
+    SetRegistration(reactor, *state,
+                    ReactorFdRegistration::active(current_interest));
     RecordReactorDeferredRemoveCancellation();
     return true;
   }
-  SetDeferred(reactor, *state, false);
-  if (!state->registered ||
-      state->backend_interest == ReactorInterest::None) {
+  if (state->registration.is_idle()) {
     if (!PushChange(reactor, ReactorRegistrationChange::add(
                                  fd, current_interest, fd_generation))) {
       return false;
     }
-  } else if (state->backend_interest != current_interest) {
+  } else if (state->registration.interest() != current_interest) {
     if (!PushChange(reactor, ReactorRegistrationChange::modify(
                                  fd, current_interest, fd_generation))) {
       return false;
     }
   }
-  state->registered = true;
-  state->backend_interest = current_interest;
+  SetRegistration(reactor, *state,
+                  ReactorFdRegistration::active(current_interest));
   return true;
 }
 
@@ -156,17 +155,21 @@ bool ReactorRegistrationCollectForWaitRemove(
     return true;
   }
   if (current_interest == ReactorInterest::None) {
-    if (state->registered) {
-      const bool newly_deferred = !state->remove_deferred;
-      SetDeferred(reactor, *state, true);
+    if (!state->registration.is_idle()) {
+      const bool newly_deferred =
+          state->registration.phase() !=
+          ReactorFdRegistrationPhase::DeferredRemove;
+      SetRegistration(
+          reactor, *state,
+          ReactorFdRegistration::deferred_remove(
+              state->registration.interest()));
       if (newly_deferred) {
         RecordReactorDeferredRemoveMark();
       }
       RememberDeferredStats(reactor);
     } else {
-      SetDeferred(reactor, *state, false);
-      ForgetRawFd(*state);
-      if (Empty(*state)) {
+      ForgetRegistration(reactor, *state);
+      if (state->erasable()) {
         static_cast<void>(ReactorRegistryEraseFd(reactor, fd));
       }
     }
@@ -175,22 +178,21 @@ bool ReactorRegistrationCollectForWaitRemove(
   if (!ReserveChanges(reactor, 1u)) {
     return false;
   }
-  SetDeferred(reactor, *state, false);
-  if (state->backend_interest == ReactorInterest::None) {
+  if (state->registration.is_idle()) {
     if (!PushChange(reactor, ReactorRegistrationChange::add(
                                  fd, current_interest,
                                  state->fd_generation))) {
       return false;
     }
-  } else if (state->backend_interest != current_interest) {
+  } else if (state->registration.interest() != current_interest) {
     if (!PushChange(reactor, ReactorRegistrationChange::modify(
                                  fd, current_interest,
                                  state->fd_generation))) {
       return false;
     }
   }
-  state->registered = true;
-  state->backend_interest = current_interest;
+  SetRegistration(reactor, *state,
+                  ReactorFdRegistration::active(current_interest));
   return true;
 }
 
@@ -204,23 +206,22 @@ bool ReactorRegistrationFlushDeferredRemoves(
     return false;
   }
   for (ReactorFdState &state : reactor.registry.fds) {
-    if (!state.remove_deferred) {
+    if (state.registration.phase() !=
+        ReactorFdRegistrationPhase::DeferredRemove) {
       continue;
     }
-    if (state.registered &&
-        !PushChange(reactor, ReactorRegistrationChange::cleanup_remove(
+    if (!PushChange(reactor, ReactorRegistrationChange::cleanup_remove(
                                  state.fd, state.fd_generation))) {
       return false;
     }
-    state.backend_interest = ReactorInterest::None;
-    state.registered = false;
-    SetDeferred(reactor, state, false);
-    ForgetRawFd(state);
+    ForgetRegistration(reactor, state);
     RecordReactorDeferredRemoveFlush();
   }
   reactor.registry.fds.erase(
       std::remove_if(reactor.registry.fds.begin(), reactor.registry.fds.end(),
-                     [](const ReactorFdState &state) { return Empty(state); }),
+                     [](const ReactorFdState &state) {
+                       return state.erasable();
+                     }),
       reactor.registry.fds.end());
   return true;
 }
@@ -228,11 +229,6 @@ bool ReactorRegistrationFlushDeferredRemoves(
 bool ReactorRegistrationHasDeferredRemoves(
     const ReactorRuntime &reactor) noexcept {
   return reactor.registry.deferred_removes != 0u;
-}
-
-std::size_t ReactorRegistrationDeferredRemoveCount(
-    const ReactorRuntime &reactor) noexcept {
-  return reactor.registry.deferred_removes;
 }
 
 void ReactorRegistrationForgetGeneration(
@@ -250,10 +246,7 @@ void ReactorRegistrationForgetGeneration(
   if (state == nullptr || state->fd_generation != fd_generation) {
     return;
   }
-  SetDeferred(reactor, *state, false);
-  ForgetRawFd(*state);
-  state->backend_interest = ReactorInterest::None;
-  state->registered = false;
+  ForgetRegistration(reactor, *state);
   state->fd_generation = 0u;
   if (state->wait_count == 0u) {
     static_cast<void>(ReactorRegistryEraseFd(reactor, fd));

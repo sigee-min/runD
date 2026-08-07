@@ -52,6 +52,57 @@ struct ReactorFdPreviousInterest {
   ReactorInterest interest = ReactorInterest::None;
 };
 
+enum class ReactorFdRegistrationPhase : std::uint8_t {
+  Idle,
+  Active,
+  DeferredRemove,
+};
+
+class ReactorFdRegistration final {
+public:
+  constexpr ReactorFdRegistration() noexcept = default;
+
+  [[nodiscard]] static constexpr ReactorFdRegistration idle() noexcept {
+    return ReactorFdRegistration{};
+  }
+
+  [[nodiscard]] static constexpr ReactorFdRegistration
+  active(const ReactorInterest interest) noexcept {
+    return interest == ReactorInterest::None
+               ? idle()
+               : ReactorFdRegistration{ReactorFdRegistrationPhase::Active,
+                                       interest};
+  }
+
+  [[nodiscard]] static constexpr ReactorFdRegistration
+  deferred_remove(const ReactorInterest interest) noexcept {
+    return interest == ReactorInterest::None
+               ? idle()
+               : ReactorFdRegistration{
+                     ReactorFdRegistrationPhase::DeferredRemove, interest};
+  }
+
+  [[nodiscard]] constexpr ReactorFdRegistrationPhase phase() const noexcept {
+    return phase_;
+  }
+
+  [[nodiscard]] constexpr ReactorInterest interest() const noexcept {
+    return interest_;
+  }
+
+  [[nodiscard]] constexpr bool is_idle() const noexcept {
+    return phase_ == ReactorFdRegistrationPhase::Idle;
+  }
+
+private:
+  constexpr ReactorFdRegistration(const ReactorFdRegistrationPhase phase,
+                                  const ReactorInterest interest) noexcept
+      : phase_(phase), interest_(interest) {}
+
+  ReactorFdRegistrationPhase phase_ = ReactorFdRegistrationPhase::Idle;
+  ReactorInterest interest_ = ReactorInterest::None;
+};
+
 struct ReactorFdState {
   ReactorHandle fd = kInvalidReactorHandle;
   std::uint32_t first_wait = kNoReactorSlot;
@@ -59,14 +110,19 @@ struct ReactorFdState {
   std::uint32_t wait_count = 0u;
   std::uint32_t read_count = 0u;
   std::uint32_t write_count = 0u;
-  ReactorInterest backend_interest = ReactorInterest::None;
+  ReactorFdRegistration registration = ReactorFdRegistration::idle();
   std::uint64_t fd_generation = 0u;
   ReactorPlatformHandleIdentity fd_identity =
       ReactorPlatformHandleIdentity::invalid();
   ReactorHandle identity_guard = kInvalidReactorHandle;
-  bool registered = false;
-  bool remove_deferred = false;
   bool batch_touched = false;
+
+  [[nodiscard]] constexpr bool erasable() const noexcept {
+    return wait_count == 0u && registration.is_idle() &&
+           fd_identity.disposition() ==
+               ReactorPlatformHandleIdentityDisposition::Invalid &&
+           identity_guard == kInvalidReactorHandle;
+  }
 };
 
 struct ReactorRegistry {
