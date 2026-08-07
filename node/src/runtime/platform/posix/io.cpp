@@ -88,12 +88,11 @@ WriteWithoutSigpipe(const int fd,
 ReactorPlatformHandleIdentity
 DescribeReactorPlatformHandle(const ReactorHandle handle) noexcept {
   const NativeFdIdentity identity = NativeDescribeFdIdentity(PosixFd(handle));
-  return ReactorPlatformHandleIdentity{
-      .device = identity.device,
-      .inode = identity.inode,
-      .mode = static_cast<std::uint32_t>(identity.mode),
-      .valid = identity.ok,
-  };
+  return identity.ok
+             ? ReactorPlatformHandleIdentity::described(
+                   identity.device, identity.inode,
+                   static_cast<std::uint32_t>(identity.mode))
+             : ReactorPlatformHandleIdentity::invalid();
 }
 
 ReactorHandle RetainReactorPlatformHandle(const ReactorHandle handle) noexcept {

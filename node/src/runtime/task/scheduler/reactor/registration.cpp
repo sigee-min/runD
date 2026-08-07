@@ -49,30 +49,26 @@ void RememberDeferredStats(const ReactorRuntime &reactor) noexcept {
   RecordReactorDeferredRemovePending(reactor.registry.deferred_removes);
 }
 
-void ReleaseRawFd(ReactorFdState &state) noexcept {
+void ForgetRawFd(ReactorFdState &state) noexcept {
   if (state.identity_guard != kInvalidReactorHandle) {
     ReleaseReactorPlatformHandle(state.identity_guard);
     state.identity_guard = kInvalidReactorHandle;
   }
+  state.fd_identity = ReactorPlatformHandleIdentity::invalid();
 }
 
 [[nodiscard]] bool
 SameRawFd(const ReactorFdState &state,
           const ReactorPlatformHandleIdentity identity) noexcept {
-  return state.fd_identity_valid && identity.valid &&
-         state.fd_device == identity.device &&
-         state.fd_inode == identity.inode && state.fd_mode == identity.mode;
+  return state.fd_identity.same_object(identity);
 }
 
 void RememberRawFd(ReactorFdState &state,
                    const ReactorPlatformHandleIdentity identity,
                    const ReactorHandle identity_guard) noexcept {
-  ReleaseRawFd(state);
-  state.fd_device = identity.device;
-  state.fd_inode = identity.inode;
-  state.fd_mode = identity.mode;
+  ForgetRawFd(state);
+  state.fd_identity = identity;
   state.identity_guard = identity_guard;
-  state.fd_identity_valid = identity.valid;
 }
 
 [[nodiscard]] bool Empty(const ReactorFdState &state) noexcept {
@@ -94,8 +90,10 @@ bool ReactorRegistrationCollectForWaitAdd(
   }
   const ReactorPlatformHandleIdentity raw_identity =
       fd_generation == 0u ? DescribeReactorPlatformHandle(fd)
-                          : ReactorPlatformHandleIdentity{};
-  if (fd_generation == 0u && !raw_identity.valid) {
+                          : ReactorPlatformHandleIdentity::invalid();
+  if (fd_generation == 0u &&
+      raw_identity.disposition() !=
+          ReactorPlatformHandleIdentityDisposition::Described) {
     return false;
   }
   if (!ReserveChanges(reactor, 1u)) {
@@ -174,7 +172,7 @@ bool ReactorRegistrationCollectForWaitRemove(
       RememberDeferredStats(reactor);
     } else {
       SetDeferred(reactor, *state, false);
-      ReleaseRawFd(*state);
+      ForgetRawFd(*state);
       if (Empty(*state)) {
         static_cast<void>(ReactorRegistryEraseFd(reactor, fd));
       }
@@ -222,7 +220,7 @@ bool ReactorRegistrationFlushDeferredRemoves(
     state.backend_interest = ReactorInterest::None;
     state.registered = false;
     SetDeferred(reactor, state, false);
-    ReleaseRawFd(state);
+    ForgetRawFd(state);
     RecordReactorDeferredRemoveFlush();
   }
   reactor.registry.fds.erase(
@@ -258,11 +256,10 @@ void ReactorRegistrationForgetGeneration(
     return;
   }
   SetDeferred(reactor, *state, false);
-  ReleaseRawFd(*state);
+  ForgetRawFd(*state);
   state->backend_interest = ReactorInterest::None;
   state->registered = false;
   state->fd_generation = 0u;
-  state->fd_identity_valid = false;
   if (state->wait_count == 0u) {
     static_cast<void>(ReactorRegistryEraseFd(reactor, fd));
   }
@@ -270,7 +267,7 @@ void ReactorRegistrationForgetGeneration(
 
 void ReactorRegistrationClear(ReactorRuntime &reactor) noexcept {
   for (ReactorFdState &state : reactor.registry.fds) {
-    ReleaseRawFd(state);
+    ForgetRawFd(state);
   }
   ReactorRegistryClear(reactor);
 }

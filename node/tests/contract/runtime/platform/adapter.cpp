@@ -206,10 +206,11 @@ void VerifyUnavailableNativeSurface() {
 
   const ReactorPlatformHandleIdentity handle_identity =
       DescribeReactorPlatformHandle(ReactorHandleFromPublic(0));
-  TEST_ASSERT(!handle_identity.valid);
-  TEST_ASSERT(handle_identity.device == 0u);
-  TEST_ASSERT(handle_identity.inode == 0u);
-  TEST_ASSERT(handle_identity.mode == 0u);
+  TEST_ASSERT(handle_identity.disposition() ==
+              ReactorPlatformHandleIdentityDisposition::Invalid);
+  TEST_ASSERT(handle_identity.device() == 0u);
+  TEST_ASSERT(handle_identity.inode() == 0u);
+  TEST_ASSERT(handle_identity.mode() == 0u);
   TEST_ASSERT(RetainReactorPlatformHandle(ReactorHandleFromPublic(0)) ==
               kInvalidReactorHandle);
   ReleaseReactorPlatformHandle(kInvalidReactorHandle);

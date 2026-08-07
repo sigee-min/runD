@@ -61,13 +61,11 @@ struct ReactorFdState {
   std::uint32_t write_count = 0u;
   ReactorInterest backend_interest = ReactorInterest::None;
   std::uint64_t fd_generation = 0u;
-  std::uint64_t fd_device = 0u;
-  std::uint64_t fd_inode = 0u;
-  std::uint32_t fd_mode = 0u;
+  ReactorPlatformHandleIdentity fd_identity =
+      ReactorPlatformHandleIdentity::invalid();
   ReactorHandle identity_guard = kInvalidReactorHandle;
   bool registered = false;
   bool remove_deferred = false;
-  bool fd_identity_valid = false;
   bool batch_touched = false;
 };
 

@@ -57,6 +57,12 @@ platform event masks are normalized through the interface owner.
 Plain-handle identity lookup, close-on-exec retention, and release also cross
 the neutral interface; scheduler registration policy never calls `fstat`,
 `fcntl`, `dup`, or `close` directly.
+The lookup result is one typed value with exactly two dispositions:
+`Invalid`, whose device, inode, and mode are fixed to zero, or `Described`,
+which carries all three fields. The value itself owns same-object comparison;
+two invalid values never prove identity. The scheduler stores that complete
+snapshot once rather than mirroring its payload and validity in separate
+fields.
 Adding a Windows IOCP backend requires a separate
 `runtime/platform/windows/reactor/` owner implementing the same interface; it
 does not add IOCP branches to scheduler code. An IOCP owner drains completed

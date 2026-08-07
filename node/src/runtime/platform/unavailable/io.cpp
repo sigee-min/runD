@@ -70,7 +70,7 @@ NativeIoResult NativeClose(const int fd) noexcept {
 ReactorPlatformHandleIdentity
 DescribeReactorPlatformHandle(const ReactorHandle handle) noexcept {
   (void)handle;
-  return {};
+  return ReactorPlatformHandleIdentity::invalid();
 }
 
 ReactorHandle RetainReactorPlatformHandle(const ReactorHandle handle) noexcept {

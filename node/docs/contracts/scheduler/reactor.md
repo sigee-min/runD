@@ -339,16 +339,21 @@ and registration state for the fd is reset so the new generation forces a
 native add rather than modifying stale scheduler state. Plain typed
 `rund::host::io::FdView` waits use generation `0`; the reactor snapshots their
 `fstat` device, inode,
-and mode identity and retains one close-on-exec duplicate while the native
-registration is live. Retention prevents the old kernel object identity from
-being recycled before a same-number replacement can be compared. Mutable file
+and mode identity as one typed value and retains one close-on-exec duplicate
+while the native registration is live. An invalid snapshot has zero payload,
+and only two described snapshots with all three fields equal prove the same
+kernel object. `ReactorFdState` stores that snapshot once; it has no parallel
+device, inode, mode, or validity fields and remains 80 bytes on supported
+64-bit targets. Retention prevents the old kernel object identity from being
+recycled before a same-number replacement can be compared. Mutable file
 timestamps are not identity: pipe reads and writes may change them while the
 pipe remains live. A close followed by reuse of the same integer fd therefore
 forces native re-registration, while a same-object re-arm still cancels the
 deferred remove without backend churn. The retained descriptor is bounded by
-the reactor registration capacity and is released on registration removal,
-generation reset, or reactor teardown. Kqueue isolates replacement modifies
-so its best-effort delete completes before the new filter is added.
+the reactor registration capacity and is released together with the stored
+identity on registration removal, generation reset, or reactor teardown.
+Kqueue isolates replacement modifies so its best-effort delete completes
+before the new filter is added.
 
 Ready drain keeps those two lifetime mechanisms under one lease scope. An
 admitted network wait acquires a socket-generation lease before registry

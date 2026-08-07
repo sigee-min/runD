@@ -30,6 +30,9 @@ int RunRuntimeTaskReactorPlatformContract() {
   static_assert(sizeof(ReactorHandle) >= sizeof(void*));
   static_assert(ReactorInterestBits(ReactorInterest::Read) == 1);
   static_assert(ReactorInterestBits(ReactorInterest::Write) == 4);
+  static_assert(!std::is_aggregate_v<ReactorPlatformHandleIdentity>);
+  static_assert(
+      std::is_trivially_copyable_v<ReactorPlatformHandleIdentity>);
   static_assert(!std::is_aggregate_v<ReactorPlatformOpResult>);
   static_assert(std::is_trivially_copyable_v<ReactorPlatformOpResult>);
   static_assert(!std::is_aggregate_v<BatchIoProbeResult>);
@@ -38,6 +41,35 @@ int RunRuntimeTaskReactorPlatformContract() {
   static_assert(std::is_trivially_copyable_v<ReactorPlatformBatchResult>);
   static_assert(!std::is_aggregate_v<ReactorPlatformPollResult>);
   static_assert(std::is_trivially_copyable_v<ReactorPlatformPollResult>);
+
+  constexpr ReactorPlatformHandleIdentity invalid_identity =
+      ReactorPlatformHandleIdentity::invalid();
+  constexpr ReactorPlatformHandleIdentity first_identity =
+      ReactorPlatformHandleIdentity::described(11u, 13u, 15u);
+  constexpr ReactorPlatformHandleIdentity same_identity =
+      ReactorPlatformHandleIdentity::described(11u, 13u, 15u);
+  constexpr ReactorPlatformHandleIdentity other_device_identity =
+      ReactorPlatformHandleIdentity::described(17u, 13u, 15u);
+  constexpr ReactorPlatformHandleIdentity other_inode_identity =
+      ReactorPlatformHandleIdentity::described(11u, 17u, 15u);
+  constexpr ReactorPlatformHandleIdentity other_mode_identity =
+      ReactorPlatformHandleIdentity::described(11u, 13u, 17u);
+  static_assert(invalid_identity.disposition() ==
+                ReactorPlatformHandleIdentityDisposition::Invalid);
+  static_assert(invalid_identity.device() == 0u);
+  static_assert(invalid_identity.inode() == 0u);
+  static_assert(invalid_identity.mode() == 0u);
+  static_assert(first_identity.disposition() ==
+                ReactorPlatformHandleIdentityDisposition::Described);
+  static_assert(first_identity.device() == 11u);
+  static_assert(first_identity.inode() == 13u);
+  static_assert(first_identity.mode() == 15u);
+  static_assert(first_identity.same_object(same_identity));
+  static_assert(!first_identity.same_object(other_device_identity));
+  static_assert(!first_identity.same_object(other_inode_identity));
+  static_assert(!first_identity.same_object(other_mode_identity));
+  static_assert(!first_identity.same_object(invalid_identity));
+  static_assert(!invalid_identity.same_object(invalid_identity));
 
   constexpr ReactorPlatformOpResult operation_success =
       ReactorPlatformOpResult::success();

@@ -78,6 +78,7 @@ void VerifyRegistryBatchProjection() {
   using rund::node::ReactorWait;
 
   static_assert(sizeof(ReactorWait) == 88u);
+  static_assert(sizeof(rund::node::ReactorFdState) == 80u);
   static_assert(sizeof(rund::node::ReactorWaitSlot) +
                     sizeof(std::uint32_t) <=
                 sizeof(ReactorWait) + 3u * sizeof(std::uint64_t));
