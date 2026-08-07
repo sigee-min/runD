@@ -78,6 +78,16 @@ counters are owned once by `scheduler/reactor/diagnostic/platform.cpp`. Platform
 backends only translate the neutral contract and issue native calls; they do
 not copy either orchestration or policy counters.
 
+The batch immediate-probe operation has exactly one disposition: `Success`,
+`Failed`, or `BackendUnavailable`. `Success` includes an empty ready set. The
+caller-provided `BatchIoReady` vector is the only ready payload and count
+authority; the result does not mirror its size. `Success` and
+`BackendUnavailable` fix the platform error to zero, while `Failed` carries
+the native or allocation error. The unavailable owner clears the output and
+reports `BackendUnavailable` without pretending capacity pressure. Invalid
+descriptors remain per-entry `BatchIoReady` classifications rather than an
+operation-level failure.
+
 ## Native Byte Substrate
 
 Portable host and scheduler sources depend only on

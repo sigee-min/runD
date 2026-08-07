@@ -21,11 +21,6 @@ struct ReactorManyProbeResult {
   }
 };
 
-struct ReactorManyProbeBatchResult {
-  bool ok = true;
-  bool unavailable = false;
-};
-
 [[nodiscard]] ReactorManyProbeResult ReactorProbeManyReady(
     Scheduler &scheduler, ReactorPlatform &platform, std::uint64_t task_id,
     std::uint32_t limit, std::span<const ReactorManyRequest> requests,
@@ -33,7 +28,7 @@ struct ReactorManyProbeBatchResult {
     std::vector<BatchIoReady> &ready_results, ReactorManyGroup &group,
     std::vector<ReactorManyEventSlot> &event_slots) noexcept;
 
-[[nodiscard]] ReactorManyProbeBatchResult
+[[nodiscard]] BatchIoProbeResult
 ReactorProbeManyReadyNow(ReactorPlatform &platform,
                          std::span<const ReactorManyRequest> requests,
                          std::vector<BatchIoPollRequest> &poll_requests,

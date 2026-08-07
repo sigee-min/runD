@@ -88,11 +88,43 @@ struct BatchIoReady {
   bool invalid = false;
 };
 
-struct BatchIoProbeResult {
-  bool ok = true;
-  bool unavailable = false;
-  std::int64_t platform_error = 0u;
-  std::uint32_t ready = 0u;
+enum class BatchIoProbeDisposition : std::uint8_t {
+  Success,
+  Failed,
+  BackendUnavailable,
+};
+
+class BatchIoProbeResult final {
+public:
+  [[nodiscard]] static constexpr BatchIoProbeResult success() noexcept {
+    return BatchIoProbeResult{BatchIoProbeDisposition::Success, 0};
+  }
+
+  [[nodiscard]] static constexpr BatchIoProbeResult
+  failed(const std::int64_t platform_error) noexcept {
+    return BatchIoProbeResult{BatchIoProbeDisposition::Failed, platform_error};
+  }
+
+  [[nodiscard]] static constexpr BatchIoProbeResult
+  backend_unavailable() noexcept {
+    return BatchIoProbeResult{BatchIoProbeDisposition::BackendUnavailable, 0};
+  }
+
+  [[nodiscard]] constexpr BatchIoProbeDisposition disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr std::int64_t platform_error() const noexcept {
+    return platform_error_;
+  }
+
+private:
+  constexpr BatchIoProbeResult(const BatchIoProbeDisposition disposition,
+                               const std::int64_t platform_error) noexcept
+      : disposition_(disposition), platform_error_(platform_error) {}
+
+  BatchIoProbeDisposition disposition_;
+  std::int64_t platform_error_;
 };
 
 [[nodiscard]] ReactorPlatformOpResult

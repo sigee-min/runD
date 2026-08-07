@@ -81,7 +81,7 @@ BatchIoProbeResult ProbeReactorPlatformNow(
   (void)requests;
   (void)count;
   out.clear();
-  return BatchIoProbeResult{.ok = false, .unavailable = true};
+  return BatchIoProbeResult::backend_unavailable();
 }
 
 } // namespace rund::node

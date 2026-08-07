@@ -3,6 +3,8 @@
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
 
+#include <cerrno>
+#include <type_traits>
 #include <unistd.h>
 
 #include <vector>
@@ -16,6 +18,8 @@ int RunRuntimeTaskReactorPlatformContract() {
   static_assert(sizeof(ReactorHandle) >= sizeof(void*));
   static_assert(ReactorInterestBits(ReactorInterest::Read) == 1);
   static_assert(ReactorInterestBits(ReactorInterest::Write) == 4);
+  static_assert(!std::is_aggregate_v<BatchIoProbeResult>);
+  static_assert(std::is_trivially_copyable_v<BatchIoProbeResult>);
 
   // This contract is compiled against the neutral interface only. Platform
   // SDK records are deliberately unavailable at this boundary.
@@ -94,16 +98,37 @@ int RunRuntimeTaskReactorPlatformContract() {
       .handle = ReactorHandleFromPublic(pipe_fds[0]),
       .interest = ReactorInterest::Read,
   };
+  std::vector<BatchIoReady> cold_ready{};
+  cold_ready.reserve(1u);
+  const std::size_t probe_count = cold_ready.capacity() + 1u;
+  std::vector<BatchIoPollRequest> capacity_requests(probe_count, request);
+  TEST_ASSERT(PrepareReactorPlatform(platform, probe_count).ok);
+  runtime_task_allocation::FailNext();
+  const BatchIoProbeResult failed = ProbeReactorPlatformNow(
+      platform, capacity_requests.data(), capacity_requests.size(), cold_ready);
+  TEST_ASSERT(failed.disposition() == BatchIoProbeDisposition::Failed);
+  TEST_ASSERT(failed.platform_error() == ENOMEM);
+  TEST_ASSERT(cold_ready.empty());
+  const BatchIoProbeResult retried = ProbeReactorPlatformNow(
+      platform, capacity_requests.data(), capacity_requests.size(), cold_ready);
+  TEST_ASSERT(retried.disposition() == BatchIoProbeDisposition::Success);
+  TEST_ASSERT(retried.platform_error() == 0);
+  TEST_ASSERT(!cold_ready.empty());
+
   std::vector<BatchIoReady> ready{};
   ready.reserve(1u);
-  TEST_ASSERT(ProbeReactorPlatformNow(platform, &request, 1u, ready).ok);
+  const BatchIoProbeResult first_probe =
+      ProbeReactorPlatformNow(platform, &request, 1u, ready);
+  TEST_ASSERT(first_probe.disposition() == BatchIoProbeDisposition::Success);
+  TEST_ASSERT(first_probe.platform_error() == 0);
   TEST_ASSERT(ready.size() == 1u);
 
   runtime_task_allocation::Start();
   const BatchIoProbeResult warm =
       ProbeReactorPlatformNow(platform, &request, 1u, ready);
   runtime_task_allocation::Stop();
-  TEST_ASSERT(warm.ok);
+  TEST_ASSERT(warm.disposition() == BatchIoProbeDisposition::Success);
+  TEST_ASSERT(warm.platform_error() == 0);
   TEST_ASSERT(ready.size() == 1u);
   TEST_ASSERT(runtime_task_allocation::Count() == 0u);
   TEST_ASSERT(::close(pipe_fds[0]) == 0);

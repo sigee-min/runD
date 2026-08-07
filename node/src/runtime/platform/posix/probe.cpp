@@ -13,7 +13,7 @@ BatchIoProbeResult PollPosixReadyNow(const BatchIoPollRequest* const requests,
   out.clear();
   buffer.events.clear();
   if (requests == nullptr || count == 0u) {
-    return {};
+    return BatchIoProbeResult::success();
   }
 
   try {
@@ -29,7 +29,7 @@ BatchIoProbeResult PollPosixReadyNow(const BatchIoPollRequest* const requests,
   } catch (...) {
     out.clear();
     buffer.events.clear();
-    return BatchIoProbeResult{.ok = false, .platform_error = ENOMEM};
+    return BatchIoProbeResult::failed(ENOMEM);
   }
 
   int native = 0;
@@ -39,7 +39,7 @@ BatchIoProbeResult PollPosixReadyNow(const BatchIoPollRequest* const requests,
   } while (native < 0 && errno == EINTR);
   if (native < 0) {
     out.clear();
-    return BatchIoProbeResult{.ok = false, .platform_error = errno};
+    return BatchIoProbeResult::failed(errno);
   }
 
   try {
@@ -61,14 +61,10 @@ BatchIoProbeResult PollPosixReadyNow(const BatchIoPollRequest* const requests,
     }
   } catch (...) {
     out.clear();
-    return BatchIoProbeResult{.ok = false, .platform_error = ENOMEM};
+    return BatchIoProbeResult::failed(ENOMEM);
   }
 
-  return BatchIoProbeResult{
-      .ok = true,
-      .platform_error = 0,
-      .ready = static_cast<std::uint32_t>(out.size()),
-  };
+  return BatchIoProbeResult::success();
 }
 
 }  // namespace rund::node

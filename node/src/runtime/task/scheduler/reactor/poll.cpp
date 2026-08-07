@@ -15,9 +15,13 @@ ReactorProbeResult ReactorProbeNow(ReactorPlatform &platform,
   };
   const BatchIoProbeResult result =
       ProbeReactorPlatformNow(platform, &probe, 1u, scratch);
-  if (!result.ok) {
-    return result.unavailable ? ReactorProbeResult::backend_unavailable()
-                              : ReactorProbeResult::poll_failed();
+  switch (result.disposition()) {
+  case BatchIoProbeDisposition::BackendUnavailable:
+    return ReactorProbeResult::backend_unavailable();
+  case BatchIoProbeDisposition::Failed:
+    return ReactorProbeResult::poll_failed();
+  case BatchIoProbeDisposition::Success:
+    break;
   }
   if (scratch.empty()) {
     return ReactorProbeResult::not_ready();

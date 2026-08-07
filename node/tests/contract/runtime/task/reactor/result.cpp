@@ -1,13 +1,17 @@
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/many/probe/raw.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/model.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/poll.hpp"
 
 #include "../coroutine/allocation.hpp"
 #include "test/assert.hpp"
 
+#include <array>
+#include <cerrno>
 #include <type_traits>
 #include <unistd.h>
+#include <vector>
 
 int RunRuntimeTaskReactorResultContract() {
   using namespace rund::node;
@@ -82,6 +86,46 @@ int RunRuntimeTaskReactorResultContract() {
       platform, cold_scratch, read_handle, ReactorInterest::Read);
   TEST_ASSERT(readable.disposition() == ReactorProbeDisposition::Ready);
   TEST_ASSERT(readable.events() == ReactorEvent::Read);
+
+  std::vector<BatchIoPollRequest> poll_requests{};
+  poll_requests.reserve(1u);
+  const std::size_t request_count = poll_requests.capacity() + 1u;
+  std::vector<ReactorManyRequest> many_requests(request_count);
+  std::vector<std::array<int, 2>> extra_pipes(request_count - 1u,
+                                              std::array<int, 2>{-1, -1});
+  for (std::size_t index = 0u; index < many_requests.size(); ++index) {
+    ReactorHandle handle = read_handle;
+    if (index != 0u) {
+      std::array<int, 2> &extra = extra_pipes[index - 1u];
+      TEST_ASSERT(::pipe(extra.data()) == 0);
+      TEST_ASSERT(::write(extra[1], &byte, 1u) == 1);
+      handle = ReactorHandleFromPublic(extra[0]);
+    }
+    many_requests[index] = ReactorManyRequest{
+        .fd = handle,
+        .slot = static_cast<std::uint32_t>(index),
+        .interest = ReactorInterest::Read,
+    };
+  }
+  std::vector<BatchIoReady> many_ready{BatchIoReady{}};
+  runtime_task_allocation::FailNext();
+  const BatchIoProbeResult many_failed = ReactorProbeManyReadyNow(
+      platform, many_requests, poll_requests, many_ready);
+  TEST_ASSERT(many_failed.disposition() == BatchIoProbeDisposition::Failed);
+  TEST_ASSERT(many_failed.platform_error() == ENOMEM);
+  TEST_ASSERT(poll_requests.empty());
+  TEST_ASSERT(many_ready.empty());
+
+  const BatchIoProbeResult many_retried = ReactorProbeManyReadyNow(
+      platform, many_requests, poll_requests, many_ready);
+  TEST_ASSERT(many_retried.disposition() == BatchIoProbeDisposition::Success);
+  TEST_ASSERT(many_retried.platform_error() == 0);
+  TEST_ASSERT(poll_requests.size() == request_count);
+  TEST_ASSERT(many_ready.size() == request_count);
+  for (const std::array<int, 2> &extra : extra_pipes) {
+    TEST_ASSERT(::close(extra[0]) == 0);
+    TEST_ASSERT(::close(extra[1]) == 0);
+  }
 
   char consumed = 0;
   TEST_ASSERT(::read(pipe_fds[0], &consumed, 1u) == 1);

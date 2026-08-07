@@ -6,6 +6,8 @@
 #include "../../../state/storage.hpp"
 #include "../events.hpp"
 
+#include <cerrno>
+
 namespace rund::node {
 
 ReactorManyProbeResult
@@ -23,14 +25,14 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
     };
   }
 
-  const ReactorManyProbeBatchResult probed = ReactorProbeManyReadyNow(
+  const BatchIoProbeResult probed = ReactorProbeManyReadyNow(
       platform, requests, poll_requests, ready_results);
-  if (!probed.ok) {
-    if (probed.unavailable) {
-      return ReactorManyProbeResult{
-          .code = ReasonCode::ReactorBackendUnavailable,
-      };
-    }
+  switch (probed.disposition()) {
+  case BatchIoProbeDisposition::BackendUnavailable:
+    return ReactorManyProbeResult{
+        .code = ReasonCode::ReactorBackendUnavailable,
+    };
+  case BatchIoProbeDisposition::Failed: {
     const ReactorManyRequest *const first =
         requests.empty() ? nullptr : &requests.front();
     const ReactorHandle handle =
@@ -53,6 +55,9 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
     return ReactorManyProbeResult{
         .code = ReasonCode::IoPollFailed,
     };
+  }
+  case BatchIoProbeDisposition::Success:
+    break;
   }
 
   ReactorManyProbeResult result{};
@@ -102,7 +107,7 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
   return result;
 }
 
-ReactorManyProbeBatchResult
+BatchIoProbeResult
 ReactorProbeManyReadyNow(ReactorPlatform &platform,
                          const std::span<const ReactorManyRequest> requests,
                          std::vector<BatchIoPollRequest> &poll_requests,
@@ -120,15 +125,11 @@ ReactorProbeManyReadyNow(ReactorPlatform &platform,
   } catch (...) {
     poll_requests.clear();
     ready.clear();
-    return ReactorManyProbeBatchResult{.ok = false};
+    return BatchIoProbeResult::failed(ENOMEM);
   }
 
-  const BatchIoProbeResult probed = ProbeReactorPlatformNow(
-      platform, poll_requests.data(), poll_requests.size(), ready);
-  return ReactorManyProbeBatchResult{
-      .ok = probed.ok,
-      .unavailable = probed.unavailable,
-  };
+  return ProbeReactorPlatformNow(platform, poll_requests.data(),
+                                 poll_requests.size(), ready);
 }
 
 const ReactorManyRequest *ReactorManyProbeRequestForReady(

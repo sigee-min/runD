@@ -131,8 +131,9 @@ caller-required `R` full records; no second full-wait authority exists.
   and every cleanup route call this owner; none reconstructs the record
   transition or evidence locally.
 - `reactor/many/probe/raw.cpp`: raw batch ReadyMany immediate probe owner; it
-  converts request records to raw fd probe records, records observations and
-  host events, and appends through the event-slot owner.
+  converts request records to raw fd probe records, consumes the platform
+  probe disposition directly without a boolean result mirror, records
+  observations and host events, and appends through the event-slot owner.
 - `reactor/many/store.cpp`: canonical group-range lookup, `O(N log N)` sorted
   duplicate validation, one-time public-to-internal descriptor projection,
   consecutive wait-id lookup, and group-range erasure.
@@ -370,6 +371,8 @@ factory fixes them to `None`. The probe result does not retain wait id, task
 id, fd, or interest; its two callers own those inputs. Platform-native
 `invalid` bits remain local event-payload classifications and are projected
 once at the scheduler boundary rather than mirrored as scheduler booleans.
+Single-wait and ReadyMany probes consume the same exclusive platform probe
+disposition; ReadyMany does not project it through a second result carrier.
 
 Interrupted backend waits restart without an observation.
 

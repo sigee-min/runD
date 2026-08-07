@@ -81,10 +81,9 @@ void AssertUnavailable(const rund::node::ReactorPlatformPollResult &result) {
 }
 
 void AssertUnavailable(const rund::node::BatchIoProbeResult result) {
-  TEST_ASSERT(!result.ok);
-  TEST_ASSERT(result.unavailable);
-  TEST_ASSERT(result.platform_error == 0);
-  TEST_ASSERT(result.ready == 0u);
+  TEST_ASSERT(result.disposition() ==
+              rund::node::BatchIoProbeDisposition::BackendUnavailable);
+  TEST_ASSERT(result.platform_error() == 0);
 }
 
 void AssertNativeProjection(const rund::node::NativeCallState state,
