@@ -1,13 +1,55 @@
 #include <rund/compute.hpp>
 
+#include "src/compute/exception.hpp"
 #include "src/compute/status.hpp"
 
 #include <array>
 #include <cstdint>
+#include <new>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 
+namespace {
+
+[[nodiscard]] bool CapacityExceptionClassesAreCanonical() {
+  using rund::compute::detail::compute_exception::
+      rethrow_unless_capacity_exception;
+  const auto accepts = [](const auto &raise) {
+    try {
+      raise();
+    } catch (...) {
+      try {
+        rethrow_unless_capacity_exception();
+        return true;
+      } catch (...) {
+        return false;
+      }
+    }
+    return false;
+  };
+  bool unexpected_preserved = false;
+  try {
+    throw 7;
+  } catch (...) {
+    try {
+      rethrow_unless_capacity_exception();
+    } catch (const int value) {
+      unexpected_preserved = value == 7;
+    } catch (...) {
+    }
+  }
+  return accepts([] { throw std::bad_alloc{}; }) &&
+         accepts([] { throw std::length_error{"capacity"}; }) &&
+         unexpected_preserved;
+}
+
+} // namespace
+
 int RunComputeErrorContract() {
+  if (!CapacityExceptionClassesAreCanonical()) {
+    return 8;
+  }
   const auto success = rund::compute::Status::success();
   const auto binding =
       rund::compute::Status::fail(rund::compute::Reason::ShapeMismatch);

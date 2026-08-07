@@ -2,6 +2,7 @@
 
 #include "../../buffer/local.hpp"
 #include "../../device/state.hpp"
+#include "../../exception.hpp"
 #include "../../memory/cpu.hpp"
 #include "../graph.hpp"
 #include "../map.hpp"
@@ -11,8 +12,6 @@
 
 #include <array>
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <utility>
 
 namespace rund::compute::detail {
@@ -239,9 +238,8 @@ valid_route_plan(const std::shared_ptr<ProgramState> &program,
     run.scratch_words = plan.scratch_words;
     run.workers = plan.workers;
     return Result<CpuMapRun>::success(std::move(run));
-  } catch (const std::bad_alloc &) {
-    return Result<CpuMapRun>::fail(Reason::TileRunCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Result<CpuMapRun>::fail(Reason::TileRunCapacity);
   }
 }
@@ -274,9 +272,8 @@ make_collective_run(const CpuCollective &program,
     run.tile_size = program.tile_size;
     run.needs_prefixes = plan.needs_prefixes;
     return Result<CpuCollectiveRun>::success(std::move(run));
-  } catch (const std::bad_alloc &) {
-    return Result<CpuCollectiveRun>::fail(Reason::TileRunCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Result<CpuCollectiveRun>::fail(Reason::TileRunCapacity);
   }
 }
@@ -585,10 +582,8 @@ make_cpu_graph_storage(const std::shared_ptr<ProgramState> &program,
     }
     return Result<std::shared_ptr<CpuGraphStorage>>::success(
         std::move(storage));
-  } catch (const std::bad_alloc &) {
-    return Result<std::shared_ptr<CpuGraphStorage>>::fail(
-        Reason::BufferCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Result<std::shared_ptr<CpuGraphStorage>>::fail(
         Reason::BufferCapacity);
   }
@@ -813,10 +808,8 @@ Status materialize_cpu_run(
     }
     run.buffers = workspace;
     return Status::success();
-  } catch (const std::bad_alloc &) {
-    cpu.graph.reset();
-    return Status::fail(Reason::BufferCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     cpu.graph.reset();
     return Status::fail(Reason::BufferCapacity);
   }

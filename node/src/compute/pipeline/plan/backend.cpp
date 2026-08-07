@@ -5,6 +5,7 @@
 #include "../../../accel/kernel/recurrence.hpp"
 #include "../../backend.hpp"
 #include "../../buffer/local.hpp"
+#include "../../exception.hpp"
 #include "../../status.hpp"
 #include "../local.hpp"
 
@@ -13,9 +14,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <new>
 #include <span>
-#include <stdexcept>
 #include <utility>
 
 namespace rund::compute::detail {
@@ -396,9 +395,8 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
       state->alternate_prepared = std::move(alternate).value();
     }
     return seed_pipeline_generations(*state, 0u, 0u);
-  } catch (const std::bad_alloc &) {
-    return Status::fail(Reason::PipelineCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Status::fail(Reason::PipelineCapacity);
   }
 }

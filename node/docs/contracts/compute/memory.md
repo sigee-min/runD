@@ -6,6 +6,16 @@ Node owns the mapping from Compute object ownership to public `MemoryStats` and
 private executor and lowering-owner byte oracles live in
 [`kernel/docs/contracts/compute/handoff.md`](../../../../kernel/docs/contracts/compute/handoff.md).
 
+## Capacity exception boundaries
+
+Compute boundaries that intentionally project both `std::bad_alloc` and
+`std::length_error` consume one source-private exception classifier. That leaf
+owns only the accepted C++ exception classes: the calling boundary retains its
+typed `Reason`, result construction, and phase-local rollback. Any other active
+exception is rethrown unchanged, preserving ordinary propagation and existing
+`noexcept` termination. A boundary that authorizes only `std::bad_alloc`
+remains explicit and is not silently widened.
+
 ## Recipe value-route ownership
 
 Each reusable Flow recipe and each canonical Graph construction state owns one

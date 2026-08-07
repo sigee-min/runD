@@ -1,9 +1,10 @@
 #include "model.hpp"
 
+#include "../../exception.hpp"
 #include "../local.hpp"
 
 #include <memory>
-#include <stdexcept>
+#include <new>
 #include <utility>
 #include <vector>
 
@@ -170,9 +171,8 @@ prepare_pipeline_cpu_job(const std::shared_ptr<ProgramState> &program,
     return finish_cpu_pipeline_job(std::move(state), std::move(cpu_storage),
                                    cpu_route, std::move(prepared_arena),
                                    cpu_route_slice, cpu_views);
-  } catch (const std::bad_alloc &) {
-    return Result<std::shared_ptr<JobState>>::fail(Reason::BufferCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Result<std::shared_ptr<JobState>>::fail(Reason::BufferCapacity);
   }
 }

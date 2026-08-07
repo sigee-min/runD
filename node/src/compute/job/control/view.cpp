@@ -4,6 +4,7 @@
 #include "../../cpu/graph.hpp"
 #include "../../cpu/run/state.hpp"
 #include "../../cpu/view.hpp"
+#include "../../exception.hpp"
 #include "../../type.hpp"
 #include "../local.hpp"
 #include <rund/counter.hpp>
@@ -14,8 +15,6 @@
 #include <cstring>
 #include <limits>
 #include <memory>
-#include <new>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -166,9 +165,8 @@ Result<CpuViewTransferRequirements> plan_cpu_view_transfer_requirements(
     }
     return Result<CpuViewTransferRequirements>::success(
         std::move(requirements));
-  } catch (const std::bad_alloc &) {
-    return Result<CpuViewTransferRequirements>::fail(Reason::PipelineCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Result<CpuViewTransferRequirements>::fail(Reason::PipelineCapacity);
   }
 }
@@ -239,9 +237,8 @@ Result<CpuViewTransferLayout> plan_cpu_view_transfers(
       return Result<CpuViewTransferLayout>::fail(Reason::PipelineCapacity);
     }
     return Result<CpuViewTransferLayout>::success(std::move(plan));
-  } catch (const std::bad_alloc &) {
-    return Result<CpuViewTransferLayout>::fail(Reason::PipelineCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Result<CpuViewTransferLayout>::fail(Reason::PipelineCapacity);
   }
 }
@@ -338,9 +335,8 @@ Status prepare_cpu_view_transfers(JobState &state,
     return outputs && expected_bytes == layout->bytes
                ? Status::success()
                : (outputs ? Status::fail(Reason::PipelineInvalid) : outputs);
-  } catch (const std::bad_alloc &) {
-    return Status::fail(Reason::BufferCapacity);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    compute_exception::rethrow_unless_capacity_exception();
     return Status::fail(Reason::BufferCapacity);
   }
 }

@@ -147,6 +147,11 @@ or algorithm.
   `device/state.hpp` owns Device and Buffer storage only and does not
   re-export type semantics. `map/compile` and `graph/build/primitive` consume
   `type_domain()` rather than retaining local domain switches.
+- `node/src/compute/exception.hpp` solely owns Compute's classification of
+  `std::bad_alloc` and `std::length_error` as capacity exceptions. Consumers
+  include that leaf directly while retaining their own `Reason`, cleanup, and
+  result construction. Accel and Replay keep their separate subsystem
+  classifiers; this leaf does not create a cross-subsystem error vocabulary.
 - `node/src/compute/graph/scan.hpp` solely owns the constexpr
   `Type -> kernel::ScanElement` projection consumed by graph description and
   graph compilation. Neither path retains a local switch, so a type-table edit
