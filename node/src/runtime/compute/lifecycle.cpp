@@ -2,6 +2,84 @@
 
 namespace rund::node::runtime_detail {
 
+ComputeHostAdmission ComputeHostLifecycle::admission() const noexcept {
+  switch (phase_) {
+  case ComputeHostPhase::Running:
+    return ComputeHostAdmission::Open;
+  case ComputeHostPhase::Draining:
+  case ComputeHostPhase::Closing:
+    return ComputeHostAdmission::Draining;
+  case ComputeHostPhase::Configured:
+    return ComputeHostAdmission::Standby;
+  case ComputeHostPhase::Constructing:
+  case ComputeHostPhase::Retiring:
+  case ComputeHostPhase::Closed:
+    return ComputeHostAdmission::Offline;
+  }
+}
+
+bool ComputeHostLifecycle::bindable() const noexcept {
+  return phase_ != ComputeHostPhase::Closing &&
+         phase_ != ComputeHostPhase::Retiring &&
+         phase_ != ComputeHostPhase::Closed;
+}
+
+bool ComputeHostLifecycle::closed() const noexcept {
+  return phase_ == ComputeHostPhase::Closed;
+}
+
+bool ComputeHostLifecycle::configure() noexcept {
+  if (phase_ != ComputeHostPhase::Constructing) {
+    return false;
+  }
+  phase_ = ComputeHostPhase::Configured;
+  return true;
+}
+
+bool ComputeHostLifecycle::start() noexcept {
+  if (phase_ != ComputeHostPhase::Configured) {
+    return false;
+  }
+  phase_ = ComputeHostPhase::Running;
+  return true;
+}
+
+bool ComputeHostLifecycle::stop() noexcept {
+  if (phase_ != ComputeHostPhase::Running) {
+    return false;
+  }
+  phase_ = ComputeHostPhase::Draining;
+  return true;
+}
+
+ComputeHostCloseClaim ComputeHostLifecycle::claim_close() noexcept {
+  switch (phase_) {
+  case ComputeHostPhase::Constructing:
+  case ComputeHostPhase::Configured:
+    phase_ = ComputeHostPhase::Retiring;
+    return ComputeHostCloseClaim::Own;
+  case ComputeHostPhase::Running:
+  case ComputeHostPhase::Draining:
+    phase_ = ComputeHostPhase::Closing;
+    return ComputeHostCloseClaim::Own;
+  case ComputeHostPhase::Closing:
+  case ComputeHostPhase::Retiring:
+    return ComputeHostCloseClaim::Wait;
+  case ComputeHostPhase::Closed:
+    return ComputeHostCloseClaim::Closed;
+  }
+}
+
+void ComputeHostLifecycle::begin_retirement() noexcept {
+  if (phase_ == ComputeHostPhase::Closing) {
+    phase_ = ComputeHostPhase::Retiring;
+  }
+}
+
+void ComputeHostLifecycle::publish_closed() noexcept {
+  phase_ = ComputeHostPhase::Closed;
+}
+
 void BindLifecycle(const std::shared_ptr<ComputeHostState> &host,
                    const ComputeHostState::TaskControl cancel,
                    const ComputeHostState::TaskControl retire) noexcept {
@@ -9,7 +87,7 @@ void BindLifecycle(const std::shared_ptr<ComputeHostState> &host,
     return;
   }
   const std::lock_guard lock{host->mutex};
-  if (host->terminalizing || host->terminal_closed) {
+  if (!host->lifecycle.bindable()) {
     return;
   }
   host->cancel_tasks = cancel;
@@ -24,12 +102,8 @@ void StopAdmission(const std::shared_ptr<ComputeHostState> &host) noexcept {
   ComputeHostState::CompileControl control_compile = nullptr;
   {
     const std::lock_guard lock{host->mutex};
-    if (!host->accepting) {
+    if (!host->lifecycle.stop()) {
       return;
-    }
-    host->accepting = false;
-    if (!host->closed && !host->terminalizing && !host->terminal_closed) {
-      host->reject_reason = compute::Reason::RuntimeDraining;
     }
     compile_service = host->compile_service;
     control_compile = host->control_compile;
@@ -46,14 +120,14 @@ void CloseHost(const std::shared_ptr<ComputeHostState> &host) noexcept {
   StopAdmission(host);
   {
     std::unique_lock lock{host->mutex};
-    if (host->terminal_closed) {
+    const ComputeHostCloseClaim claim = host->lifecycle.claim_close();
+    if (claim == ComputeHostCloseClaim::Closed) {
       return;
     }
-    if (host->terminalizing) {
-      host->drained.wait(lock, [&] { return host->terminal_closed; });
+    if (claim == ComputeHostCloseClaim::Wait) {
+      host->drained.wait(lock, [&] { return host->lifecycle.closed(); });
       return;
     }
-    host->terminalizing = true;
   }
   std::shared_ptr<compute::detail::CompileService> compile_service{};
   ComputeHostState::CompileControl control_compile = nullptr;
@@ -69,13 +143,11 @@ void CloseHost(const std::shared_ptr<ComputeHostState> &host) noexcept {
   ComputeHostState::TaskControl retire = nullptr;
   for (;;) {
     std::unique_lock lock{host->mutex};
-    if (host->terminal_closed) {
+    if (host->lifecycle.closed()) {
       return;
     }
-    host->accepting = false;
     if (host->outstanding == 0u) {
-      host->closed = true;
-      host->reject_reason = compute::Reason::RuntimeNotRunning;
+      host->lifecycle.begin_retirement();
       retire = host->retire_tasks;
       break;
     }
@@ -86,8 +158,9 @@ void CloseHost(const std::shared_ptr<ComputeHostState> &host) noexcept {
     }
     lock.lock();
     host->drained.wait(
-        lock, [&] { return host->outstanding == 0u || host->terminal_closed; });
-    if (host->terminal_closed) {
+        lock,
+        [&] { return host->outstanding == 0u || host->lifecycle.closed(); });
+    if (host->lifecycle.closed()) {
       return;
     }
   }
@@ -112,8 +185,7 @@ void CloseHost(const std::shared_ptr<ComputeHostState> &host) noexcept {
     host->retire_tasks = nullptr;
     host->compile_service.reset();
     host->control_compile = nullptr;
-    host->terminalizing = false;
-    host->terminal_closed = true;
+    host->lifecycle.publish_closed();
   }
   host->drained.notify_all();
 }

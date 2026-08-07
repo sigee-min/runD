@@ -65,6 +65,47 @@ enum class CompileAction : std::uint8_t {
   Close,
 };
 
+enum class ComputeHostPhase : std::uint8_t {
+  Constructing,
+  Configured,
+  Running,
+  Draining,
+  Closing,
+  Retiring,
+  Closed,
+};
+
+enum class ComputeHostAdmission : std::uint8_t {
+  Open,
+  Draining,
+  Standby,
+  Offline,
+};
+
+enum class ComputeHostCloseClaim : std::uint8_t {
+  Own,
+  Wait,
+  Closed,
+};
+
+class ComputeHostLifecycle final {
+public:
+  [[nodiscard]] ComputeHostPhase phase() const noexcept { return phase_; }
+  [[nodiscard]] ComputeHostAdmission admission() const noexcept;
+  [[nodiscard]] bool bindable() const noexcept;
+  [[nodiscard]] bool closed() const noexcept;
+
+  [[nodiscard]] bool configure() noexcept;
+  [[nodiscard]] bool start() noexcept;
+  [[nodiscard]] bool stop() noexcept;
+  [[nodiscard]] ComputeHostCloseClaim claim_close() noexcept;
+  void begin_retirement() noexcept;
+  void publish_closed() noexcept;
+
+private:
+  ComputeHostPhase phase_ = ComputeHostPhase::Constructing;
+};
+
 struct ComputeWorkerBatch;
 
 struct ComputeWorkerSlot final {
@@ -115,10 +156,7 @@ struct ComputeHostState final {
   std::vector<std::unique_ptr<compute_detail::TaskState>> tasks{};
   std::size_t outstanding{};
   bool scope_active = false;
-  bool configured = false;
-  bool accepting = false;
-  bool closed = false;
-  compute::Reason reject_reason{compute::Reason::RuntimeNotRunning};
+  ComputeHostLifecycle lifecycle{};
   void *signal_context = nullptr;
   Signal signal = nullptr;
   void *emit_context = nullptr;
@@ -126,8 +164,6 @@ struct ComputeHostState final {
   TaskControl cancel_tasks = nullptr;
   TaskControl retire_tasks = nullptr;
   CompileControl control_compile = nullptr;
-  bool terminalizing = false;
-  bool terminal_closed = false;
 };
 
 void BindLifecycle(const std::shared_ptr<ComputeHostState> &host,

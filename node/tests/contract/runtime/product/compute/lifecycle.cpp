@@ -134,10 +134,20 @@ int RunRuntimeComputeLifecycleContract() {
       disabled_trace, rund::TraceEvent::TelemetrySkipped));
 
   TEST_ASSERT(session.drain().ok());
+  const auto draining_device = rund::compute::open(
+      session, rund::compute::Target::cpu(2u));
+  TEST_ASSERT(!draining_device);
+  TEST_ASSERT(draining_device.reason() ==
+              rund::compute::Reason::RuntimeDraining);
   const auto draining = session.compute(*job).submit().wait();
   TEST_ASSERT(!draining);
   TEST_ASSERT(draining.error() == std::string_view{"compute_runtime_draining"});
   TEST_ASSERT(session.close().ok());
+  const auto stopped_device = rund::compute::open(
+      session, rund::compute::Target::cpu(2u));
+  TEST_ASSERT(!stopped_device);
+  TEST_ASSERT(stopped_device.reason() ==
+              rund::compute::Reason::RuntimeNotRunning);
   const auto stopped = session.compute(*job).submit().wait();
   TEST_ASSERT(!stopped);
   TEST_ASSERT(stopped.error() == std::string_view{"compute_runtime_missing"});
@@ -157,23 +167,41 @@ int RunRuntimeComputeLifecycleContract() {
       std::unique_lock lock{gate.mutex};
       gate.changed.wait(lock, [&] { return gate.entered; });
     }
-    CloseObservation close{};
-    std::thread closer{[&] {
+    CloseObservation first_close{};
+    CloseObservation second_close{};
+    std::thread first_closer{[&] {
       {
-        std::lock_guard lock{close.mutex};
-        close.started = true;
+        std::lock_guard lock{first_close.mutex};
+        first_close.started = true;
       }
-      close.changed.notify_all();
-      close.status = active.close();
+      first_close.changed.notify_all();
+      first_close.status = active.close();
       {
-        std::lock_guard lock{close.mutex};
-        close.returned = true;
+        std::lock_guard lock{first_close.mutex};
+        first_close.returned = true;
       }
-      close.changed.notify_all();
+      first_close.changed.notify_all();
+    }};
+    std::thread second_closer{[&] {
+      {
+        std::lock_guard lock{second_close.mutex};
+        second_close.started = true;
+      }
+      second_close.changed.notify_all();
+      second_close.status = active.close();
+      {
+        std::lock_guard lock{second_close.mutex};
+        second_close.returned = true;
+      }
+      second_close.changed.notify_all();
     }};
     {
-      std::unique_lock lock{close.mutex};
-      close.changed.wait(lock, [&] { return close.started; });
+      std::unique_lock lock{first_close.mutex};
+      first_close.changed.wait(lock, [&] { return first_close.started; });
+    }
+    {
+      std::unique_lock lock{second_close.mutex};
+      second_close.changed.wait(lock, [&] { return second_close.started; });
     }
     while (active.snapshot().state == rund::SessionState::Running) {
       std::this_thread::yield();
@@ -182,8 +210,12 @@ int RunRuntimeComputeLifecycleContract() {
     TEST_ASSERT(active_snapshot.state == rund::SessionState::Draining);
     TEST_ASSERT(active_snapshot.active_compute_jobs == 1u);
     {
-      std::lock_guard lock{close.mutex};
-      TEST_ASSERT(!close.returned);
+      std::lock_guard lock{first_close.mutex};
+      TEST_ASSERT(!first_close.returned);
+    }
+    {
+      std::lock_guard lock{second_close.mutex};
+      TEST_ASSERT(!second_close.returned);
     }
     const auto late = active.compute(*late_job).submit().wait();
     TEST_ASSERT(!late);
@@ -193,9 +225,12 @@ int RunRuntimeComputeLifecycleContract() {
       gate.release = true;
     }
     gate.changed.notify_all();
-    closer.join();
-    TEST_ASSERT(close.status);
-    TEST_ASSERT(close.status.state() == rund::SessionState::Stopped);
+    first_closer.join();
+    second_closer.join();
+    TEST_ASSERT(first_close.status);
+    TEST_ASSERT(first_close.status.state() == rund::SessionState::Stopped);
+    TEST_ASSERT(second_close.status);
+    TEST_ASSERT(second_close.status.state() == rund::SessionState::Stopped);
     TEST_ASSERT(active_task.wait());
     TEST_ASSERT(active.snapshot().state == rund::SessionState::Stopped);
   }

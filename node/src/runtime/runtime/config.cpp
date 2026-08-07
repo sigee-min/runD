@@ -144,7 +144,9 @@ using runtime_detail::RuntimeActiveScope;
     return LifecycleFail(ReasonCode::TaskSchedulerAllocationFailed,
                          state_->lifecycle);
   }
-  compute_host->configured = true;
+  if (!compute_host->lifecycle.configure()) {
+    return LifecycleFail(ReasonCode::NotRunnable, state_->lifecycle);
+  }
 
   state_->id = options.id;
   state_->resources = std::move(resources);

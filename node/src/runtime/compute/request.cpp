@@ -28,6 +28,20 @@ ComputeHostFrom(const std::weak_ptr<void> &host) noexcept {
   return static_cast<ComputeState *>(state);
 }
 
+[[nodiscard]] Reason SubmissionAdmissionFailure(
+    const node::runtime_detail::ComputeHostAdmission admission) noexcept {
+  switch (admission) {
+  case node::runtime_detail::ComputeHostAdmission::Open:
+    return Reason::Ok;
+  case node::runtime_detail::ComputeHostAdmission::Draining:
+    return Reason::RuntimeDraining;
+  case node::runtime_detail::ComputeHostAdmission::Standby:
+    return Reason::RuntimeNotRunning;
+  case node::runtime_detail::ComputeHostAdmission::Offline:
+    return Reason::RuntimeMissing;
+  }
+}
+
 void RetireCompute(const std::shared_ptr<void> &host, void *state) noexcept {
   ComputeState *typed = ComputeStateFrom(state);
   node::Retire(ComputeHostFrom(host), typed);
@@ -59,11 +73,10 @@ Submission Request::submit() const noexcept {
   try {
     {
       std::lock_guard lock{host->mutex};
-      if (!host->configured || host->closed) {
-        return Submission{Status::fail(Reason::RuntimeMissing)};
-      }
-      if (!host->accepting) {
-        return Submission{Status::fail(host->reject_reason)};
+      const Reason rejected =
+          SubmissionAdmissionFailure(host->lifecycle.admission());
+      if (rejected != Reason::Ok) {
+        return Submission{Status::fail(rejected)};
       }
       if (host->scope_active && !node::OwnsSchedulerControl(*host)) {
         return Submission{Status::fail(Reason::RuntimeBusy)};

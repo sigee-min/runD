@@ -111,10 +111,12 @@ Running Session behind. A repeated `open()` delegates to the Runtime lifecycle
 owner, which returns `AlreadyConfigured` with the synchronized actual state;
 Session does not infer configuration from pointer presence.
 
-The lifecycle enum is the sole configuration authority. A second `configured`
-bit is forbidden because it would permit disagreement with the five-state
-machine. The Compute host's internal prepared flag is separate: it describes
-that host object's Scheduler preparation, not Session lifecycle.
+The Session lifecycle enum is the sole Session-configuration authority. A
+second Session `configured` bit is forbidden because it would permit
+disagreement with the five-state machine. The source-private Compute host has
+one separate phase value for the lifetime of its prepared Scheduler and
+admission resources. That phase cannot be used to infer or publish Session
+lifecycle.
 
 ## Lifecycle And Snapshot
 
@@ -339,8 +341,35 @@ host completion condition, then retires tasks, drains the compilation service,
 resets the Scheduler, and detaches callbacks exactly once. Admission continues
 to report `RuntimeDraining` until terminal teardown changes the host to not
 running. An already terminal host is an idempotent no-op. Runtime lifecycle
-code does not mirror the host's `closed` flag, cancellation loop, retirement
-loop, Scheduler reset, or callback detachment.
+code does not mirror the host phase, cancellation loop, retirement loop,
+Scheduler reset, or callback detachment.
+
+Configuration commit advances one source-private host phase while the host is
+still exclusively owned. After publication, the host mutex protects every
+phase read and transition:
+
+```text
+Constructing -> Configured -> Running -> Draining -> Closing -> Retiring -> Closed
+Constructing -------------------------------------------------> Retiring
+Configured --------------------------------------------------> Retiring
+```
+
+The direct transition to `Retiring` is teardown of a host that was never
+started. `Running` is the only open admission phase. `Draining` and `Closing`
+reject admission as `RuntimeDraining`; `Configured` is a not-yet-running
+standby phase; `Constructing`, `Retiring`, and `Closed` are offline. Submission
+projects standby to `RuntimeNotRunning` and offline to `RuntimeMissing`.
+Session-bound device opening projects both standby and offline to
+`RuntimeNotRunning`. These boundary-specific projections preserve the public
+distinction without storing a second rejection reason in the host.
+
+The first terminal caller changes `Draining` to `Closing` while holding the
+host mutex and thereby owns cancellation and teardown. Concurrent terminal
+callers that observe `Closing` or `Retiring` wait for the same `Closed`
+publication. Reaching zero outstanding work changes `Closing` to `Retiring`
+before task retirement, compile-service close, Scheduler reset, and callback
+detachment. Publishing `Closed` and notifying the host condition variable is
+the only terminal completion boundary.
 
 Terminal Compute status and statistics cross the source-private synchronous
 telemetry projection by constant reference. The completion owner writes the

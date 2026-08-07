@@ -16,6 +16,19 @@ namespace rund::compute::detail {
 
 namespace {
 
+[[nodiscard]] Reason DeviceAdmissionFailure(
+    const node::runtime_detail::ComputeHostAdmission admission) noexcept {
+  switch (admission) {
+  case node::runtime_detail::ComputeHostAdmission::Open:
+    return Reason::Ok;
+  case node::runtime_detail::ComputeHostAdmission::Draining:
+    return Reason::RuntimeDraining;
+  case node::runtime_detail::ComputeHostAdmission::Standby:
+  case node::runtime_detail::ComputeHostAdmission::Offline:
+    return Reason::RuntimeNotRunning;
+  }
+}
+
 void ControlCompile(const std::shared_ptr<CompileService> &service,
                     const node::runtime_detail::CompileAction action) noexcept {
   if (service == nullptr) {
@@ -55,12 +68,9 @@ open_session_config(::rund::Session &session, const Target target,
   std::shared_ptr<CompileService> service{};
   {
     std::lock_guard lock{host->mutex};
-    if (!host->configured || host->closed || host->terminal_closed) {
-      return Result<std::shared_ptr<DeviceState>>::fail(
-          Reason::RuntimeNotRunning);
-    }
-    if (!host->accepting) {
-      return Result<std::shared_ptr<DeviceState>>::fail(host->reject_reason);
+    const Reason rejected = DeviceAdmissionFailure(host->lifecycle.admission());
+    if (rejected != Reason::Ok) {
+      return Result<std::shared_ptr<DeviceState>>::fail(rejected);
     }
     host_workers = host->workers;
     if (target.backend() == Backend::Cpu && target.workers() != 0u &&
@@ -93,14 +103,11 @@ open_session_config(::rund::Session &session, const Target target,
   compute::Reason rejected = Reason::Ok;
   {
     std::lock_guard lock{host->mutex};
-    if (!host->configured || host->closed || host->terminal_closed) {
-      rejected = Reason::RuntimeNotRunning;
-    } else if (!host->accepting) {
-      rejected = host->reject_reason;
-    } else if (host->compile_service == nullptr) {
+    rejected = DeviceAdmissionFailure(host->lifecycle.admission());
+    if (rejected == Reason::Ok && host->compile_service == nullptr) {
       host->compile_service = service;
       host->control_compile = ControlCompile;
-    } else {
+    } else if (rejected == Reason::Ok) {
       service = host->compile_service;
     }
   }

@@ -22,12 +22,13 @@ using runtime_detail::RuntimeActiveScope;
   if (state_->lifecycle != ::rund::SessionState::Configured) {
     return LifecycleFail(ReasonCode::NotRunnable, state_->lifecycle);
   }
-  state_->lifecycle = ::rund::SessionState::Running;
   if (state_->compute_host != nullptr) {
     std::lock_guard host_lock{state_->compute_host->mutex};
-    state_->compute_host->accepting = true;
-    state_->compute_host->reject_reason = compute::Reason::RuntimeNotRunning;
+    if (!state_->compute_host->lifecycle.start()) {
+      return LifecycleFail(ReasonCode::NotRunnable, state_->lifecycle);
+    }
   }
+  state_->lifecycle = ::rund::SessionState::Running;
   state_->AddTrace(::rund::TraceEvent::RuntimeStarted,
                    ::rund::TraceCode::runtime(ReasonCode::Ok));
   return LifecyclePass(state_->lifecycle);
