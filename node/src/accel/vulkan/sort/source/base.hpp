@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../local/api.hpp"
+#include "../../../kernel/backend/source_recipe.hpp"
 #include "../../../sort/block/vulkan.hpp"
-#include "../../kernel/source_recipe.hpp"
+#include "../local/api.hpp"
 #include "count.hpp"
 namespace rund::node::accel::detail {
 
@@ -15,11 +15,11 @@ VulkanSortKeyType(const rund::kernel::SortKey key) noexcept {
 template <typename Sink>
 [[nodiscard]] bool AppendVulkanSortBaseSource(
     Sink &sink, const rund::kernel::SortKey key,
-    const rund::kernel::u32 local_size, const bool chunked)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
+    const rund::kernel::u32 local_size,
+    const bool chunked) noexcept(noexcept(sink.append(std::string_view{}))) {
   const bool key64 = key == rund::kernel::SortKey::U64;
   const char *const key_type = VulkanSortKeyType(key);
-  VulkanSourceTextSink source{sink};
+  backend_source_recipe::SourceBuilder source{sink};
   source += "#version 450\n";
   source += "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : ";
   source += "require\n";
@@ -66,7 +66,7 @@ template <typename Sink>
   source += "params.pass_index + 1u == params.pass_count) { ";
   source += "bucket ^= 128u; }\n";
   source += "  return bucket;\n}\n";
-  return source.ok();
+  return source.valid();
 }
 #endif
 } // namespace rund::node::accel::detail

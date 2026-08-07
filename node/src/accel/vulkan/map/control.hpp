@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../kernel/backend/exception.hpp"
 #include "../../kernel/backend/run.hpp"
 #include "../../kernel/backend/source_recipe.hpp"
 #include "../buffer/create/telemetry.hpp"
@@ -13,8 +14,6 @@
 #include <array>
 #include <cstdint>
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -240,11 +239,8 @@ VulkanControlledMapArtifact(rund::kernel::LoweringArtifact artifact,
     artifact.key.variant = rund::kernel::LoweringArtifactVariant::Controlled;
     artifact.source_text_upper_bytes = source_upper;
     return artifact;
-  } catch (const std::bad_alloc &) {
-    artifact.ok = false;
-    artifact.reason = "compute_pipeline_capacity";
-    return artifact;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     artifact.ok = false;
     artifact.reason = "compute_pipeline_capacity";
     return artifact;

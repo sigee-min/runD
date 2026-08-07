@@ -1,5 +1,6 @@
 #include "local.hpp"
 
+#include "../exception.hpp"
 #include "../input/plan.hpp"
 #include <kernel/core/checked.hpp>
 
@@ -9,7 +10,6 @@
 #include <compare>
 #include <limits>
 #include <memory>
-#include <new>
 #include <utility>
 #include <vector>
 
@@ -63,14 +63,12 @@ prepare_scenario(Session &session, const Record &expected,
       const std::uint64_t replacement =
           static_cast<std::uint64_t>(choice.bytes().size());
       std::uint64_t next = 0u;
-      if (!rund::kernel::checked::add(replaced_bytes, match.bytes,
-                                            next)) {
+      if (!rund::kernel::checked::add(replaced_bytes, match.bytes, next)) {
         byte_count_overflow = true;
       } else {
         replaced_bytes = next;
       }
-      if (!rund::kernel::checked::add(replacement_bytes, replacement,
-                                            next)) {
+      if (!rund::kernel::checked::add(replacement_bytes, replacement, next)) {
         byte_count_overflow = true;
       } else {
         replacement_bytes = next;
@@ -131,7 +129,7 @@ prepare_scenario(Session &session, const Record &expected,
     std::uint64_t planned_bytes = 0u;
     if (byte_count_overflow || replaced_bytes > baseline_bytes ||
         !rund::kernel::checked::add(baseline_bytes - replaced_bytes,
-                                          replacement_bytes, planned_bytes)) {
+                                    replacement_bytes, planned_bytes)) {
       return ReplayScenarioPlan{.code = Code::ScenarioInputCapacityExceeded};
     }
     if (planned_bytes > scope::Access::capacity(session)) {
@@ -144,12 +142,13 @@ prepare_scenario(Session &session, const Record &expected,
         .code = Code::Ok,
         .bytes = planned_bytes,
     };
-  } catch (const std::bad_alloc &) {
-    return ReplayScenarioPlan{.code = Code::AllocationFailed};
-  } catch (const std::length_error &) {
-    return ReplayScenarioPlan{.code = Code::ScenarioInputCapacityExceeded};
   } catch (...) {
-    return ReplayScenarioPlan{.code = Code::ScenarioPrepareFailed};
+    return ReplayScenarioPlan{
+        .code = node::replay_detail::CurrentExceptionCode({
+            .bad_alloc = Code::AllocationFailed,
+            .length_error = Code::ScenarioInputCapacityExceeded,
+            .unexpected = Code::ScenarioPrepareFailed,
+        })};
   }
 }
 

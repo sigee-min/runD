@@ -1,5 +1,5 @@
+#include "../kernel/artifact.hpp"
 #include "local.hpp"
-#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/histogram/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -30,8 +30,8 @@ AcquireHistogramPipeline(VulkanAdapter &adapter,
   const rund::kernel::ComputePlan pseudo = PseudoHistogramPlan(desc, clear);
   std::string source = VulkanHistogramSource(clear);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

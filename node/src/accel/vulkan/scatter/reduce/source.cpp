@@ -1,7 +1,7 @@
 #include "model.hpp"
 
+#include "../../../kernel/backend/source_recipe.hpp"
 #include "../../../scatter/reduce/model.hpp"
-#include "../../kernel/source_recipe.hpp"
 
 #include <cstdint>
 #include <string>
@@ -15,17 +15,16 @@ namespace {
 template <typename Sink>
 [[nodiscard]] bool EmitDeclarations(
     Sink &sink, const rund::kernel::ScatterReducePlan &plan,
-    const std::uint32_t local_width)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
+    const std::uint32_t
+        local_width) noexcept(noexcept(sink.append(std::string_view{}))) {
   const bool signed_atomic =
       rund::kernel::ScatterReduceFoldParallel(plan) &&
       plan.op != rund::kernel::ScatterReduceOp::Sum &&
       (plan.domain == rund::kernel::ComputeDomain::I32 ||
        plan.domain == rund::kernel::ComputeDomain::Fixed);
-  const char *const bits = plan.element_bytes == 8u
-                               ? "uint64_t"
-                               : (signed_atomic ? "int" : "uint");
-  VulkanSourceTextSink source{sink};
+  const char *const bits =
+      plan.element_bytes == 8u ? "uint64_t" : (signed_atomic ? "int" : "uint");
+  backend_source_recipe::SourceBuilder source{sink};
   source += "#version 450\n";
   source +=
       "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n";
@@ -64,25 +63,25 @@ uint64_t logical_count() {
          (uint64_t(count_words[params.count_base + 1u]) << 32u);
 }
 )GLSL";
-  return source.ok();
+  return source.valid();
 }
 
-[[nodiscard]] const char *ScatterReduceIdentity(
-    const rund::kernel::ScatterReducePlan &plan, const bool wide,
-    const bool signed_value, const bool signed_atomic) noexcept {
+[[nodiscard]] const char *
+ScatterReduceIdentity(const rund::kernel::ScatterReducePlan &plan,
+                      const bool wide, const bool signed_value,
+                      const bool signed_atomic) noexcept {
   if (plan.op == rund::kernel::ScatterReduceOp::Min) {
     return signed_atomic
                ? "2147483647"
-               : (signed_value
-                      ? (wide ? "uint64_t(0x7ffffffffffffffful)"
-                              : "0x7fffffffu")
-                      : (wide ? "uint64_t(0xfffffffffffffffful)"
-                              : "0xffffffffu"));
+               : (signed_value ? (wide ? "uint64_t(0x7ffffffffffffffful)"
+                                       : "0x7fffffffu")
+                               : (wide ? "uint64_t(0xfffffffffffffffful)"
+                                       : "0xffffffffu"));
   }
   if (plan.op == rund::kernel::ScatterReduceOp::Max && signed_value) {
-    return signed_atomic ? "(-2147483647 - 1)"
-                         : (wide ? "uint64_t(0x8000000000000000ul)"
-                                 : "0x80000000u");
+    return signed_atomic
+               ? "(-2147483647 - 1)"
+               : (wide ? "uint64_t(0x8000000000000000ul)" : "0x80000000u");
   }
   return wide ? "uint64_t(0u)" : "0u";
 }
@@ -90,9 +89,9 @@ uint64_t logical_count() {
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanScatterReduceSource(
     Sink &sink, const rund::kernel::ScatterReducePlan &plan,
-    const VulkanScatterReduceStage stage)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink source{sink};
+    const VulkanScatterReduceStage
+        stage) noexcept(noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder source{sink};
   if (stage == VulkanScatterReduceStage::Control) {
     if (!EmitDeclarations(sink, plan, kScatterReduceWidth)) {
       return false;
@@ -148,7 +147,7 @@ void main() {
                   ? "  indirect_args[3] = uint((logical + 255u) / 256u);\n"
                   : "  indirect_args[3] = 1u;\n";
     source += "}\n";
-    return source.ok();
+    return source.valid();
   }
 
   const bool wide = plan.element_bytes == 8u;
@@ -162,8 +161,7 @@ void main() {
   const bool signed_atomic = parallel_fold &&
                              plan.op != rund::kernel::ScatterReduceOp::Sum &&
                              signed_value;
-  const char *const bits =
-      wide ? "uint64_t" : (signed_atomic ? "int" : "uint");
+  const char *const bits = wide ? "uint64_t" : (signed_atomic ? "int" : "uint");
   const char *const signed_bits = wide ? "int64_t" : "int";
   const char *const max_bits =
       wide ? "uint64_t(0x7ffffffffffffffful)" : "0x7fffffffu";
@@ -185,11 +183,10 @@ void main() {
   counts[target] = 0u;
 }
 )GLSL";
-    return source.ok();
+    return source.valid();
   }
 
-  if (!EmitDeclarations(sink, plan,
-                        parallel_fold ? kScatterReduceWidth : 1u)) {
+  if (!EmitDeclarations(sink, plan, parallel_fold ? kScatterReduceWidth : 1u)) {
     return false;
   }
   source += bits;
@@ -278,7 +275,7 @@ void main() {
 )GLSL";
   }
   source += "}\n";
-  return source.ok();
+  return source.valid();
 }
 
 } // namespace
@@ -287,8 +284,8 @@ std::string
 VulkanScatterReduceSource(const rund::kernel::ScatterReducePlan &plan,
                           const VulkanScatterReduceStage stage) {
   std::uint64_t exact_bytes = 0u;
-  const auto emit = [&](auto &sink)
-      noexcept(noexcept(EmitVulkanScatterReduceSource(sink, plan, stage))) {
+  const auto emit = [&](auto &sink) noexcept(noexcept(
+                        EmitVulkanScatterReduceSource(sink, plan, stage))) {
     return EmitVulkanScatterReduceSource(sink, plan, stage);
   };
   return backend_source_recipe::bytes(emit, exact_bytes)
@@ -296,11 +293,11 @@ VulkanScatterReduceSource(const rund::kernel::ScatterReducePlan &plan,
              : std::string{};
 }
 
-bool VulkanScatterReduceSourceBytes(
-    const rund::kernel::ScatterReducePlan &plan,
-    const VulkanScatterReduceStage stage, std::uint64_t &bytes) noexcept {
-  const auto emit = [&](auto &sink)
-      noexcept(noexcept(EmitVulkanScatterReduceSource(sink, plan, stage))) {
+bool VulkanScatterReduceSourceBytes(const rund::kernel::ScatterReducePlan &plan,
+                                    const VulkanScatterReduceStage stage,
+                                    std::uint64_t &bytes) noexcept {
+  const auto emit = [&](auto &sink) noexcept(noexcept(
+                        EmitVulkanScatterReduceSource(sink, plan, stage))) {
     return EmitVulkanScatterReduceSource(sink, plan, stage);
   };
   return backend_source_recipe::bytes(emit, bytes);

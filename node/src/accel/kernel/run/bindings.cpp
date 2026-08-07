@@ -1,6 +1,7 @@
 #include "bindings.hpp"
 
 #include "../../context/shared.hpp"
+#include "../backend/exception.hpp"
 #include "../reset/overlap.hpp"
 #include "../reset/proof.hpp"
 #include "shape.hpp"
@@ -11,9 +12,7 @@
 #include <accel/kernel/run/binding.hpp>
 #include <kernel/core/checked.hpp>
 
-#include <new>
 #include <optional>
-#include <stdexcept>
 #include <tuple>
 #include <utility>
 
@@ -156,10 +155,11 @@ ResetBindBuild BuildResetBinds(const KernelExecution &execution,
       result.reason = proved.check.reason;
       return result;
     }
-    std::optional<BoundReset> sealed = BoundReset::Seal(
-        source_ref, std::move(handle), proved.range, reset.binding, reset.step,
-        reset.last, execution.graph_visibilities[reset.binding] ==
-                        rund::GraphBufferVisibility::External);
+    std::optional<BoundReset> sealed =
+        BoundReset::Seal(source_ref, std::move(handle), proved.range,
+                         reset.binding, reset.step, reset.last,
+                         execution.graph_visibilities[reset.binding] ==
+                             rund::GraphBufferVisibility::External);
     if (!sealed.has_value()) {
       return result;
     }
@@ -174,9 +174,8 @@ ResetBindBuild BuildResetBinds(const KernelExecution &execution,
     result.reason = "ok";
   }
   return result;
-} catch (const std::bad_alloc &) {
-  return {};
-} catch (const std::length_error &) {
+} catch (...) {
+  backend_exception::RethrowUnlessCapacityException();
   return {};
 }
 

@@ -259,8 +259,12 @@ fails closed rather than silently recording the slower recurrence.
 The recurrence transform is one ordered edit recipe over the canonical source.
 Its allocation-free counting sink and one-reserve materialization sink consume
 the same fragments and branches; a separate source-size formula is not an
-authority. The frozen recurrence upper is the recipe's exact emitted byte
-count plus the canonical artifact's already-proved constant-literal growth
+authority. `node/src/accel/kernel/backend/source_recipe.hpp` is the sole
+source-recipe implementation owner, including the failure-latching
+`SourceBuilder` used by backend-authored sources; a backend-local text builder
+or forwarding recipe header is not an authority. The frozen recurrence upper
+is the recipe's exact emitted byte count plus the canonical artifact's
+already-proved constant-literal growth
 envelope, with checked addition. Only the final source, non-canonical variant
 key, and upper are committed, so a rejected edit, count, allocation, or
 materialization leaves the canonical artifact byte-for-byte unchanged. The
@@ -2481,6 +2485,15 @@ Program node may still identify its template/occurrence and nested route, and
 must never fabricate a missing coordinate.
 Public, resident, and Pipeline-private Jobs share one `finish_prepare`
 projection, so every failed `Result` preserves an available Program node.
+
+Vulkan capacity exceptions are projected once at the complete backend prepare
+boundary. The still-live failure context retains the last authoritative stage
+and route while the partially built Pipeline unwinds through its native RAII
+owner; the boundary then attaches `compute_pipeline_capacity` as the native
+reason key. Helper functions neither repeat the exception-type ladder nor own
+a competing failure projection. Resource-local boundaries remain only when a
+`noexcept` callback must return a boolean or when descriptor failure has a
+different semantic reason.
 
 On GPU, later commands may have physically executed after the first semantic
 failure. Their outputs remain poisoned and are never described as published.

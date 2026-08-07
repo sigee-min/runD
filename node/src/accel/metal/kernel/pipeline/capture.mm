@@ -1,12 +1,13 @@
 #include "capture.hpp"
 
+#include "../../../kernel/backend/exception.hpp"
+
 #include <kernel/core/checked.hpp>
 
 #include <algorithm>
 #include <bit>
 #include <cstring>
 #include <limits>
-#include <stdexcept>
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 namespace rund::node::accel::detail {
@@ -183,12 +184,9 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
         .owner = capture.owner,
     };
     capture.commands.push_back(std::move(command));
-  } catch (const std::bad_alloc &) {
-    capture.command_bindings.resize(binding_begin);
-    capture.capacity_failed = true;
-    capture.failed = true;
-    return;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    ::rund::node::accel::detail::backend_exception::
+        RethrowUnlessCapacityException();
     capture.command_bindings.resize(binding_begin);
     capture.capacity_failed = true;
     capture.failed = true;
@@ -291,11 +289,9 @@ using rund::node::accel::detail::MetalGrid;
     const auto *const begin = static_cast<const std::byte *>(bytes);
     _capture->parameters.insert(_capture->parameters.end(), begin,
                                 begin + length);
-  } catch (const std::bad_alloc &) {
-    _capture->capacity_failed = true;
-    _capture->failed = true;
-    return;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    ::rund::node::accel::detail::backend_exception::
+        RethrowUnlessCapacityException();
     _capture->capacity_failed = true;
     _capture->failed = true;
     return;

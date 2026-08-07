@@ -1,6 +1,7 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../kernel/backend/exception.hpp"
 #include "../../kernel/backend/template_plan.hpp"
 #include "../../kernel/prepared/template_registry.hpp"
 #include "../compact/local.hpp"
@@ -36,7 +37,6 @@
 #include <functional>
 #include <limits>
 #include <new>
-#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -81,9 +81,8 @@ DescribePreparedVulkanViewSetCount(const VulkanKernelResources &resources,
 [[nodiscard]] bool
 MatchVulkanProgramTemplate(const void *const prepared,
                            const void *const probe) noexcept {
-  if (prepared == nullptr ||
-      VulkanKernelTemplateKindOf(prepared) !=
-          VulkanKernelTemplateKind::Program) {
+  if (prepared == nullptr || VulkanKernelTemplateKindOf(prepared) !=
+                                 VulkanKernelTemplateKind::Program) {
     return false;
   }
   const auto *const program =
@@ -735,10 +734,8 @@ FinalizeVulkanDescriptorDependencies(VulkanAdapter &adapter,
   try {
     program = std::make_shared<VulkanKernelProgramTemplate>();
     program->steps.resize(step_count);
-  } catch (const std::bad_alloc &) {
-    RecordNode(failed_node, steps[0]);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     RecordNode(failed_node, steps[0]);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
@@ -786,10 +783,8 @@ FinalizeVulkanDescriptorDependencies(VulkanAdapter &adapter,
   try {
     program->descriptor_dependencies.reserve(
         static_cast<std::size_t>(descriptor_dependency_capacity));
-  } catch (const std::bad_alloc &) {
-    RecordNode(failed_node, steps[0]);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     RecordNode(failed_node, steps[0]);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }

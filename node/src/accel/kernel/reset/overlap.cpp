@@ -1,10 +1,10 @@
 #include "overlap.hpp"
 
+#include "../backend/exception.hpp"
+
 #include <algorithm>
 #include <functional>
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -217,9 +217,8 @@ bool Compatible(const std::span<const BoundReset> resets) noexcept try {
     group = end;
   }
   return true;
-} catch (const std::bad_alloc &) {
-  return false;
-} catch (const std::length_error &) {
+} catch (...) {
+  backend_exception::RethrowUnlessCapacityException();
   return false;
 }
 

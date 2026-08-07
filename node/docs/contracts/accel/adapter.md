@@ -167,6 +167,10 @@ Core minimum, without a device-specific schedule. The map tile bound is
 limits the chosen window by actual staging bytes per tile. Node does not clamp
 or invent a smaller fixed tile window, and collective encoders continue to
 chunk their own shapes against the same frozen device fact.
+Backend-authored Vulkan collective source enters the executable cache through
+the single `node/src/accel/vulkan/kernel/artifact.hpp` factory. That factory
+constructs the complete key and artifact together; there is no separately
+callable backend key builder and no Vulkan-local source-recipe wrapper.
 `spirv-val` is recorded and used when available, but absence of `spirv-val`
 does not make an otherwise valid Vulkan adapter unavailable. It reports
 SDK-free `AccelBackendInfo` with the Vulkan device name and, when Vulkan driver

@@ -2,6 +2,7 @@
 
 #include <rund/compute/flow.hpp>
 
+#include <exception>
 #include <functional>
 #include <future>
 #include <memory>
@@ -26,6 +27,25 @@ flow_reason(const std::shared_ptr<FlowState> &flow) noexcept;
 [[nodiscard]] Status enqueue_compile(const std::shared_ptr<FlowState> &flow,
                                      CompileFactory factory) noexcept;
 
+// Async compilation has one C++ exception-type projection. Each boundary
+// still owns its result type and rollback (future/task reset or reservation
+// cancellation); only the stable Reason selection is shared.
+[[nodiscard]] inline Reason async_compile_exception_reason() noexcept {
+  const std::exception_ptr error = std::current_exception();
+  if (error == nullptr) {
+    return Reason::ProgramCompileException;
+  }
+  try {
+    std::rethrow_exception(error);
+  } catch (const std::bad_alloc &) {
+    return Reason::AsyncCompileUnavailable;
+  } catch (const std::system_error &) {
+    return Reason::AsyncCompileUnavailable;
+  } catch (...) {
+    return Reason::ProgramCompileException;
+  }
+}
+
 template <class Flow> struct AsyncCompileFactory final {
   using CompileResult = decltype(std::declval<Flow &&>().compile());
   using Future = std::future<CompileResult>;
@@ -41,30 +61,18 @@ template <class Flow> struct AsyncCompileFactory final {
           [recipe = std::move(pending.recipe)]() mutable {
             try {
               return std::move(recipe).compile();
-            } catch (const std::bad_alloc &) {
-              return CompileResult::fail(Reason::AsyncCompileUnavailable);
-            } catch (const std::system_error &) {
-              return CompileResult::fail(Reason::AsyncCompileUnavailable);
             } catch (...) {
-              return CompileResult::fail(Reason::ProgramCompileException);
+              return CompileResult::fail(async_compile_exception_reason());
             }
           });
       Future future = task->get_future();
       out = [task = std::move(task)] { (*task)(); };
       pending.future = std::move(future);
       return Status::success();
-    } catch (const std::bad_alloc &) {
-      out = {};
-      pending.future = Future{};
-      return Status::fail(Reason::AsyncCompileUnavailable);
-    } catch (const std::system_error &) {
-      out = {};
-      pending.future = Future{};
-      return Status::fail(Reason::AsyncCompileUnavailable);
     } catch (...) {
       out = {};
       pending.future = Future{};
-      return Status::fail(Reason::ProgramCompileException);
+      return Status::fail(async_compile_exception_reason());
     }
   }
 };
@@ -93,12 +101,8 @@ template <class Flow>
       return Result<Future>::fail(Reason::ProgramCompileException);
     }
     return Result<Future>::success(std::move(pending.future));
-  } catch (const std::bad_alloc &) {
-    return Result<Future>::fail(Reason::AsyncCompileUnavailable);
-  } catch (const std::system_error &) {
-    return Result<Future>::fail(Reason::AsyncCompileUnavailable);
   } catch (...) {
-    return Result<Future>::fail(Reason::ProgramCompileException);
+    return Result<Future>::fail(async_compile_exception_reason());
   }
 }
 

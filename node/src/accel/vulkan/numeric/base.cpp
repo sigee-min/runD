@@ -1,5 +1,5 @@
+#include "../../kernel/backend/source_recipe.hpp"
 #include "source.hpp"
-#include "../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/lowering/vulkan/fixed.hpp>
 
@@ -8,8 +8,8 @@ namespace rund::node::accel::detail {
 namespace {
 
 template <typename Sink>
-[[nodiscard]] bool EmitParamsSource(Sink &sink)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
+[[nodiscard]] bool EmitParamsSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
   return sink.append(R"GLSL(
 #version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
@@ -38,12 +38,12 @@ layout(constant_id = 3) const uint RundFixedOverflow = 1u;
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitNumericBaseSource32(Sink &sink)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
+[[nodiscard]] bool EmitNumericBaseSource32(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
   if (!EmitParamsSource(sink)) {
     return false;
   }
-  VulkanSourceTextSink out{sink};
+  backend_source_recipe::SourceBuilder out{sink};
   rund::kernel::compute_lowering_detail::AppendVulkanFixedLane32Helpers(out);
   out += R"GLSL(
 
@@ -138,16 +138,16 @@ uint64_t midx(uint64_t r, uint64_t c, uint64_t rows, uint64_t cols,
 }
 uint ix(uint64_t value) { return uint(value); }
 )GLSL";
-  return out.ok();
+  return out.valid();
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitNumericBaseSource64(Sink &sink)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
+[[nodiscard]] bool EmitNumericBaseSource64(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
   if (!EmitParamsSource(sink)) {
     return false;
   }
-  VulkanSourceTextSink out{sink};
+  backend_source_recipe::SourceBuilder out{sink};
   rund::kernel::compute_lowering_detail::AppendVulkanFixedLane64Helpers(out);
   out += R"GLSL(
 uint64_t as_u64(int64_t value) { return uint64_t(value); }
@@ -253,14 +253,13 @@ uint64_t midx64(uint64_t r, uint64_t c, uint64_t rows, uint64_t cols,
 }
 uint ix64(uint64_t value) { return uint(value); }
 )GLSL";
-  return out.ok();
+  return out.valid();
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitNumericBase(Sink &sink, const bool wide)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  return wide ? EmitNumericBaseSource64(sink)
-              : EmitNumericBaseSource32(sink);
+[[nodiscard]] bool EmitNumericBase(Sink &sink, const bool wide) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  return wide ? EmitNumericBaseSource64(sink) : EmitNumericBaseSource32(sink);
 }
 
 } // namespace

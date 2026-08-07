@@ -1,6 +1,6 @@
-#include "model.hpp"
 #include "../../../domain.hpp"
-#include "../../kernel/source_recipe.hpp"
+#include "../../kernel/artifact.hpp"
+#include "model.hpp"
 
 #include <kernel/program/compute/segmented/reduce/identity.hpp>
 
@@ -33,42 +33,39 @@ PseudoPlan(const rund::kernel::SegmentedReduceDesc &desc,
       .op_hash_hi = hash.hi ^ (0x5345475245440000ull + salt),
       .op_hash_lo = hash.lo ^ (salt * 0x9e3779b97f4a7c15ull),
       .api = rund::kernel::ComputeApi::Vulkan,
-      .scalar = wide
-                    ? rund::kernel::ComputeScalar::Lane64
-                    : rund::kernel::ComputeScalar::Lane32,
+      .scalar = wide ? rund::kernel::ComputeScalar::Lane64
+                     : rund::kernel::ComputeScalar::Lane32,
       .domain = executable_domain,
       .ok = true,
       .reason = "ok",
   };
 }
 
-[[nodiscard]] VulkanCollectivePipeline *AcquireSource(
-    VulkanAdapter &adapter, const rund::kernel::SegmentedReduceDesc &desc,
-    const rund::kernel::ComputeDomain domain,
-    const VulkanSegmentedReduceStage stage, std::string source) {
+[[nodiscard]] VulkanCollectivePipeline *
+AcquireSource(VulkanAdapter &adapter,
+              const rund::kernel::SegmentedReduceDesc &desc,
+              const rund::kernel::ComputeDomain domain,
+              const VulkanSegmentedReduceStage stage, std::string source) {
   const rund::kernel::ComputePlan pseudo = PseudoPlan(desc, domain, stage);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }
-  return AcquireVulkanCollectivePipeline(adapter,
-                                         kVulkanSegmentedReduceBindings, 0u,
-                                         pseudo, artifact);
+  return AcquireVulkanCollectivePipeline(
+      adapter, kVulkanSegmentedReduceBindings, 0u, pseudo, artifact);
 }
 
 } // namespace
 
-VulkanCollectivePipeline *
-AcquireVulkanSegmentedReducePipeline(
+VulkanCollectivePipeline *AcquireVulkanSegmentedReducePipeline(
     VulkanAdapter &adapter, const rund::kernel::SegmentedReduceDesc &desc,
     const rund::kernel::SegmentedReducePlan &plan,
     const rund::kernel::ComputeDomain domain,
     const VulkanSegmentedReduceStage stage) {
-  return AcquireSource(
-      adapter, desc, domain, stage,
-      VulkanSegmentedReduceSource(plan, domain, stage));
+  return AcquireSource(adapter, desc, domain, stage,
+                       VulkanSegmentedReduceSource(plan, domain, stage));
 }
 
 #endif

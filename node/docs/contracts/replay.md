@@ -952,6 +952,15 @@ comparison, minimization, and checkpoint state adoption catch allocation
 failure and return `AllocationFailed`; an exception is never the fallback
 outcome channel:
 
+`node/src/runtime/replay/exception.hpp` is the sole C++ exception-type
+projection for Replay `noexcept` boundaries. Each boundary supplies its three
+semantic outcomes for `bad_alloc`, `length_error`, and an unexpected exception;
+the common projection inspects the active exception once and selects exactly
+one of those typed `Code` values. Checkpoint load, Record codec load, and
+Scenario preparation therefore keep their own domain-specific codes without
+repeating or drifting three independent catch ladders. Calling the projection
+without an active exception fails closed to that boundary's unexpected code.
+
 | Family | Required distinctions |
 | --- | --- |
 | Lifecycle | unopened, busy, reentry, not prepared, moved value, expired scope |
@@ -1016,8 +1025,9 @@ The implementation cut is owned by these paths:
 - replay product surface and values: `node/src/runtime/replay/surface/`,
   `node/src/runtime/replay/binding.cpp`,
   `node/src/runtime/replay/record/`, `node/src/runtime/replay/checkpoint.cpp`,
-  `node/src/runtime/replay/history.cpp`, `node/src/runtime/replay/hash.cpp`, and
-  `node/src/runtime/replay/codec/`;
+  `node/src/runtime/replay/history.cpp`, `node/src/runtime/replay/hash.cpp`,
+  `node/src/runtime/replay/exception.hpp` for the one exception-type-to-Code
+  projection, and `node/src/runtime/replay/codec/`;
 - transactional input and admission plan: `node/src/runtime/replay/input/` and
   `node/src/runtime/replay/scope/`;
 - scope identity and evidence: `node/src/runtime/task/scheduler/core/identity.cpp`,
@@ -1124,7 +1134,9 @@ P0 closes only when the following contracts pass on the same source manifest:
     before publication, and source/tests contain no stored or compared outcome
     reason strings. Trace root and snapshot retain exact `ReasonCode`; each
     record retains one exact Runtime-or-Compute `TraceCode`, and persistence
-    rejects unknown domains or values before publication;
+    rejects unknown domains or values before publication. The source-private
+    exception projection distinguishes allocation, length, and unexpected
+    exceptions according to the calling Replay boundary's supplied codes;
 18. input mismatch windows identify id, schema, sequence, byte length, and
     hash while retaining only bounded context; raw diagnostic captures expose
     exact immutable bytes after Record load without becoming simulation

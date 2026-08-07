@@ -1,7 +1,6 @@
 #include "reset.hpp"
 
-#include <new>
-#include <stdexcept>
+#include "../../kernel/backend/exception.hpp"
 
 namespace rund::node::accel::detail {
 namespace {
@@ -115,9 +114,8 @@ bool PlanResets(const std::span<const KernelExecutionStep> steps,
     plans.push_back(plan);
   }
   return true;
-} catch (const std::bad_alloc &) {
-  return false;
-} catch (const std::length_error &) {
+} catch (...) {
+  backend_exception::RethrowUnlessCapacityException();
   return false;
 }
 

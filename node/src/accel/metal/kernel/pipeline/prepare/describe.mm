@@ -1,10 +1,10 @@
 #include "../build.hpp"
 
+#include "../../../../kernel/backend/exception.hpp"
+
 #include <rund/counter.hpp>
 
 #include <limits>
-#include <new>
-#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -57,9 +57,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       }
       status_entry_count = status.status_entry_count;
       return rund::AccelCheck{true, "ok"};
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
@@ -112,9 +111,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
         pipeline->telemetry.capacity() != telemetry_capacity) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   // Describe immutable status and telemetry ownership exactly once per compact
@@ -170,9 +168,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
               .source = source,
               .owner = step->resource,
           });
-        } catch (const std::bad_alloc &) {
-          return rund::AccelCheck{false, "compute_pipeline_capacity"};
-        } catch (const std::length_error &) {
+        } catch (...) {
+          backend_exception::RethrowUnlessCapacityException();
           return rund::AccelCheck{false, "compute_pipeline_capacity"};
         }
         slice.count = 1u;
@@ -182,9 +179,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
       }
       try {
         telemetry_steps.push_back(slice);
-      } catch (const std::bad_alloc &) {
-        return rund::AccelCheck{false, "compute_pipeline_capacity"};
-      } catch (const std::length_error &) {
+      } catch (...) {
+        backend_exception::RethrowUnlessCapacityException();
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
     }
@@ -212,9 +208,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
                                     ? "compute_pipeline_capacity"
                                     : "accel_kernel_primitive_unsupported"};
       }
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     const std::size_t binding_size = status_bindings.size() - binding_begin;
@@ -384,9 +379,8 @@ rund::AccelCheck MetalPipelineBuild::Describe() {
     if (status_entries.capacity() != status_entry_count) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   std::size_t status_index = 0u;

@@ -5,11 +5,36 @@
 
 #include <array>
 #include <cstdint>
+#include <new>
 #include <span>
+#include <system_error>
 #include <vector>
 
 namespace node_compute_cache_contract {
 namespace {
+
+[[nodiscard]] bool async_exception_projection_is_canonical() {
+  using rund::compute::Reason;
+  using rund::compute::detail::async_compile_exception_reason;
+  if (async_compile_exception_reason() != Reason::ProgramCompileException) {
+    return false;
+  }
+  const auto project = [](const auto &raise) {
+    try {
+      raise();
+    } catch (...) {
+      return async_compile_exception_reason();
+    }
+    return Reason::Ok;
+  };
+  return project([] { throw std::bad_alloc{}; }) ==
+             Reason::AsyncCompileUnavailable &&
+         project([] {
+           throw std::system_error{
+               std::make_error_code(std::errc::resource_unavailable_try_again)};
+         }) == Reason::AsyncCompileUnavailable &&
+         project([] { throw 7; }) == Reason::ProgramCompileException;
+}
 
 [[nodiscard]] bool async_compile_coalesces(rund::compute::Device &device) {
   auto cache = rund::compute::program_cache(device, 4u);
@@ -65,6 +90,9 @@ async_allocation_failure_releases_capacity(rund::compute::Device &device) {
 } // namespace
 
 int RunAsync(rund::compute::Device &device) {
+  if (!async_exception_projection_is_canonical()) {
+    return 8;
+  }
   if (!async_compile_coalesces(device)) {
     return 9;
   }

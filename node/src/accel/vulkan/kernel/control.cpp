@@ -19,8 +19,6 @@
 #include <array>
 #include <cstring>
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -40,8 +38,7 @@ struct CanonicalParams final {
   std::array<std::uint32_t, 8u> reasons{};
 };
 
-static_assert(sizeof(CanonicalParams) ==
-              VulkanPipelineCanonicalParameterBytes);
+static_assert(sizeof(CanonicalParams) == VulkanPipelineCanonicalParameterBytes);
 
 struct ControlParams final {
   std::uint32_t first{};
@@ -328,17 +325,11 @@ rund::AccelCheck PrepareVulkanPipelineControl(
     DestroyVulkanPipelineControl(control);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
-  try {
+  {
     control.descriptor_leases.reserve(statuses.size() + 1u + telemetry_count);
-  } catch (const std::bad_alloc &) {
-    DestroyVulkanPipelineControl(control);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    DestroyVulkanPipelineControl(control);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   bool ready = false;
-  try {
+  {
     VulkanLeaseScope lease_scope{adapter, control.descriptor_leases};
     const std::string_view canonical_source = CanonicalSource();
     if (!statuses.empty()) {
@@ -406,12 +397,6 @@ rund::AccelCheck PrepareVulkanPipelineControl(
       ready = WriteVulkanStorageDescriptorSet(
           adapter, control.reduce_descriptor, buffers);
     }
-  } catch (const std::bad_alloc &) {
-    DestroyVulkanPipelineControl(control);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    DestroyVulkanPipelineControl(control);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   if (!ready) {
     const char *const reason = VulkanLastError(&adapter);

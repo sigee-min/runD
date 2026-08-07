@@ -1,4 +1,5 @@
 #include "checkpoint.hpp"
+#include "exception.hpp"
 
 #include <node/runtime/replay/hash.hpp>
 
@@ -10,10 +11,8 @@
 #include <cstring>
 #include <limits>
 #include <memory>
-#include <new>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -370,15 +369,14 @@ Load<Checkpoint> Checkpoint::load(const std::span<const std::byte> artifact,
     }
 
     return Load<Checkpoint>{Code::Ok, Checkpoint{std::move(candidate)}};
-  } catch (const std::bad_alloc &) {
-    return Load<Checkpoint>{::rund::replay::Code::CheckpointCapacityExceeded,
-                            std::nullopt};
-  } catch (const std::length_error &) {
-    return Load<Checkpoint>{::rund::replay::Code::CheckpointCapacityExceeded,
-                            std::nullopt};
   } catch (...) {
-    return Load<Checkpoint>{::rund::replay::Code::CheckpointLoadFailed,
-                            std::nullopt};
+    return Load<Checkpoint>{
+        node::replay_detail::CurrentExceptionCode({
+            .bad_alloc = Code::CheckpointCapacityExceeded,
+            .length_error = Code::CheckpointCapacityExceeded,
+            .unexpected = Code::CheckpointLoadFailed,
+        }),
+        std::nullopt};
   }
 }
 

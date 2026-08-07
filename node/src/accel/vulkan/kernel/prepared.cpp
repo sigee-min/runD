@@ -1,6 +1,7 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../kernel/backend/exception.hpp"
 #include "../../kernel/reset/projection.hpp"
 #include "../../kernel/reset/proof.hpp"
 #include "../../kernel/reset/stats.hpp"
@@ -23,7 +24,6 @@
 #include <mutex>
 #include <new>
 #include <optional>
-#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -62,9 +62,8 @@ PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
   std::uint64_t descriptor_set_count = 0u;
   for (const VulkanReset &clear : resources.resets) {
     needs_pipeline = needs_pipeline || clear.shader;
-    if (clear.shader &&
-        !rund::kernel::checked::add(descriptor_set_count, 1u,
-                                    descriptor_set_count)) {
+    if (clear.shader && !rund::kernel::checked::add(descriptor_set_count, 1u,
+                                                    descriptor_set_count)) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
@@ -101,9 +100,8 @@ PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
     }
     std::array<VulkanStorageBinding, 1u> bindings{};
     if (!ResetBinding(adapter, clear, bindings[0], clear.binding_offset) ||
-        !reset::WordAddressable(
-            clear.range, clear.binding_offset,
-            std::numeric_limits<std::uint32_t>::max())) {
+        !reset::WordAddressable(clear.range, clear.binding_offset,
+                                std::numeric_limits<std::uint32_t>::max())) {
       return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
     }
     if (!WriteVulkanStorageDescriptorSet(adapter, clear.descriptor, bindings)) {
@@ -424,10 +422,8 @@ rund::AccelCheck PrepareVulkanResources(
         if (ready.ok && !IsPipelinePrivatePreparation(mode)) {
           ready = RecordVulkanKernel(*adapter, *resources);
         }
-      } catch (const std::bad_alloc &) {
-        RecordNode(failed_node, steps[0]);
-        ready = rund::AccelCheck{false, "compute_pipeline_capacity"};
-      } catch (const std::length_error &) {
+      } catch (...) {
+        backend_exception::RethrowUnlessCapacityException();
         RecordNode(failed_node, steps[0]);
         ready = rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
@@ -455,10 +451,8 @@ rund::AccelCheck PrepareVulkanResources(
     }
     prepared = std::move(resources);
     return rund::AccelCheck{true, "ok"};
-  } catch (const std::bad_alloc &) {
-    RecordNode(failed_node, steps[0]);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     RecordNode(failed_node, steps[0]);
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }

@@ -1,5 +1,6 @@
 #include "local.hpp"
 
+#include "../exception.hpp"
 #include "../input/plan.hpp"
 #include "../scope/timing.hpp"
 
@@ -7,7 +8,6 @@
 
 #include <memory>
 #include <mutex>
-#include <new>
 #include <utility>
 
 namespace rund::replay {
@@ -107,11 +107,12 @@ Access::expected(Session &session, const Record &record,
     }
     code = Code::Ok;
     return std::static_pointer_cast<const void>(record.data_->prepared);
-  } catch (const std::bad_alloc &) {
-    code = Code::AllocationFailed;
-    return {};
   } catch (...) {
-    code = Code::ScopePrepareFailed;
+    code = node::replay_detail::CurrentExceptionCode({
+        .bad_alloc = Code::AllocationFailed,
+        .length_error = Code::ScopePrepareFailed,
+        .unexpected = Code::ScopePrepareFailed,
+    });
     return {};
   }
 }

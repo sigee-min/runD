@@ -47,3 +47,21 @@ set. Leaf-owner edges limit it to
 `R(h) = union(R(o) for o in actual owners used by h)`. Rebuild reduction claims
 must compare those exact dirty sets, and timing claims require the same source
 manifest and build route; the graph law alone is not performance evidence.
+
+## Failure Boundary Ownership
+
+Public failures use the owning subsystem's typed vocabulary; a C++ exception
+class is never a second public error authority. One private boundary may
+project exception types into that vocabulary only after the full lifetime and
+rollback owner is in scope. Result construction and semantic reason selection
+stay at that boundary, while aggregate mutation rollback stays with one RAII
+transaction owned by the mutated state.
+
+Exception classification may be shared within one semantic subsystem, but it
+does not own cleanup and may not erase differences between allocation,
+descriptor, transport, cancellation, or invariant failures. An inner catch is
+admitted only when it must restore state before propagation, crosses a
+`noexcept` callback, or selects a meaning that differs from the outer boundary.
+Otherwise exceptions unwind to the one owning boundary. Catch-all conversion
+requires an explicit unexpected-exception contract; it is not a substitute for
+enumerating the exception classes that the boundary is authorized to project.

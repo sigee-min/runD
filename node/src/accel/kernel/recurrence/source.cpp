@@ -1,5 +1,6 @@
 #include "source.hpp"
 
+#include "../backend/exception.hpp"
 #include "../backend/source_recipe.hpp"
 
 #include <kernel/program/compute/lowering/layout.hpp>
@@ -10,9 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
-#include <new>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -185,19 +184,18 @@ template <typename Match>
                  Consume(source, cursor, ", "))) &&
                Consume(source, cursor, "RundBase_") &&
                ConsumeSymbol(source, cursor, "read_", name) &&
-               (uniform ||
-                (Consume(source, cursor, " + gid * RundStride_") &&
-                 ConsumeSymbol(source, cursor, "read_", name))) &&
+               (uniform || (Consume(source, cursor, " + gid * RundStride_") &&
+                            ConsumeSymbol(source, cursor, "read_", name))) &&
                Consume(source, cursor, ")");
       },
       begin, end);
 }
 
-[[nodiscard]] bool FindOutputStore(
-    const std::string_view source, const ComputeApi api,
-    const ComputeScalar scalar, const std::string_view name,
-    std::size_t &begin, std::size_t &value_begin, std::size_t &value_end,
-    std::size_t &end) noexcept {
+[[nodiscard]] bool
+FindOutputStore(const std::string_view source, const ComputeApi api,
+                const ComputeScalar scalar, const std::string_view name,
+                std::size_t &begin, std::size_t &value_begin,
+                std::size_t &value_end, std::size_t &end) noexcept {
   const std::string_view store =
       api == ComputeApi::Metal
           ? rund::kernel::compute_lowering_detail::MetalStoreFunction(scalar)
@@ -233,20 +231,21 @@ template <typename Match>
   return true;
 }
 
-[[nodiscard]] bool SourceBindings(
-    const ExecutionMetadata &metadata, const std::string_view source,
-    const ComputeApi api, const ComputeScalar scalar,
-    const std::span<const std::uint64_t> history_pitch_bytes,
-    std::array<SourceBinding, RecurrenceBindingCapacity> &inputs,
-    std::size_t &input_count,
-    std::array<OutputBinding, RecurrenceBindingCapacity> &outputs,
-    std::size_t &output_count) noexcept {
+[[nodiscard]] bool
+SourceBindings(const ExecutionMetadata &metadata, const std::string_view source,
+               const ComputeApi api, const ComputeScalar scalar,
+               const std::span<const std::uint64_t> history_pitch_bytes,
+               std::array<SourceBinding, RecurrenceBindingCapacity> &inputs,
+               std::size_t &input_count,
+               std::array<OutputBinding, RecurrenceBindingCapacity> &outputs,
+               std::size_t &output_count) noexcept {
   if (!metadata.ok ||
       metadata.binding_accesses.size() != metadata.binding_names.size() ||
       metadata.input_element_bytes.size() != metadata.read_count ||
       metadata.output_element_bytes.size() != metadata.write_count ||
       metadata.binding_accesses.size() > RecurrenceBindingCapacity ||
-      metadata.read_count > inputs.size() || metadata.write_count > outputs.size()) {
+      metadata.read_count > inputs.size() ||
+      metadata.write_count > outputs.size()) {
     return false;
   }
   input_count = 0u;
@@ -301,8 +300,8 @@ template <typename Match>
 }
 
 template <typename Sink>
-[[nodiscard]] bool AppendSafeIdentifier(Sink &sink,
-                                        const std::string_view name) noexcept(
+[[nodiscard]] bool
+AppendSafeIdentifier(Sink &sink, const std::string_view name) noexcept(
     noexcept(sink.append(std::string_view{}))) {
   if (name.empty()) {
     return sink.append("empty");
@@ -323,17 +322,19 @@ template <typename Sink>
 }
 
 template <typename Sink>
-[[nodiscard]] bool AppendVariable(Sink &sink, const std::string_view prefix,
-                                  const std::size_t index) noexcept(
-    noexcept(sink.append(std::string_view{}))) {
-  return sink.append(prefix) && backend_source_recipe::append_decimal(sink, index);
+[[nodiscard]] bool
+AppendVariable(Sink &sink, const std::string_view prefix,
+               const std::size_t
+                   index) noexcept(noexcept(sink.append(std::string_view{}))) {
+  return sink.append(prefix) &&
+         backend_source_recipe::append_decimal(sink, index);
 }
 
 template <typename Sink>
 [[nodiscard]] bool AppendBindingSymbol(
     Sink &sink, const std::string_view access,
-    const std::string_view name) noexcept(noexcept(sink.append(
-    std::string_view{}))) {
+    const std::string_view
+        name) noexcept(noexcept(sink.append(std::string_view{}))) {
   return sink.append(access) && AppendSafeIdentifier(sink, name);
 }
 
@@ -354,8 +355,8 @@ struct RecurrenceSourceRecipe final {
 
   template <typename Sink>
   [[nodiscard]] bool append_variable(Sink &sink, const std::string_view prefix,
-                                     const std::size_t index) const noexcept(
-      noexcept(sink.append(std::string_view{}))) {
+                                     const std::size_t index) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
     return AppendVariable(sink, prefix, index);
   }
 
@@ -373,27 +374,26 @@ struct RecurrenceSourceRecipe final {
         continue;
       }
       if (input.load_begin < output.value_begin ||
-          input.load_end > output.value_end ||
-          nested_count == nested.size()) {
+          input.load_end > output.value_end || nested_count == nested.size()) {
         return false;
       }
       nested[nested_count++] = &input;
     }
-    std::sort(nested.begin(), nested.begin() + nested_count,
-              [](const SourceBinding *left,
-                 const SourceBinding *right) noexcept {
-                return left->load_begin < right->load_begin;
-              });
+    std::sort(
+        nested.begin(), nested.begin() + nested_count,
+        [](const SourceBinding *left, const SourceBinding *right) noexcept {
+          return left->load_begin < right->load_begin;
+        });
     std::size_t cursor = output.value_begin;
     for (std::size_t index = 0u; index < nested_count; ++index) {
       const SourceBinding &input = *nested[index];
-      const std::size_t ordinal = static_cast<std::size_t>(&input - inputs.data());
+      const std::size_t ordinal =
+          static_cast<std::size_t>(&input - inputs.data());
       if (input.load_begin < cursor ||
           !sink.append(source.substr(cursor, input.load_begin - cursor)) ||
-          !append_variable(sink,
-                           ordinal < output_count ? "rund_carry_"
-                                                  : "rund_invariant_",
-                           ordinal)) {
+          !append_variable(
+              sink, ordinal < output_count ? "rund_carry_" : "rund_invariant_",
+              ordinal)) {
         return false;
       }
       cursor = input.load_end;
@@ -402,8 +402,8 @@ struct RecurrenceSourceRecipe final {
   }
 
   template <typename Sink>
-  [[nodiscard]] bool append_prelude(Sink &sink) const noexcept(
-      noexcept(sink.append(std::string_view{}))) {
+  [[nodiscard]] bool append_prelude(Sink &sink) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
     const char *const scalar_type =
         api == ComputeApi::Metal
             ? rund::kernel::compute_lowering_detail::MetalType(scalar)
@@ -414,10 +414,9 @@ struct RecurrenceSourceRecipe final {
     for (std::size_t index = 0u; index < input_count; ++index) {
       if (!sink.append("  ") || !sink.append(scalar_type) ||
           !sink.append(" ") ||
-          !append_variable(sink,
-                           index < output_count ? "rund_carry_"
-                                                : "rund_invariant_",
-                           index) ||
+          !append_variable(
+              sink, index < output_count ? "rund_carry_" : "rund_invariant_",
+              index) ||
           !sink.append(" = ") ||
           !sink.append(source.substr(inputs[index].load_begin,
                                      inputs[index].load_end -
@@ -428,26 +427,23 @@ struct RecurrenceSourceRecipe final {
     }
     for (std::size_t index = 0u; index < output_count; ++index) {
       if (!sink.append("  ") || !sink.append(scalar_type) ||
-          !sink.append(" ") ||
-          !append_variable(sink, "rund_next_", index) ||
-          !sink.append(" = ") ||
-          !append_variable(sink, "rund_carry_", index) ||
+          !sink.append(" ") || !append_variable(sink, "rund_next_", index) ||
+          !sink.append(" = ") || !append_variable(sink, "rund_carry_", index) ||
           !sink.append(";\n")) {
         return false;
       }
     }
     return sink.append("  for (uint rund_iteration = 0u; rund_iteration < ") &&
-           sink.append(api == ComputeApi::Metal
-                           ? "rund_iterations"
-                           : "rund_dispatch.iterations") &&
+           sink.append(api == ComputeApi::Metal ? "rund_iterations"
+                                                : "rund_dispatch.iterations") &&
            sink.append("; ++rund_iteration) {\n");
   }
 
   template <typename Sink>
   [[nodiscard]] bool append_store(Sink &sink, const OutputBinding &output,
                                   const std::size_t index,
-                                  const bool history_store) const noexcept(
-      noexcept(sink.append(std::string_view{}))) {
+                                  const bool history_store) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
     const char *const store =
         api == ComputeApi::Metal
             ? rund::kernel::compute_lowering_detail::MetalStoreFunction(scalar)
@@ -463,25 +459,23 @@ struct RecurrenceSourceRecipe final {
         !AppendBindingSymbol(sink, "write_", output.name)) {
       return false;
     }
-    if (history_store &&
-        (!sink.append(" + rund_iteration * ") ||
-         !backend_source_recipe::append_decimal(
-             sink, output.history_pitch_bytes) ||
-         !sink.append("u"))) {
+    if (history_store && (!sink.append(" + rund_iteration * ") ||
+                          !backend_source_recipe::append_decimal(
+                              sink, output.history_pitch_bytes) ||
+                          !sink.append("u"))) {
       return false;
     }
     return sink.append(" + gid * RundStride_") &&
            AppendBindingSymbol(sink, "write_", output.name) &&
            sink.append(", ") &&
-           append_variable(sink,
-                           history_store ? "rund_next_" : "rund_carry_",
+           append_variable(sink, history_store ? "rund_next_" : "rund_carry_",
                            index) &&
            sink.append(");\n");
   }
 
   template <typename Sink>
-  [[nodiscard]] bool append_epilogue(Sink &sink) const noexcept(
-      noexcept(sink.append(std::string_view{}))) {
+  [[nodiscard]] bool append_epilogue(Sink &sink) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
     if (history) {
       for (std::size_t index = 0u; index < output_count; ++index) {
         if (!append_store(sink, outputs[index], index, true)) {
@@ -491,10 +485,8 @@ struct RecurrenceSourceRecipe final {
     }
     for (std::size_t index = 0u; index < output_count; ++index) {
       if (!sink.append("    ") ||
-          !append_variable(sink, "rund_carry_", index) ||
-          !sink.append(" = ") ||
-          !append_variable(sink, "rund_next_", index) ||
-          !sink.append(";\n")) {
+          !append_variable(sink, "rund_carry_", index) || !sink.append(" = ") ||
+          !append_variable(sink, "rund_next_", index) || !sink.append(";\n")) {
         return false;
       }
     }
@@ -538,8 +530,7 @@ struct RecurrenceSourceRecipe final {
       return append_prelude(sink);
     case SourceEventKind::Input:
       return append_variable(
-          sink, event.index < output_count ? "rund_carry_"
-                                           : "rund_invariant_",
+          sink, event.index < output_count ? "rund_carry_" : "rund_invariant_",
           event.index);
     case SourceEventKind::Output:
       return sink.append("    ") &&
@@ -554,8 +545,8 @@ struct RecurrenceSourceRecipe final {
   }
 
   template <typename Sink>
-  [[nodiscard]] bool operator()(Sink &sink) const noexcept(
-      noexcept(sink.append(std::string_view{}))) {
+  [[nodiscard]] bool operator()(Sink &sink) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
     if (!ok) {
       return false;
     }
@@ -583,9 +574,9 @@ struct RecurrenceSourceRecipe final {
   return true;
 }
 
-[[nodiscard]] bool InputNestedInOutput(
-    const SourceBinding &input,
-    const std::span<const OutputBinding> outputs) noexcept {
+[[nodiscard]] bool
+InputNestedInOutput(const SourceBinding &input,
+                    const std::span<const OutputBinding> outputs) noexcept {
   bool nested = false;
   for (const OutputBinding &output : outputs) {
     const bool overlaps = input.load_begin < output.store_end &&
@@ -602,10 +593,11 @@ struct RecurrenceSourceRecipe final {
   return nested;
 }
 
-[[nodiscard]] RecurrenceSourceRecipe BuildRecipe(
-    const LoweringArtifact &artifact, const std::uint64_t expected_inputs,
-    const std::uint64_t expected_outputs,
-    const std::span<const std::uint64_t> history_pitch_bytes) noexcept {
+[[nodiscard]] RecurrenceSourceRecipe
+BuildRecipe(const LoweringArtifact &artifact,
+            const std::uint64_t expected_inputs,
+            const std::uint64_t expected_outputs,
+            const std::span<const std::uint64_t> history_pitch_bytes) noexcept {
   RecurrenceSourceRecipe recipe{};
   recipe.source = artifact.source_text;
   recipe.before = artifact.key;
@@ -653,14 +645,14 @@ struct RecurrenceSourceRecipe final {
 
   std::size_t variant = 0u;
   if (!FindOne(recipe.source, "// artifact_variant=canonical", variant) ||
-      !AddEvent(recipe, SourceEvent{
-                            .begin = variant,
-                            .end = variant +
-                                   std::string_view{
-                                       "// artifact_variant=canonical"}
-                                       .size(),
-                            .kind = SourceEventKind::Variant,
-                        })) {
+      !AddEvent(
+          recipe,
+          SourceEvent{
+              .begin = variant,
+              .end = variant +
+                     std::string_view{"// artifact_variant=canonical"}.size(),
+              .kind = SourceEventKind::Variant,
+          })) {
     return recipe;
   }
   if (recipe.api == ComputeApi::Metal) {
@@ -729,13 +721,13 @@ struct RecurrenceSourceRecipe final {
   for (std::size_t index = 0u; index < recipe.input_count; ++index) {
     const SourceBinding &input = recipe.inputs[index];
     const bool nested = InputNestedInOutput(input, outputs);
-    if ((!nested &&
-         !AddEvent(recipe, SourceEvent{
-                               .begin = input.load_begin,
-                               .end = input.load_end,
-                               .index = static_cast<std::uint8_t>(index),
-                               .kind = SourceEventKind::Input,
-                           })) ||
+    if ((!nested && !AddEvent(recipe,
+                              SourceEvent{
+                                  .begin = input.load_begin,
+                                  .end = input.load_end,
+                                  .index = static_cast<std::uint8_t>(index),
+                                  .kind = SourceEventKind::Input,
+                              })) ||
         (nested && input.load_begin == input.load_end)) {
       return recipe;
     }
@@ -771,8 +763,7 @@ struct RecurrenceSourceRecipe final {
   for (std::size_t index = 0u; index < recipe.event_count; ++index) {
     const SourceEvent &event = recipe.events[index];
     if (event.begin < consumed || event.end < event.begin ||
-        event.end > recipe.source.size() ||
-        (!first && event.begin == prior)) {
+        event.end > recipe.source.size() || (!first && event.begin == prior)) {
       return recipe;
     }
     consumed = event.end;
@@ -799,8 +790,8 @@ struct RecurrenceSourceRecipe final {
   return rund::kernel::checked::add(bytes, payload, bytes);
 }
 
-[[nodiscard]] bool MetadataStorageUpperBytes(
-    const ExecutionMetadata &metadata, std::uint64_t &bytes) noexcept {
+[[nodiscard]] bool MetadataStorageUpperBytes(const ExecutionMetadata &metadata,
+                                             std::uint64_t &bytes) noexcept {
   bytes = 0u;
   if (!AddStorageEnvelope(bytes, metadata.param_storage.size(),
                           sizeof(metadata.param_storage.front())) ||
@@ -818,8 +809,8 @@ struct RecurrenceSourceRecipe final {
   }
   for (const std::string &name : metadata.binding_names) {
     std::uint64_t storage = 0u;
-    if (!backend_source_recipe::string_external_storage_upper_bytes(
-            name.size(), storage) ||
+    if (!backend_source_recipe::string_external_storage_upper_bytes(name.size(),
+                                                                    storage) ||
         !rund::kernel::checked::add(bytes, storage, bytes)) {
       return false;
     }
@@ -827,9 +818,9 @@ struct RecurrenceSourceRecipe final {
   return true;
 }
 
-[[nodiscard]] MapRecurrenceSourcePlan PlanRecipe(
-    const LoweringArtifact &artifact,
-    const RecurrenceSourceRecipe &recipe) noexcept {
+[[nodiscard]] MapRecurrenceSourcePlan
+PlanRecipe(const LoweringArtifact &artifact,
+           const RecurrenceSourceRecipe &recipe) noexcept {
   MapRecurrenceSourcePlan plan{.history = recipe.history};
   if (!recipe.ok ||
       artifact.source_text_upper_bytes < artifact.source_text.size()) {
@@ -874,8 +865,8 @@ bool MaterializeMapRecurrenceArtifact(
     const std::span<const std::uint64_t> history_pitch_bytes,
     LoweringArtifact &artifact,
     const std::uint64_t source_reserve_upper_bytes) {
-  const RecurrenceSourceRecipe recipe = BuildRecipe(
-      canonical, input_count, output_count, history_pitch_bytes);
+  const RecurrenceSourceRecipe recipe =
+      BuildRecipe(canonical, input_count, output_count, history_pitch_bytes);
   const MapRecurrenceSourcePlan observed = PlanRecipe(canonical, recipe);
   if (!plan.ok || !observed.ok || !recipe.ok ||
       plan.exact_source_bytes != observed.exact_source_bytes ||
@@ -892,9 +883,9 @@ bool MaterializeMapRecurrenceArtifact(
   std::uint64_t materialization_host_upper = 0u;
   if (!backend_source_recipe::string_external_storage_upper_bytes(
           reserve_upper, reserve_storage_upper) ||
-      !rund::kernel::checked::add(
-          plan.metadata_storage_upper_bytes, reserve_storage_upper,
-          materialization_host_upper)) {
+      !rund::kernel::checked::add(plan.metadata_storage_upper_bytes,
+                                  reserve_storage_upper,
+                                  materialization_host_upper)) {
     return false;
   }
   try {
@@ -920,18 +911,16 @@ bool MaterializeMapRecurrenceArtifact(
     transformed.metadata.map.op_hash_lo = transformed.key.op_hash_lo;
     artifact = std::move(transformed);
     return true;
-  } catch (const std::bad_alloc &) {
-    return false;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return false;
   }
 }
 
-[[nodiscard]] bool TransformSource(LoweringArtifact &artifact,
-                                   const std::uint64_t input_count,
-                                   const std::uint64_t output_count,
-                                   const std::span<const std::uint64_t>
-                                       history_pitch_bytes) {
+[[nodiscard]] bool
+TransformSource(LoweringArtifact &artifact, const std::uint64_t input_count,
+                const std::uint64_t output_count,
+                const std::span<const std::uint64_t> history_pitch_bytes) {
   const MapRecurrenceSourcePlan plan = PlanMapRecurrenceSource(
       artifact, input_count, output_count, history_pitch_bytes);
   LoweringArtifact transformed{};

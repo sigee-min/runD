@@ -7,9 +7,10 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 template <typename Sink>
 [[nodiscard]] bool AppendVulkanSortClassifySource(
-    Sink &sink, const std::string_view key_type)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink source{sink};
+    Sink &sink,
+    const std::string_view
+        key_type) noexcept(noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder source{sink};
   source += "layout(set = 0, binding = 0, std430) readonly buffer ";
   source += "SourceKeys {\n  ";
   source += key_type;
@@ -39,7 +40,7 @@ template <typename Sink>
   source += "  block_counts[tid * params.block_count + block] = "
             "local_counts[tid];\n";
   source += "}\n";
-  return source.ok();
+  return source.valid();
 }
 #endif
 

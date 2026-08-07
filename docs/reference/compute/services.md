@@ -929,6 +929,15 @@ order and future semantics are independent of SDK translation-unit count. The
 source-private service is the direct contract-test seam;
 there is no public service object with independent state.
 
+The same header owns one exception-type projection for all three async
+boundaries. `bad_alloc` and `system_error` select
+`AsyncCompileUnavailable`; any other active exception, or classifier use
+without an active exception, selects `ProgramCompileException`. Result
+construction stays at the calling boundary, and packaged-task/future reset and
+queue-reservation cancellation stay with their respective lifecycle owners.
+No boundary repeats the C++ type ladder or delegates cleanup to the
+classifier.
+
 Independent Device or Session owners have independent rings, so one owner's
 burst cannot consume another owner's admission capacity. The returned future
 observes the service-owned packaged completion. Ring pop order is FIFO;
@@ -1013,6 +1022,8 @@ Contract evidence must prove:
 - failed compilation is not retained: a same-key retry performs a new compile
   attempt and leaves no ready entry;
 - asynchronous and synchronous Program/result parity;
+- one async exception projection for allocation, system, unexpected, and
+  no-active-exception cases while reservation recovery remains exact;
 - exact allocation-free async-ring full rejection without factory invocation;
 - FIFO reservation order even when commit order differs, exception-safe
   reservation cancellation, immediate capacity recovery, and shutdown drain;

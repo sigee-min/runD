@@ -1,5 +1,5 @@
+#include "../../kernel/artifact.hpp"
 #include "model.hpp"
-#include "../../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/scatter/reduce/identity.hpp>
 
@@ -41,8 +41,8 @@ AcquireVulkanScatterReducePipeline(VulkanAdapter &adapter,
   const rund::kernel::ComputePlan pseudo = PseudoPlan(plan, stage);
   std::string source = VulkanScatterReduceSource(plan, stage);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

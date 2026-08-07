@@ -3,12 +3,37 @@
 #include "../coroutine/allocation.hpp"
 #include "local.hpp"
 
+#include "src/runtime/replay/exception.hpp"
+
 #include <array>
 #include <cstddef>
+#include <new>
 #include <span>
+#include <stdexcept>
 #include <utility>
 
 int CheckReplayFailureContract() {
+  constexpr rund::node::replay_detail::ExceptionCodes exception_codes{
+      .bad_alloc = rund::replay::Code::AllocationFailed,
+      .length_error = rund::replay::Code::CodecCapacityExceeded,
+      .unexpected = rund::replay::Code::CodecLoadFailed,
+  };
+  TEST_ASSERT(rund::node::replay_detail::CurrentExceptionCode(
+                  exception_codes) == rund::replay::Code::CodecLoadFailed);
+  const auto classify = [exception_codes](auto &&raise) {
+    try {
+      raise();
+    } catch (...) {
+      return rund::node::replay_detail::CurrentExceptionCode(exception_codes);
+    }
+    return rund::replay::Code::Ok;
+  };
+  TEST_ASSERT(classify([] { throw std::bad_alloc{}; }) ==
+              rund::replay::Code::AllocationFailed);
+  TEST_ASSERT(classify([] { throw std::length_error{"capacity"}; }) ==
+              rund::replay::Code::CodecCapacityExceeded);
+  TEST_ASSERT(classify([] { throw 1; }) == rund::replay::Code::CodecLoadFailed);
+
   rund::Session session{};
   rund::SessionConfig config{};
   config.workers = 1u;

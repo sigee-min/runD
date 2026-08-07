@@ -10,15 +10,14 @@
 #include "recurrence.hpp"
 #include "telemetry.hpp"
 
+#include "../../../kernel/backend/exception.hpp"
 #include "../../../kernel/backend/pipeline_failure.hpp"
 
 #include <rund/counter.hpp>
 
 #include <array>
 #include <limits>
-#include <new>
 #include <span>
-#include <stdexcept>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -40,7 +39,8 @@ DescribeVulkanRouteDispatches(const VulkanKernelResources &resources,
   const std::uint64_t reset_window =
       static_cast<std::uint64_t>(resources.adapter->max_dispatch_groups) * 256u;
   for (const VulkanReset &clear : resources.resets) {
-    if (!clear.shader || !rund::kernel::checked::add(
+    if (!clear.shader ||
+        !rund::kernel::checked::add(
             total, reset::Commands(clear.range.count(), reset_window), total)) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
@@ -82,6 +82,31 @@ struct VulkanPipelineDescriptionCapacity final {
   std::uint64_t status_source_count{};
   std::uint64_t status_entry_count{};
   std::uint64_t telemetry_source_count{};
+};
+
+class VulkanQueryPoolOwner final {
+public:
+  explicit VulkanQueryPoolOwner(const VkDevice device) noexcept
+      : device_{device} {}
+  VulkanQueryPoolOwner(const VulkanQueryPoolOwner &) = delete;
+  VulkanQueryPoolOwner &operator=(const VulkanQueryPoolOwner &) = delete;
+  ~VulkanQueryPoolOwner() noexcept {
+    if (value_ != VK_NULL_HANDLE) {
+      vkDestroyQueryPool(device_, value_, nullptr);
+    }
+  }
+
+  [[nodiscard]] VkQueryPool *output() noexcept { return &value_; }
+  [[nodiscard]] bool valid() const noexcept { return value_ != VK_NULL_HANDLE; }
+  [[nodiscard]] VkQueryPool release() noexcept {
+    const VkQueryPool value = value_;
+    value_ = VK_NULL_HANDLE;
+    return value;
+  }
+
+private:
+  VkDevice device_ = VK_NULL_HANDLE;
+  VkQueryPool value_ = VK_NULL_HANDLE;
 };
 
 [[nodiscard]] static rund::AccelCheck DescribeVulkanPipelineCapacity(
@@ -206,7 +231,7 @@ struct VulkanPipelineDescriptionCapacity final {
     }
   }
   failure_context.stage(PreparedPipelineFailureStage::BackendAllocation);
-  try {
+  {
     pipeline = std::make_shared<VulkanPipeline>();
     canonical.reserve(
         static_cast<std::size_t>(description_capacity.status_source_count));
@@ -221,10 +246,6 @@ struct VulkanPipelineDescriptionCapacity final {
       transducer_work.resize(transducers.size());
       transducer_occurrences.resize(transducers.size());
     }
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   failure_context.stage(PreparedPipelineFailureStage::BackendAdmission);
   if (pipeline->profile != nullptr) {
@@ -321,7 +342,7 @@ struct VulkanPipelineDescriptionCapacity final {
     const std::size_t telemetry_begin = telemetry_steps.size();
     std::uint32_t entry_count = 0u;
     VulkanPipelineWork direct_work{};
-    try {
+    {
       for (std::size_t step_index = 0u; step_index < resources->size();
            ++step_index) {
         failure_context.template_node_route(entry, step_index);
@@ -421,10 +442,6 @@ struct VulkanPipelineDescriptionCapacity final {
           .count = static_cast<std::uint32_t>(telemetry_count),
       };
       template_work[template_index] = direct_work;
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
   if (!recurrence.ready() &&
@@ -821,30 +838,22 @@ struct VulkanPipelineDescriptionCapacity final {
       query.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
       query.queryType = VK_QUERY_TYPE_TIMESTAMP;
       query.queryCount = static_cast<std::uint32_t>(2u * timestamp_commands);
-      VkQueryPool timestamps = VK_NULL_HANDLE;
+      VulkanQueryPoolOwner timestamps{pipeline->adapter->device};
       if (query.queryCount != 0u &&
           vkCreateQueryPool(pipeline->adapter->device, &query, nullptr,
-                            &timestamps) == VK_SUCCESS &&
-          timestamps != VK_NULL_HANDLE) {
-        try {
-          profile.timestamped.resize(timestamp_commands);
-          profile.command_templates.resize(timestamp_commands);
-          profile.timestamp_values.resize(query.queryCount);
-          if (recurrence.ready()) {
-            profile.command_templates[0u] = 0u;
-          } else {
-            for (std::size_t index = 0u; index < entries.size(); ++index) {
-              profile.command_templates[index] = entries[index].template_index;
-            }
+                            timestamps.output()) == VK_SUCCESS &&
+          timestamps.valid()) {
+        profile.timestamped.resize(timestamp_commands);
+        profile.command_templates.resize(timestamp_commands);
+        profile.timestamp_values.resize(query.queryCount);
+        if (recurrence.ready()) {
+          profile.command_templates[0u] = 0u;
+        } else {
+          for (std::size_t index = 0u; index < entries.size(); ++index) {
+            profile.command_templates[index] = entries[index].template_index;
           }
-        } catch (const std::bad_alloc &) {
-          vkDestroyQueryPool(pipeline->adapter->device, timestamps, nullptr);
-          return FailVulkanPipeline(pipeline, "compute_pipeline_capacity");
-        } catch (const std::length_error &) {
-          vkDestroyQueryPool(pipeline->adapter->device, timestamps, nullptr);
-          return FailVulkanPipeline(pipeline, "compute_pipeline_capacity");
         }
-        profile.timestamps = timestamps;
+        profile.timestamps = timestamps.release();
         profile.command_count = static_cast<std::uint32_t>(timestamp_commands);
         profile.query_count = query.queryCount;
         // One bulk reset and one timestamp at each side of every active
@@ -853,8 +862,6 @@ struct VulkanPipelineDescriptionCapacity final {
         profile.instrumentation_byte_count +=
             static_cast<std::uint64_t>(profile.query_count) *
             sizeof(std::uint64_t);
-      } else if (timestamps != VK_NULL_HANDLE) {
-        vkDestroyQueryPool(pipeline->adapter->device, timestamps, nullptr);
       }
     }
   }
@@ -1181,9 +1188,15 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
                       PreparedPipelineFailure &failure) {
   PreparedPipelineFailureContext failure_context{};
   failure = {};
-  const rund::AccelCheck result = PrepareVulkanPipelineImpl(
-      templates, entries, barriers, transducers, aggregates, publications,
-      registry, status, profile_steps, prepared, memory, failure_context);
+  rund::AccelCheck result{};
+  try {
+    result = PrepareVulkanPipelineImpl(
+        templates, entries, barriers, transducers, aggregates, publications,
+        registry, status, profile_steps, prepared, memory, failure_context);
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
+    result = rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
   if (!result.ok) {
     failure = failure_context.failure(result.reason);
   }

@@ -1,3 +1,4 @@
+#include "src/accel/kernel/backend/exception.hpp"
 #include "src/accel/kernel/backend/execute.hpp"
 #include "src/accel/kernel/backend/manifest.hpp"
 #include "src/accel/kernel/backend/phase_source.hpp"
@@ -53,7 +54,9 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <new>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -228,9 +231,9 @@ inline constexpr std::array<std::string_view, 2u> kBackendSourceRecipeSuffix{
 struct BackendSourceRecipeEmitter final {
   template <typename Sink>
   [[nodiscard]] bool operator()(Sink &sink) const noexcept(
-      noexcept(source_recipe::append_fixed(sink, kBackendSourceRecipePrefix))
-          && noexcept(source_recipe::append_decimal(sink, std::uint64_t{}))
-              && noexcept(sink.append(std::string_view{}))) {
+      noexcept(source_recipe::append_fixed(sink, kBackendSourceRecipePrefix)) &&
+      noexcept(source_recipe::append_decimal(sink, std::uint64_t{})) &&
+      noexcept(sink.append(std::string_view{}))) {
     if (!source_recipe::append_fixed(sink, kBackendSourceRecipePrefix)) {
       return false;
     }
@@ -1933,6 +1936,24 @@ static_assert(PreparedControlPhaseCodesAreChecked());
     return false;
   }
 
+  // Fragment and decimal construction use the same common builder for every
+  // sink; no backend wrapper owns a second failure or formatting rule.
+  std::string builder_text;
+  source_recipe::StringSink builder_sink{builder_text};
+  source_recipe::SourceBuilder builder{builder_sink};
+  builder += "value=";
+  if (!builder.decimal(42u) || !builder.valid() || builder_text != "value=42") {
+    return false;
+  }
+  source_recipe::CountSink builder_overflow{
+      std::numeric_limits<std::uint64_t>::max()};
+  source_recipe::SourceBuilder rejected_builder{builder_overflow};
+  if (rejected_builder.append("x") || rejected_builder.append("") ||
+      rejected_builder.valid() ||
+      builder_overflow.bytes() != std::numeric_limits<std::uint64_t>::max()) {
+    return false;
+  }
+
   // Overflow is checked at the counter boundary. The rejected append leaves
   // the preceding exact count intact instead of wrapping it to zero.
   source_recipe::CountSink full{std::numeric_limits<std::uint64_t>::max()};
@@ -2863,6 +2884,27 @@ struct FinishResources final {
          stats.overflow_ordinal == 8u;
 }
 
+[[nodiscard]] bool BackendCapacityExceptionClassesAreCanonical() {
+  using rund::node::accel::detail::backend_exception::
+      RethrowUnlessCapacityException;
+  const auto accepts = [](const auto &raise) {
+    try {
+      raise();
+    } catch (...) {
+      try {
+        RethrowUnlessCapacityException();
+        return true;
+      } catch (...) {
+        return false;
+      }
+    }
+    return false;
+  };
+  return accepts([] { throw std::bad_alloc{}; }) &&
+         accepts([] { throw std::length_error{"capacity"}; }) &&
+         !accepts([] { throw 7; });
+}
+
 } // namespace
 
 bool AuthorityContract() {
@@ -2898,7 +2940,8 @@ bool AuthorityContract() {
          BackendTemplateRouteDemandIsExactAndFrozen() &&
          PreparedPublicationFingerprintIsSemantic() &&
          PreparedPublicationResolvedIdentityIsExact() && GridBoundaries() &&
-         FinishPrecedence() && TelemetryProjection();
+         FinishPrecedence() && TelemetryProjection() &&
+         BackendCapacityExceptionClassesAreCanonical();
 }
 
 } // namespace node_accel_contract

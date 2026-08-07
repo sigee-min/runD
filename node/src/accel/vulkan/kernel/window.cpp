@@ -1,5 +1,7 @@
 #include "window.hpp"
 
+#include "../../kernel/backend/exception.hpp"
+
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
 #include "copy.hpp"
@@ -23,8 +25,6 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
-#include <new>
-#include <stdexcept>
 #include <string>
 
 namespace rund::node::accel::detail {
@@ -324,9 +324,8 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
                          VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             },
     });
-  } catch (const std::bad_alloc &) {
-    return false;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return false;
   }
   VulkanGateRoute &route = resources->gates.back();
@@ -489,16 +488,10 @@ rund::AccelCheck PrepareVulkanWindow(
     DestroyVulkanWindow(resources);
     return rund::AccelCheck{false, "accel_vulkan_memory_unavailable"};
   }
-  try {
+  {
     resources.original.resize(static_cast<std::size_t>(dispatch_capacity));
     resources.routes.reserve(route_count);
     resources.gates.reserve(static_cast<std::size_t>(gate_capacity));
-  } catch (const std::bad_alloc &) {
-    DestroyVulkanWindow(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    DestroyVulkanWindow(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   std::fill_n(static_cast<std::uint32_t *>(resources.owners.mapped),
               static_cast<std::size_t>(dispatch_capacity),
@@ -621,7 +614,7 @@ rund::AccelCheck PrepareVulkanWindow(
   }
 
   bool ready = false;
-  try {
+  {
     constexpr std::size_t no_owner = std::numeric_limits<std::size_t>::max();
     std::vector<std::size_t> descriptor_owners(state_count, no_owner);
     std::size_t unique_state_count = 0u;
@@ -694,12 +687,6 @@ rund::AccelCheck PrepareVulkanWindow(
       ready =
           WriteVulkanStorageDescriptorSet(adapter, route.descriptor, bindings);
     }
-  } catch (const std::bad_alloc &) {
-    DestroyVulkanWindow(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    DestroyVulkanWindow(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   if (!ready) {
     const char *const reason = DescriptorFailure(adapter);

@@ -1,5 +1,6 @@
 #include "view.hpp"
 
+#include "../../kernel/backend/exception.hpp"
 #include "../../kernel/preparation.hpp"
 #include "../adapter/api.hpp"
 #include "../barrier.hpp"
@@ -16,8 +17,6 @@
 #include <algorithm>
 #include <limits>
 #include <mutex>
-#include <new>
-#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -307,9 +306,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
     view = std::make_shared<VulkanViewLowering>();
     view->transfers.reserve(source.step->graph_binding_indices.size());
     view->transfer_by_binding.resize(original.size(), 0u);
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   view->adapter = static_cast<VulkanAdapter *>(pick.backend.context);
@@ -318,9 +316,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
   try {
     replacements.reserve(source.step->graph_binding_indices.size());
     replacement_by_binding.resize(original.size(), 0u);
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   for (std::size_t local = 0u;
@@ -358,9 +355,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
         replacements.push_back(Replacement{.resident = std::move(external)});
         replacement_by_binding[static_cast<std::size_t>(index)] =
             static_cast<std::uint32_t>(replacements.size());
-      } catch (const std::bad_alloc &) {
-        return rund::AccelCheck{false, "compute_pipeline_capacity"};
-      } catch (const std::length_error &) {
+      } catch (...) {
+        backend_exception::RethrowUnlessCapacityException();
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
       continue;
@@ -414,9 +410,8 @@ rund::AccelCheck PrepareVulkanViewLowering(
           static_cast<std::uint32_t>(view->transfers.size());
       replacement_by_binding[static_cast<std::size_t>(index)] =
           static_cast<std::uint32_t>(replacements.size());
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }

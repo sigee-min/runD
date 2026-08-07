@@ -1,5 +1,5 @@
+#include "../kernel/artifact.hpp"
 #include "local.hpp"
-#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/gather/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -13,10 +13,10 @@ PseudoGatherPlan(const rund::kernel::GatherDesc &desc,
                  const bool control) noexcept {
   const rund::kernel::GatherHash hash = rund::kernel::HashGather(desc);
   return rund::kernel::ComputePlan{
-      .op_hash_hi = hash.hi ^ (control ? 0x4741544845524354ull
-                                      : 0x474154484552434full),
-      .op_hash_lo = hash.lo ^ (control ? 0x9e3779b97f4a7c15ull
-                                      : 0xbf58476d1ce4e5b9ull),
+      .op_hash_hi =
+          hash.hi ^ (control ? 0x4741544845524354ull : 0x474154484552434full),
+      .op_hash_lo =
+          hash.lo ^ (control ? 0x9e3779b97f4a7c15ull : 0xbf58476d1ce4e5b9ull),
       .api = api,
       .scalar = desc.element == rund::kernel::GatherElement::U64
                     ? rund::kernel::ComputeScalar::Lane64
@@ -36,8 +36,8 @@ AcquireGatherPipeline(VulkanAdapter &adapter,
       PseudoGatherPlan(desc, rund::kernel::ComputeApi::Vulkan, control);
   std::string source = VulkanGatherSource(desc.element, control);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

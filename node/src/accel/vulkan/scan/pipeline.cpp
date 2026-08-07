@@ -1,9 +1,9 @@
 #include "../collective/pipeline.hpp"
+#include "../../domain.hpp"
+#include "../kernel/artifact.hpp"
 #include "local.hpp"
 #include "pipeline.hpp"
 #include "source.hpp"
-#include "../../domain.hpp"
-#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/scan/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -20,19 +20,17 @@ PseudoPlan(const rund::kernel::ScanDesc &desc,
   // the cache identity at executable semantics so differently sized scans
   // share the same native pipeline.
   const rund::kernel::ScanOp executable_op =
-      stage == VulkanScanStage::Block
-          ? desc.op
-          : rund::kernel::ScanOp::ExclusiveSum;
+      stage == VulkanScanStage::Block ? desc.op
+                                      : rund::kernel::ScanOp::ExclusiveSum;
   const rund::kernel::ScanHash hash = rund::kernel::HashScan(
       rund::kernel::ScanDesc{.op = executable_op, .element = desc.element});
   const std::uint64_t salt = static_cast<std::uint64_t>(stage) + 1u;
   const bool wide = desc.element == rund::kernel::ScanElement::U64;
   const rund::kernel::ComputeDomain executable_domain =
-      IsSignedDomain(domain)
-          ? (wide ? rund::kernel::ComputeDomain::I64
-                  : rund::kernel::ComputeDomain::I32)
-          : (wide ? rund::kernel::ComputeDomain::U64
-                  : rund::kernel::ComputeDomain::U32);
+      IsSignedDomain(domain) ? (wide ? rund::kernel::ComputeDomain::I64
+                                     : rund::kernel::ComputeDomain::I32)
+                             : (wide ? rund::kernel::ComputeDomain::U64
+                                     : rund::kernel::ComputeDomain::U32);
   return rund::kernel::ComputePlan{
       .op_hash_hi = hash.hi ^ (0x5343414e2e535400ull + salt),
       .op_hash_lo = hash.lo ^ (salt * 0x9e3779b97f4a7c15ull),
@@ -56,8 +54,8 @@ VulkanCollectivePipeline *AcquireVulkanScanPipeline(
   const bool inclusive = desc.op == rund::kernel::ScanOp::InclusiveSum;
   std::string source = VulkanScanSource(desc.element, domain, stage, inclusive);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

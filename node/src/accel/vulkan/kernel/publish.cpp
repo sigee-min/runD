@@ -20,8 +20,6 @@
 #include <array>
 #include <limits>
 #include <mutex>
-#include <new>
-#include <stdexcept>
 #include <string>
 
 namespace rund::node::accel::detail {
@@ -181,8 +179,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
   }
   std::size_t descriptor_set_count = publications.size();
   for (const BackendPublish &publication : publications) {
-    if (publication.identity.kind ==
-        PreparedKernelPublicationKind::Terminal) {
+    if (publication.identity.kind == PreparedKernelPublicationKind::Terminal) {
       if (descriptor_set_count == std::numeric_limits<std::size_t>::max()) {
         DestroyVulkanPipelinePublish(resources);
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -190,15 +187,9 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
       ++descriptor_set_count;
     }
   }
-  try {
+  {
     resources.routes.reserve(publications.size());
     resources.descriptor_leases.reserve(descriptor_set_count);
-  } catch (const std::bad_alloc &) {
-    DestroyVulkanPipelinePublish(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    DestroyVulkanPipelinePublish(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
 
   VulkanResidentState &resident = VulkanResidents(adapter);
@@ -213,8 +204,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
           resident, publication.target.source, publication.target.handle,
           "compute_resident_id_invalid", true);
       if (!target.check.ok || identity.state >= window.state_count ||
-          (!window_publish &&
-           identity.final >= publication.sources.size())) {
+          (!window_publish && identity.final >= publication.sources.size())) {
         DestroyVulkanPipelinePublish(resources);
         return target.check.ok
                    ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
@@ -332,7 +322,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
   }
 
   bool ready = false;
-  try {
+  {
     VulkanLeaseScope lease_scope{adapter, resources.descriptor_leases};
     resources.pipeline = AcquirePublishPipeline(adapter);
     ready = resources.pipeline != nullptr &&
@@ -341,8 +331,7 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
     for (VulkanPipelinePublishRoute &route : resources.routes) {
       const bool terminal =
           route.params.kind ==
-          static_cast<std::uint32_t>(
-              PreparedKernelPublicationKind::Terminal);
+          static_cast<std::uint32_t>(PreparedKernelPublicationKind::Terminal);
       ready = ready &&
               AcquireVulkanCollectiveDescriptorSet(adapter, *resources.pipeline,
                                                    7u, route.descriptor) &&
@@ -380,12 +369,6 @@ PrepareVulkanPipelinePublish(VulkanAdapter &adapter,
         break;
       }
     }
-  } catch (const std::bad_alloc &) {
-    DestroyVulkanPipelinePublish(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    DestroyVulkanPipelinePublish(resources);
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   if (!ready) {
     const char *const reason = DescriptorFailure(adapter);
@@ -417,8 +400,7 @@ bool EncodeVulkanPipelinePublish(
                      resources.pipeline->pipeline);
   for (const VulkanPipelinePublishRoute &route : resources.routes) {
     if (route.params.kind !=
-        static_cast<std::uint32_t>(
-            PreparedKernelPublicationKind::Terminal)) {
+        static_cast<std::uint32_t>(PreparedKernelPublicationKind::Terminal)) {
       continue;
     }
     if (route.descriptor == VK_NULL_HANDLE || route.groups_x == 0u ||
@@ -460,9 +442,8 @@ bool EncodeVulkanPipelineCanonicalize(
   BindVulkanPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                      resources.pipeline->pipeline);
   for (const VulkanPipelinePublishRoute &route : resources.routes) {
-    if (route.params.kind !=
-            static_cast<std::uint32_t>(
-                PreparedKernelPublicationKind::Terminal) ||
+    if (route.params.kind != static_cast<std::uint32_t>(
+                                 PreparedKernelPublicationKind::Terminal) ||
         route.params.state != state) {
       continue;
     }
@@ -501,8 +482,7 @@ bool EncodeVulkanPipelineWindowPublish(
                      resources.pipeline->pipeline);
   for (const VulkanPipelinePublishRoute &route : resources.routes) {
     if (route.params.kind !=
-            static_cast<std::uint32_t>(
-                PreparedKernelPublicationKind::Window) ||
+            static_cast<std::uint32_t>(PreparedKernelPublicationKind::Window) ||
         route.params.state != state) {
       continue;
     }

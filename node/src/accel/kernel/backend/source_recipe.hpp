@@ -1,5 +1,7 @@
 #pragma once
 
+#include "exception.hpp"
+
 #include <kernel/core/checked.hpp>
 #include <kernel/program/compute/retention.hpp>
 
@@ -9,9 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <new>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -109,6 +109,42 @@ append_decimal(Sink &sink, const std::uint64_t value) noexcept(
   const std::string_view text = decimal_characters(value, digits);
   return !text.empty() && sink.append(text);
 }
+
+// One failure-latching builder for source recipes that mix fixed fragments
+// and decimal constants. The wrapped CountSink and StringSink therefore
+// traverse the same calls instead of relying on a backend-local size formula.
+template <typename Sink> class SourceBuilder final {
+public:
+  explicit SourceBuilder(Sink &sink) noexcept : sink_{sink} {}
+
+  SourceBuilder &operator+=(const std::string_view fragment) noexcept(
+      noexcept(sink_.append(fragment))) {
+    (void)append(fragment);
+    return *this;
+  }
+
+  bool append(const std::string_view fragment) noexcept(
+      noexcept(sink_.append(fragment))) {
+    if (valid_) {
+      valid_ = sink_.append(fragment);
+    }
+    return valid_;
+  }
+
+  bool decimal(const std::uint64_t value) noexcept(
+      noexcept(sink_.append(std::string_view{}))) {
+    if (valid_) {
+      valid_ = append_decimal(sink_, value);
+    }
+    return valid_;
+  }
+
+  [[nodiscard]] bool valid() const noexcept { return valid_; }
+
+private:
+  Sink &sink_;
+  bool valid_{true};
+};
 
 template <typename Sink, std::size_t N>
 [[nodiscard]] bool append_fixed(
@@ -287,9 +323,8 @@ reserve_string(std::string &text, const std::uint64_t reserve_bytes) noexcept {
     }
     return text.capacity() >= reserve_bytes &&
            string_external_storage_within(text, storage_upper_bytes);
-  } catch (const std::bad_alloc &) {
-    return false;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return false;
   }
 }
@@ -339,9 +374,8 @@ template <typename Emit>
       return {};
     }
     return text;
-  } catch (const std::bad_alloc &) {
-    return {};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return {};
   }
 }

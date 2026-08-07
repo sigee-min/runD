@@ -1,5 +1,6 @@
 #include "local.hpp"
 
+#include "../exception.hpp"
 #include "../host/codec.hpp"
 #include "../host/payload/store.hpp"
 
@@ -13,9 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <new>
 #include <span>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -42,8 +41,8 @@ DecodeRuntimeReplayRecord(const std::span<const std::byte> encoded,
         !replay_detail::artifact::runtime_code(raw_code, code) ||
         !in.fixed64(start_hash) || start_hash == 0u ||
         !in.fixed64(expected_hash)) {
-      return RuntimeReplayDecodeResult{
-          .code = ::rund::replay::Code::CodecBadField};
+      return RuntimeReplayDecodeResult{.code =
+                                           ::rund::replay::Code::CodecBadField};
     }
 
     task::Stats tasks{};
@@ -61,31 +60,27 @@ DecodeRuntimeReplayRecord(const std::span<const std::byte> encoded,
     if (!replay_detail::artifact::read_observations(in, admission,
                                                     observations)) {
       return RuntimeReplayDecodeResult{
-          .code =
-              admission.failure(::rund::replay::Code::CodecBadField)};
+          .code = admission.failure(::rund::replay::Code::CodecBadField)};
     }
     replay_detail::HostReplayDecodeResult host =
         replay_detail::ReadHostEvidence(in, limits.max_entries);
     if (!host.ok() ||
         !admission.entries(static_cast<std::uint64_t>(host.events.size()))) {
       return RuntimeReplayDecodeResult{
-          .code = host.ok()
-                      ? ::rund::replay::Code::CodecEntryCapacityExceeded
-                      : host.code};
+          .code = host.ok() ? ::rund::replay::Code::CodecEntryCapacityExceeded
+                            : host.code};
     }
     replay_detail::payload::Archive archive{};
     if (!replay_detail::artifact::read_payload(in, admission, host.events,
                                                archive)) {
       return RuntimeReplayDecodeResult{
-          .code =
-              admission.failure(::rund::replay::Code::CodecBadField)};
+          .code = admission.failure(::rund::replay::Code::CodecBadField)};
     }
     ::rund::Trace trace{};
     if (!replay_detail::artifact::read_trace(in, admission, trace) ||
         !in.done()) {
       return RuntimeReplayDecodeResult{
-          .code =
-              admission.failure(::rund::replay::Code::CodecBadField)};
+          .code = admission.failure(::rund::replay::Code::CodecBadField)};
     }
 
     RuntimeReplayRecord record = make_runtime_replay_record(
@@ -96,9 +91,8 @@ DecodeRuntimeReplayRecord(const std::span<const std::byte> encoded,
                                 .host_events = std::move(host.events),
                                 .host_payload_archive = std::move(archive),
                                 .trace = std::move(trace)});
-    const ::rund::replay::Code payload_code =
-        replay_detail::BindPayloads(record.host.events,
-                                    record.host.payload_archive);
+    const ::rund::replay::Code payload_code = replay_detail::BindPayloads(
+        record.host.events, record.host.payload_archive);
     if (payload_code != ::rund::replay::Code::Ok) {
       return RuntimeReplayDecodeResult{.code = payload_code};
     }
@@ -112,15 +106,13 @@ DecodeRuntimeReplayRecord(const std::span<const std::byte> encoded,
     }
     return RuntimeReplayDecodeResult{.code = ::rund::replay::Code::Ok,
                                      .record = std::move(record)};
-  } catch (const std::bad_alloc &) {
-    return RuntimeReplayDecodeResult{
-        .code = ::rund::replay::Code::CodecCapacityExceeded};
-  } catch (const std::length_error &) {
-    return RuntimeReplayDecodeResult{
-        .code = ::rund::replay::Code::CodecCapacityExceeded};
   } catch (...) {
     return RuntimeReplayDecodeResult{
-        .code = ::rund::replay::Code::CodecLoadFailed};
+        .code = replay_detail::CurrentExceptionCode({
+            .bad_alloc = ::rund::replay::Code::CodecCapacityExceeded,
+            .length_error = ::rund::replay::Code::CodecCapacityExceeded,
+            .unexpected = ::rund::replay::Code::CodecLoadFailed,
+        })};
   }
 }
 

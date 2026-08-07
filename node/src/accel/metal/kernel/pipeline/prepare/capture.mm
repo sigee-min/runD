@@ -2,9 +2,9 @@
 
 #include "../aggregate/prepare.hpp"
 
+#include "../../../../kernel/backend/exception.hpp"
+
 #include <algorithm>
-#include <new>
-#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -33,9 +33,8 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
     captured.commands.reserve(static_cast<std::size_t>(command_rows.rows));
     captured.command_bindings.reserve(
         static_cast<std::size_t>(binding_rows.rows));
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   if (captured.commands.capacity() != command_rows.rows ||

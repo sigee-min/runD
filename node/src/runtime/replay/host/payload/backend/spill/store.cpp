@@ -1,5 +1,6 @@
 #include "local.hpp"
 
+#include "../../../../exception.hpp"
 #include "../../codec.hpp"
 #include "../../hash.hpp"
 
@@ -8,7 +9,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <limits>
-#include <new>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -24,8 +24,7 @@ Spill::Spill(const ::rund::replay::Storage &storage, const std::size_t capacity)
 }
 
 AppendResult Spill::Append(Blob blob) {
-  if (!rund::kernel::checked::add(spill::kHeaderBytes,
-                                  blob.encoded_bytes)) {
+  if (!rund::kernel::checked::add(spill::kHeaderBytes, blob.encoded_bytes)) {
     return AppendResult{.code =
                             ::rund::replay::Code::HostPayloadCapacityExceeded};
   }
@@ -183,10 +182,13 @@ EncodedResult Spill::Encoded(const std::uint32_t blob_index) const noexcept {
     }
     return EncodedResult{.code = ::rund::replay::Code::Ok,
                          .bytes = std::move(segment.blob.encoded)};
-  } catch (const std::bad_alloc &) {
-    return EncodedResult{.code = ::rund::replay::Code::AllocationFailed};
   } catch (...) {
-    return EncodedResult{.code = ::rund::replay::Code::HostPayloadMissing};
+    return EncodedResult{
+        .code = ::rund::node::replay_detail::CurrentExceptionCode({
+            .bad_alloc = ::rund::replay::Code::AllocationFailed,
+            .length_error = ::rund::replay::Code::HostPayloadMissing,
+            .unexpected = ::rund::replay::Code::HostPayloadMissing,
+        })};
   }
 }
 

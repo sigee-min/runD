@@ -1,5 +1,7 @@
 #include "telemetry.hpp"
 
+#include "../../../kernel/backend/exception.hpp"
+
 #include "../../buffer/create/telemetry.hpp"
 #include "../../collective/pipeline.hpp"
 #include "../../command.hpp"
@@ -12,8 +14,6 @@
 #include <algorithm>
 #include <array>
 #include <limits>
-#include <new>
-#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -99,9 +99,8 @@ namespace rund::node::accel::detail {
                                                 record.descriptor, buffers);
       }
     }
-  } catch (const std::bad_alloc &) {
-    ready = false;
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     ready = false;
   }
   return ready;

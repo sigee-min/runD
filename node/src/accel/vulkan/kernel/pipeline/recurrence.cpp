@@ -9,8 +9,6 @@
 #include "../../map/local.hpp"
 
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <utility>
 
 namespace rund::node::accel::detail {
@@ -549,14 +547,10 @@ ValidRecurrenceReservation(const PreparedKernelTemplateRegistry &registry,
   std::scoped_lock lock{pipeline.adapter->mutex};
   const VulkanMemoryStats before = pipeline.adapter->staging_memory;
   rund::AccelCheck ready{};
-  try {
+  {
     ready =
         PrepareRecurrenceMap(registry, *pipeline.adapter, *owner->pick, *owner,
                              recurrence, group_capacity, pipeline.recurrence);
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   if (!ready.ok) {
     return ready;
@@ -709,17 +703,13 @@ PrepareVulkanTransducers(const std::span<const BackendBatchEntry> templates,
           template_demand_count)) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
-  try {
+  {
     pipeline.transducers.resize(transducers.size());
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
 
   std::scoped_lock lock{pipeline.adapter->mutex};
   const VulkanMemoryStats before = pipeline.adapter->staging_memory;
-  try {
+  {
     for (std::size_t index = 0u; index < transducers.size(); ++index) {
       const TileTransducer &transducer = transducers[index];
       const BackendBatchEntry &owner = templates[transducer.template_first];
@@ -737,12 +727,6 @@ PrepareVulkanTransducers(const std::span<const BackendBatchEntry> templates,
         return ready;
       }
     }
-  } catch (const std::bad_alloc &) {
-    pipeline.transducers.clear();
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
-    pipeline.transducers.clear();
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   staging_memory =
       VulkanPreparedMemory(before, pipeline.adapter->staging_memory,

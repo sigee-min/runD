@@ -1,5 +1,5 @@
+#include "../kernel/artifact.hpp"
 #include "local.hpp"
-#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/partition/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -12,9 +12,9 @@ PseudoPartitionPlan(const rund::kernel::PartitionDesc &desc,
                     const rund::kernel::ComputeApi api,
                     const PartitionStage stage) noexcept {
   // Element count is runtime data. Normalize it out of the shader identity.
-  const rund::kernel::PartitionHash hash = rund::kernel::HashPartition(
-      rund::kernel::PartitionDesc{.flag_bytes = desc.flag_bytes,
-                                  .value_bytes = desc.value_bytes});
+  const rund::kernel::PartitionHash hash =
+      rund::kernel::HashPartition(rund::kernel::PartitionDesc{
+          .flag_bytes = desc.flag_bytes, .value_bytes = desc.value_bytes});
   const std::uint64_t salt = static_cast<std::uint64_t>(stage) + 1u;
   return rund::kernel::ComputePlan{
       .op_hash_hi = hash.hi ^ (0x5041525449540000ull + salt),
@@ -39,8 +39,8 @@ AcquirePartitionPipeline(VulkanAdapter &adapter,
   std::string source =
       VulkanPartitionSource(stage, desc.flag_bytes, desc.value_bytes);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

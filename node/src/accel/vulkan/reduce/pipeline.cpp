@@ -1,6 +1,6 @@
-#include "local.hpp"
 #include "../../domain.hpp"
-#include "../kernel/source_recipe.hpp"
+#include "../kernel/artifact.hpp"
+#include "local.hpp"
 #include <kernel/program/compute/reduce/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -18,11 +18,10 @@ PseudoReducePlan(const rund::kernel::ReduceDesc &desc,
                                .block_size = desc.block_size});
   const bool wide = desc.element == rund::kernel::ReduceElement::U64;
   const rund::kernel::ComputeDomain executable_domain =
-      IsSignedDomain(domain)
-          ? (wide ? rund::kernel::ComputeDomain::I64
-                  : rund::kernel::ComputeDomain::I32)
-          : (wide ? rund::kernel::ComputeDomain::U64
-                  : rund::kernel::ComputeDomain::U32);
+      IsSignedDomain(domain) ? (wide ? rund::kernel::ComputeDomain::I64
+                                     : rund::kernel::ComputeDomain::I32)
+                             : (wide ? rund::kernel::ComputeDomain::U64
+                                     : rund::kernel::ComputeDomain::U32);
   return rund::kernel::ComputePlan{
       .op_hash_hi = hash.hi,
       .op_hash_lo = hash.lo,
@@ -47,8 +46,8 @@ AcquireReducePipeline(VulkanAdapter &adapter,
   std::string source =
       VulkanReduceSource(desc.op, desc.element, desc.block_size, domain);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

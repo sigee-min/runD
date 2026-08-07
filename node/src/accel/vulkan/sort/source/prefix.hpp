@@ -6,9 +6,9 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 template <typename Sink>
-[[nodiscard]] bool AppendVulkanSortPrefixSource(Sink &sink)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink source{sink};
+[[nodiscard]] bool AppendVulkanSortPrefixSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder source{sink};
   source += "layout(set = 0, binding = 1, std430) buffer BlockCounts {\n";
   source += "  uint block_counts[];\n};\n";
   source += "layout(set = 0, binding = 5, std430) buffer BlockOffsets {\n";
@@ -33,7 +33,8 @@ template <typename Sink>
   source += "    local_values[tid] = value;\n";
   source += "    if (tid == 0u) { local_base = local_carry; }\n";
   source += "    barrier();\n";
-  source += "    for (uint step = 1u; step < kSortThreadCount; step <<= 1u) {\n";
+  source +=
+      "    for (uint step = 1u; step < kSortThreadCount; step <<= 1u) {\n";
   source += "      const uint add = tid >= step "
             "? local_values[tid - step] : 0u;\n";
   source += "      barrier();\n";
@@ -57,13 +58,13 @@ template <typename Sink>
   source += "    block_counts[totals + bucket] = local_carry;\n";
   source += "  }\n";
   source += "}\n";
-  return source.ok();
+  return source.valid();
 }
 
 template <typename Sink>
-[[nodiscard]] bool AppendVulkanSortBaseOffsetSource(Sink &sink)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink source{sink};
+[[nodiscard]] bool AppendVulkanSortBaseOffsetSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder source{sink};
   source += "layout(set = 0, binding = 1, std430) buffer BlockCounts {\n";
   source += "  uint block_counts[];\n};\n";
   source += "shared uint local_values[kSortBucketCount];\n";
@@ -83,7 +84,7 @@ template <typename Sink>
   source += "  }\n";
   source += "  block_counts[totals + tid] = local_values[tid] - value;\n";
   source += "}\n";
-  return source.ok();
+  return source.valid();
 }
 #endif
 

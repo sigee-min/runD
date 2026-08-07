@@ -1,7 +1,7 @@
 #pragma once
 
+#include "../../../kernel/backend/source_recipe.hpp"
 #include "offset.hpp"
-#include "../../kernel/source_recipe.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -10,7 +10,7 @@ template <typename Sink>
     Sink &sink, const rund::kernel::ScanElement element,
     const rund::kernel::ComputeDomain domain, const VulkanScanStage stage,
     const bool inclusive) noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink<Sink> source{sink};
+  backend_source_recipe::SourceBuilder<Sink> source{sink};
   AppendVulkanScanPrelude(source, element, domain, kVulkanScanWidth,
                           stage != VulkanScanStage::Prefix);
   switch (stage) {
@@ -24,22 +24,22 @@ template <typename Sink>
     AppendVulkanScanOffset(source, element);
     break;
   }
-  return source.ok();
+  return source.valid();
 }
 
-std::string VulkanScanSource(
-    const rund::kernel::ScanElement element,
-    const rund::kernel::ComputeDomain domain, const VulkanScanStage stage,
-    const bool inclusive) {
+std::string VulkanScanSource(const rund::kernel::ScanElement element,
+                             const rund::kernel::ComputeDomain domain,
+                             const VulkanScanStage stage,
+                             const bool inclusive) {
   return backend_source_recipe::materialize([&](auto &sink) {
     return EmitVulkanScanSource(sink, element, domain, stage, inclusive);
   });
 }
 
-bool VulkanScanSourceBytes(
-    const rund::kernel::ScanElement element,
-    const rund::kernel::ComputeDomain domain, const VulkanScanStage stage,
-    const bool inclusive, std::uint64_t &bytes) noexcept {
+bool VulkanScanSourceBytes(const rund::kernel::ScanElement element,
+                           const rund::kernel::ComputeDomain domain,
+                           const VulkanScanStage stage, const bool inclusive,
+                           std::uint64_t &bytes) noexcept {
   return backend_source_recipe::bytes(
       [&](backend_source_recipe::CountSink &sink) noexcept {
         return EmitVulkanScanSource(sink, element, domain, stage, inclusive);

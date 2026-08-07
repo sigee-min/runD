@@ -1,10 +1,10 @@
 #include "local.hpp"
 
+#include "../../kernel/backend/source_recipe.hpp"
 #include "source/block.hpp"
 #include "source/offset.hpp"
 #include "source/prefix.hpp"
 #include "source/prelude.hpp"
-#include "../kernel/source_recipe.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -15,9 +15,9 @@ template <typename Sink>
 [[nodiscard]] bool EmitVulkanSegmentedScanSource(
     Sink &sink, const rund::kernel::SegmentedScanElement element,
     const rund::kernel::ComputeDomain domain,
-    const VulkanSegmentedScanStage stage)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink source{sink};
+    const VulkanSegmentedScanStage
+        stage) noexcept(noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder source{sink};
   AppendSegmentedPrelude(source, element, domain,
                          stage != VulkanSegmentedScanStage::Prefix);
   switch (stage) {
@@ -32,7 +32,7 @@ template <typename Sink>
     break;
   }
   source += "}\n";
-  return source.ok();
+  return source.valid();
 }
 
 } // namespace
@@ -42,11 +42,11 @@ VulkanSegmentedScanSource(const rund::kernel::SegmentedScanElement element,
                           const rund::kernel::ComputeDomain domain,
                           const VulkanSegmentedScanStage stage) {
   std::uint64_t exact_bytes = 0u;
-  const auto emit = [&](auto &sink)
-      noexcept(noexcept(EmitVulkanSegmentedScanSource(sink, element, domain,
-                                                       stage))) {
-    return EmitVulkanSegmentedScanSource(sink, element, domain, stage);
-  };
+  const auto emit =
+      [&](auto &sink) noexcept(noexcept(
+          EmitVulkanSegmentedScanSource(sink, element, domain, stage))) {
+        return EmitVulkanSegmentedScanSource(sink, element, domain, stage);
+      };
   return backend_source_recipe::bytes(emit, exact_bytes)
              ? backend_source_recipe::materialize(emit, exact_bytes)
              : std::string{};
@@ -56,11 +56,11 @@ bool VulkanSegmentedScanSourceBytes(
     const rund::kernel::SegmentedScanElement element,
     const rund::kernel::ComputeDomain domain,
     const VulkanSegmentedScanStage stage, std::uint64_t &bytes) noexcept {
-  const auto emit = [&](auto &sink)
-      noexcept(noexcept(EmitVulkanSegmentedScanSource(sink, element, domain,
-                                                       stage))) {
-    return EmitVulkanSegmentedScanSource(sink, element, domain, stage);
-  };
+  const auto emit =
+      [&](auto &sink) noexcept(noexcept(
+          EmitVulkanSegmentedScanSource(sink, element, domain, stage))) {
+        return EmitVulkanSegmentedScanSource(sink, element, domain, stage);
+      };
   return backend_source_recipe::bytes(emit, bytes);
 }
 #endif

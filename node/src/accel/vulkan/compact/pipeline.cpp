@@ -1,5 +1,5 @@
+#include "../kernel/artifact.hpp"
 #include "local.hpp"
-#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/compact/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -33,8 +33,8 @@ AcquireCompactPipeline(VulkanAdapter &adapter,
       PseudoCompactPlan(desc, rund::kernel::ComputeApi::Vulkan, stage);
   std::string source = VulkanCompactSource(stage);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

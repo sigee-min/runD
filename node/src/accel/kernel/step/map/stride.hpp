@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../backend/exception.hpp"
 #include "../../backend/source_recipe.hpp"
 
 #include <kernel/core/checked.hpp>
@@ -25,11 +26,9 @@ namespace rund::node::accel::detail {
 // binding. A U64 replacement can grow a one-digit canonical literal by at
 // most 19 bytes; this allocation-free owner is shared by public planning and
 // the runtime mutator below.
-[[nodiscard]] inline bool
-MapSpecializedSourceUpperBytes(const std::uint64_t source_bytes,
-                               const std::uint64_t source_upper_bytes,
-                               const rund::kernel::ComputePlan &plan,
-                               std::uint64_t &upper) noexcept {
+[[nodiscard]] inline bool MapSpecializedSourceUpperBytes(
+    const std::uint64_t source_bytes, const std::uint64_t source_upper_bytes,
+    const rund::kernel::ComputePlan &plan, std::uint64_t &upper) noexcept {
   constexpr std::uint64_t DecimalWidth =
       std::numeric_limits<std::uint64_t>::digits10 + 1u;
   constexpr std::uint64_t LiteralGrowth = DecimalWidth - 1u;
@@ -47,9 +46,8 @@ MapSpecializedSourceUpperBytes(const std::uint64_t source_bytes,
 MapSpecializedSourceUpperBytes(const rund::kernel::LoweringArtifact &source,
                                const rund::kernel::ComputePlan &plan,
                                std::uint64_t &upper) noexcept {
-  return MapSpecializedSourceUpperBytes(source.source_text.size(),
-                                        source.source_text_upper_bytes, plan,
-                                        upper);
+  return MapSpecializedSourceUpperBytes(
+      source.source_text.size(), source.source_text_upper_bytes, plan, upper);
 }
 
 inline constexpr std::size_t MapSpecializationEditCapacity =
@@ -178,11 +176,12 @@ struct MapSourceSpecialization final {
   }
 };
 
-[[nodiscard]] inline MapSourceSpecialization PlanMapSourceSpecialization(
-    const rund::kernel::LoweringArtifact &source,
-    const rund::kernel::ComputePlan &plan,
-    const rund::kernel::BindingSet &bindings, const std::uint64_t alignment,
-    const std::uint64_t reserve_upper) noexcept {
+[[nodiscard]] inline MapSourceSpecialization
+PlanMapSourceSpecialization(const rund::kernel::LoweringArtifact &source,
+                            const rund::kernel::ComputePlan &plan,
+                            const rund::kernel::BindingSet &bindings,
+                            const std::uint64_t alignment,
+                            const std::uint64_t reserve_upper) noexcept {
   MapSourceSpecialization result{};
   const rund::kernel::ExecutionMetadata &metadata = source.metadata;
   const bool source_kind_matches =
@@ -260,11 +259,10 @@ struct MapSourceSpecialization final {
     const std::string_view access_prefix =
         is_read ? std::string_view{"read_"} : std::string_view{"write_"};
     if (ref->stride_bytes != element_bytes &&
-        !PlanMapDeclarationValue(std::span<MapSourceEdit>{result.edits},
-                                 result.edit_count, source.source_text,
-                                 qualifier, "RundStride_", access_prefix,
-                                 metadata.binding_names[index], element_bytes,
-                                 ref->stride_bytes)) {
+        !PlanMapDeclarationValue(
+            std::span<MapSourceEdit>{result.edits}, result.edit_count,
+            source.source_text, qualifier, "RundStride_", access_prefix,
+            metadata.binding_names[index], element_bytes, ref->stride_bytes)) {
       return result;
     }
     const std::uint64_t base = ref->offset_bytes % alignment;
@@ -280,7 +278,7 @@ struct MapSourceSpecialization final {
     return result;
   }
   const std::span<MapSourceEdit> active_edits{result.edits.data(),
-                                               result.edit_count};
+                                              result.edit_count};
   if (!active_edits.empty() && !backend_source_recipe::canonicalize_edits(
                                    active_edits, source.source_text.size())) {
     return result;
@@ -335,12 +333,12 @@ SpecializeMap(const rund::kernel::LoweringArtifact &source,
 // right to left inside that sole allocation, then discard semantic metadata
 // before compilation. Insufficient frozen capacity fails closed instead of
 // allocating a second transformed source owner.
-[[nodiscard]] inline rund::kernel::LoweringArtifact SpecializeMapInPlace(
-    rund::kernel::LoweringArtifact &&source,
-    const rund::kernel::ComputePlan &plan,
-    const rund::kernel::BindingSet &bindings,
-    const std::uint64_t alignment = 1u,
-    const std::uint64_t reserve_upper = 0u) {
+[[nodiscard]] inline rund::kernel::LoweringArtifact
+SpecializeMapInPlace(rund::kernel::LoweringArtifact &&source,
+                     const rund::kernel::ComputePlan &plan,
+                     const rund::kernel::BindingSet &bindings,
+                     const std::uint64_t alignment = 1u,
+                     const std::uint64_t reserve_upper = 0u) {
   const MapSourceSpecialization specialization = PlanMapSourceSpecialization(
       source, plan, bindings, alignment, reserve_upper);
   if (!specialization.ok) {
@@ -352,8 +350,8 @@ SpecializeMap(const rund::kernel::LoweringArtifact &source,
   if (source.source_text.capacity() < specialization.reserve_upper_bytes ||
       !backend_source_recipe::string_external_storage_upper_bytes(
           specialization.reserve_upper_bytes, storage_upper) ||
-      !backend_source_recipe::string_external_storage_within(
-          source.source_text, storage_upper)) {
+      !backend_source_recipe::string_external_storage_within(source.source_text,
+                                                             storage_upper)) {
     source.ok = false;
     source.reason = "compute_pipeline_capacity";
     return std::move(source);
@@ -368,11 +366,8 @@ SpecializeMap(const rund::kernel::LoweringArtifact &source,
                                  edit.replacement.data(),
                                  edit.replacement_size);
     }
-  } catch (const std::bad_alloc &) {
-    source.ok = false;
-    source.reason = "compute_pipeline_capacity";
-    return std::move(source);
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     source.ok = false;
     source.reason = "compute_pipeline_capacity";
     return std::move(source);
@@ -380,8 +375,8 @@ SpecializeMap(const rund::kernel::LoweringArtifact &source,
   if (source.source_text.size() != specialization.exact_source_bytes ||
       source.source_text.capacity() != frozen_capacity ||
       source.source_text.data() != frozen_storage ||
-      !backend_source_recipe::string_external_storage_within(
-          source.source_text, storage_upper)) {
+      !backend_source_recipe::string_external_storage_within(source.source_text,
+                                                             storage_upper)) {
     source.ok = false;
     source.reason = "compute_pipeline_capacity";
     return std::move(source);

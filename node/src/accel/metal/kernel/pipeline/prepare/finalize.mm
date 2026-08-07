@@ -1,13 +1,13 @@
 #include "../build.hpp"
 #include "../identity_index.hpp"
 
+#include "../../../../kernel/backend/exception.hpp"
+
 #include <rund/counter.hpp>
 
 #include <algorithm>
 #include <cstring>
 #include <limits>
-#include <new>
-#include <stdexcept>
 
 namespace rund::node::accel::detail {
 
@@ -117,8 +117,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       captured.parameters.capacity() > limit.backend_parameter_bytes ||
       !actual_icb_plan.ok || actual_icb_plan.chunk_count == 0u ||
       actual_icb_plan.chunk_count > limit.backend_command_chunk_count ||
-      actual_icb_plan.allocated_bytes >
-          limit.backend_command_native_bytes) {
+      actual_icb_plan.allocated_bytes > limit.backend_command_native_bytes) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   // Freeze first-command order with one membership-only pointer index. Its
@@ -191,9 +190,8 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
           }
         }
       }
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
@@ -229,8 +227,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       const std::uint64_t command_capacity =
           full ? MetalPipelineIcbFullCommandCapacity
                : actual_icb_plan.tail_command_capacity;
-      const std::uint32_t class_index =
-          MetalIcbClassIndex(command_capacity);
+      const std::uint32_t class_index = MetalIcbClassIndex(command_capacity);
       if (command_count == 0u || command_count > command_capacity ||
           class_index >= MetalPipelineIcbClassCount ||
           command_count > std::numeric_limits<std::uint32_t>::max() ||
@@ -239,20 +236,17 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       }
       // CPU-authored indirect commands require Shared storage. The allocation
       // helper owns the complete calibrated descriptor/options tuple.
-      id<MTLIndirectCommandBuffer> const commands =
-          AllocateMetalPipelineIcb(device,
-                                   static_cast<NSUInteger>(command_capacity));
+      id<MTLIndirectCommandBuffer> const commands = AllocateMetalPipelineIcb(
+          device, static_cast<NSUInteger>(command_capacity));
       const std::uint64_t allocated =
-          commands == nil
-              ? 0u
-              : static_cast<std::uint64_t>(commands.allocatedSize);
+          commands == nil ? 0u
+                          : static_cast<std::uint64_t>(commands.allocatedSize);
       if (commands == nil || commands.size != command_capacity ||
           allocated != pipeline->adapter->pipeline_icb_calibration
                            .allocated_bytes[class_index] ||
-          allocated > std::numeric_limits<std::uint64_t>::max() -
-                          icb_device_bytes) {
-        return rund::AccelCheck{false,
-                                "accel_metal_icb_calibration_mismatch"};
+          allocated >
+              std::numeric_limits<std::uint64_t>::max() - icb_device_bytes) {
+        return rund::AccelCheck{false, "accel_metal_icb_calibration_mismatch"};
       }
       icb_device_bytes += allocated;
       const bool boundary_barrier =
@@ -272,18 +266,16 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
         id<MTLIndirectComputeCommand> const command =
             [commands indirectComputeCommandAtIndex:local_index];
         if (command == nil) {
-          return rund::AccelCheck{false,
-                                  "accel_kernel_primitive_unsupported"};
+          return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
         }
         // A boundary barrier is encoded on the direct warm encoder because an
         // ICB-local barrier has no predecessor in the new native object.
-        if (local_index != 0u &&
-            captured.commands[global_index - 1u].barrier) {
+        if (local_index != 0u && captured.commands[global_index - 1u].barrier) {
           [command setBarrier];
         }
         [command setComputePipelineState:source.pipeline];
-        for (std::size_t binding = source.binding_begin;
-             binding < binding_end; ++binding) {
+        for (std::size_t binding = source.binding_begin; binding < binding_end;
+             ++binding) {
           const MetalCommandBinding &argument =
               captured.command_bindings[binding];
           const bool uses_parameter = argument.buffer == nil;
@@ -306,12 +298,10 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
     if (global_begin != captured.commands.size() ||
         pipeline->command_chunks.size() != actual_icb_plan.chunk_count ||
         icb_device_bytes != actual_icb_plan.allocated_bytes) {
-      return rund::AccelCheck{false,
-                              "accel_metal_icb_calibration_mismatch"};
+      return rund::AccelCheck{false, "accel_metal_icb_calibration_mismatch"};
     }
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   pipeline->warm = MetalWarmSubmission{

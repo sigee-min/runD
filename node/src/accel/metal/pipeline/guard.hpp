@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../kernel/backend/exception.hpp"
 #include "../../kernel/backend/source_recipe.hpp"
 #include "../../kernel/preparation.hpp"
 
@@ -11,8 +12,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -217,9 +216,8 @@ PipelinePrivateMetalSource(std::string source,
             source, final_storage_upper)) {
       return {};
     }
-  } catch (const std::bad_alloc &) {
-    return {};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return {};
   }
   return source;

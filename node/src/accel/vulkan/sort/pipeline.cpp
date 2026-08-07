@@ -1,5 +1,5 @@
+#include "../kernel/artifact.hpp"
 #include "local/api.hpp"
-#include "../kernel/source_recipe.hpp"
 #include <kernel/program/compute/sort/identity.hpp>
 
 namespace rund::node::accel::detail {
@@ -9,8 +9,7 @@ namespace {
 
 [[nodiscard]] rund::kernel::ComputePlan
 PseudoPlan(const rund::kernel::SortDesc &desc,
-           const rund::kernel::ComputeApi api,
-           const SortStage stage) noexcept {
+           const rund::kernel::ComputeApi api, const SortStage stage) noexcept {
   // The shader consumes pass/count/value policy through Params and bindings.
   // Only key width and stage are compile-time executable semantics.
   const rund::kernel::SortHash hash = rund::kernel::HashSort(
@@ -40,8 +39,8 @@ AcquireSortPipeline(VulkanAdapter &adapter, const rund::kernel::SortDesc &desc,
       PseudoPlan(desc, rund::kernel::ComputeApi::Vulkan, stage);
   std::string source = VulkanSortSource(desc.key, stage);
   const std::uint64_t source_bytes = source.size();
-  const rund::kernel::LoweringArtifact artifact = VulkanBackendArtifact(
-      pseudo, std::move(source), source_bytes);
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }

@@ -1,16 +1,16 @@
 #pragma once
 
+#include "../../kernel/backend/source_recipe.hpp"
 #include <kernel/program/compute/matrix/tile.hpp>
-#include "../kernel/source_recipe.hpp"
 #include <string_view>
 
 namespace rund::node::accel::detail {
 
 template <typename Sink>
-[[nodiscard]] bool AppendMatrixProgramSource(
-    Sink &sink, const std::string_view dialect)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
-  VulkanSourceTextSink base{sink};
+[[nodiscard]] bool
+AppendMatrixProgramSource(Sink &sink, const std::string_view dialect) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder base{sink};
   const auto define = [&base](const std::string_view name,
                               const kernel::u64 value) {
     base += "#define ";
@@ -169,7 +169,7 @@ void main() {
 #undef RUND_STORE_MATRIX
 }
 )GLSL");
-  return base.ok();
+  return base.valid();
 }
 
 } // namespace rund::node::accel::detail

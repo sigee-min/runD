@@ -2,9 +2,9 @@
 
 #include "../barrier.hpp"
 #include "../buffer/transfer/copy.hpp"
+#include "../kernel/artifact.hpp"
 #include "../scope.hpp"
 #include "../status.hpp"
-#include "../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/transform/twiddle.hpp>
 
@@ -19,7 +19,7 @@ namespace rund::node::accel::detail {
 NumericArtifact(const rund::kernel::ComputePlan &pseudo,
                 std::string source) noexcept {
   const std::uint64_t source_bytes = source.size();
-  return VulkanBackendArtifact(pseudo, std::move(source), source_bytes);
+  return MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
 }
 
 [[nodiscard]] VulkanCollectivePipeline *AcquireNumericPipeline(

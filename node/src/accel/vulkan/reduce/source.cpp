@@ -1,7 +1,7 @@
 #include "../../domain.hpp"
+#include "../../kernel/backend/source_recipe.hpp"
 #include "local.hpp"
 #include "source/op.hpp"
-#include "../kernel/source_recipe.hpp"
 
 #include <kernel/program/compute/reduce/wide.hpp>
 namespace rund::node::accel::detail {
@@ -14,11 +14,11 @@ template <typename Sink>
     Sink &sink, const rund::kernel::ReduceOp op,
     const rund::kernel::ReduceElement element,
     const rund::kernel::u64 block_size,
-    const rund::kernel::ComputeDomain domain)
-    noexcept(noexcept(sink.append(std::string_view{}))) {
+    const rund::kernel::ComputeDomain
+        domain) noexcept(noexcept(sink.append(std::string_view{}))) {
   const bool u64 = element == rund::kernel::ReduceElement::U64;
   const bool signed_domain = IsSignedDomain(domain);
-  VulkanSourceTextSink source{sink};
+  backend_source_recipe::SourceBuilder source{sink};
   source += "#version 450\n";
   source +=
       "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n";
@@ -171,7 +171,7 @@ void main() {
     source +=
         u64 ? "uint64_t(rund_wide_low64(acc));\n" : "rund_wide_low32(acc);\n";
     source += "}\n";
-    return source.ok();
+    return source.valid();
   }
   source += "shared uint64_t sums[";
   source.decimal(block_size);
@@ -228,7 +228,7 @@ void main() {
   source += u64 ? "sums[0]" : "uint(sums[0])";
   source += "; }\n";
   source += "  }\n}\n";
-  return source.ok();
+  return source.valid();
 }
 
 } // namespace
@@ -238,9 +238,8 @@ std::string VulkanReduceSource(const rund::kernel::ReduceOp op,
                                const rund::kernel::u64 block_size,
                                const rund::kernel::ComputeDomain domain) {
   std::uint64_t exact_bytes = 0u;
-  const auto emit = [&](auto &sink)
-      noexcept(noexcept(EmitVulkanReduceSource(sink, op, element, block_size,
-                                                domain))) {
+  const auto emit = [&](auto &sink) noexcept(noexcept(EmitVulkanReduceSource(
+                        sink, op, element, block_size, domain))) {
     return EmitVulkanReduceSource(sink, op, element, block_size, domain);
   };
   return backend_source_recipe::bytes(emit, exact_bytes)
@@ -253,9 +252,8 @@ bool VulkanReduceSourceBytes(const rund::kernel::ReduceOp op,
                              const rund::kernel::u64 block_size,
                              const rund::kernel::ComputeDomain domain,
                              std::uint64_t &bytes) noexcept {
-  const auto emit = [&](auto &sink)
-      noexcept(noexcept(EmitVulkanReduceSource(sink, op, element, block_size,
-                                                domain))) {
+  const auto emit = [&](auto &sink) noexcept(noexcept(EmitVulkanReduceSource(
+                        sink, op, element, block_size, domain))) {
     return EmitVulkanReduceSource(sink, op, element, block_size, domain);
   };
   return backend_source_recipe::bytes(emit, bytes);

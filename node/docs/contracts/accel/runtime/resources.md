@@ -130,6 +130,25 @@ with `compute_pipeline_memory_plan_invalid`; it cannot allocate a hidden
 fallback owner. Vulkan records the 48-byte View transfer parameters as push
 constants and uses only source and target storage descriptors.
 
+Every Accel boundary that authorizes both `bad_alloc` and `length_error` as
+capacity failures consumes one source-private exception classifier; no caller
+repeats that type policy. Every other active exception is rethrown unchanged.
+The boundary still owns its phase-local state repair and result construction,
+while Vulkan's owning Pipeline boundary performs the complete preparation
+projection. A boundary that authorizes only `bad_alloc` remains explicit rather
+than silently widening its accepted classes.
+
+Vulkan Pipeline cold preparation has one C++ capacity-exception projection at
+`PrepareVulkanPipeline`. `bad_alloc` and `length_error` from the owned prepare
+graph unwind to that boundary and become `compute_pipeline_capacity`; other
+exception types retain normal propagation. The live `VulkanPipeline` owner
+destroys every partially acquired control, window, publication, recurrence,
+transducer, command, descriptor, and profile resource after helper locks have
+unwound. A query pool is move-only construction state until all profile vectors
+are complete, then transfers once into the Pipeline profile. Local boolean
+boundaries remain local only where the callback is `noexcept` or where failure
+selects a descriptor-specific reason rather than Pipeline capacity.
+
 Vulkan shader-module ownership is confined to synchronous executable
 construction. One move-only module owner consumes the compiled SPIR-V,
 supplies its handle to `vkCreateComputePipelines`, and destroys that handle
@@ -630,4 +649,6 @@ failed status on the same prepared Metal and Vulkan Job without recompilation
 or a second status authority.
 `compute.memory` verifies Program and Job aggregation and warm
 stability. Backend availability is proved separately by required selection and
-installed product contracts.
+installed product contracts. `accel.kernel-core` verifies that allocation and
+length exceptions are the complete backend capacity class and that an
+unexpected exception retains its original propagation.

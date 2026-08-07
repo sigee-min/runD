@@ -2,6 +2,8 @@
 
 #include "../aggregate/admit.hpp"
 
+#include "../../../../kernel/backend/exception.hpp"
+
 #include "../../../buffer/resident/find.hpp"
 #include "../../../resident.hpp"
 #include "../../../resident/access.hpp"
@@ -14,8 +16,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <new>
-#include <stdexcept>
 #include <string_view>
 
 namespace rund::node::accel::detail {
@@ -258,9 +258,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
         }
         pipeline->step_evidence.resize(status.declared_step_count);
       }
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     return rund::AccelCheck{true, "ok"};
@@ -532,9 +531,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
     if (native_windows.size() != planned_native_window_count) {
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   failure_context.clear_route();
@@ -551,9 +549,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
       }
       pipeline->step_evidence.resize(status.declared_step_count);
     }
-  } catch (const std::bad_alloc &) {
-    return rund::AccelCheck{false, "compute_pipeline_capacity"};
-  } catch (const std::length_error &) {
+  } catch (...) {
+    backend_exception::RethrowUnlessCapacityException();
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   failure_context.clear_route();
@@ -575,9 +572,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           *entries.front().run, recurrence, recurrence.first->control,
           pipeline->recurrence,
           static_cast<std::uint32_t>(recurrence.iterations));
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     if (!ready.ok) {
@@ -614,9 +610,8 @@ rund::AccelCheck MetalPipelineBuild::Admit() {
           template_registry, *context.adapter, *owner.run->pick, *owner.run,
           map, map.first->control, pipeline->transducers[index],
           static_cast<std::uint32_t>(map.iterations));
-    } catch (const std::bad_alloc &) {
-      return rund::AccelCheck{false, "compute_pipeline_capacity"};
-    } catch (const std::length_error &) {
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     if (!ready.ok) {
