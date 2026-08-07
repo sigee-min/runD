@@ -53,7 +53,6 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
   if (invalidated) {
     return true;
   }
-  ReactorApplyResult applied{};
   if (state_->ready.ready_depth == 0u &&
       ReactorRegistrationHasDeferredRemoves(reactor)) {
     if (!ReactorRegistrationFlushDeferredRemoves(reactor)) {
@@ -98,10 +97,11 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
     return false;
   }
   ReactorApplyPolicyRecordFlush(reactor, force_apply);
-  applied = ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
-  if (!applied.ok) {
-    if (applied.invalid) {
-      if (!ReactorExpandInvalidHandle(reactor, applied.invalid_handle)) {
+  const ReactorApplyResult applied =
+      ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
+  if (applied.disposition() != ReactorApplyDisposition::Success) {
+    if (applied.disposition() == ReactorApplyDisposition::Invalid) {
+      if (!ReactorExpandInvalidHandle(reactor, applied.invalid_handle())) {
         return false;
       }
     } else if (!ReactorExpandPollFailure(reactor)) {

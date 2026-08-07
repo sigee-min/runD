@@ -48,13 +48,11 @@ bool Scheduler::DrainReactorReadyBatch(
   }
 
   ReactorDrainBatch batch = ReactorBuildDrainBatch(reactor, ordered);
-  ReactorApplyResult remove_applied{};
+  ReactorApplyResult remove_applied = ReactorApplyResult::failed();
   if (batch.ok) {
     ReactorApplyPolicyRecordFlush(reactor, true);
     remove_applied =
         ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
-  } else {
-    remove_applied.ok = false;
   }
   if (batch.ready == nullptr || batch.removed_waits == nullptr ||
       batch.ready->size() != batch.removed_waits->size()) {
@@ -75,7 +73,8 @@ bool Scheduler::DrainReactorReadyBatch(
     const ReactorWait &wait = batch_removed_waits[index];
     ReasonCode ready_code = ReasonCode::Ok;
     task::ObservationKind observation_kind = task::ObservationKind::IoReady;
-    if (!batch.ok || !remove_applied.ok ||
+    if (!batch.ok ||
+        remove_applied.disposition() != ReactorApplyDisposition::Success ||
         ready.disposition == ReactorReadyDisposition::PollFailed) {
       ready_code = ReasonCode::IoPollFailed;
       observation_kind = task::ObservationKind::IoPollFailed;

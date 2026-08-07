@@ -194,8 +194,16 @@ caller-required `R` full records; no second full-wait authority exists.
   delegation of registration-change application through the queue owner and
   platform reactor boundary.
 - `reactor/change/queue.cpp`: cursor-based queued registration apply owner; it
-  drains successful prefixes without repeated front erases and preserves
+  snapshots the failed change identity before erasing an applied prefix,
+  drains successful prefixes without repeated front erases, and preserves
   best-effort invalid-remove semantics.
+- The scheduler-facing apply result has exactly one disposition: `Success`,
+  `Invalid`, `Failed`, or `BackendUnavailable`. Only `Invalid` carries the
+  failed logical handle; every other disposition fixes that payload to the
+  invalid-handle sentinel. A missing invalid handle is normalized to `Failed`
+  instead of publishing an `Invalid` disposition without an identity.
+  Platform errors and batch indices remain owned by the platform result that
+  the apply boundary consumes.
 - `reactor/close.cpp`: scheduler-side fd close invalidation discovery and
   invalidation evidence before native close; wait removal and wakeup are
   routed through the reactor cleanup owner.

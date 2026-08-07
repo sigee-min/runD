@@ -39,8 +39,9 @@ bool CleanupSingleWait(Scheduler &scheduler,
   if (!ReactorRegistrationFlushDeferredRemoves(reactor)) {
     cleanup_ok = false;
   }
-  if (!ReactorBackendApplyChanges(reactor, scheduler.state_->evidence.metrics)
-           .ok) {
+  const ReactorApplyResult applied =
+      ReactorBackendApplyChanges(reactor, scheduler.state_->evidence.metrics);
+  if (applied.disposition() != ReactorApplyDisposition::Success) {
     cleanup_ok = false;
   }
   if (request.cancel_timeout_timer &&

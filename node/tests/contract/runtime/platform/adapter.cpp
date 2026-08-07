@@ -6,6 +6,7 @@
 #include "../../../../src/runtime/platform/net/vectored.hpp"
 #include "../../../../src/runtime/reactor/platform.hpp"
 #include "../../../../src/runtime/reactor/readiness/handle.hpp"
+#include "../../../../src/runtime/task/scheduler/reactor/backend.hpp"
 
 #include <rund/host/io.hpp>
 #include <rund/net/listener.hpp>
@@ -84,6 +85,12 @@ void AssertUnavailable(const rund::node::BatchIoProbeResult result) {
   TEST_ASSERT(result.disposition() ==
               rund::node::BatchIoProbeDisposition::BackendUnavailable);
   TEST_ASSERT(result.platform_error() == 0);
+}
+
+void AssertUnavailable(const rund::node::ReactorApplyResult result) {
+  TEST_ASSERT(result.disposition() ==
+              rund::node::ReactorApplyDisposition::BackendUnavailable);
+  TEST_ASSERT(result.invalid_handle() == rund::node::kInvalidReactorHandle);
 }
 
 void AssertNativeProjection(const rund::node::NativeCallState state,
@@ -193,6 +200,15 @@ void VerifyUnavailableNativeSurface() {
   };
   AssertUnavailable(ProbeReactorPlatformNow(platform, &request, 1u, ready));
   TEST_ASSERT(ready.empty());
+
+  ReactorRuntime scheduler_reactor{};
+  ::rund::detail::task::StatStorage scheduler_stats{};
+  AssertUnavailable(
+      ReactorBackendApplyChanges(scheduler_reactor, scheduler_stats));
+  AssertUnavailable(
+      ReactorBackendPoll(scheduler_reactor, scheduler_stats, 0, 1u));
+  ReactorCloseRuntime(scheduler_reactor);
+
   const ReactorPlatformHandleIdentity handle_identity =
       DescribeReactorPlatformHandle(ReactorHandleFromPublic(0));
   TEST_ASSERT(!handle_identity.valid);

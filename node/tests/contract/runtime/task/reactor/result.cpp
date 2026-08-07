@@ -1,5 +1,6 @@
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/backend.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/many/probe/raw.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/model.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/poll.hpp"
@@ -18,6 +19,36 @@ int RunRuntimeTaskReactorResultContract() {
 
   static_assert(!std::is_aggregate_v<ReactorProbeResult>);
   static_assert(std::is_trivially_copyable_v<ReactorProbeResult>);
+  static_assert(!std::is_aggregate_v<ReactorApplyResult>);
+  static_assert(std::is_trivially_copyable_v<ReactorApplyResult>);
+
+  constexpr ReactorApplyResult apply_success = ReactorApplyResult::success();
+  static_assert(apply_success.disposition() ==
+                ReactorApplyDisposition::Success);
+  static_assert(apply_success.invalid_handle() == kInvalidReactorHandle);
+
+  constexpr ReactorHandle invalid_apply_handle = ReactorHandleFromPublic(17);
+  constexpr ReactorApplyResult apply_invalid =
+      ReactorApplyResult::invalid(invalid_apply_handle);
+  static_assert(apply_invalid.disposition() ==
+                ReactorApplyDisposition::Invalid);
+  static_assert(apply_invalid.invalid_handle() == invalid_apply_handle);
+
+  constexpr ReactorApplyResult missing_invalid =
+      ReactorApplyResult::invalid(kInvalidReactorHandle);
+  static_assert(missing_invalid.disposition() ==
+                ReactorApplyDisposition::Failed);
+  static_assert(missing_invalid.invalid_handle() == kInvalidReactorHandle);
+
+  constexpr ReactorApplyResult apply_failed = ReactorApplyResult::failed();
+  static_assert(apply_failed.disposition() == ReactorApplyDisposition::Failed);
+  static_assert(apply_failed.invalid_handle() == kInvalidReactorHandle);
+
+  constexpr ReactorApplyResult apply_unavailable =
+      ReactorApplyResult::backend_unavailable();
+  static_assert(apply_unavailable.disposition() ==
+                ReactorApplyDisposition::BackendUnavailable);
+  static_assert(apply_unavailable.invalid_handle() == kInvalidReactorHandle);
 
   constexpr ReactorReady ready{};
   constexpr ReactorReady invalid_ready{

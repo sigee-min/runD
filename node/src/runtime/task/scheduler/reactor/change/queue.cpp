@@ -25,6 +25,18 @@ void RecordApplied(::rund::detail::task::StatStorage &stats,
   }
 }
 
+[[nodiscard]] ReactorApplyResult
+ProjectApplyFailure(const ReactorPlatformBatchResult &result,
+                    const ReactorHandle failed_handle) noexcept {
+  if (result.invalid) {
+    return ReactorApplyResult::invalid(failed_handle);
+  }
+  if (result.unavailable) {
+    return ReactorApplyResult::backend_unavailable();
+  }
+  return ReactorApplyResult::failed();
+}
+
 } // namespace
 
 ReactorApplyResult
@@ -32,7 +44,7 @@ ReactorChangeQueueApply(ReactorRuntime &reactor,
                         ::rund::detail::task::StatStorage &stats) noexcept {
   const std::size_t batch_size = reactor.changes.size();
   if (batch_size == 0u) {
-    return {};
+    return ReactorApplyResult::success();
   }
 
   RecordReactorRegistrationApplyCall(stats);
@@ -48,14 +60,14 @@ ReactorChangeQueueApply(ReactorRuntime &reactor,
     if (result.ok) {
       RecordApplied(stats, remaining);
       reactor.changes.clear();
-      return {};
+      return ReactorApplyResult::success();
     }
 
     const std::size_t failed_offset =
         std::min<std::size_t>(result.failed_index, remaining - 1u);
     RecordApplied(stats, failed_offset);
     const std::size_t failed_index = cursor + failed_offset;
-    const ReactorRegistrationChange &failed = reactor.changes[failed_index];
+    const ReactorRegistrationChange failed = reactor.changes[failed_index];
     if (IgnorableInvalidRemove(failed, result)) {
       RecordReactorDeferredRemoveInvalidIgnored();
       cursor = failed_index + 1u;
@@ -67,14 +79,11 @@ ReactorChangeQueueApply(ReactorRuntime &reactor,
                             reactor.changes.begin() +
                                 static_cast<std::ptrdiff_t>(failed_index));
     }
-    return ReactorApplyResult{.ok = false,
-                              .invalid = result.invalid,
-                              .unavailable = result.unavailable,
-                              .invalid_handle = failed.handle};
+    return ProjectApplyFailure(result, failed.handle);
   }
 
   reactor.changes.clear();
-  return {};
+  return ReactorApplyResult::success();
 }
 
 } // namespace rund::node

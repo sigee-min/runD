@@ -10,6 +10,7 @@
 #include "../../../../../../src/runtime/reactor/diagnostics.hpp"
 #include "../../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../../src/runtime/task/scheduler/reactor/apply/policy.hpp"
+#include "../../../../../../src/runtime/task/scheduler/reactor/backend.hpp"
 #include "../../../../../../src/runtime/task/scheduler/reactor/model.hpp"
 #include "../await.hpp"
 #include "test/assert.hpp"
@@ -59,9 +60,79 @@ struct PipeCleanup {
   return pipe;
 }
 
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+void VerifyPartialApplyFailureIdentity() {
+  using namespace rund::node;
+
+  ReactorRuntime reactor{};
+  ::rund::detail::task::StatStorage stats{};
+  TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
+              ReactorApplyDisposition::Success);
+
+  PipeCleanup registered = MakePipe();
+  TEST_ASSERT(registered.read_fd >= 0 && registered.write_fd >= 0);
+  const ReactorHandle registered_handle =
+      ReactorHandleFromPublic(registered.read_fd);
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Add,
+      .handle = registered_handle,
+      .interest = ReactorInterest::Read,
+  });
+  TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
+              ReactorApplyDisposition::Success);
+  TEST_ASSERT(reactor.changes.empty());
+
+  PipeCleanup invalid = MakePipe();
+  TEST_ASSERT(invalid.read_fd >= 0 && invalid.write_fd >= 0);
+  PipeCleanup suffix = MakePipe();
+  TEST_ASSERT(suffix.read_fd >= 0 && suffix.write_fd >= 0);
+  const ReactorHandle invalid_handle = ReactorHandleFromPublic(invalid.read_fd);
+  const ReactorHandle suffix_handle = ReactorHandleFromPublic(suffix.read_fd);
+  TEST_ASSERT(suffix_handle != invalid_handle);
+  TEST_ASSERT(::close(invalid.read_fd) == 0);
+  invalid.read_fd = -1;
+
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Modify,
+      .handle = registered_handle,
+      .interest = ReactorInterest::Read,
+  });
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Add,
+      .handle = invalid_handle,
+      .interest = ReactorInterest::Read,
+  });
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Add,
+      .handle = suffix_handle,
+      .interest = ReactorInterest::Read,
+  });
+  const ReactorApplyResult failed = ReactorBackendApplyChanges(reactor, stats);
+  TEST_ASSERT(failed.disposition() == ReactorApplyDisposition::Invalid);
+  TEST_ASSERT(failed.invalid_handle() == invalid_handle);
+  TEST_ASSERT(reactor.changes.size() == 2u);
+  TEST_ASSERT(reactor.changes[0].handle == invalid_handle);
+  TEST_ASSERT(reactor.changes[1].handle == suffix_handle);
+
+  reactor.changes.clear();
+  reactor.changes.push_back(ReactorRegistrationChange{
+      .kind = ReactorRegistrationChange::Kind::Remove,
+      .handle = registered_handle,
+      .best_effort = true,
+  });
+  TEST_ASSERT(ReactorBackendApplyChanges(reactor, stats).disposition() ==
+              ReactorApplyDisposition::Success);
+  ReactorCloseRuntime(reactor);
+}
+#endif
+
 } // namespace
 
 int RunRuntimeTaskReactorBatchApplyContract() {
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+  VerifyPartialApplyFailureIdentity();
+#endif
+
   rund::node::ReactorRuntime policy_reactor{};
   policy_reactor.changes.push_back(rund::node::ReactorRegistrationChange{
       .kind = rund::node::ReactorRegistrationChange::Kind::Add,

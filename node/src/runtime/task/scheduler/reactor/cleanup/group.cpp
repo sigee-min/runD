@@ -29,7 +29,8 @@ namespace {
   if (!ReactorRegistrationFlushDeferredRemoves(reactor)) {
     ok = false;
   }
-  if (!ReactorBackendApplyChanges(reactor, stats).ok) {
+  const ReactorApplyResult applied = ReactorBackendApplyChanges(reactor, stats);
+  if (applied.disposition() != ReactorApplyDisposition::Success) {
     ok = false;
   }
   return ok;
