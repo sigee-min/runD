@@ -7,6 +7,8 @@
 
 #include <node/accel/buffer.hpp>
 
+#include <memory>
+
 namespace rund::node::accel {
 
 rund::Buffer CreateBuffer(const rund::AccelDevice &pick,
@@ -19,9 +21,9 @@ rund::Buffer CreateBuffer(const rund::AccelDevice &pick,
     return rund::Buffer{
         .check = rund::AccelCheck{false, "accel_buffer_usage_invalid"}};
   }
-  const detail::PickAdmission admission = detail::AdmitPick(pick);
-  return admission.check.ok
-             ? detail::CreateBackendBuffer(admission.token, desc)
+  const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  return token != nullptr
+             ? detail::CreateBackendBuffer(token, desc)
              : rund::Buffer{.check = rund::AccelCheck{
                                 false, "accel_buffer_backend_unavailable"}};
 }

@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string_view>
 #include <thread>
@@ -128,6 +129,27 @@ template <class... Value>
       node_accel_contract::backend::Policy({api}));
 }
 
+[[nodiscard]] bool PickTokenAdmissionContract() {
+  if (detail::AdmitPick(rund::AccelDevice{}) != nullptr) {
+    return false;
+  }
+  rund::AccelDevice pick = Pick(rund::AccelApi::Cpu);
+  std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  if (!pick.check.ok || token == nullptr || token->ops == nullptr ||
+      token->raw.api != pick.api || token->raw.backend.context == nullptr) {
+    return false;
+  }
+  const detail::BackendOps *const ops = token->ops;
+  token.reset();
+  const std::shared_ptr<detail::PickToken> retained = detail::AdmitPick(pick);
+  if (retained == nullptr || retained->ops != ops ||
+      retained->raw.backend.context == nullptr) {
+    return false;
+  }
+  pick.api = rund::AccelApi::Fake;
+  return detail::AdmitPick(pick) == nullptr;
+}
+
 template <class Adapter>
 [[nodiscard]] bool WaitForActiveHostReadback(Adapter *const adapter) {
   const auto deadline =
@@ -152,30 +174,28 @@ template <class Adapter>
   if (adapter == nullptr) {
     return false;
   }
-  detail::PickAdmission admission = detail::AdmitPick(pick);
-  if (!admission.check.ok || admission.token == nullptr) {
+  std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  if (token == nullptr) {
     return false;
   }
   rund::Buffer buffer = detail::CreateBackendBuffer(
-      admission.token, rund::BufferDesc{.bytes = kBytes,
-                                        .usage = rund::BufferUsage::ReadWrite,
-                                        .alignment = 16u});
+      token, rund::BufferDesc{.bytes = kBytes,
+                              .usage = rund::BufferUsage::ReadWrite,
+                              .alignment = 16u});
   std::vector<std::uint8_t> input(kBytes, 0x5au);
   std::vector<std::uint8_t> output(kBytes);
-  if (!buffer.check.ok ||
-      !detail::UploadBackendBuffer(admission.token, buffer, input.data(),
-                                   input.size(), 0u)
-           .ok) {
+  if (!buffer.check.ok || !detail::UploadBackendBuffer(
+                               token, buffer, input.data(), input.size(), 0u)
+                               .ok) {
     return false;
   }
   rund::node::accel::ResetRuntimeStats(pick);
 
   detail::BackendDownload downloaded{};
-  std::thread reader{
-      [token = admission.token, owned_buffer = buffer, &downloaded, &output] {
-        downloaded = detail::DownloadBackendBuffer(
-            token, owned_buffer, output.data(), output.size(), 0u, true);
-      }};
+  std::thread reader{[token, owned_buffer = buffer, &downloaded, &output] {
+    downloaded = detail::DownloadBackendBuffer(
+        token, owned_buffer, output.data(), output.size(), 0u, true);
+  }};
   if (!WaitForActiveHostReadback(adapter)) {
     reader.join();
     return false;
@@ -183,7 +203,7 @@ template <class Adapter>
 
   if (destroy_owner) {
     buffer = {};
-    admission.token.reset();
+    token.reset();
     pick = {};
   } else {
     rund::node::accel::ResetRuntimeStats(pick);
@@ -206,8 +226,10 @@ template <class Adapter>
   if (!epoch_pick.check.ok) {
     return node_accel_contract::MetalFailsClosed(epoch_pick);
   }
-  const detail::PickAdmission epoch_admission = detail::AdmitPick(epoch_pick);
-  const rund::AccelDevice *const epoch_raw = epoch_admission.raw();
+  const std::shared_ptr<detail::PickToken> epoch_token =
+      detail::AdmitPick(epoch_pick);
+  const rund::AccelDevice *const epoch_raw =
+      epoch_token == nullptr ? nullptr : &epoch_token->raw;
   auto *const epoch_adapter =
       epoch_raw == nullptr
           ? nullptr
@@ -217,13 +239,15 @@ template <class Adapter>
   }
 
   rund::AccelDevice destroy_pick = Pick(rund::AccelApi::Metal);
-  detail::PickAdmission destroy_admission = detail::AdmitPick(destroy_pick);
-  const rund::AccelDevice *const destroy_raw = destroy_admission.raw();
+  std::shared_ptr<detail::PickToken> destroy_token =
+      detail::AdmitPick(destroy_pick);
+  const rund::AccelDevice *const destroy_raw =
+      destroy_token == nullptr ? nullptr : &destroy_token->raw;
   auto *const destroy_adapter =
       destroy_raw == nullptr
           ? nullptr
           : static_cast<detail::MetalAdapter *>(destroy_raw->backend.context);
-  destroy_admission.token.reset();
+  destroy_token.reset();
   return HostReadbackEpochContract(std::move(destroy_pick), destroy_adapter,
                                    true);
 }
@@ -234,8 +258,10 @@ template <class Adapter>
     return node_accel_contract::vulkan::FailureReasonIsPrecise(epoch_pick);
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  const detail::PickAdmission epoch_admission = detail::AdmitPick(epoch_pick);
-  const rund::AccelDevice *const epoch_raw = epoch_admission.raw();
+  const std::shared_ptr<detail::PickToken> epoch_token =
+      detail::AdmitPick(epoch_pick);
+  const rund::AccelDevice *const epoch_raw =
+      epoch_token == nullptr ? nullptr : &epoch_token->raw;
   detail::VulkanAdapter *const epoch_adapter =
       epoch_raw == nullptr ? nullptr : detail::CheckedVulkanAdapter(*epoch_raw);
   if (!HostReadbackEpochContract(epoch_pick, epoch_adapter, false)) {
@@ -243,12 +269,14 @@ template <class Adapter>
   }
 
   rund::AccelDevice destroy_pick = Pick(rund::AccelApi::Vulkan);
-  detail::PickAdmission destroy_admission = detail::AdmitPick(destroy_pick);
-  const rund::AccelDevice *const destroy_raw = destroy_admission.raw();
+  std::shared_ptr<detail::PickToken> destroy_token =
+      detail::AdmitPick(destroy_pick);
+  const rund::AccelDevice *const destroy_raw =
+      destroy_token == nullptr ? nullptr : &destroy_token->raw;
   detail::VulkanAdapter *const destroy_adapter =
       destroy_raw == nullptr ? nullptr
                              : detail::CheckedVulkanAdapter(*destroy_raw);
-  destroy_admission.token.reset();
+  destroy_token.reset();
   return HostReadbackEpochContract(std::move(destroy_pick), destroy_adapter,
                                    true);
 #else
@@ -257,8 +285,8 @@ template <class Adapter>
 }
 
 [[nodiscard]] bool CpuCounterContract(const rund::AccelDevice &pick) {
-  const detail::PickAdmission admission = detail::AdmitPick(pick);
-  const rund::AccelDevice *const raw = admission.raw();
+  const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
   detail::CpuAdapter *const adapter =
       raw == nullptr ? nullptr : detail::CpuAdapterFromPick(*raw);
   if (adapter == nullptr) {
@@ -288,8 +316,8 @@ template <class Adapter>
   if (!pick.check.ok) {
     return node_accel_contract::MetalFailsClosed(pick);
   }
-  const detail::PickAdmission admission = detail::AdmitPick(pick);
-  const rund::AccelDevice *const raw = admission.raw();
+  const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
   auto *const adapter =
       raw == nullptr
           ? nullptr
@@ -343,8 +371,8 @@ template <class Adapter>
     return node_accel_contract::vulkan::FailureReasonIsPrecise(pick);
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  const detail::PickAdmission admission = detail::AdmitPick(pick);
-  const rund::AccelDevice *const raw = admission.raw();
+  const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
   detail::VulkanAdapter *const adapter =
       raw == nullptr ? nullptr : detail::CheckedVulkanAdapter(*raw);
   if (adapter == nullptr) {
@@ -415,8 +443,8 @@ template <class Adapter>
     return node_accel_contract::vulkan::FailureReasonIsPrecise(pick);
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  const detail::PickAdmission admission = detail::AdmitPick(pick);
-  const rund::AccelDevice *const raw = admission.raw();
+  const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
   detail::VulkanAdapter *const adapter =
       raw == nullptr ? nullptr : detail::CheckedVulkanAdapter(*raw);
   if (adapter == nullptr) {
@@ -574,6 +602,7 @@ template <class Adapter>
 } // namespace
 
 int RunAccelBackendRuntimeContract() {
+  TEST_ASSERT(PickTokenAdmissionContract());
   TEST_ASSERT(node_accel_contract::ResidentValidationContract());
   TEST_ASSERT(VulkanCommandFailureContract());
   TEST_ASSERT(CpuCounterContract(Pick(rund::AccelApi::Cpu)));

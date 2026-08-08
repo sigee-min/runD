@@ -73,6 +73,14 @@ operation success, reason, failed-batch count, first failed batch, and first
 status; Node neither mirrors nor converts those fields into another result
 type.
 
+Private pick authentication returns the retained `PickToken` owner directly.
+A null token is rejection and a non-null token is admission; there is no
+parallel `AccelCheck` or wrapper state that can disagree with that lifetime
+authority. Each public operation projects a null token into its own documented
+operation result. A retained token owns the canonical pick and preserves its
+stable route to the process-lifetime backend operation table for the complete
+synchronous or asynchronous use.
+
 The CPU adapter is a private node adapter over kernel-owned deterministic
 Compute contracts. On pick, its private `DetectCpu()` owner narrows observed
 features to currently executable direct SIMD strategy evidence, freezes

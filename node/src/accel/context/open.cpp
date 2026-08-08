@@ -12,17 +12,17 @@
 namespace rund::node::accel {
 
 rund::AccelContext OpenAccel(const rund::AccelDevice &pick) {
-  const detail::PickAdmission admission = detail::AdmitPick(pick);
-  if (!admission.check.ok || admission.token == nullptr ||
-      admission.token->ops == nullptr || !admission.token->ops->resident) {
+  const std::shared_ptr<detail::PickToken> pick_token = detail::AdmitPick(pick);
+  if (pick_token == nullptr || pick_token->ops == nullptr ||
+      !pick_token->ops->resident) {
     return detail::RejectContext("accel_context_pick_invalid");
   }
 
-  const rund::RuntimeStats stats = detail::ReadBackendStats(admission.token);
-  rund::AccelDevice canonical_pick = admission.token->raw;
-  canonical_pick.owner = detail::PublicPickOwner(admission.token);
+  const rund::RuntimeStats stats = detail::ReadBackendStats(pick_token);
+  rund::AccelDevice canonical_pick = pick_token->raw;
+  canonical_pick.owner = detail::PublicPickOwner(pick_token);
   std::shared_ptr<detail::ContextToken> token = detail::MintContextToken(
-      canonical_pick.api, canonical_pick.caps, admission.token);
+      canonical_pick.api, canonical_pick.caps, pick_token);
   if (token == nullptr) {
     return detail::RejectContext("accel_context_pick_invalid");
   }

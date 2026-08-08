@@ -2,6 +2,8 @@
 
 #include "match.hpp"
 
+#include <accel/check.hpp>
+
 #include <algorithm>
 #include <mutex>
 #include <new>
@@ -73,7 +75,7 @@ rund::AccelDevice SealPick(rund::AccelDevice raw, const BackendOps &ops) {
   }
 }
 
-PickAdmission AdmitPick(const rund::AccelDevice &pick) noexcept {
+std::shared_ptr<PickToken> AdmitPick(const rund::AccelDevice &pick) noexcept {
   if (pick.owner == nullptr) {
     return {};
   }
@@ -95,8 +97,7 @@ PickAdmission AdmitPick(const rund::AccelDevice &pick) noexcept {
       !SameBackendInfo(pick.backend_info, token->raw.backend_info)) {
     return {};
   }
-  return PickAdmission{.check = rund::AccelCheck{true, "ok"},
-                       .token = std::move(token)};
+  return token;
 }
 
 } // namespace rund::node::accel::detail

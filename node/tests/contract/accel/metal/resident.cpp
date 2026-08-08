@@ -17,8 +17,8 @@ bool MetalResidentBufferRegistryValidatesPrivateRefs(
   if (!pick.check.ok || !pick.caps.ok || pick.api != rund::AccelApi::Metal) {
     return true;
   }
-  const auto admitted = rund::node::accel::detail::AdmitPick(pick);
-  const rund::AccelDevice *const raw = admitted.raw();
+  const auto token = rund::node::accel::detail::AdmitPick(pick);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
   if (raw == nullptr) {
     return false;
   }
@@ -95,9 +95,9 @@ bool MetalResidentBufferRegistryValidatesPrivateRefs(
     if (!other_pick.check.ok) {
       return false;
     }
-    const auto other_admitted =
-        rund::node::accel::detail::AdmitPick(other_pick);
-    const rund::AccelDevice *const other_raw = other_admitted.raw();
+    const auto other_token = rund::node::accel::detail::AdmitPick(other_pick);
+    const rund::AccelDevice *const other_raw =
+        other_token == nullptr ? nullptr : &other_token->raw;
     return other_raw != nullptr &&
            !rund::node::accel::detail::LookupMetalResidentBuffer(
                 *other_raw, first.ref, first.handle)

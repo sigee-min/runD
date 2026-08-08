@@ -218,8 +218,8 @@ template <typename Handle>
     return 0;
   }
   using namespace rund::node::accel::detail;
-  const PickAdmission admitted = AdmitPick(pick);
-  const rund::AccelDevice *const raw = admitted.raw();
+  const std::shared_ptr<PickToken> token = AdmitPick(pick);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
   VulkanAdapter *const adapter =
       raw == nullptr ? nullptr : CheckedVulkanAdapter(*raw);
   if (adapter == nullptr) {

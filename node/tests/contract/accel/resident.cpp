@@ -221,9 +221,9 @@ template <std::size_t N>
                     rund::AccelApi::Auto},
       .preferred_count = 1u,
   });
-  const detail::PickAdmission admission = detail::AdmitPick(cpu);
-  const rund::AccelDevice *const raw = admission.raw();
-  if (!admission.check.ok || raw == nullptr) {
+  const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(cpu);
+  const rund::AccelDevice *const raw = token == nullptr ? nullptr : &token->raw;
+  if (raw == nullptr) {
     return false;
   }
   detail::CpuBufferResult created = detail::CreateCpuResidentBuffer(
