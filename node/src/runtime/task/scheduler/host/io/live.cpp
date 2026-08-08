@@ -71,13 +71,12 @@ Scheduler::CloseHostFd(const ::rund::host::io::FdView fd) noexcept {
 
   const ::rund::host::io::detail::FdIdentity identity =
       ::rund::host::io::detail::Project(fd);
-  ::rund::ReasonCode invalidation = ::rund::ReasonCode::Ok;
-  const bool invalidated =
-      ReactorCloseInvalidateFd(*this, identity.native, &invalidation);
+  const ::rund::ReasonCode invalidation =
+      ReactorCloseInvalidateFd(*this, identity.native);
   const NativeIoResult closed = NativeClose(identity.native);
   CompletePrimitiveCommit();
 
-  if (!invalidated) {
+  if (invalidation != ::rund::ReasonCode::Ok) {
     return ::rund::host::io::detail::Access::close(invalidation, closed.err);
   }
   if (closed.unsupported) {

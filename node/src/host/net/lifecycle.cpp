@@ -106,15 +106,14 @@ Scheduler::CloseSocket(const ::rund::net::SocketView socket,
     return result;
   };
 
-  ::rund::ReasonCode invalidation_failure = ::rund::ReasonCode::Ok;
-  const bool invalidated =
-      ReactorCloseInvalidateFd(*this, native_socket, &invalidation_failure);
+  const ::rund::ReasonCode invalidation =
+      ReactorCloseInvalidateFd(*this, native_socket);
   const node::NativeIoResult native = node::NativeClose(native_socket);
   (void)RecordHostEvent(MakeSocketCloseEvent(
       ::rund::net::detail::SocketAccess::id(native_socket), native));
   FinishSocketClose(socket);
-  if (!invalidated) {
-    return finish(FailSocketClose(invalidation_failure, native.err));
+  if (invalidation != ::rund::ReasonCode::Ok) {
+    return finish(FailSocketClose(invalidation, native.err));
   }
   return finish(CompleteNativeSocketClose(native));
 }

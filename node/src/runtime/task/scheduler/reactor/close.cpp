@@ -45,20 +45,14 @@ void SortRemovedWaits(std::vector<ReactorWait> &removed) noexcept {
 
 } // namespace
 
-bool ReactorCloseInvalidateFd(Scheduler &scheduler, const int fd,
-                              ReasonCode *const failure) noexcept {
-  if (failure != nullptr) {
-    *failure = ReasonCode::Ok;
-  }
+ReasonCode ReactorCloseInvalidateFd(Scheduler &scheduler,
+                                    const int fd) noexcept {
   ReactorRuntime &reactor = scheduler.state_->reactor.reactor;
   const ReactorHandle handle = ReactorHandleFromPublic(fd);
   ::rund::detail::task::StatStorage &stats = scheduler.state_->evidence.metrics;
   std::vector<ReactorWait> &removed = reactor.removed_wait_scratch;
   if (!ReserveCloseMutationStorage(reactor, removed)) {
-    if (failure != nullptr) {
-      *failure = ReasonCode::ReactorWaitCapacityExceeded;
-    }
-    return false;
+    return ReasonCode::ReactorWaitCapacityExceeded;
   }
 
   try {
@@ -67,23 +61,17 @@ bool ReactorCloseInvalidateFd(Scheduler &scheduler, const int fd,
       const ReactorWait *const wait = ReactorRegistrySlotWait(reactor, slot);
       if (wait == nullptr) {
         removed.clear();
-        if (failure != nullptr) {
-          *failure = ReasonCode::IoPollFailed;
-        }
-        return false;
+        return ReasonCode::IoPollFailed;
       }
       removed.push_back(*wait);
     }
   } catch (...) {
     removed.clear();
-    if (failure != nullptr) {
-      *failure = ReasonCode::ReactorWaitCapacityExceeded;
-    }
-    return false;
+    return ReasonCode::ReactorWaitCapacityExceeded;
   }
 
   SortRemovedWaits(removed);
-  bool cleanup_ok = true;
+  ReasonCode result = ReasonCode::Ok;
   for (const ReactorWait &wait : removed) {
     scheduler.RecordReactorObservation(
         task::ObservationKind::IoInvalid, ReasonCode::IoFdInvalid, wait.task_id,
@@ -102,14 +90,11 @@ bool ReactorCloseInvalidateFd(Scheduler &scheduler, const int fd,
                            .cleanup_siblings = true,
                            .events = ReactorEventsForInterest(wait.interest),
                            .store_event = true})) {
-      if (failure != nullptr) {
-        *failure = ReasonCode::IoPollFailed;
-      }
-      cleanup_ok = false;
+      result = ReasonCode::IoPollFailed;
     }
   }
   RecordReactorCloseInvalidatedWaits(stats, removed.size());
-  return cleanup_ok;
+  return result;
 }
 
 } // namespace rund::node

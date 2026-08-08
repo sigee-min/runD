@@ -264,7 +264,13 @@ capacity check can abandon a committed prefix.
   the apply boundary consumes.
 - `reactor/close.cpp`: scheduler-side fd close invalidation discovery and
   invalidation evidence before native close; wait removal and wakeup are
-  routed through the reactor cleanup owner.
+  routed through the reactor cleanup owner. It returns one `ReasonCode`
+  directly: `Ok`, `ReactorWaitCapacityExceeded`, or `IoPollFailed`. A failure
+  may follow an already-committed cleanup prefix and never suppresses the one
+  native close attempt. After that attempt, a non-`Ok` invalidation reason
+  takes precedence over the native close result. A reactor host-event mismatch
+  updates the separate global replay authority and does not expand this return
+  set; no parallel success boolean or failure output exists.
 - `reactor/stats.cpp`: live scheduler telemetry slot mutation helpers; it is
   not a second readiness or public snapshot authority.
 - `reactor/invariants.cpp`: test-only read-only cleanup and cost snapshots over

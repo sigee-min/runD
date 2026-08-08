@@ -25,8 +25,8 @@ friend bool reactor_cancel_cleanup::CleanupSingleWait(
     Scheduler &scheduler, ReactorCleanupRequest request) noexcept;
 friend struct LaneWorkerAccess;
 friend struct ReadyManyAccess;
-friend bool ReactorCloseInvalidateFd(Scheduler &scheduler, int fd,
-                                     ReasonCode *failure) noexcept;
+friend ReasonCode ReactorCloseInvalidateFd(Scheduler &scheduler,
+                                           int fd) noexcept;
 friend ReasonCode
 ReactorGenerationCleanupStaleWaits(Scheduler &scheduler, ReactorHandle fd,
                                    std::uint64_t current_generation) noexcept;

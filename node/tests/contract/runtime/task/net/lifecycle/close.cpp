@@ -1,3 +1,4 @@
+#include "src/runtime/task/scheduler/reactor/close.hpp"
 #include "local.hpp"
 #include "src/host/net/test/socket.hpp"
 #include <rund/net/io.hpp>
@@ -10,6 +11,17 @@
 #include <array>
 #include <cstddef>
 #include <span>
+#include <type_traits>
+
+namespace {
+
+using CloseInvalidationFunction = rund::ReasonCode (*)(rund::node::Scheduler &,
+                                                       int) noexcept;
+
+static_assert(std::is_same_v<decltype(&rund::node::ReactorCloseInvalidateFd),
+                             CloseInvalidationFunction>);
+
+} // namespace
 
 int RunNetLifecycleCloseInvalidatesWaitCase() {
   using namespace rund::node::test_contract::net_lifecycle;

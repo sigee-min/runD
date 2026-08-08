@@ -8,7 +8,7 @@ namespace rund::node {
 
 class Scheduler;
 
-[[nodiscard]] bool ReactorCloseInvalidateFd(Scheduler &scheduler, int fd,
-                                            ReasonCode *failure) noexcept;
+[[nodiscard]] ReasonCode ReactorCloseInvalidateFd(Scheduler &scheduler,
+                                                  int fd) noexcept;
 
 } // namespace rund::node
