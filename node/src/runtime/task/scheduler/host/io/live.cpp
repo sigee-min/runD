@@ -26,19 +26,23 @@ WriteResult(const HostIoCompletion completion) noexcept {
 }
 
 ReasonCode OutcomeCode(const HostIoOutcome &outcome) noexcept {
-  if (outcome.kind == HostIoOutcomeKind::Unsupported) {
+  switch (outcome.disposition()) {
+  case HostIoOutcomeDisposition::Pending:
+    return ReasonCode::IoSyscallFailed;
+  case HostIoOutcomeDisposition::Complete:
+    return ReasonCode::Ok;
+  case HostIoOutcomeDisposition::Failed:
+    if (outcome.native_error() == EAGAIN ||
+        outcome.native_error() == EWOULDBLOCK) {
+      return ReasonCode::IoWouldBlock;
+    }
+    return ReasonCode::IoSyscallFailed;
+  case HostIoOutcomeDisposition::InvalidBuffer:
+    return ReasonCode::TaskInvalid;
+  case HostIoOutcomeDisposition::Unsupported:
     return ReasonCode::IoUnsupported;
   }
-  if (outcome.kind == HostIoOutcomeKind::InvalidBuffer) {
-    return ReasonCode::TaskInvalid;
-  }
-  if (outcome.kind == HostIoOutcomeKind::Ready && outcome.value >= 0) {
-    return ReasonCode::Ok;
-  }
-  if (outcome.error == EAGAIN || outcome.error == EWOULDBLOCK) {
-    return ReasonCode::IoWouldBlock;
-  }
-  return ReasonCode::IoSyscallFailed;
+  std::abort();
 }
 
 ::rund::host::Status EventStatus(const ReasonCode code) noexcept {
@@ -211,12 +215,12 @@ HostIoCompletion Scheduler::CompleteHostIo(void *const token,
   ReleaseHostPayloadCapacity(operation.size);
 
   ReasonCode code = host_io::OutcomeCode(outcome);
-  if (outcome.value >= 0 &&
-      static_cast<std::uint64_t>(outcome.value) > operation.size) {
+  if (outcome.value() >= 0 &&
+      static_cast<std::uint64_t>(outcome.value()) > operation.size) {
     code = ReasonCode::TaskInvalid;
   }
   const std::size_t completed =
-      code == ReasonCode::Ok ? static_cast<std::size_t>(outcome.value) : 0u;
+      code == ReasonCode::Ok ? static_cast<std::size_t>(outcome.value()) : 0u;
   const replay_detail::payload::Capture payload =
       replay_detail::payload::Capture::read(
           operation.write_buffer().first(completed));
@@ -232,7 +236,7 @@ HostIoCompletion Scheduler::CompleteHostIo(void *const token,
       .host_handle_id = operation.host_id,
       .requested_bytes = static_cast<std::uint64_t>(operation.size),
       .completed_bytes = static_cast<std::uint64_t>(completed),
-      .native_errno = outcome.error,
+      .native_errno = outcome.native_error(),
       .payload_hash = payload_hash,
   });
   ReasonCode final_code = commit.ok() ? code : commit.code();
@@ -240,8 +244,8 @@ HostIoCompletion Scheduler::CompleteHostIo(void *const token,
     final_code =
         RecordHostPayloadForCommittedEvent(commit, event_kind, payload);
   }
-  const std::int64_t native_value = outcome.value;
-  const int native_error = outcome.error;
+  const std::int64_t native_value = outcome.value();
+  const int native_error = outcome.native_error();
   host_io::Release(state_->host_io, *slot);
   CompletePrimitiveCommit();
   return HostIoCompletion{

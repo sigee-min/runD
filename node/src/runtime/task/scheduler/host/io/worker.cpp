@@ -9,17 +9,13 @@ namespace {
 [[nodiscard]] HostIoOutcome Outcome(const NativeIoResult native) noexcept {
   switch (native.disposition()) {
   case NativeIoDisposition::Complete:
+    return HostIoOutcome::complete(native.value());
   case NativeIoDisposition::Failed:
-    return HostIoOutcome{.value = native.value(),
-                         .error = native.native_error(),
-                         .kind = HostIoOutcomeKind::Ready};
+    return HostIoOutcome::failed(native.native_error());
   case NativeIoDisposition::InvalidBuffer:
-    return HostIoOutcome{.value = -1,
-                         .error = native.native_error(),
-                         .kind = HostIoOutcomeKind::InvalidBuffer};
+    return HostIoOutcome::invalid_buffer(native.native_error());
   case NativeIoDisposition::Unsupported:
-    return HostIoOutcome{
-        .value = -1, .error = 0, .kind = HostIoOutcomeKind::Unsupported};
+    return HostIoOutcome::unsupported();
   }
   std::abort();
 }
@@ -74,17 +70,13 @@ void Run(Scheduler &scheduler, SchedulerState &scheduler_state) {
       slot->next = nullptr;
       slot->state.store(HostIoSlotState::Running, std::memory_order_release);
       if (slot->operation.sequence != state.next_execution_sequence) {
-        slot->outcome = HostIoOutcome{
-            .value = -1,
-            .error = EINVAL,
-            .kind = HostIoOutcomeKind::InvalidBuffer,
-        };
+        slot->outcome = HostIoOutcome::invalid_buffer(EINVAL);
       } else {
         ++state.next_execution_sequence;
       }
     }
 
-    if (slot->outcome.kind == HostIoOutcomeKind::Pending) {
+    if (slot->outcome.disposition() == HostIoOutcomeDisposition::Pending) {
       const HostIoOperation &operation = slot->operation;
       slot->outcome =
           operation.kind == HostIoKind::Read

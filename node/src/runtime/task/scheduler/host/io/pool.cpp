@@ -20,7 +20,7 @@ void ResetLocked(SchedulerHostIoState &state, HostIoSlot &slot) noexcept {
   slot.phase.store(0u, std::memory_order_release);
   slot.wake = {};
   slot.operation = {};
-  slot.outcome = {};
+  slot.outcome = HostIoOutcome::pending();
   slot.state.store(HostIoSlotState::Free, std::memory_order_release);
   slot.next = state.free_head;
   state.free_head = &slot;
@@ -52,7 +52,7 @@ HostIoSlot *Claim(Scheduler &scheduler, SchedulerState &scheduler_state,
   slot->operation = operation;
   slot->operation.sequence = state.next_submission_sequence++;
   slot->next = nullptr;
-  slot->outcome = {};
+  slot->outcome = HostIoOutcome::pending();
   slot->state.store(HostIoSlotState::Admitting, std::memory_order_release);
   ++state.submissions_in_progress;
   return slot;

@@ -428,6 +428,15 @@ The slot lifecycle has one state authority:
 `Free -> Admitting -> Queued -> Running -> Complete -> Free`. Read/write kind,
 native outcome, and lifecycle are enums rather than correlated boolean fields;
 an impossible mixed state therefore has no representable public path.
+The cross-thread native-outcome snapshot has exactly five dispositions:
+`Pending`, `Complete`, `Failed`, `InvalidBuffer`, and `Unsupported`. `Pending`
+and `Unsupported` fix the value to `-1` and native error to zero; `Complete`
+fixes the native error to zero and carries a nonnegative value; `Failed` and
+`InvalidBuffer` fix the value to `-1` and carry a nonzero native error. The
+worker publishes one of the four terminal dispositions before the slot state
+becomes `Complete`; observing `Pending` at completion fails closed as
+`io_syscall_failed`. The snapshot is a private asynchronous publication value,
+not a second native-call, retry, or slot-lifecycle authority.
 Scope drain waits until every external direct job has resumed and released its
 slot. Reset then closes admission, joins a worker whose FIFO and admission
 count are empty, and retains both sequence counters. Submission identity is

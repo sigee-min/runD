@@ -1,5 +1,6 @@
 #include "test/assert.hpp"
 
+#include "../../../../../../src/runtime/task/scheduler/host/io/local.hpp"
 #include "local.hpp"
 
 #include <rund/host/io.hpp>
@@ -37,6 +38,43 @@ static_assert(!std::is_copy_assignable_v<rund::host::io::Fd>);
 static_assert(std::is_nothrow_move_constructible_v<rund::host::io::Fd>);
 static_assert(std::is_nothrow_move_assignable_v<rund::host::io::Fd>);
 static_assert(std::is_trivially_copyable_v<rund::host::io::FdView>);
+
+using rund::node::HostIoOutcome;
+using rund::node::HostIoOutcomeDisposition;
+
+static_assert(!std::is_aggregate_v<HostIoOutcome>);
+static_assert(!std::is_default_constructible_v<HostIoOutcome>);
+static_assert(std::is_trivially_copyable_v<HostIoOutcome>);
+static_assert(sizeof(HostIoOutcome) == 16u);
+
+constexpr HostIoOutcome kPendingOutcome = HostIoOutcome::pending();
+static_assert(kPendingOutcome.disposition() ==
+              HostIoOutcomeDisposition::Pending);
+static_assert(kPendingOutcome.value() == -1);
+static_assert(kPendingOutcome.native_error() == 0);
+
+constexpr HostIoOutcome kCompleteOutcome = HostIoOutcome::complete(7);
+static_assert(kCompleteOutcome.disposition() ==
+              HostIoOutcomeDisposition::Complete);
+static_assert(kCompleteOutcome.value() == 7);
+static_assert(kCompleteOutcome.native_error() == 0);
+
+constexpr HostIoOutcome kFailedOutcome = HostIoOutcome::failed(EAGAIN);
+static_assert(kFailedOutcome.disposition() == HostIoOutcomeDisposition::Failed);
+static_assert(kFailedOutcome.value() == -1);
+static_assert(kFailedOutcome.native_error() == EAGAIN);
+
+constexpr HostIoOutcome kInvalidOutcome = HostIoOutcome::invalid_buffer(EINVAL);
+static_assert(kInvalidOutcome.disposition() ==
+              HostIoOutcomeDisposition::InvalidBuffer);
+static_assert(kInvalidOutcome.value() == -1);
+static_assert(kInvalidOutcome.native_error() == EINVAL);
+
+constexpr HostIoOutcome kUnsupportedOutcome = HostIoOutcome::unsupported();
+static_assert(kUnsupportedOutcome.disposition() ==
+              HostIoOutcomeDisposition::Unsupported);
+static_assert(kUnsupportedOutcome.value() == -1);
+static_assert(kUnsupportedOutcome.native_error() == 0);
 
 template <class T>
 concept RvalueView = requires(T value) { std::move(value).view(); };
@@ -100,6 +138,21 @@ void VerifyResult() {
   TEST_ASSERT(
       read.error() == "task_invalid" && write.error() == "task_invalid" &&
       open.error() == "task_invalid" && close.error() == "task_invalid");
+}
+
+void VerifyInternalOutcomeProjection() {
+  TEST_ASSERT(rund::node::host_io::OutcomeCode(HostIoOutcome::pending()) ==
+              rund::ReasonCode::IoSyscallFailed);
+  TEST_ASSERT(rund::node::host_io::OutcomeCode(HostIoOutcome::complete(7)) ==
+              rund::ReasonCode::Ok);
+  TEST_ASSERT(rund::node::host_io::OutcomeCode(HostIoOutcome::failed(EAGAIN)) ==
+              rund::ReasonCode::IoWouldBlock);
+  TEST_ASSERT(rund::node::host_io::OutcomeCode(HostIoOutcome::failed(EIO)) ==
+              rund::ReasonCode::IoSyscallFailed);
+  TEST_ASSERT(rund::node::host_io::OutcomeCode(HostIoOutcome::invalid_buffer(
+                  EINVAL)) == rund::ReasonCode::TaskInvalid);
+  TEST_ASSERT(rund::node::host_io::OutcomeCode(HostIoOutcome::unsupported()) ==
+              rund::ReasonCode::IoUnsupported);
 }
 
 void VerifyOwner() {
@@ -384,6 +437,7 @@ void VerifyBlocking() {
 
 void Surface() {
   VerifyResult();
+  VerifyInternalOutcomeProjection();
   VerifyOwner();
   VerifyBlocking();
 }

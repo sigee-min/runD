@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <span>
 
 namespace rund::node {
@@ -24,9 +25,10 @@ enum class HostIoSlotState : std::uint8_t {
   Complete,
 };
 
-enum class HostIoOutcomeKind : std::uint8_t {
+enum class HostIoOutcomeDisposition : std::uint8_t {
   Pending,
-  Ready,
+  Complete,
+  Failed,
   InvalidBuffer,
   Unsupported,
 };
@@ -48,10 +50,62 @@ struct HostIoOperation final {
   }
 };
 
-struct HostIoOutcome final {
-  std::int64_t value = -1;
-  int error = 0;
-  HostIoOutcomeKind kind = HostIoOutcomeKind::Pending;
+class HostIoOutcome final {
+public:
+  HostIoOutcome() = delete;
+
+  [[nodiscard]] static constexpr HostIoOutcome pending() noexcept {
+    return HostIoOutcome{-1, 0, HostIoOutcomeDisposition::Pending};
+  }
+
+  [[nodiscard]] static constexpr HostIoOutcome
+  complete(const std::int64_t value) noexcept {
+    if (value < 0) {
+      std::abort();
+    }
+    return HostIoOutcome{value, 0, HostIoOutcomeDisposition::Complete};
+  }
+
+  [[nodiscard]] static constexpr HostIoOutcome
+  failed(const int native_error) noexcept {
+    if (native_error == 0) {
+      std::abort();
+    }
+    return HostIoOutcome{-1, native_error, HostIoOutcomeDisposition::Failed};
+  }
+
+  [[nodiscard]] static constexpr HostIoOutcome
+  invalid_buffer(const int native_error) noexcept {
+    if (native_error == 0) {
+      std::abort();
+    }
+    return HostIoOutcome{-1, native_error,
+                         HostIoOutcomeDisposition::InvalidBuffer};
+  }
+
+  [[nodiscard]] static constexpr HostIoOutcome unsupported() noexcept {
+    return HostIoOutcome{-1, 0, HostIoOutcomeDisposition::Unsupported};
+  }
+
+  [[nodiscard]] constexpr HostIoOutcomeDisposition
+  disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr std::int64_t value() const noexcept { return value_; }
+
+  [[nodiscard]] constexpr int native_error() const noexcept {
+    return native_error_;
+  }
+
+private:
+  constexpr HostIoOutcome(const std::int64_t value, const int native_error,
+                          const HostIoOutcomeDisposition disposition) noexcept
+      : value_(value), native_error_(native_error), disposition_(disposition) {}
+
+  std::int64_t value_;
+  int native_error_;
+  HostIoOutcomeDisposition disposition_;
 };
 
 struct HostIoCompletion final {
@@ -64,7 +118,7 @@ struct HostIoSlot {
   HostIoSlot *next = nullptr;
   ExternalWake wake{};
   HostIoOperation operation{};
-  HostIoOutcome outcome{};
+  HostIoOutcome outcome = HostIoOutcome::pending();
   std::uint64_t released_sequence = 0u;
   std::atomic<std::uint8_t> phase{0u};
   std::atomic<HostIoSlotState> state{HostIoSlotState::Free};
