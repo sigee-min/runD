@@ -144,6 +144,16 @@ operation-level failure.
 
 ## Native Byte Substrate
 
+The source-private native fd identity value has exactly one disposition:
+`Invalid` or `Described`. `Invalid` fixes device, inode, full mode, and object
+type to zero. `Described` carries all four fields from the one native identity
+lookup; it does not retain an errno because every lookup failure has the same
+identity meaning at its consumers. The reactor projection consumes device,
+inode, and full mode. Socket admission instead compares device, inode, and
+object type so permission-bit changes do not masquerade as descriptor reuse.
+Those two projections remain distinct typed values and neither reconstructs
+one comparison rule from the other.
+
 The source-private native fd result has exactly one disposition: `Complete`,
 `Failed`, `InvalidBuffer`, or `Unsupported`. `Complete` carries a nonnegative
 native return value and fixes the native error to zero; a positive byte count

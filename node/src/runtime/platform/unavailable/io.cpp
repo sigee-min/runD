@@ -17,7 +17,7 @@ bool NativeFdValid(const int fd) noexcept {
 
 NativeFdIdentity NativeDescribeFdIdentity(const int fd) noexcept {
   (void)fd;
-  return {};
+  return NativeFdIdentity::invalid();
 }
 
 bool NativeIsNonblockingFd(const int fd) noexcept {

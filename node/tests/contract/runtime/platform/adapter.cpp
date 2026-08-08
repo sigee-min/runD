@@ -55,6 +55,41 @@ void VerifyNativeIoResultContract() {
   static_assert(unsupported.native_error() == 0);
 }
 
+void VerifyNativeFdIdentityContract() {
+  using rund::node::NativeFdIdentity;
+  using rund::node::NativeFdIdentityDisposition;
+
+  static_assert(!std::is_aggregate_v<NativeFdIdentity>);
+  static_assert(!std::is_default_constructible_v<NativeFdIdentity>);
+  static_assert(std::is_trivially_copyable_v<NativeFdIdentity>);
+  static_assert(sizeof(void *) != 8u || sizeof(NativeFdIdentity) == 32u);
+
+  constexpr NativeFdIdentity invalid = NativeFdIdentity::invalid();
+  static_assert(invalid.disposition() == NativeFdIdentityDisposition::Invalid);
+  static_assert(invalid.device() == 0u);
+  static_assert(invalid.inode() == 0u);
+  static_assert(invalid.mode() == 0u);
+  static_assert(invalid.type() == 0u);
+  static_assert(!invalid.same_socket_object(invalid));
+
+  constexpr NativeFdIdentity described =
+      NativeFdIdentity::described(11u, 13u, 15u, 17u);
+  static_assert(described.disposition() ==
+                NativeFdIdentityDisposition::Described);
+  static_assert(described.device() == 11u);
+  static_assert(described.inode() == 13u);
+  static_assert(described.mode() == 15u);
+  static_assert(described.type() == 17u);
+  static_assert(described.same_socket_object(
+      NativeFdIdentity::described(11u, 13u, 19u, 17u)));
+  static_assert(!described.same_socket_object(
+      NativeFdIdentity::described(12u, 13u, 15u, 17u)));
+  static_assert(!described.same_socket_object(
+      NativeFdIdentity::described(11u, 14u, 15u, 17u)));
+  static_assert(!described.same_socket_object(
+      NativeFdIdentity::described(11u, 13u, 15u, 18u)));
+}
+
 #if !defined(RUND_NODE_PLATFORM_UNAVAILABLE)
 void VerifyNativeIoProducers() {
   using rund::node::NativeIoDisposition;
@@ -69,6 +104,11 @@ void VerifyNativeIoProducers() {
   TEST_ASSERT(invalid.disposition() == NativeIoDisposition::InvalidBuffer);
   TEST_ASSERT(invalid.value() == -1);
   TEST_ASSERT(invalid.native_error() == EINVAL);
+
+  const rund::node::NativeFdIdentity fd_identity =
+      rund::node::NativeDescribeFdIdentity(-1);
+  TEST_ASSERT(fd_identity.disposition() ==
+              rund::node::NativeFdIdentityDisposition::Invalid);
 }
 #endif
 
@@ -184,12 +224,12 @@ void VerifyUnavailableNativeSurface() {
 
   TEST_ASSERT(!NativeFdValid(0));
   const NativeFdIdentity fd_identity = NativeDescribeFdIdentity(0);
-  TEST_ASSERT(!fd_identity.ok);
-  TEST_ASSERT(fd_identity.err == 0);
-  TEST_ASSERT(fd_identity.device == 0u);
-  TEST_ASSERT(fd_identity.inode == 0u);
-  TEST_ASSERT(fd_identity.mode == 0u);
-  TEST_ASSERT(fd_identity.type == 0u);
+  TEST_ASSERT(fd_identity.disposition() ==
+              NativeFdIdentityDisposition::Invalid);
+  TEST_ASSERT(fd_identity.device() == 0u);
+  TEST_ASSERT(fd_identity.inode() == 0u);
+  TEST_ASSERT(fd_identity.mode() == 0u);
+  TEST_ASSERT(fd_identity.type() == 0u);
   TEST_ASSERT(!NativeIsNonblockingFd(0));
   AssertUnsupported(NativeSetNonblockingFd(0, true));
   AssertUnsupported(NativeRead(0, bytes));
@@ -273,6 +313,7 @@ int RunRuntimePlatformAdapterContract() {
   using rund::ReasonCode;
 
   VerifyNativeIoResultContract();
+  VerifyNativeFdIdentityContract();
 #if !defined(RUND_NODE_PLATFORM_UNAVAILABLE)
   VerifyNativeIoProducers();
 #endif

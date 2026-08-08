@@ -14,7 +14,7 @@ bool BeginSocketClose(const SocketView socket) noexcept {
       return false;
     }
     slot->hot.closing = true;
-    slot->identity = node::NativeFdIdentity{};
+    slot->identity = node::NativeFdIdentity::invalid();
   }
   registry::wait(*slot);
   return true;

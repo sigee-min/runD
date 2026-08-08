@@ -94,6 +94,14 @@ top-level access or registry capability beside the product values and verbs.
 This is a layout and copied-byte reduction; it is not by itself a wall-time
 claim.
 
+Admission stores one described native-fd snapshot in that slot. The snapshot
+itself owns socket-object comparison: both sides must be described and their
+device, inode, and object-type fields must match. Full mode remains available
+to the separate reactor projection, but permission-bit differences do not
+change socket identity. An inactive or closing slot stores the single
+`Invalid` value with zero payload; there is no validity boolean or parallel
+manual comparison authority in the registry.
+
 The registry has one active descriptor index and one address-stable slot pool.
 The index contains only bound or closing descriptors. After close retirement
 has waited for every operation reader, it extracts the descriptor-index node

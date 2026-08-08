@@ -136,7 +136,7 @@ SocketSlot *SocketRegistry::bind(const int native,
     }
   } catch (...) {
     slot->hot.native.store(-1, std::memory_order_relaxed);
-    slot->identity = {};
+    slot->identity = node::NativeFdIdentity::invalid();
     slot->next = free_;
     free_ = slot;
     ++reusable_;
@@ -144,7 +144,7 @@ SocketSlot *SocketRegistry::bind(const int native,
   }
 
   slot->hot.native.store(-1, std::memory_order_relaxed);
-  slot->identity = {};
+  slot->identity = node::NativeFdIdentity::invalid();
   slot->next = free_;
   free_ = slot;
   ++reusable_;
@@ -159,7 +159,7 @@ void SocketRegistry::release(SocketSlot &slot) noexcept {
   }
   slot.index = live_.extract(found);
   slot.hot.native.store(-1, std::memory_order_release);
-  slot.identity = {};
+  slot.identity = node::NativeFdIdentity::invalid();
   slot.active_owner = {};
   slot.hot.closing = false;
   slot.next = nullptr;
@@ -186,12 +186,6 @@ SocketRegistry::~SocketRegistry() noexcept {
     std::unique_ptr<SocketSlot> next = std::move(slots_->storage);
     slots_ = std::move(next);
   }
-}
-
-bool SameIdentity(const node::NativeFdIdentity &left,
-                  const node::NativeFdIdentity &right) noexcept {
-  return left.ok && right.ok && left.device == right.device &&
-         left.inode == right.inode && left.type == right.type;
 }
 
 Socket MakeAdmittedSocket(SocketSlot &slot,

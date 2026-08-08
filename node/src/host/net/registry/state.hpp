@@ -29,7 +29,7 @@ struct SocketHot final {
 
 struct SocketSlot {
   SocketHot hot{};
-  node::NativeFdIdentity identity{};
+  node::NativeFdIdentity identity{node::NativeFdIdentity::invalid()};
   SocketRegistryOwner active_owner{};
   SocketIndex::node_type index{};
   SocketSlot *next = nullptr;
@@ -95,8 +95,6 @@ void wait(const SocketSlot &slot) noexcept;
 [[nodiscard]] std::shared_mutex &RegistryGate() noexcept;
 [[nodiscard]] SocketRegistry &Registry() noexcept;
 
-[[nodiscard]] bool SameIdentity(const node::NativeFdIdentity &left,
-                                const node::NativeFdIdentity &right) noexcept;
 [[nodiscard]] Socket MakeAdmittedSocket(SocketSlot &slot,
                                         std::uint64_t generation) noexcept;
 

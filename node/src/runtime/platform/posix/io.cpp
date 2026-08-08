@@ -93,10 +93,9 @@ WriteWithoutSigpipe(const int fd,
 ReactorPlatformHandleIdentity
 DescribeReactorPlatformHandle(const ReactorHandle handle) noexcept {
   const NativeFdIdentity identity = NativeDescribeFdIdentity(PosixFd(handle));
-  return identity.ok
+  return identity.disposition() == NativeFdIdentityDisposition::Described
              ? ReactorPlatformHandleIdentity::described(
-                   identity.device, identity.inode,
-                   static_cast<std::uint32_t>(identity.mode))
+                   identity.device(), identity.inode(), identity.mode())
              : ReactorPlatformHandleIdentity::invalid();
 }
 
@@ -168,15 +167,13 @@ NativeFdIdentity NativeDescribeFdIdentity(const int fd) noexcept {
   struct stat metadata{};
   errno = 0;
   if (::fstat(fd, &metadata) != 0) {
-    return NativeFdIdentity{.err = errno};
+    return NativeFdIdentity::invalid();
   }
-  return NativeFdIdentity{
-      .ok = true,
-      .device = static_cast<std::uint64_t>(metadata.st_dev),
-      .inode = static_cast<std::uint64_t>(metadata.st_ino),
-      .mode = static_cast<std::uint32_t>(metadata.st_mode),
-      .type = static_cast<std::uint32_t>(metadata.st_mode & S_IFMT),
-  };
+  return NativeFdIdentity::described(
+      static_cast<std::uint64_t>(metadata.st_dev),
+      static_cast<std::uint64_t>(metadata.st_ino),
+      static_cast<std::uint32_t>(metadata.st_mode),
+      static_cast<std::uint32_t>(metadata.st_mode & S_IFMT));
 }
 
 bool NativeIsNonblockingFd(const int fd) noexcept {

@@ -12,12 +12,8 @@ namespace {
 
 [[nodiscard]] bool BurnBound() {
   rund::net::SocketRegistry registry{};
-  const rund::node::NativeFdIdentity identity{
-      .ok = true,
-      .device = 1u,
-      .inode = 1u,
-      .type = 1u,
-  };
+  const rund::node::NativeFdIdentity identity =
+      rund::node::NativeFdIdentity::described(1u, 1u, 1u, 1u);
   rund::net::SocketSlot *const first = registry.bind(7, identity);
   if (first == nullptr || rund::net::registry::activate(*first) != 1u) {
     return false;

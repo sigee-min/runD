@@ -18,15 +18,14 @@ PrepareStableSocketSend(const int native_socket,
   }
   const node::NativeFdIdentity current =
       node::NativeDescribeFdIdentity(native_socket);
-  return current.ok && SameIdentity(current, expected)
-             ? ::rund::ReasonCode::Ok
-             : ::rund::ReasonCode::IoFdInvalid;
+  return current.same_socket_object(expected) ? ::rund::ReasonCode::Ok
+                                              : ::rund::ReasonCode::IoFdInvalid;
 }
 
 void InvalidateGeneration(SocketSlot &slot) noexcept {
   registry::retire(slot);
   registry::wait(slot);
-  slot.identity = node::NativeFdIdentity{};
+  slot.identity = node::NativeFdIdentity::invalid();
 }
 
 } // namespace
@@ -37,7 +36,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
   }
   const node::NativeFdIdentity identity =
       node::NativeDescribeFdIdentity(native_socket);
-  if (!identity.ok) {
+  if (identity.disposition() != node::NativeFdIdentityDisposition::Described) {
     return SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
   }
   const SocketRegistryOwner active_owner = SocketRegistryAccess::ActiveOwner();
@@ -56,7 +55,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
         }
         const std::uint64_t generation = registry::load(slot);
         if (!registry::active(generation) ||
-            !SameIdentity(slot.identity, identity)) {
+            !slot.identity.same_socket_object(identity)) {
           reused_fd_needs_invalidation = true;
           needs_reservation =
               HasOwner(active_owner) && !SameOwner(slot, active_owner);
@@ -78,11 +77,12 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
           SocketSlot *const found = sockets.find(native_socket);
           if (found != nullptr) {
             SocketSlot &slot = *found;
-            if (!slot.hot.closing && (!registry::active(registry::load(slot)) ||
-                                  !SameIdentity(slot.identity, identity))) {
+            if (!slot.hot.closing &&
+                (!registry::active(registry::load(slot)) ||
+                 !slot.identity.same_socket_object(identity))) {
               const node::NativeFdIdentity current =
                   node::NativeDescribeFdIdentity(native_socket);
-              if (current.ok && SameIdentity(current, identity)) {
+              if (current.same_socket_object(identity)) {
                 extra_release = TakeOwner(slot);
                 InvalidateGeneration(slot);
               }
@@ -114,10 +114,10 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
           }
           result = SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
         } else if (!registry::active(generation) ||
-                   !SameIdentity(slot.identity, identity)) {
+                   !slot.identity.same_socket_object(identity)) {
           const node::NativeFdIdentity current =
               node::NativeDescribeFdIdentity(native_socket);
-          if (!current.ok || !SameIdentity(current, identity)) {
+          if (!current.same_socket_object(identity)) {
             if (reserved) {
               extra_release = active_owner;
               reserved = false;
@@ -134,7 +134,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
             } else {
               const std::uint64_t activated = registry::activate(slot);
               if (activated == 0u) {
-                slot.identity = node::NativeFdIdentity{};
+                slot.identity = node::NativeFdIdentity::invalid();
                 extra_release = TakeOwner(slot);
                 sockets.release(slot);
                 result = SocketAdmission{
@@ -174,7 +174,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
       } else {
         const node::NativeFdIdentity current =
             node::NativeDescribeFdIdentity(native_socket);
-        if (!current.ok || !SameIdentity(current, identity)) {
+        if (!current.same_socket_object(identity)) {
           if (reserved) {
             extra_release = active_owner;
             reserved = false;
