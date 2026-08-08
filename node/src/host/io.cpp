@@ -40,6 +40,38 @@ namespace {
   return ::rund::node::scheduler_host::ActiveTask();
 }
 
+[[nodiscard]] ReadResult
+CompleteNativeRead(const ::rund::node::NativeIoResult native) noexcept {
+  using ::rund::node::NativeIoDisposition;
+  switch (native.disposition()) {
+  case NativeIoDisposition::Complete:
+    return detail::Access::read(native.value());
+  case NativeIoDisposition::InvalidBuffer:
+    return FailRead(ReasonCode::TaskInvalid, native.native_error());
+  case NativeIoDisposition::Failed:
+    return FailRead(ReasonCode::IoSyscallFailed, native.native_error());
+  case NativeIoDisposition::Unsupported:
+    return FailRead(ReasonCode::IoUnsupported);
+  }
+  std::abort();
+}
+
+[[nodiscard]] WriteResult
+CompleteNativeWrite(const ::rund::node::NativeIoResult native) noexcept {
+  using ::rund::node::NativeIoDisposition;
+  switch (native.disposition()) {
+  case NativeIoDisposition::Complete:
+    return detail::Access::write(native.value());
+  case NativeIoDisposition::InvalidBuffer:
+    return FailWrite(ReasonCode::TaskInvalid, native.native_error());
+  case NativeIoDisposition::Failed:
+    return FailWrite(ReasonCode::IoSyscallFailed, native.native_error());
+  case NativeIoDisposition::Unsupported:
+    return FailWrite(ReasonCode::IoUnsupported);
+  }
+  std::abort();
+}
+
 } // namespace
 
 Fd take_native_fd(int &fd) noexcept {
@@ -93,13 +125,16 @@ CloseResult Fd::close() noexcept {
   }
   const ::rund::node::NativeIoResult native =
       ::rund::node::NativeClose(identity.native);
-  if (native.unsupported) {
+  switch (native.disposition()) {
+  case ::rund::node::NativeIoDisposition::Complete:
+    return detail::Access::close();
+  case ::rund::node::NativeIoDisposition::Unsupported:
     return FailClose(ReasonCode::IoUnsupported);
+  case ::rund::node::NativeIoDisposition::InvalidBuffer:
+  case ::rund::node::NativeIoDisposition::Failed:
+    return FailClose(ReasonCode::IoSyscallFailed, native.native_error());
   }
-  if (native.value < 0) {
-    return FailClose(ReasonCode::IoSyscallFailed, native.err);
-  }
-  return detail::Access::close();
+  std::abort();
 }
 
 ReadOp::ReadOp(ReadOp &&other) noexcept
@@ -213,16 +248,7 @@ ReadResult read_some_blocking(const FdView fd,
   }
   const ::rund::node::NativeIoResult native =
       ::rund::node::NativeRead(identity.native, buffer);
-  if (native.unsupported) {
-    return FailRead(ReasonCode::IoUnsupported);
-  }
-  if (native.invalid_buffer) {
-    return FailRead(ReasonCode::TaskInvalid, native.err);
-  }
-  if (native.value < 0) {
-    return FailRead(ReasonCode::IoSyscallFailed, native.err);
-  }
-  return detail::Access::read(native.value);
+  return CompleteNativeRead(native);
 }
 
 WriteResult
@@ -240,16 +266,7 @@ write_some_blocking(const FdView fd,
   }
   const ::rund::node::NativeIoResult native =
       ::rund::node::NativeWrite(identity.native, buffer);
-  if (native.unsupported) {
-    return FailWrite(ReasonCode::IoUnsupported);
-  }
-  if (native.invalid_buffer) {
-    return FailWrite(ReasonCode::TaskInvalid, native.err);
-  }
-  if (native.value < 0) {
-    return FailWrite(ReasonCode::IoSyscallFailed, native.err);
-  }
-  return detail::Access::write(native.value);
+  return CompleteNativeWrite(native);
 }
 
 ReadResult pread_some(const FdView fd, const std::span<std::byte> buffer,
@@ -266,16 +283,7 @@ ReadResult pread_some(const FdView fd, const std::span<std::byte> buffer,
   }
   const ::rund::node::NativeIoResult native =
       ::rund::node::NativePread(identity.native, buffer, offset);
-  if (native.unsupported) {
-    return FailRead(ReasonCode::IoUnsupported);
-  }
-  if (native.invalid_buffer) {
-    return FailRead(ReasonCode::TaskInvalid, native.err);
-  }
-  if (native.value < 0) {
-    return FailRead(ReasonCode::IoSyscallFailed, native.err);
-  }
-  return detail::Access::read(native.value);
+  return CompleteNativeRead(native);
 }
 
 OpenResult open_file(const std::string_view path,
@@ -288,13 +296,17 @@ OpenResult open_file(const std::string_view path,
   }
   const ::rund::node::NativeIoResult native =
       ::rund::node::NativeOpen(path, options.flags, options.mode);
-  if (native.unsupported) {
+  switch (native.disposition()) {
+  case ::rund::node::NativeIoDisposition::Complete:
+    return detail::Access::open(
+        take_native_fd(static_cast<int>(native.value())));
+  case ::rund::node::NativeIoDisposition::Unsupported:
     return FailOpen(ReasonCode::IoUnsupported);
+  case ::rund::node::NativeIoDisposition::InvalidBuffer:
+  case ::rund::node::NativeIoDisposition::Failed:
+    return FailOpen(ReasonCode::IoSyscallFailed, native.native_error());
   }
-  if (native.value < 0) {
-    return FailOpen(ReasonCode::IoSyscallFailed, native.err);
-  }
-  return detail::Access::open(take_native_fd(static_cast<int>(native.value)));
+  std::abort();
 }
 
 } // namespace rund::host::io

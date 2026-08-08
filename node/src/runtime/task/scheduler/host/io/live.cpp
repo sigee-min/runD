@@ -77,17 +77,21 @@ Scheduler::CloseHostFd(const ::rund::host::io::FdView fd) noexcept {
   CompletePrimitiveCommit();
 
   if (invalidation != ::rund::ReasonCode::Ok) {
-    return ::rund::host::io::detail::Access::close(invalidation, closed.err);
+    return ::rund::host::io::detail::Access::close(invalidation,
+                                                   closed.native_error());
   }
-  if (closed.unsupported) {
+  switch (closed.disposition()) {
+  case NativeIoDisposition::Complete:
+    return ::rund::host::io::detail::Access::close();
+  case NativeIoDisposition::Unsupported:
     return ::rund::host::io::detail::Access::close(ReasonCode::IoUnsupported,
-                                                   closed.err);
-  }
-  if (closed.value < 0) {
+                                                   closed.native_error());
+  case NativeIoDisposition::InvalidBuffer:
+  case NativeIoDisposition::Failed:
     return ::rund::host::io::detail::Access::close(ReasonCode::IoSyscallFailed,
-                                                   closed.err);
+                                                   closed.native_error());
   }
-  return ::rund::host::io::detail::Access::close();
+  std::abort();
 }
 
 bool Scheduler::SuspendHostIo(const HostIoOperation &operation,

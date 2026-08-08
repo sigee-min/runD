@@ -144,6 +144,20 @@ operation-level failure.
 
 ## Native Byte Substrate
 
+The source-private native fd result has exactly one disposition: `Complete`,
+`Failed`, `InvalidBuffer`, or `Unsupported`. `Complete` carries a nonnegative
+native return value and fixes the native error to zero; a positive byte count
+may be a partial read or write rather than completion of the caller's whole
+request. `Failed` carries a native error and fixes the value to `-1`, including
+would-block errors, positioned-read offset overflow, and `NativeOpen` path-copy
+allocation failure. `InvalidBuffer` carries the nonzero buffer-shape error and
+also fixes the value to `-1`. `Unsupported` fixes the value to `-1` and the
+native error to zero and proves that the unavailable backend issued no host
+call. The result stores no parallel invalid-buffer or unsupported booleans.
+Higher host, network, and scheduler boundaries retain their own ReasonCode and
+event-status projections; this platform value owns only the native call
+outcome and never owns retry or cleanup.
+
 Portable host and scheduler sources depend only on
 `runtime/platform/io.hpp`, `runtime/platform/net.hpp`, and the narrow
 `runtime/reactor/readiness/{state,mask,handle}.hpp` or

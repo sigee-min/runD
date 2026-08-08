@@ -16,6 +16,7 @@
 #include <rund/task/await.hpp>
 
 #include <array>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -25,12 +26,58 @@
 
 namespace {
 
+void VerifyNativeIoResultContract() {
+  using rund::node::NativeIoDisposition;
+  using rund::node::NativeIoResult;
+
+  static_assert(!std::is_aggregate_v<NativeIoResult>);
+  static_assert(!std::is_default_constructible_v<NativeIoResult>);
+  static_assert(std::is_trivially_copyable_v<NativeIoResult>);
+
+  constexpr NativeIoResult complete = NativeIoResult::complete(7);
+  static_assert(complete.disposition() == NativeIoDisposition::Complete);
+  static_assert(complete.value() == 7);
+  static_assert(complete.native_error() == 0);
+
+  constexpr NativeIoResult failed = NativeIoResult::failed(EIO);
+  static_assert(failed.disposition() == NativeIoDisposition::Failed);
+  static_assert(failed.value() == -1);
+  static_assert(failed.native_error() == EIO);
+
+  constexpr NativeIoResult invalid = NativeIoResult::invalid_buffer(EINVAL);
+  static_assert(invalid.disposition() == NativeIoDisposition::InvalidBuffer);
+  static_assert(invalid.value() == -1);
+  static_assert(invalid.native_error() == EINVAL);
+
+  constexpr NativeIoResult unsupported = NativeIoResult::unsupported();
+  static_assert(unsupported.disposition() == NativeIoDisposition::Unsupported);
+  static_assert(unsupported.value() == -1);
+  static_assert(unsupported.native_error() == 0);
+}
+
+#if !defined(RUND_NODE_PLATFORM_UNAVAILABLE)
+void VerifyNativeIoProducers() {
+  using rund::node::NativeIoDisposition;
+
+  const rund::node::NativeIoResult failed = rund::node::NativeClose(-1);
+  TEST_ASSERT(failed.disposition() == NativeIoDisposition::Failed);
+  TEST_ASSERT(failed.value() == -1);
+  TEST_ASSERT(failed.native_error() == EBADF);
+
+  const rund::node::NativeIoResult invalid = rund::node::NativeRead(
+      -1, std::span<std::byte>{static_cast<std::byte *>(nullptr), 1u});
+  TEST_ASSERT(invalid.disposition() == NativeIoDisposition::InvalidBuffer);
+  TEST_ASSERT(invalid.value() == -1);
+  TEST_ASSERT(invalid.native_error() == EINVAL);
+}
+#endif
+
 #if defined(RUND_NODE_PLATFORM_UNAVAILABLE)
 void AssertUnsupported(const rund::node::NativeIoResult result) {
-  TEST_ASSERT(result.value == -1);
-  TEST_ASSERT(result.err == 0);
-  TEST_ASSERT(!result.invalid_buffer);
-  TEST_ASSERT(result.unsupported);
+  TEST_ASSERT(result.disposition() ==
+              rund::node::NativeIoDisposition::Unsupported);
+  TEST_ASSERT(result.value() == -1);
+  TEST_ASSERT(result.native_error() == 0);
 }
 
 void AssertUnsupported(const rund::node::NativeCallResult result) {
@@ -224,6 +271,11 @@ void VerifyUnavailableNativeSurface() {
 
 int RunRuntimePlatformAdapterContract() {
   using rund::ReasonCode;
+
+  VerifyNativeIoResultContract();
+#if !defined(RUND_NODE_PLATFORM_UNAVAILABLE)
+  VerifyNativeIoProducers();
+#endif
 
   static_assert(std::is_same_v<decltype(rund::host::io::OpenOptions{}.mode),
                                std::uint32_t>);

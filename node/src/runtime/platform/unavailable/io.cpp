@@ -5,7 +5,7 @@ namespace rund::node {
 namespace {
 
 [[nodiscard]] constexpr NativeIoResult UnsupportedIo() noexcept {
-  return NativeIoResult{.unsupported = true};
+  return NativeIoResult::unsupported();
 }
 
 } // namespace

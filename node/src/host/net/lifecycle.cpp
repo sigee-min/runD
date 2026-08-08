@@ -25,22 +25,27 @@ MakeSocketCloseEvent(const std::uint64_t socket_id,
                      const node::NativeIoResult native) noexcept {
   return ::rund::host::Event{
       .kind = ::rund::host::EventKind::IoClose,
-      .status = native.value >= 0 ? ::rund::host::Status::Ok
-                                  : ::rund::host::Status::SyscallFailed,
+      .status = native.disposition() == node::NativeIoDisposition::Complete
+                    ? ::rund::host::Status::Ok
+                    : ::rund::host::Status::SyscallFailed,
       .host_handle_id = socket_id,
-      .native_errno = native.err,
+      .native_errno = native.native_error(),
   };
 }
 
 [[nodiscard]] ::rund::net::CloseResult
 CompleteNativeSocketClose(const node::NativeIoResult native) noexcept {
-  if (native.value < 0) {
-    return FailSocketClose(native.unsupported
-                               ? ::rund::ReasonCode::IoUnsupported
-                               : ::rund::ReasonCode::IoSyscallFailed,
-                           native.err);
+  switch (native.disposition()) {
+  case node::NativeIoDisposition::Complete:
+    return ::rund::net::CloseResult{::rund::ReasonCode::Ok};
+  case node::NativeIoDisposition::Unsupported:
+    return FailSocketClose(::rund::ReasonCode::IoUnsupported);
+  case node::NativeIoDisposition::InvalidBuffer:
+  case node::NativeIoDisposition::Failed:
+    return FailSocketClose(::rund::ReasonCode::IoSyscallFailed,
+                           native.native_error());
   }
-  return ::rund::net::CloseResult{::rund::ReasonCode::Ok};
+  std::abort();
 }
 
 } // namespace
@@ -113,7 +118,7 @@ Scheduler::CloseSocket(const ::rund::net::SocketView socket,
       ::rund::net::detail::SocketAccess::id(native_socket), native));
   FinishSocketClose(socket);
   if (invalidation != ::rund::ReasonCode::Ok) {
-    return finish(FailSocketClose(invalidation, native.err));
+    return finish(FailSocketClose(invalidation, native.native_error()));
   }
   return finish(CompleteNativeSocketClose(native));
 }

@@ -7,14 +7,21 @@ namespace rund::node::host_io {
 namespace {
 
 [[nodiscard]] HostIoOutcome Outcome(const NativeIoResult native) noexcept {
-  return HostIoOutcome{
-      .value = native.value,
-      .error = native.err,
-      .kind = native.unsupported
-                  ? HostIoOutcomeKind::Unsupported
-                  : (native.invalid_buffer ? HostIoOutcomeKind::InvalidBuffer
-                                           : HostIoOutcomeKind::Ready),
-  };
+  switch (native.disposition()) {
+  case NativeIoDisposition::Complete:
+  case NativeIoDisposition::Failed:
+    return HostIoOutcome{.value = native.value(),
+                         .error = native.native_error(),
+                         .kind = HostIoOutcomeKind::Ready};
+  case NativeIoDisposition::InvalidBuffer:
+    return HostIoOutcome{.value = -1,
+                         .error = native.native_error(),
+                         .kind = HostIoOutcomeKind::InvalidBuffer};
+  case NativeIoDisposition::Unsupported:
+    return HostIoOutcome{
+        .value = -1, .error = 0, .kind = HostIoOutcomeKind::Unsupported};
+  }
+  std::abort();
 }
 
 void FailWake(SchedulerState &scheduler_state, HostIoSlot &slot) noexcept {

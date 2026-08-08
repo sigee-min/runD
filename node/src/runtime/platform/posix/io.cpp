@@ -19,6 +19,12 @@
 namespace rund::node {
 namespace {
 
+[[nodiscard]] NativeIoResult ProjectIoResult(const std::int64_t value,
+                                             const int native_error) noexcept {
+  return value < 0 ? NativeIoResult::failed(native_error)
+                   : NativeIoResult::complete(value);
+}
+
 [[nodiscard]] NativeIoResult
 WriteWithoutSigpipe(const int fd,
                     const std::span<const std::byte> buffer) noexcept {
@@ -27,37 +33,37 @@ WriteWithoutSigpipe(const int fd,
   // monotonic transition keeps SIGPIPE suppression local to the admitted fd.
   errno = 0;
   if (::fcntl(fd, F_SETNOSIGPIPE, 1) != 0) {
-    return NativeIoResult{.err = errno};
+    return NativeIoResult::failed(errno);
   }
 
   errno = 0;
   const ssize_t value =
       ::write(fd, static_cast<const void *>(buffer.data()), buffer.size());
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = value < 0 ? errno : 0};
+  return ProjectIoResult(static_cast<std::int64_t>(value),
+                         value < 0 ? errno : 0);
 #else
   sigset_t pipe_mask{};
   if (sigemptyset(&pipe_mask) != 0 || sigaddset(&pipe_mask, SIGPIPE) != 0) {
-    return NativeIoResult{.err = errno};
+    return NativeIoResult::failed(errno);
   }
 
   sigset_t previous_mask{};
   const int mask_error =
       ::pthread_sigmask(SIG_BLOCK, &pipe_mask, &previous_mask);
   if (mask_error != 0) {
-    return NativeIoResult{.err = mask_error};
+    return NativeIoResult::failed(mask_error);
   }
   sigset_t pending{};
   if (::sigpending(&pending) != 0) {
     const int pending_error = errno;
     static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask, nullptr));
-    return NativeIoResult{.err = pending_error};
+    return NativeIoResult::failed(pending_error);
   }
   const int pending_member = sigismember(&pending, SIGPIPE);
   if (pending_member < 0) {
     const int membership_error = errno;
     static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask, nullptr));
-    return NativeIoResult{.err = membership_error};
+    return NativeIoResult::failed(membership_error);
   }
   const bool previously_pending = pending_member != 0;
 
@@ -78,8 +84,7 @@ WriteWithoutSigpipe(const int fd,
     }
   }
   static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask, nullptr));
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = write_error};
+  return ProjectIoResult(static_cast<std::int64_t>(value), write_error);
 #endif
 }
 
@@ -185,35 +190,35 @@ NativeIoResult NativeSetNonblockingFd(const int fd,
   errno = 0;
   const int flags = ::fcntl(fd, F_GETFL, 0);
   if (flags < 0) {
-    return NativeIoResult{.err = errno};
+    return NativeIoResult::failed(errno);
   }
   const int target_flags =
       enabled ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
   if (target_flags == flags) {
-    return NativeIoResult{.value = 0};
+    return NativeIoResult::complete(0);
   }
   errno = 0;
   const int value = ::fcntl(fd, F_SETFL, target_flags);
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = value < 0 ? errno : 0};
+  return ProjectIoResult(static_cast<std::int64_t>(value),
+                         value < 0 ? errno : 0);
 }
 
 NativeIoResult NativeRead(const int fd,
                           const std::span<std::byte> buffer) noexcept {
   if (!posix::buffer::valid(buffer.data(), buffer.size())) {
-    return NativeIoResult{.err = EINVAL, .invalid_buffer = true};
+    return NativeIoResult::invalid_buffer(EINVAL);
   }
   errno = 0;
   const ssize_t value =
       ::read(fd, static_cast<void *>(buffer.data()), buffer.size());
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = value < 0 ? errno : 0};
+  return ProjectIoResult(static_cast<std::int64_t>(value),
+                         value < 0 ? errno : 0);
 }
 
 NativeIoResult NativeWrite(const int fd,
                            const std::span<const std::byte> buffer) noexcept {
   if (!posix::buffer::valid(buffer.data(), buffer.size())) {
-    return NativeIoResult{.err = EINVAL, .invalid_buffer = true};
+    return NativeIoResult::invalid_buffer(EINVAL);
   }
   return WriteWithoutSigpipe(fd, buffer);
 }
@@ -221,18 +226,18 @@ NativeIoResult NativeWrite(const int fd,
 NativeIoResult NativePread(const int fd, const std::span<std::byte> buffer,
                            const std::uint64_t offset) noexcept {
   if (!posix::buffer::valid(buffer.data(), buffer.size())) {
-    return NativeIoResult{.err = EINVAL, .invalid_buffer = true};
+    return NativeIoResult::invalid_buffer(EINVAL);
   }
   constexpr auto kMaxOffset =
       static_cast<std::uint64_t>(std::numeric_limits<off_t>::max());
   if (offset > kMaxOffset) {
-    return NativeIoResult{.err = EINVAL};
+    return NativeIoResult::failed(EINVAL);
   }
   errno = 0;
   const ssize_t value = ::pread(fd, static_cast<void *>(buffer.data()),
                                 buffer.size(), static_cast<off_t>(offset));
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = value < 0 ? errno : 0};
+  return ProjectIoResult(static_cast<std::int64_t>(value),
+                         value < 0 ? errno : 0);
 }
 
 NativeIoResult NativeOpen(const std::string_view path, const int flags,
@@ -241,20 +246,20 @@ NativeIoResult NativeOpen(const std::string_view path, const int flags,
   try {
     copied_path.assign(path);
   } catch (...) {
-    return NativeIoResult{.err = ENOMEM};
+    return NativeIoResult::failed(ENOMEM);
   }
   errno = 0;
   const int value =
       ::open(copied_path.c_str(), flags, static_cast<mode_t>(mode));
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = value < 0 ? errno : 0};
+  return ProjectIoResult(static_cast<std::int64_t>(value),
+                         value < 0 ? errno : 0);
 }
 
 NativeIoResult NativeClose(const int fd) noexcept {
   errno = 0;
   const int value = ::close(fd);
-  return NativeIoResult{.value = static_cast<std::int64_t>(value),
-                        .err = value < 0 ? errno : 0};
+  return ProjectIoResult(static_cast<std::int64_t>(value),
+                         value < 0 ? errno : 0);
 }
 
 } // namespace rund::node

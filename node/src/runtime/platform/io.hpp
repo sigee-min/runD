@@ -2,16 +2,70 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <span>
 #include <string_view>
 
 namespace rund::node {
 
-struct NativeIoResult {
-  std::int64_t value = -1;
-  int err = 0;
-  bool invalid_buffer = false;
-  bool unsupported = false;
+enum class NativeIoDisposition : std::uint8_t {
+  Complete,
+  Failed,
+  InvalidBuffer,
+  Unsupported,
+};
+
+class NativeIoResult final {
+public:
+  NativeIoResult() = delete;
+
+  [[nodiscard]] static constexpr NativeIoResult
+  complete(const std::int64_t value) noexcept {
+    if (value < 0) {
+      std::abort();
+    }
+    return NativeIoResult{NativeIoDisposition::Complete, value, 0};
+  }
+
+  [[nodiscard]] static constexpr NativeIoResult
+  invalid_buffer(const int native_error) noexcept {
+    if (native_error == 0) {
+      std::abort();
+    }
+    return NativeIoResult{NativeIoDisposition::InvalidBuffer, -1, native_error};
+  }
+
+  [[nodiscard]] static constexpr NativeIoResult
+  failed(const int native_error) noexcept {
+    if (native_error == 0) {
+      std::abort();
+    }
+    return NativeIoResult{NativeIoDisposition::Failed, -1, native_error};
+  }
+
+  [[nodiscard]] static constexpr NativeIoResult unsupported() noexcept {
+    return NativeIoResult{NativeIoDisposition::Unsupported, -1, 0};
+  }
+
+  [[nodiscard]] constexpr NativeIoDisposition disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr std::int64_t value() const noexcept { return value_; }
+
+  [[nodiscard]] constexpr int native_error() const noexcept {
+    return native_error_;
+  }
+
+private:
+  constexpr NativeIoResult(const NativeIoDisposition disposition,
+                           const std::int64_t value,
+                           const int native_error) noexcept
+      : value_(value), native_error_(native_error), disposition_(disposition) {}
+
+  std::int64_t value_;
+  int native_error_;
+  NativeIoDisposition disposition_;
 };
 
 struct NativeFdIdentity {
