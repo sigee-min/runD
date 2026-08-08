@@ -31,6 +31,7 @@ ReserveBatchMutationStorage(ReactorRuntime &reactor,
     reactor.drain_ready_scratch.reserve(ordered.size());
     reactor.removed_wait_scratch.reserve(ordered.size());
     reactor.changes.reserve(reactor.changes.size() + affected_fds);
+    reactor.previous_interest_scratch.reserve(affected_fds);
   } catch (...) {
     return false;
   }
@@ -42,34 +43,28 @@ ReserveBatchMutationStorage(ReactorRuntime &reactor,
 ReactorDrainBatch
 ReactorBuildDrainBatch(ReactorRuntime &reactor,
                        const std::vector<ReactorReady> &ordered) noexcept {
-  ReactorDrainBatch batch{};
   std::vector<ReactorFdPreviousInterest> &previous =
       reactor.previous_interest_scratch;
   std::vector<ReactorWait> &removed = reactor.removed_wait_scratch;
   std::vector<ReactorReady> &batch_ready = reactor.drain_ready_scratch;
   if (!ReserveBatchMutationStorage(reactor, ordered, ordered.size())) {
-    batch.ok = false;
-    return batch;
+    return ReactorDrainBatch::rejected();
   }
 
-  const bool removed_all =
+  bool batch_complete =
       ReactorRegistryRemoveReadyBatch(reactor, ordered, removed, previous);
-  if (!removed_all) {
-    batch.ok = false;
-  }
-  if (!CopyRemovedReadyPrefix(batch_ready, removed, ordered, removed_all)) {
-    batch.ok = false;
+  if (!CopyRemovedReadyPrefix(batch_ready, removed, ordered, batch_complete)) {
+    batch_complete = false;
   }
 
   for (const ReactorFdPreviousInterest &fd : previous) {
     if (!ReactorRegistryCollectChangesForWaitRemove(reactor, fd.fd,
                                                     fd.interest)) {
-      batch.ok = false;
+      batch_complete = false;
     }
   }
-  batch.ready = &batch_ready;
-  batch.removed_waits = &removed;
-  return batch;
+  return batch_complete ? ReactorDrainBatch::complete(batch_ready, removed)
+                        : ReactorDrainBatch::failed(batch_ready, removed);
 }
 
 } // namespace rund::node

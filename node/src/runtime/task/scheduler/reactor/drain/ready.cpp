@@ -44,46 +44,48 @@ bool Scheduler::DrainReactorReadyBatch(
   RecordReactorReadyEvents(state_->evidence.metrics, ordered.size());
   RecordReactorReadyBatch(ordered.size());
 
+  std::vector<ReasonCode> &ready_codes =
+      state_->reactor.reactor_ready_code_scratch;
+  ready_codes.clear();
+  if (ready_codes.capacity() < ordered.size()) {
+    return false;
+  }
   if (!ReactorScratchPrepareHostEvents(
           state_->reactor.reactor_host_event_scratch, ordered.size())) {
     return false;
   }
 
   ReactorDrainBatch batch = ReactorBuildDrainBatch(reactor, ordered);
-  if (batch.ok && invalid_change.valid() &&
+  if (batch.disposition() == ReactorDrainBatchDisposition::Complete &&
+      invalid_change.valid() &&
       (ReactorRegistryFirstWait(reactor, invalid_change.handle()) !=
            kNoReactorSlot ||
        !ReactorChangeQueueAcknowledgeInvalid(reactor, invalid_change))) {
-    batch.ok = false;
+    batch = batch.as_failed();
   }
   ReactorApplyResult remove_applied = ReactorApplyResult::failed();
-  if (batch.ok) {
+  if (batch.disposition() == ReactorDrainBatchDisposition::Complete) {
     ReactorApplyPolicyRecordFlush(reactor, true);
     remove_applied =
         ReactorBackendApplyChanges(reactor, state_->evidence.metrics);
   }
   const bool registration_cleanup_ok =
       ReactorApplyAllowsLogicalProgress(remove_applied);
-  if (batch.ready == nullptr || batch.removed_waits == nullptr ||
-      batch.ready->size() != batch.removed_waits->size()) {
+  if (batch.disposition() == ReactorDrainBatchDisposition::Rejected) {
     return false;
   }
 
   bool changed = false;
-  const std::vector<ReactorReady> &batch_ready = *batch.ready;
-  const std::vector<ReactorWait> &batch_removed_waits = *batch.removed_waits;
-  std::vector<ReasonCode> &ready_codes =
-      state_->reactor.reactor_ready_code_scratch;
-  ready_codes.clear();
-  if (ready_codes.capacity() < batch_ready.size())
-    return false;
+  const std::vector<ReactorReady> &batch_ready = batch.ready();
+  const std::vector<ReactorWait> &batch_removed_waits = batch.removed_waits();
 
   for (std::size_t index = 0u; index < batch_ready.size(); ++index) {
     const ReactorReady &ready = batch_ready[index];
     const ReactorWait &wait = batch_removed_waits[index];
     ReasonCode ready_code = ReasonCode::Ok;
     task::ObservationKind observation_kind = task::ObservationKind::IoReady;
-    if (!batch.ok || !registration_cleanup_ok ||
+    if (batch.disposition() != ReactorDrainBatchDisposition::Complete ||
+        !registration_cleanup_ok ||
         ready.disposition == ReactorReadyDisposition::PollFailed) {
       ready_code = ReasonCode::IoPollFailed;
       observation_kind = task::ObservationKind::IoPollFailed;

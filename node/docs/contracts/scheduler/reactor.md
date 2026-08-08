@@ -95,6 +95,19 @@ and `A <= R` affected descriptors, the bound is
 `O(R(log W + log F) + W + A log F)`. Result publication copies exactly the
 caller-required `R` full records; no second full-wait authority exists.
 
+A ready-drain batch has exactly one disposition. `Rejected` has no published
+payload and means mutation storage could not be prepared. `Failed` borrows the
+aligned ready/removed-wait prefix that was already removed and must still be
+cleaned as `IoPollFailed`. `Complete` borrows the aligned full batch. Both
+vectors are owned by the current synchronous reactor drain and remain valid
+until that drain returns; no batch survives scratch reuse or clearing. A
+failed invalid-change acknowledgement may only lower `Complete` to `Failed`;
+it retains the same borrowed pair. Non-rejected construction couples
+equal-length ready and removed-wait vectors, so the consumer has no nullable
+or independent alignment authority. Host-event and ready-code publication
+storage is also verified before registry removal, so no post-publication
+capacity check can abandon a committed prefix.
+
 - `reactor/registration.cpp`: transitions the registry-owned fd state through
   logical re-arm coalescing, deferred-remove flushing, and generation reset;
   it owns no parallel registration container and does not include native
@@ -268,7 +281,8 @@ caller-required `R` full records; no second full-wait authority exists.
   cleanup failure evidence.
 - `reactor/drain/batch.cpp`: deterministic ready-batch orchestration and
   aggregate registration-change collection over the registry-emitted
-  canonical first-occurrence descriptor rows before backend apply.
+  canonical first-occurrence descriptor rows before backend apply. It is the
+  sole producer of rejected, failed-prefix, and complete typed drain batches.
 - `reactor/expand.cpp`: platform-ready and failure expansion into scheduler wait
   events; it owns ready-vector capacity reservation, registry-native fd wait
   lookup, invalid-fd expansion, poll-failure expansion, and invalid-all
