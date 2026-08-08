@@ -192,10 +192,8 @@ auto lossless =
 
 `write_final` retains only $x_N$ and is the terminal-only, minimum-traffic
 path. `write_each` retains $x_1 ... x_N$ in caller-owned Buffers without a
-host boundary. Plain `write` remains the ordinary `then(...)` output spelling
-and is deliberately not accepted by `repeat`; the old
-`repeat(..., write(...))` surface does not coexist as a compatibility
-authority.
+host boundary. `repeat` accepts those two output routes; plain `write` remains
+the ordinary `then(...)` output spelling.
 
 For output leaf $j$, let $E_j$ be the Program output element count. A
 `write_each(history_j)` target has exactly $N E_j$ elements and uses
@@ -1105,17 +1103,6 @@ Program, binding, source, and barrier eligibility. It is ineligible for
 admission likewise consumes the common aggregate proof and does not recompute
 `K` or window identity.
 
-Historical counts produced before parity-route ownership was canonicalized are
-not a target shape for the current API. In particular, retaining all 64 Action
-rows instead of two adds 62 templates without adding authored commands. For
-the two fixed `(K, N) = (63, 64)` and `(63, 1)` nested groups, the current
-prepared-template/command core is `(135, 4347)`, so `commands - templates` is
-already 4212. Every additional public executable stage contributes at least as
-many commands as retained templates. The historical pair `(243, 4454)`, whose
-difference is 4211, therefore cannot represent that same semantic shape after
-deduplication; manufacturing it would require restoring a redundant Action
-template authority.
-
 Seed receives the canonical total count `C`, just like the ordinary
 `windows` body, and derives `c_k` through `resident<Max, Tile>(C, k)`. If
 Action needs `c_k`, Seed retains it explicitly in `Q`. The Action equation
@@ -1214,8 +1201,7 @@ path, common expansion writes the physical coordinate into its copied
 descriptor before backend admission, and Metal and Vulkan encode native
 occurrence payloads directly from those fields. A separately proved compact
 aggregate may consume compact template identity without exposing its
-placeholder as an occurrence coordinate. No legacy host-side
-`iteration`/`bound` mirror may independently admit a route or select a window.
+placeholder as an occurrence coordinate.
 A default `outer_bound` is zero and therefore invalid; every admitted
 occurrence must receive its proved nonzero bound from the planner or common
 expansion. The authored recurrence ordinal remains a separate
@@ -2187,7 +2173,7 @@ mirrors it.
 - each bounded-control source is consumed immediately after its owning
   occurrence, before a reused recurrence route may overwrite that mutable
   native source; the resulting values are accumulated on-device into the
-  eight legacy U64 telemetry fields and four nested-work U64 fields before the
+  eight base U64 telemetry fields and four nested-work U64 fields before the
   single fixed 128-byte host observation;
 - the fixed 128-byte control observation is not payload readback and is reported
   separately from payload transfer;
@@ -2592,7 +2578,7 @@ record is visible produces an unknown step instead of fabricating a prefix.
 The public projection converts the sentinel to
 `PipelineStats::no_failed_step`.
 
-The eight legacy telemetry U64 fields and four nested-work U64 fields are
+The eight base telemetry U64 fields and four nested-work U64 fields are
 generated and accumulated by the device in canonical occurrence and primitive
 order through the first failing Program, inclusive. The three nested failure
 coordinates use `UINT32_MAX` when unknown. `failed_nested_phase` is the U32

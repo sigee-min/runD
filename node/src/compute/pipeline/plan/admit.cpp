@@ -438,11 +438,10 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
         control_index == PipelineResourceUnassigned
             ? nullptr
             : &plan.window_controls[control_index];
-    // Fingerprint v3 assigned these four slots to ordinary authored-step
-    // window fields. Nested steps historically serialized their default values
-    // here and emitted their window identity once more in the nested-begin
-    // block below. Preserve that byte contract while sourcing every live value
-    // from the one sealed state control.
+    // Fingerprint v3 assigns these four slots to ordinary authored-step window
+    // fields. Nested steps serialize their default values here and emit their
+    // window identity once more in the nested-begin block below. Source every
+    // live value from the one sealed state control.
     const PipelineWindowControl *const ordinary_control =
         declared.nested == 0u ? identity_control : nullptr;
     hash.number(ordinary_control == nullptr ? 0u : ordinary_control->maximum);

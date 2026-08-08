@@ -714,7 +714,7 @@ A cold restore may adopt an already-live publication authority when its ordered
 owners are identical. Its publication ticket must already be committed for
 exactly `P` on the same Device. Missing, uncommitted, nonzero-physical, or
 differently charged tickets fail closed; no inferred or peak-based fallback is
-allowed. After the obsolete target authority has been destroyed, the new
+allowed. After the replaced target authority has been destroyed, the new
 reserve's duplicate `P` partition is refunded and only its private `Q - P`
 ticket is committed. Thus multiple Pipeline wrappers share one publication
 charge, while a `LatestDeviceState` keeps that charge and the resident owners
@@ -958,10 +958,10 @@ return the requested capacity exactly. Capture rejects any producer index
 `>= U`, and checks every append and the final actual size/capacity against the
 frozen uppers. Thus command and binding rows have no geometric growth, while
 parameter growth has a deterministic planned ceiling and no allocator-dependent
-slack. The current Pipeline producers call no dynamic threadgroup-memory
-binding API, so the former threadgroup row, mask, snapshot, planner field, and
-ICB replay path do not exist. A future producer requiring dynamic threadgroup
-memory must first add an explicit producer manifest and frozen capacity law.
+slack. The Pipeline producer manifest contains no dynamic threadgroup-memory
+binding, so capture owns no threadgroup row or replay path. A future producer
+requiring dynamic threadgroup memory must first add an explicit producer
+manifest and frozen capacity law.
 
 Map source specialization has no heap scratch owner. Admission bounds the
 binding count by `kMaxComputeBindingCount`; specialization stores at most two
@@ -1241,9 +1241,7 @@ tile-total and prefix arrays, while Reduce retains only `T*W` bytes in its
 tile-total array. Reduce never allocates, resizes, or observes a prefix array.
 Bounded execution may shrink the live element counts of the arrays but cannot
 exceed their prepared capacities; the memory snapshot therefore continues to
-report the exact retained capacity. Removing the unused Reduce prefix owner
-saves `16*T` bytes, one allocation, and `T` value-initialization stores per
-Job without changing tile or merge order.
+report the exact retained capacity.
 
 ### Exact CPU Map retained formula
 

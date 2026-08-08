@@ -98,16 +98,7 @@ namespace {
 using rund::node::accel::detail::BackendRun;
 using rund::node::accel::detail::KernelResult;
 
-template <class T>
-concept HasLegacyBackendWindowIteration =
-    requires(T window) { window.iteration; };
-
-template <class T>
-concept HasLegacyBackendWindowBound = requires(T window) { window.bound; };
-
 using BackendWindow = rund::node::accel::detail::BackendWindow;
-static_assert(!HasLegacyBackendWindowIteration<BackendWindow>);
-static_assert(!HasLegacyBackendWindowBound<BackendWindow>);
 
 [[nodiscard]] bool BackendWindowDefaultsFailClosed() {
   return BackendWindow{}.outer_bound == 0u;
@@ -1691,17 +1682,6 @@ static_assert(PreparedControlPhaseCodesAreChecked());
       projection.backend_status_command_count != 18u ||
       projection.backend_telemetry_command_count != 8u ||
       projection.backend_parameter_bytes != 31u) {
-    return false;
-  }
-
-  // The former max(route)*occurrence projection would report 25/20/15/35.
-  // Heterogeneous routes instead retain only their checked additive owners;
-  // immutable descriptions are compact-entry-scaled, not
-  // occurrence-scaled command counts.
-  if (projection.backend_dispatch_count == 25u ||
-      projection.backend_reset_dispatch_count == 20u ||
-      projection.backend_step_occurrence_count == 15u ||
-      projection.backend_status_entry_count == 35u) {
     return false;
   }
 

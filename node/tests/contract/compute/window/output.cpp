@@ -720,7 +720,7 @@ template <class Seed, class Fold>
     return false;
   }
 
-  // Public v3 serializes the selected canonical source in the legacy source
+  // Public v3 serializes the selected canonical source in the source-ordinal
   // field. It deliberately does not add the private three-bank/final shape.
   PipelineTerminalPublicationPlan compatible = terminal;
   compatible.sources[0] =

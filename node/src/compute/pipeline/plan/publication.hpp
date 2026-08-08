@@ -26,8 +26,8 @@ project_pipeline_publication_identity(
     const PipelineWindowControl &control, std::uint32_t outer_bound) noexcept;
 
 // Sole v3 public Pipeline-fingerprint serializer for publication meaning.
-// Terminal bank/parity detail remains excluded for compatibility: the
-// canonical final source ordinal is serialized in the legacy field position.
+// Terminal bank/parity detail is excluded; the canonical final source ordinal
+// occupies the source-ordinal field.
 [[nodiscard]] bool mix_pipeline_publication_public_identity(
     PipelineHash &hash, const PipelinePublicationPlan &publication,
     const PipelineWindowControl &control) noexcept;

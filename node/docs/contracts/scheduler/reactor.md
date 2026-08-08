@@ -607,10 +607,10 @@ All vector growth and member reservation complete before a process id is
 issued. After issuance, publication consists only of non-throwing identity and
 configuration assignments. The process issuer uses one compiled atomic CAS
 owner, emits `[1, UINT64_MAX-1]` once, and permanently treats `UINT64_MAX` as
-exhausted. It is deliberately excluded from replay fingerprints. The
-fingerprint retains the former deterministic scheduler-local meaning through
-the physical ready-set slot count plus one; activity in another Session cannot
-make an input capture appear mutated.
+exhausted. It is deliberately excluded from replay fingerprints. The physical
+ready-set slot count plus one remains the deterministic scheduler-local
+fingerprint component; activity in another Session cannot make an input
+capture appear mutated.
 
 Network callers see only the meaning-neutral ready-set API routed through the
 network contract. Public telemetry includes `ready_set_creates`,

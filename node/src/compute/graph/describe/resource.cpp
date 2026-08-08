@@ -80,7 +80,7 @@ Status build_resources(const GraphState &state, graph::Info &info) {
   info.inputs = state.inputs;
   info.outputs = state.outputs;
   // Output is marked first so a value authored as both input and output keeps
-  // the historical Input precedence without a per-value membership search.
+  // the canonical Input precedence without a per-value membership search.
   mark(info, info.outputs, graph::Visibility::Output);
   mark(info, info.inputs, graph::Visibility::Input);
   return Status::success();
