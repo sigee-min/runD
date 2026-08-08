@@ -184,11 +184,9 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
   }
   const ReactorBudgetSelection selection =
       ReactorBudgetSelect(reactor, reactor.ordered_ready_scratch, budget);
-  if (!selection.ok || selection.ready == nullptr) {
+  if (!selection.ok()) {
     return false;
   }
-  std::size_t consumed = selection.consumed;
-  const std::vector<ReactorReady> *selected_ready = selection.ready;
   const auto many_group_for_task =
       [this](const std::uint64_t task_id) noexcept -> std::uint64_t {
     const TaskRecord *const record = state_->Find(task_id);
@@ -209,8 +207,8 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
     }
     return false;
   };
-  if (consumed < reactor.ordered_ready_scratch.size()) {
-    std::size_t extended_consumed = consumed;
+  if (selection.consumed() < reactor.ordered_ready_scratch.size()) {
+    std::size_t extended_consumed = selection.consumed();
     for (;;) {
       const std::size_t previous_consumed = extended_consumed;
       extended_consumed = ReactorBudgetExtendInvalidFdPrefix(
@@ -227,7 +225,7 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
         break;
       }
     }
-    if (extended_consumed != consumed) {
+    if (extended_consumed != selection.consumed()) {
       try {
         reactor.budget_ready_scratch.clear();
         reactor.budget_ready_scratch.reserve(extended_consumed);
@@ -239,16 +237,14 @@ bool Scheduler::DrainReadyReactor(const int timeout_ms,
         reactor.budget_ready_scratch.clear();
         return false;
       }
-      consumed = extended_consumed;
-      selected_ready = &reactor.budget_ready_scratch;
     }
   }
   if (!ReactorBacklogStoreSuffix(reactor, state_->evidence.metrics,
-                                 reactor.ordered_ready_scratch, consumed)) {
+                                 reactor.ordered_ready_scratch,
+                                 selection.consumed())) {
     return false;
   }
-  const std::vector<ReactorReady> &ordered = *selected_ready;
-  return DrainReactorReadyBatch(ordered, invalid_change);
+  return DrainReactorReadyBatch(selection.ready(), invalid_change);
 }
 
 } // namespace rund::node

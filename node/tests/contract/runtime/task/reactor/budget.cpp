@@ -10,9 +10,11 @@
 #include "../../../../../src/runtime/reactor/diagnostics.hpp"
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/budget.hpp"
+#include "../coroutine/allocation.hpp"
 
 #include <array>
 #include <cstddef>
+#include <type_traits>
 #include <vector>
 
 #include <unistd.h>
@@ -132,6 +134,66 @@ void VerifyInvalidFdBudgetRetirement() {
 } // namespace
 
 int RunRuntimeTaskReactorBudgetContract() {
+  static_assert(!std::is_aggregate_v<rund::node::ReactorBudgetSelection>);
+  static_assert(
+      std::is_trivially_copyable_v<rund::node::ReactorBudgetSelection>);
+
+  rund::node::ReactorRuntime selection_reactor{};
+  const std::vector<rund::node::ReactorReady> full_ready{
+      rund::node::ReactorReady{.wait_id = 1u},
+      rund::node::ReactorReady{.wait_id = 2u},
+  };
+  const rund::node::ReactorBudgetSelection zero_selection =
+      rund::node::ReactorBudgetSelect(selection_reactor, full_ready, 0u);
+  TEST_ASSERT(!zero_selection.ok());
+  TEST_ASSERT(zero_selection.consumed() == 0u);
+
+  const rund::node::ReactorBudgetSelection full_selection =
+      rund::node::ReactorBudgetSelect(selection_reactor, full_ready,
+                                      full_ready.size());
+  TEST_ASSERT(full_selection.ok());
+  TEST_ASSERT(&full_selection.ready() == &full_ready);
+  TEST_ASSERT(full_selection.consumed() == full_ready.size());
+
+  selection_reactor.budget_ready_scratch.reserve(1u);
+  const std::size_t prefix_budget =
+      selection_reactor.budget_ready_scratch.capacity() + 1u;
+  std::vector<rund::node::ReactorReady> prefixed_ready(prefix_budget + 1u);
+  for (std::size_t index = 0u; index < prefixed_ready.size(); ++index) {
+    prefixed_ready[index].wait_id = index + 1u;
+  }
+  runtime_task_allocation::FailNext();
+  const rund::node::ReactorBudgetSelection failed_selection =
+      rund::node::ReactorBudgetSelect(selection_reactor, prefixed_ready,
+                                      prefix_budget);
+  TEST_ASSERT(!failed_selection.ok());
+  TEST_ASSERT(failed_selection.consumed() == 0u);
+  TEST_ASSERT(selection_reactor.budget_ready_scratch.empty());
+
+  const rund::node::ReactorBudgetSelection prefix_selection =
+      rund::node::ReactorBudgetSelect(selection_reactor, prefixed_ready,
+                                      prefix_budget);
+  TEST_ASSERT(prefix_selection.ok());
+  TEST_ASSERT(&prefix_selection.ready() ==
+              &selection_reactor.budget_ready_scratch);
+  TEST_ASSERT(prefix_selection.consumed() == prefix_budget);
+  for (std::size_t index = 0u; index < prefix_selection.consumed(); ++index) {
+    TEST_ASSERT(prefix_selection.ready()[index].wait_id == index + 1u);
+  }
+  selection_reactor.budget_ready_scratch.push_back(
+      prefixed_ready[prefix_budget]);
+  TEST_ASSERT(prefix_selection.consumed() == prefix_budget + 1u);
+  TEST_ASSERT(prefix_selection.ready().back().wait_id == prefix_budget + 1u);
+
+  runtime_task_allocation::Start();
+  const rund::node::ReactorBudgetSelection warm_selection =
+      rund::node::ReactorBudgetSelect(selection_reactor, prefixed_ready,
+                                      prefix_budget);
+  runtime_task_allocation::Stop();
+  TEST_ASSERT(warm_selection.ok());
+  TEST_ASSERT(warm_selection.consumed() == prefix_budget);
+  TEST_ASSERT(runtime_task_allocation::Count() == 0u);
+
   const rund::node::ReactorHandle invalid_fd =
       rund::node::ReactorHandleFromPublic(11);
   const std::vector<rund::node::ReactorReady> same_invalid_fd{

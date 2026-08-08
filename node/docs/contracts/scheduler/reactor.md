@@ -119,7 +119,9 @@ caller-required `R` full records; no second full-wait authority exists.
   waits; it owns ordered suffix storage and stale-entry removal, not native
   polling.
 - `reactor/budget.cpp`: deterministic ready-drain prefix selection after
-  scheduler canonical ordering.
+  scheduler canonical ordering. A selection borrows exactly one canonical
+  vector; success and consumed count derive from that vector rather than
+  carrying independently synchronized fields.
 - `reactor/cleanup/route.cpp`: cleanup entrypoint router for single wait,
   many-group, and removed-wait cleanup.
 - `reactor/cleanup/request.hpp`: cleanup request values and public cleanup
@@ -421,6 +423,12 @@ publishes at most one entry per live wait, so configuration prepares
 `reactor_wait_capacity` host-event slots for its drain commit. Reactor scratch
 reuse changes allocation behavior only, not ready order, evidence order, or
 replay meaning.
+
+The budget-selection value either has no selected vector or borrows exactly
+one selected vector owned by the current reactor drain. Its availability and
+consumed count are derived from that vector. When descriptor or ReadyMany
+atomicity extends the scratch prefix, the same borrowed selection observes the
+new size; no parallel count or success flag can become stale.
 
 Reactor result mapping:
 

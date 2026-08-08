@@ -11,12 +11,10 @@ ReactorBudgetSelect(ReactorRuntime &reactor,
                     const std::vector<ReactorReady> &ordered,
                     const std::size_t budget) noexcept {
   if (budget == 0u) {
-    return ReactorBudgetSelection{
-        .ready = nullptr, .consumed = 0u, .ok = false};
+    return ReactorBudgetSelection::failed();
   }
   if (ordered.size() <= budget) {
-    return ReactorBudgetSelection{
-        .ready = &ordered, .consumed = ordered.size(), .ok = true};
+    return ReactorBudgetSelection::selected(ordered);
   }
   try {
     reactor.budget_ready_scratch.clear();
@@ -26,12 +24,10 @@ ReactorBudgetSelect(ReactorRuntime &reactor,
     }
   } catch (...) {
     reactor.budget_ready_scratch.clear();
-    return ReactorBudgetSelection{
-        .ready = nullptr, .consumed = 0u, .ok = false};
+    return ReactorBudgetSelection::failed();
   }
   RecordReactorReadyBudgetDeferral(ordered.size() - budget);
-  return ReactorBudgetSelection{
-      .ready = &reactor.budget_ready_scratch, .consumed = budget, .ok = true};
+  return ReactorBudgetSelection::selected(reactor.budget_ready_scratch);
 }
 
 std::size_t
