@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 namespace rund::compute::detail {
 
@@ -21,15 +22,81 @@ struct CpuPipelineSchedule final {
   std::size_t outer{};
 };
 
-struct CpuPipelineSelection final {
-  Status status{Status::success()};
-  std::shared_ptr<JobState> job{};
-  std::size_t step{};
-  bool complete{};
+enum class CpuPipelineSelectionDisposition : std::uint8_t {
+  Failed,
+  Selected,
+  Complete,
+};
 
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(status);
+class CpuPipelineSelection final {
+public:
+  CpuPipelineSelection(const CpuPipelineSelection &) = delete;
+  CpuPipelineSelection &operator=(const CpuPipelineSelection &) = delete;
+
+  CpuPipelineSelection(CpuPipelineSelection &&other) noexcept
+      : disposition_(std::exchange(other.disposition_,
+                                   CpuPipelineSelectionDisposition::Failed)),
+        failure_(std::exchange(other.failure_,
+                               Status::fail(Reason::PipelineInvalid))),
+        job_(std::move(other.job_)), step_(std::exchange(other.step_, 0u)) {}
+
+  CpuPipelineSelection &operator=(CpuPipelineSelection &&) = delete;
+
+  [[nodiscard]] static CpuPipelineSelection failed(Status failure) noexcept {
+    if (failure) {
+      failure = Status::fail(Reason::PipelineInvalid);
+    }
+    return CpuPipelineSelection{failure};
   }
+
+  [[nodiscard]] static CpuPipelineSelection
+  selected(std::shared_ptr<JobState> job, const std::size_t step) noexcept {
+    if (job == nullptr) {
+      return failed(Status::fail(Reason::PipelineInvalid));
+    }
+    return CpuPipelineSelection{std::move(job), step};
+  }
+
+  [[nodiscard]] static CpuPipelineSelection complete() noexcept {
+    return CpuPipelineSelection{CompleteTag{}};
+  }
+
+  [[nodiscard]] CpuPipelineSelectionDisposition disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] Status status() const noexcept {
+    return disposition_ == CpuPipelineSelectionDisposition::Failed
+               ? failure_
+               : Status::success();
+  }
+
+  [[nodiscard]] const std::shared_ptr<JobState> &job() const noexcept {
+    return job_;
+  }
+
+  [[nodiscard]] std::size_t step() const noexcept { return step_; }
+
+private:
+  struct CompleteTag final {};
+
+  explicit CpuPipelineSelection(const Status failure) noexcept
+      : disposition_(CpuPipelineSelectionDisposition::Failed),
+        failure_(failure) {}
+
+  CpuPipelineSelection(std::shared_ptr<JobState> job,
+                       const std::size_t step) noexcept
+      : disposition_(CpuPipelineSelectionDisposition::Selected),
+        job_(std::move(job)), step_(step) {}
+
+  explicit CpuPipelineSelection(const CompleteTag) noexcept
+      : disposition_(CpuPipelineSelectionDisposition::Complete) {}
+
+  CpuPipelineSelectionDisposition disposition_ =
+      CpuPipelineSelectionDisposition::Failed;
+  Status failure_ = Status::fail(Reason::PipelineInvalid);
+  std::shared_ptr<JobState> job_{};
+  std::size_t step_{};
 };
 
 [[nodiscard]] bool

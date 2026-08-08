@@ -7,13 +7,82 @@
 #include "src/compute/pipeline/state.hpp"
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 namespace rund_node_test_pipeline {
+namespace {
+
+using rund::compute::Status;
+using rund::compute::detail::CpuPipelineSelection;
+using rund::compute::detail::CpuPipelineSelectionDisposition;
+using rund::compute::detail::JobState;
+
+static_assert(!std::is_aggregate_v<CpuPipelineSelection>);
+static_assert(!std::is_default_constructible_v<CpuPipelineSelection>);
+static_assert(!std::is_copy_constructible_v<CpuPipelineSelection>);
+static_assert(std::is_nothrow_move_constructible_v<CpuPipelineSelection>);
+static_assert(!std::is_move_assignable_v<CpuPipelineSelection>);
+
+[[nodiscard]] int CheckCpuPipelineSelectionContract() {
+  const CpuPipelineSelection failed =
+      CpuPipelineSelection::failed(Status::success());
+  if (failed.disposition() != CpuPipelineSelectionDisposition::Failed ||
+      failed.status().reason() != rund::compute::Reason::PipelineInvalid ||
+      failed.job() != nullptr || failed.step() != 0u) {
+    return 1;
+  }
+
+  const CpuPipelineSelection exact_failure = CpuPipelineSelection::failed(
+      Status::fail(rund::compute::Reason::BoundedCountInvalid));
+  if (exact_failure.disposition() != CpuPipelineSelectionDisposition::Failed ||
+      exact_failure.status().reason() !=
+          rund::compute::Reason::BoundedCountInvalid ||
+      exact_failure.job() != nullptr || exact_failure.step() != 0u) {
+    return 2;
+  }
+
+  const CpuPipelineSelection null_job = CpuPipelineSelection::selected({}, 17u);
+  if (null_job.disposition() != CpuPipelineSelectionDisposition::Failed ||
+      null_job.status().reason() != rund::compute::Reason::PipelineInvalid ||
+      null_job.job() != nullptr || null_job.step() != 0u) {
+    return 3;
+  }
+
+  const std::shared_ptr<JobState> job = std::make_shared<JobState>();
+  CpuPipelineSelection selected_source =
+      CpuPipelineSelection::selected(job, 17u);
+  const CpuPipelineSelection selected = std::move(selected_source);
+  if (selected.disposition() != CpuPipelineSelectionDisposition::Selected ||
+      !selected.status() || selected.job() != job || selected.step() != 17u) {
+    return 4;
+  }
+  if (selected_source.disposition() !=
+          CpuPipelineSelectionDisposition::Failed ||
+      selected_source.status().reason() !=
+          rund::compute::Reason::PipelineInvalid ||
+      selected_source.job() != nullptr || selected_source.step() != 0u) {
+    return 5;
+  }
+
+  const CpuPipelineSelection complete = CpuPipelineSelection::complete();
+  if (complete.disposition() != CpuPipelineSelectionDisposition::Complete ||
+      !complete.status() || complete.job() != nullptr ||
+      complete.step() != 0u) {
+    return 6;
+  }
+  return 0;
+}
+
+} // namespace
 
 [[nodiscard]] int
 CheckUnknownCompletionProfileIdentity(rund::compute::Device &device,
                                       const Backend backend) {
+  if (const int selection = CheckCpuPipelineSelectionContract();
+      selection != 0) {
+    return 10 + selection;
+  }
 #if defined(RUND_NODE_TEST_BACKEND_CPU)
   static_cast<void>(device);
   static_cast<void>(backend);

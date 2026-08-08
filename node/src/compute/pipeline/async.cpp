@@ -321,38 +321,40 @@ CpuPipelineSelection
 select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
                          CpuPipelineSchedule &schedule) noexcept {
   if (!valid_pipeline(state)) {
-    return {.status = Status::fail(Reason::PipelineInvalid)};
+    return CpuPipelineSelection::failed(Status::fail(Reason::PipelineInvalid));
   }
   std::lock_guard lock{state->gate};
   if (state->phase != PipelinePhase::Running ||
       state->device->backend != Backend::Cpu) {
-    return {.status = Status::fail(Reason::PipelineInvalid)};
+    return CpuPipelineSelection::failed(Status::fail(Reason::PipelineInvalid));
   }
 
   for (;;) {
     if (schedule.step == state->steps.size()) {
       return state->verified == state->steps.size()
-                 ? CpuPipelineSelection{.step = schedule.step, .complete = true}
-                 : CpuPipelineSelection{
-                       .status = Status::fail(Reason::PipelineInvalid)};
+                 ? CpuPipelineSelection::complete()
+                 : CpuPipelineSelection::failed(
+                       Status::fail(Reason::PipelineInvalid));
     }
     if (schedule.step > state->steps.size()) {
-      return {.status = Status::fail(Reason::PipelineInvalid)};
+      return CpuPipelineSelection::failed(
+          Status::fail(Reason::PipelineInvalid));
     }
 
     PipelineStep &step = state->steps[schedule.step];
     if (step.route == PipelineRoute::Ordinary) {
       if (schedule.outer != 0u || schedule.step != state->verified) {
         record_pipeline_failure(*state, schedule.step);
-        return {.status = Status::fail(Reason::PipelineInvalid)};
+        return CpuPipelineSelection::failed(
+            Status::fail(Reason::PipelineInvalid));
       }
       bool active = true;
       const Status ready =
           prepare_cpu_pipeline_window(*state, schedule.step, active);
       if (!ready) {
         record_pipeline_failure(*state, schedule.step);
-        return {.status =
-                    pipeline_window_status(*state, step, ready, state->stats)};
+        return CpuPipelineSelection::failed(
+            pipeline_window_status(*state, step, ready, state->stats));
       }
       if (!active) {
         ++state->verified;
@@ -364,9 +366,10 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
       const std::shared_ptr<JobState> job = selected_pipeline_job(*state, step);
       if (job == nullptr) {
         record_pipeline_failure(*state, schedule.step);
-        return {.status = Status::fail(Reason::PipelineInvalid)};
+        return CpuPipelineSelection::failed(
+            Status::fail(Reason::PipelineInvalid));
       }
-      return {.job = job, .step = schedule.step};
+      return CpuPipelineSelection::selected(job, schedule.step);
     }
 
     if (step.route != PipelineRoute::NestedSeed) {
@@ -375,14 +378,16 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
           state->verified != descriptor->nested_shape.first() ||
           schedule.outer >= descriptor->nested_shape.outer_bound()) {
         record_pipeline_failure(*state, schedule.step);
-        return {.status = Status::fail(Reason::PipelineInvalid)};
+        return CpuPipelineSelection::failed(
+            Status::fail(Reason::PipelineInvalid));
       }
       const std::shared_ptr<JobState> job = selected_pipeline_job(*state, step);
       if (job == nullptr) {
         record_pipeline_failure(*state, schedule.step, true, schedule.outer);
-        return {.status = Status::fail(Reason::PipelineInvalid)};
+        return CpuPipelineSelection::failed(
+            Status::fail(Reason::PipelineInvalid));
       }
-      return {.job = job, .step = schedule.step};
+      return CpuPipelineSelection::selected(job, schedule.step);
     }
 
     PipelineWindow *const descriptor = pipeline_window(*state, step);
@@ -394,7 +399,8 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
           schedule.step !=
               descriptor->nested_shape.seed_first() + schedule.outer))) {
       record_pipeline_failure(*state, schedule.step, true, schedule.outer);
-      return {.status = Status::fail(Reason::PipelineInvalid)};
+      return CpuPipelineSelection::failed(
+          Status::fail(Reason::PipelineInvalid));
     }
     if (schedule.outer == descriptor->nested_shape.outer_bound()) {
       state->verified = descriptor->nested_shape.end();
@@ -416,8 +422,8 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
     if (!ready) {
       record_pipeline_failure(*state, schedule.step, true, schedule.outer);
       descriptor->stopped = true;
-      return {.status = pipeline_window_status(*state, occurrence, ready,
-                                               state->stats)};
+      return CpuPipelineSelection::failed(
+          pipeline_window_status(*state, occurrence, ready, state->stats));
     }
     if (!active) {
       ::rund::detail::counter::Accumulate(
@@ -432,15 +438,17 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
     PipelineStep &selected = state->steps[schedule.step];
     if (selected.route != PipelineRoute::NestedSeed) {
       record_pipeline_failure(*state, schedule.step, true, schedule.outer);
-      return {.status = Status::fail(Reason::PipelineInvalid)};
+      return CpuPipelineSelection::failed(
+          Status::fail(Reason::PipelineInvalid));
     }
     const std::shared_ptr<JobState> job =
         selected_pipeline_job(*state, selected);
     if (job == nullptr) {
       record_pipeline_failure(*state, schedule.step, true, schedule.outer);
-      return {.status = Status::fail(Reason::PipelineInvalid)};
+      return CpuPipelineSelection::failed(
+          Status::fail(Reason::PipelineInvalid));
     }
-    return {.job = job, .step = schedule.step};
+    return CpuPipelineSelection::selected(job, schedule.step);
   }
 }
 

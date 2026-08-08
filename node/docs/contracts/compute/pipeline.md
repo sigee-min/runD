@@ -1821,6 +1821,17 @@ CPU invokes the already prepared Program steps in declaration order. Each
 Program keeps its current deterministic worker and reduction policy. A step
 failure stops before the next step. CPU publishes zero native command submits
 and does not route through Batch or an accelerator-shaped fake executor.
+The scheduler-facing selector publishes one exclusive result: `Failed` carries
+one non-success `Status`, `Selected` carries one nonnull retained private Job
+and its exact physical step, and `Complete` carries no Job or step payload.
+Success, completion, Job ownership, and step identity are not parallel flags or
+nullable mirrors. The selector remains the sole authority that skips inactive
+ordinary or nested windows and advances the verified prefix, schedule, and
+Pipeline statistics; the result only transports that decision across the
+synchronous scheduler call. Its retained Job keeps the selected submission
+alive after the Pipeline gate is released. Moving the result transfers that
+owner and normalizes the source to `Failed(PipelineInvalid)`; copying and move
+assignment are unavailable.
 Private Map Jobs resolve and validate their immutable Buffer owners, base
 addresses, byte strides, and port counts once during Pipeline preparation.
 A warm tick reuses those frozen bindings and changes only the authored dynamic

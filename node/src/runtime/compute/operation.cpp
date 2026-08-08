@@ -328,14 +328,15 @@ SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
   const compute::detail::CpuPipelineSelection selected =
       compute::detail::select_cpu_pipeline_step(state,
                                                 task.pipeline_schedule);
-  if (!selected) {
-    return {.status = selected.status};
-  }
-  if (selected.complete) {
+  switch (selected.disposition()) {
+  case compute::detail::CpuPipelineSelectionDisposition::Failed:
+    return {.status = selected.status()};
+  case compute::detail::CpuPipelineSelectionDisposition::Complete:
     return {.complete = true};
+  case compute::detail::CpuPipelineSelectionDisposition::Selected:
+    break;
   }
-  const std::shared_ptr<compute::detail::JobState> job =
-      selected.job;
+  const std::shared_ptr<compute::detail::JobState> job = selected.job();
   const compute::Status submitted =
       compute::detail::submit_cpu_pipeline_job_on(
       job, task.host->async_worker_backend, task.host->workers,
@@ -346,11 +347,11 @@ SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
             state, task.pipeline_schedule, submitted);
     return {.status = completed ? submitted : completed};
   }
-  const bool backend_submitted = job != nullptr && job->program != nullptr &&
-                                 !job->program->empty();
+  const bool backend_submitted =
+      job->program != nullptr && !job->program->empty();
   if (backend_submitted) {
     const compute::Status started =
-        compute::detail::begin_pipeline_step(state, selected.step);
+        compute::detail::begin_pipeline_step(state, selected.step());
     if (!started) {
       (void)compute::detail::cancel_job(job);
       return {.status = started};
