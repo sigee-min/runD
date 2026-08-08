@@ -77,19 +77,31 @@ sub maximum {
   return $left->bcmp($right) >= 0 ? $left->copy() : $right->copy();
 }
 
+sub median_spelling {
+  my (@sample) = @_;
+  @sample == 3 or fail('median requires exactly three observations');
+  my @ordered = sort {
+    my $comparison = $a->{number}->bcmp($b->{number});
+    $comparison || $a->{ordinal} <=> $b->{ordinal};
+  } @sample;
+  my $middle = $ordered[1]{number};
+  for my $entry (@ordered) {
+    return $entry->{text} if $entry->{number}->bcmp($middle) == 0;
+  }
+  fail('median observation is unavailable');
+}
+
 sub admission_envelope {
-  my ($route, $metric, $unit, $base, $spread) = @_;
-  my ($effect, $variation);
+  my ($route, $metric, $unit, $base) = @_;
+  my $effect;
   if (($route eq 'measure-scheduler' && $unit eq 'bytes') ||
       ($route eq 'measure-telemetry' && $unit eq 'count')) {
     $effect = $base->copy()->bmul('0.10');
-    $variation = $spread->copy()->bmul('1.5');
-    return maximum($effect, $variation);
+    return $effect;
   }
   if ($route eq 'measure-flow' && $unit eq 'ms') {
     $effect = $base->copy()->bmul('0.25');
-    $variation = $spread->copy()->bmul('5');
-    return maximum($effect, $variation);
+    return $effect;
   }
   if ($route eq 'measure-telemetry' && $unit eq 'ns') {
     $metric =~
@@ -100,16 +112,14 @@ sub admission_envelope {
     $budget_allowance = Math::BigFloat->new(0)
         if $budget_allowance->is_neg();
     $effect = $base->copy()->bmul('0.25');
-    $variation = $spread->copy()->bmul('5');
-    return maximum(maximum($effect, $variation), $budget_allowance);
+    return maximum($effect, $budget_allowance);
   }
   if (($route eq 'measure-scheduler' && $unit eq 'ns/op') ||
       ($route eq 'measure-compute' && $unit eq 'us') ||
       ($route eq 'measure-flow' && $unit eq 'us') ||
       ($route eq 'measure-graph-services' && $unit eq 'us')) {
     $effect = $base->copy()->bmul('2.5');
-    $variation = $spread->copy()->bmul('5');
-    return maximum($effect, $variation);
+    return $effect;
   }
   fail("unsupported admission unit: $route/$metric/$unit");
 }
@@ -192,8 +202,8 @@ for my $metric (@environment_order) {
 }
 
 for my $route (@routes) {
-  my ($first, $second, $frozen) = @{$result{$route}};
-  my $semantic = $frozen->{metric}{semantic}
+  my ($first, $second, $third) = @{$result{$route}};
+  my $semantic = $third->{metric}{semantic}
       // fail("$route projection has no semantic identity");
   $first->{metric}{semantic}{value} eq $second->{metric}{semantic}{value} &&
       $second->{metric}{semantic}{value} eq $semantic->{value} &&
@@ -202,22 +212,23 @@ for my $route (@routes) {
       or fail("$route semantic identity differs across calibration");
   push @output, join("\t", $requested_profile, $route, 'semantic', 'exact',
                      $semantic->{value}, '-', 'sha256');
-  for my $metric (sort grep { $_ ne 'semantic' } keys %{$frozen->{metric}}) {
+  for my $metric (sort grep { $_ ne 'semantic' } keys %{$third->{metric}}) {
     my $x1 = $first->{metric}{$metric}{value};
     my $x2 = $second->{metric}{$metric}{value};
-    my $b = $frozen->{metric}{$metric}{value};
+    my $x3 = $third->{metric}{$metric}{value};
     RundMeasureSchema::decimal($x1) && RundMeasureSchema::decimal($x2) &&
-        RundMeasureSchema::decimal($b)
+        RundMeasureSchema::decimal($x3)
         or fail("$route/$metric is not a canonical decimal observation");
+    my $b = median_spelling(
+        {number => Math::BigFloat->new($x1), ordinal => 1, text => $x1},
+        {number => Math::BigFloat->new($x2), ordinal => 2, text => $x2},
+        {number => Math::BigFloat->new($x3), ordinal => 3, text => $x3});
     my $base = Math::BigFloat->new($b);
-    my $e1 = Math::BigFloat->new($x1)->bsub($base)->babs();
-    my $e2 = Math::BigFloat->new($x2)->bsub($base)->babs();
-    my $spread = maximum($e1, $e2);
     my $envelope = admission_envelope(
-        $route, $metric, $frozen->{metric}{$metric}{unit}, $base, $spread);
+        $route, $metric, $third->{metric}{$metric}{unit}, $base);
     push @output, join("\t", $requested_profile, $route, $metric, 'upper',
                        $b, $envelope->bstr(),
-                       $frozen->{metric}{$metric}{unit});
+                       $third->{metric}{$metric}{unit});
   }
 }
 

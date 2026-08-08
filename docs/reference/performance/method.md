@@ -49,21 +49,24 @@ instead of silently borrowing another environment's timing budget. A new host
 requires a reviewed profile in the same table.
 
 The `baseline` rows retain the pre-edit product manifest and three raw-log
-SHA-256 identities per route. Packets 1 and 2 are the adjacent same-machine
-calibration observations `x_1` and `x_2`; packet 3 owns the frozen observation
-`B`. Adjacency is structural: the three inputs must occupy consecutive
-positions in that route's timestamp-named evidence-packet directory. A cut
-cannot skip an intervening evidence packet and cherry-pick a quieter sample.
-The `value` of each `upper` row is packet 3's exact canonical value, and
-`D` is the observed calibration spread
+SHA-256 identities per route. The adjacent same-machine observations are
+`x_1`, `x_2`, and `x_3`; every metric freezes the exact decimal spelling of
 
 ```text
-D = max(|x_1 - B|, |x_2 - B|).
+B = median(x_1, x_2, x_3).
 ```
 
+When equivalent decimal values occupy the median, the lowest packet ordinal
+owns its spelling. Adjacency is structural: the three inputs must occupy
+consecutive positions in that route's timestamp-named evidence-packet
+directory. A cut therefore cannot skip an intervening sample or select a
+quieter observation. The median has a one-observation contamination bound:
+one arbitrary scheduler interruption cannot move `B`, while two degraded
+observations remain visible in `B` rather than being hidden by an allowance.
+
 All three packets must expose the same canonical metric and unit set. The
-projector stores the final admission allowance `A`, not raw spread, in the
-`envelope` column. The comparator has no hidden multiplier:
+projector stores the final admission allowance `A` in the `envelope` column.
+The comparator has no hidden multiplier:
 
 ```text
 L = B + A.
@@ -73,22 +76,20 @@ The projector derives `A` by cost class:
 
 | Cost class | Admission allowance |
 |---|---:|
-| Scheduler bytes, Telemetry allocations | `max(0.10 B, 1.5 D)` |
-| Flow frontend time in milliseconds | `max(0.25 B, 5 D)` |
-| Scheduler, Compute, Flow graph construction, graph-service time | `max(2.5 B, 5 D)` |
-| Telemetry cold time | `max(0.25 B, 5 D, 100000 ns - B)` |
-| Telemetry warm time | `max(0.25 B, 5 D, 5000 ns - B)` |
+| Scheduler bytes, Telemetry allocations | `0.10 B` |
+| Flow frontend time in milliseconds | `0.25 B` |
+| Scheduler, Compute, Flow graph construction, graph-service time | `2.5 B` |
+| Telemetry cold time | `max(0.25 B, 100000 ns - B)` |
+| Telemetry warm time | `max(0.25 B, 5000 ns - B)` |
 
 Negative budget terms are clamped to zero. The count rule preserves the exact
 zero-allocation gate. Telemetry uses explicit product budgets: at most 100
 microseconds of cold instrumentation overhead and 5 microseconds after
-preparation. Flow's millisecond frontend retains a 25-percent regression
-effect size; its sub-microsecond graph-construction timers join the short-span
-class. Short cross-thread, graph-construction, and driver timings use a
-3.5-times limit because the sustained M4 Pro verification sequence exhibited
-a 3.04-times scheduler phase shift while all structural counters and semantic
-hashes remained identical. The five-spread term dominates when the three
-calibration packets were noisier.
+preparation. No observed separation among the three calibration packets
+changes `A`: a transient remains in the retained raw evidence, not in the
+future release tolerance. Flow's millisecond frontend retains a 25-percent
+regression effect size; its sub-microsecond graph-construction timers join the
+short-span class.
 
 These are deterministic engineering guardrails, not claimed confidence
 intervals: three adjacent packets cannot establish a distributional tail
@@ -806,8 +807,8 @@ retain the raw measurement packets, and pass the positive and negative
 unbaselined output and missing baseline rows both fail.
 
 A cut uses three sequential executions of every route at one stable product
-point `M0`. Packets 1 and 2 supply `x_1` and `x_2`; packet 3 supplies `B`.
-All fifteen packets must seal `workload:status=passed` and
+point `M0`. Packets supply `x_1`, `x_2`, and `x_3`; their per-metric median
+supplies `B`. All fifteen packets must seal `workload:status=passed` and
 `workload:exit=0`. Their comparator proof may be `failed`: before the table is
 cut, an M0 observation is evaluated as calibration input rather than Release
 admission. This exception applies only to calibration admission;
@@ -839,8 +840,8 @@ artifact identity; all fifteen packets must share source manifest, source
 identity, revision, dirty state, generator, compiler path, and compiler
 SHA-256. The three metric and unit sets must be identical and have the fixed
 route cardinality. Semantic identities must match exactly. The projector
-preserves packet 3's numeric spelling for `B`, computes `E` with
-arbitrary-precision decimal arithmetic, and writes exactly the canonical
+selects the median observation with arbitrary-precision decimal arithmetic,
+preserves its exact numeric spelling for `B`, and writes exactly the canonical
 header plus the row count computed by the shared schema (`325` for the admitted
 Darwin profile) to standard output.
 

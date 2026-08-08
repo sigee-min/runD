@@ -359,9 +359,9 @@ calibration="$work/calibration"
 mkdir -p "$calibration"
 sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=9 warm_median_ns_per_op=8/' \
   "$scheduler_observation" >"$calibration/scheduler1.log"
-sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=11 warm_median_ns_per_op=10/' \
-  "$scheduler_observation" >"$calibration/scheduler2.log"
-cp "$scheduler_observation" "$calibration/scheduler3.log"
+cp "$scheduler_observation" "$calibration/scheduler2.log"
+sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=100 warm_median_ns_per_op=99/' \
+  "$scheduler_observation" >"$calibration/scheduler3.log"
 sed 's/,10.000,48,48,1,2$/,9.000,48,48,1,2/' \
   "$compute_observation" >"$calibration/compute1.log"
 sed 's/,10.000,48,48,1,2$/,11.000,48,48,1,2/' \
@@ -378,21 +378,24 @@ sed -e 's/latency	1	us	10.000/latency	1	us	11.000/' \
     -e 's/waits	1	hits	30/waits	0	hits	31/' \
   "$graph_observation" >"$calibration/graph2.log"
 cp "$graph_observation" "$calibration/graph3.log"
-telemetry_offset() {
+telemetry_phase_offset() {
   offset=$1
   output=$2
-  RUND_TELEMETRY_OFFSET=$offset perl -F'\t' -lane '
-    if ($F[0] eq "sample") {
-      $F[7] += $ENV{RUND_TELEMETRY_OFFSET};
-    } elsif ($F[0] eq "summary" && $F[4] eq "wall" &&
-             $F[3] =~ /^(?:disabled|basic|detail)$/) {
-      $F[8] += $ENV{RUND_TELEMETRY_OFFSET};
+  RUND_TELEMETRY_PHASE_OFFSET=$offset perl -F'\t' -lane '
+    my $offset = $ENV{RUND_TELEMETRY_PHASE_OFFSET};
+    if ($F[0] eq "sample" && $F[4] eq "detail") {
+      $F[10] += $offset;
+    } elsif ($F[0] eq "delta" && $F[4] eq "prepare") {
+      $F[6] += $offset;
+    } elsif ($F[0] eq "summary" && $F[4] eq "prepare" &&
+             ($F[3] eq "detail" || $F[3] eq "delta")) {
+      $F[8] += $offset;
     }
     print join "\t", @F;
   ' "$telemetry" >"$output"
 }
-telemetry_offset 2 "$calibration/telemetry1.log"
-telemetry_offset 1 "$calibration/telemetry2.log"
+telemetry_phase_offset 1 "$calibration/telemetry1.log"
+telemetry_phase_offset 2 "$calibration/telemetry2.log"
 cp "$telemetry" "$calibration/telemetry3.log"
 
 log_digest() {
@@ -973,6 +976,8 @@ grep -q '^fixture	measure-compute	inflight/vulkan/serial_median_us	upper	10.000	
 grep -q '^fixture	measure-compute	resident/cpu/4/median_us	upper	10.000	25	us$' \
   "$work/candidate.tsv"
 grep -q '^fixture	measure-scheduler	spawn_complete/warm_median_ns_per_op	upper	9	22.5	ns/op$' \
+  "$work/candidate.tsv"
+grep -q '^fixture	measure-scheduler	spawn_complete/cold_ns_per_op	upper	10	25	ns/op$' \
   "$work/candidate.tsv"
 cut >"$work/cut.out"
 grep -q '^baseline-cut	profile=fixture	manifest=.*	status=passed$' \
