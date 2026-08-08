@@ -102,6 +102,14 @@ change socket identity. An inactive or closing slot stores the single
 `Invalid` value with zero payload; there is no validity boolean or parallel
 manual comparison authority in the registry.
 
+The source-private admission result is one nondefault move-only ownership
+value. `Success` contains one valid `Socket` and fixes its reason to `Ok`;
+`Failure` contains no socket and requires a non-`Ok` reason. Moving the result
+or taking its socket normalizes the source to `TaskInvalid` with no owner, so a
+consumed value cannot still report success. The result cannot represent a
+successful empty socket or a failed live owner, and no consumer reaches into
+parallel socket/reason fields.
+
 The registry has one active descriptor index and one address-stable slot pool.
 The index contains only bound or closing descriptors. After close retirement
 has waited for every operation reader, it extracts the descriptor-index node

@@ -30,14 +30,14 @@ void InvalidateGeneration(SocketSlot &slot) noexcept {
 
 } // namespace
 
-SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
+SocketAdmission AdmitNativeSocket(const int native_socket) noexcept {
   if (native_socket < 0) {
-    return SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
+    return SocketAdmission::failure(::rund::ReasonCode::IoFdInvalid);
   }
   const node::NativeFdIdentity identity =
       node::NativeDescribeFdIdentity(native_socket);
   if (identity.disposition() != node::NativeFdIdentityDisposition::Described) {
-    return SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
+    return SocketAdmission::failure(::rund::ReasonCode::IoFdInvalid);
   }
   const SocketRegistryOwner active_owner = SocketRegistryAccess::ActiveOwner();
   bool needs_reservation = false;
@@ -51,7 +51,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
       if (found != nullptr) {
         SocketSlot &slot = *found;
         if (slot.hot.closing) {
-          return SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
+          return SocketAdmission::failure(::rund::ReasonCode::IoFdInvalid);
         }
         const std::uint64_t generation = registry::load(slot);
         if (!registry::active(generation) ||
@@ -60,7 +60,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
           needs_reservation =
               HasOwner(active_owner) && !SameOwner(slot, active_owner);
         } else {
-          return SocketAdmission{.code = ::rund::ReasonCode::TaskInvalid};
+          return SocketAdmission::failure(::rund::ReasonCode::TaskInvalid);
         }
       } else {
         needs_reservation = HasOwner(active_owner);
@@ -90,16 +90,15 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
           }
         }
         ReleaseRuntimeRegistryOwner(extra_release);
-        return SocketAdmission{.code =
-                                   ::rund::ReasonCode::TaskCapacityExceeded};
+        return SocketAdmission::failure(
+            ::rund::ReasonCode::TaskCapacityExceeded);
       }
       reserved = true;
       reserved_for_catch = true;
     }
 
-    SocketAdmission result{};
     SocketRegistryOwner extra_release{};
-    {
+    SocketAdmission result = [&]() -> SocketAdmission {
       std::lock_guard lock{RegistryGate()};
       SocketRegistry &sockets = Registry();
       SocketSlot *const found = sockets.find(native_socket);
@@ -112,7 +111,7 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
             reserved = false;
             reserved_for_catch = false;
           }
-          result = SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
+          return SocketAdmission::failure(::rund::ReasonCode::IoFdInvalid);
         } else if (!registry::active(generation) ||
                    !slot.identity.same_socket_object(identity)) {
           const node::NativeFdIdentity current =
@@ -123,99 +122,93 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
               reserved = false;
               reserved_for_catch = false;
             }
-            result = SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
-          } else {
-            const ::rund::ReasonCode prepared =
-                PrepareStableSocketSend(native_socket, identity);
-            if (prepared != ::rund::ReasonCode::Ok) {
-              extra_release = TakeOwner(slot);
-              InvalidateGeneration(slot);
-              result = SocketAdmission{.code = prepared};
-            } else {
-              const std::uint64_t activated = registry::activate(slot);
-              if (activated == 0u) {
-                slot.identity = node::NativeFdIdentity::invalid();
-                extra_release = TakeOwner(slot);
-                sockets.release(slot);
-                result = SocketAdmission{
-                    .code = ::rund::ReasonCode::TaskCapacityExceeded};
-              } else {
-                if (!HasOwner(active_owner)) {
-                  extra_release = TakeOwner(slot);
-                } else if (!SameOwner(slot, active_owner)) {
-                  extra_release = TakeOwner(slot);
-                  if (reserved) {
-                    AssignOwner(slot, active_owner);
-                    reserved = false;
-                    reserved_for_catch = false;
-                  }
-                }
-                slot.identity = identity;
-                result = SocketAdmission{
-                    .socket = MakeAdmittedSocket(slot, activated),
-                    .code = ::rund::ReasonCode::Ok,
-                };
-              }
-            }
+            return SocketAdmission::failure(::rund::ReasonCode::IoFdInvalid);
           }
-        } else {
-          if (reserved && !SameOwner(slot, active_owner)) {
-            extra_release = TakeOwner(slot);
-            AssignOwner(slot, active_owner);
-            reserved = false;
-            reserved_for_catch = false;
-          } else if (reserved) {
-            extra_release = active_owner;
-            reserved = false;
-            reserved_for_catch = false;
-          }
-          result = SocketAdmission{.code = ::rund::ReasonCode::TaskInvalid};
-        }
-      } else {
-        const node::NativeFdIdentity current =
-            node::NativeDescribeFdIdentity(native_socket);
-        if (!current.same_socket_object(identity)) {
-          if (reserved) {
-            extra_release = active_owner;
-            reserved = false;
-            reserved_for_catch = false;
-          }
-          result = SocketAdmission{.code = ::rund::ReasonCode::IoFdInvalid};
-        } else {
+
           const ::rund::ReasonCode prepared =
               PrepareStableSocketSend(native_socket, identity);
           if (prepared != ::rund::ReasonCode::Ok) {
-            result = SocketAdmission{.code = prepared};
-          } else {
-            SocketSlot *const bound = sockets.bind(native_socket, identity);
-            const std::uint64_t generation =
-                bound == nullptr ? 0u : registry::activate(*bound);
-            if (bound == nullptr || generation == 0u) {
-              if (bound != nullptr) {
-                sockets.release(*bound);
-              }
-              if (reserved) {
-                extra_release = active_owner;
-                reserved = false;
-                reserved_for_catch = false;
-              }
-              result = SocketAdmission{
-                  .code = ::rund::ReasonCode::TaskCapacityExceeded};
-            } else {
-              if (reserved) {
-                AssignOwner(*bound, active_owner);
-              }
+            extra_release = TakeOwner(slot);
+            InvalidateGeneration(slot);
+            return SocketAdmission::failure(prepared);
+          }
+
+          const std::uint64_t activated = registry::activate(slot);
+          if (activated == 0u) {
+            slot.identity = node::NativeFdIdentity::invalid();
+            extra_release = TakeOwner(slot);
+            sockets.release(slot);
+            return SocketAdmission::failure(
+                ::rund::ReasonCode::TaskCapacityExceeded);
+          }
+
+          if (!HasOwner(active_owner)) {
+            extra_release = TakeOwner(slot);
+          } else if (!SameOwner(slot, active_owner)) {
+            extra_release = TakeOwner(slot);
+            if (reserved) {
+              AssignOwner(slot, active_owner);
               reserved = false;
               reserved_for_catch = false;
-              result = SocketAdmission{
-                  .socket = MakeAdmittedSocket(*bound, generation),
-                  .code = ::rund::ReasonCode::Ok,
-              };
             }
           }
+          slot.identity = identity;
+          return SocketAdmission::success(MakeAdmittedSocket(slot, activated));
         }
+
+        if (reserved && !SameOwner(slot, active_owner)) {
+          extra_release = TakeOwner(slot);
+          AssignOwner(slot, active_owner);
+          reserved = false;
+          reserved_for_catch = false;
+        } else if (reserved) {
+          extra_release = active_owner;
+          reserved = false;
+          reserved_for_catch = false;
+        }
+        return SocketAdmission::failure(::rund::ReasonCode::TaskInvalid);
       }
-    }
+
+      const node::NativeFdIdentity current =
+          node::NativeDescribeFdIdentity(native_socket);
+      if (!current.same_socket_object(identity)) {
+        if (reserved) {
+          extra_release = active_owner;
+          reserved = false;
+          reserved_for_catch = false;
+        }
+        return SocketAdmission::failure(::rund::ReasonCode::IoFdInvalid);
+      }
+
+      const ::rund::ReasonCode prepared =
+          PrepareStableSocketSend(native_socket, identity);
+      if (prepared != ::rund::ReasonCode::Ok) {
+        return SocketAdmission::failure(prepared);
+      }
+
+      SocketSlot *const bound = sockets.bind(native_socket, identity);
+      const std::uint64_t generation =
+          bound == nullptr ? 0u : registry::activate(*bound);
+      if (bound == nullptr || generation == 0u) {
+        if (bound != nullptr) {
+          sockets.release(*bound);
+        }
+        if (reserved) {
+          extra_release = active_owner;
+          reserved = false;
+          reserved_for_catch = false;
+        }
+        return SocketAdmission::failure(
+            ::rund::ReasonCode::TaskCapacityExceeded);
+      }
+
+      if (reserved) {
+        AssignOwner(*bound, active_owner);
+      }
+      reserved = false;
+      reserved_for_catch = false;
+      return SocketAdmission::success(MakeAdmittedSocket(*bound, generation));
+    }();
     ReleaseRuntimeRegistryOwner(extra_release);
     if (reserved) {
       ReleaseRuntimeRegistryOwner(active_owner);
@@ -226,12 +219,8 @@ SocketAdmission AdmitNativeSocketImpl(const int native_socket) noexcept {
     if (reserved_for_catch) {
       ReleaseRuntimeRegistryOwner(active_owner);
     }
-    return SocketAdmission{.code = ::rund::ReasonCode::TaskCapacityExceeded};
+    return SocketAdmission::failure(::rund::ReasonCode::TaskCapacityExceeded);
   }
-}
-
-SocketAdmission AdmitNativeSocket(const int native_socket) noexcept {
-  return AdmitNativeSocketImpl(native_socket);
 }
 
 } // namespace rund::net

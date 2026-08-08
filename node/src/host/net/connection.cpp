@@ -28,17 +28,17 @@ CompleteAccept(const std::uint64_t listener_id,
   const ::rund::StableHash peer_hash = native.call.value >= 0
                                            ? HashAddress(native.address)
                                            : ::rund::StableHash{};
-  SocketAdmission admission{};
   Socket accepted{};
   if (native.call.value >= 0) {
-    admission = AdmitNativeSocket(static_cast<int>(native.call.value));
+    SocketAdmission admission =
+        AdmitNativeSocket(static_cast<int>(native.call.value));
     if (!admission) {
       const node::NativeIoResult closed =
           node::NativeClose(static_cast<int>(native.call.value));
       (void)closed;
-      return fail_accept(admission.code);
+      return fail_accept(admission.code());
     }
-    accepted = std::move(admission.socket);
+    accepted = std::move(admission).take_socket();
   }
   (void)RecordHostEvent(::rund::host::Event{
       .kind = ::rund::host::EventKind::NetAccept,

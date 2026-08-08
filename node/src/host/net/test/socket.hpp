@@ -15,7 +15,7 @@ namespace rund::node::test::net {
   if (admission) {
     native = -1;
   }
-  return std::move(admission.socket);
+  return std::move(admission).take_socket();
 }
 
 [[nodiscard]] inline ::rund::net::Socket admit(int &&native) noexcept {

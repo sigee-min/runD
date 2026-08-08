@@ -1,6 +1,6 @@
-#include "src/host/net/test/socket.hpp"
 #include "access.hpp"
 #include "local.hpp"
+#include "src/host/net/test/socket.hpp"
 
 #include "test/assert.hpp"
 
@@ -13,8 +13,49 @@
 #include <cstdint>
 #include <memory>
 #include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace {
+
+static_assert(!std::is_aggregate_v<rund::net::SocketAdmission>);
+static_assert(!std::is_default_constructible_v<rund::net::SocketAdmission>);
+static_assert(!std::is_copy_constructible_v<rund::net::SocketAdmission>);
+static_assert(!std::is_copy_assignable_v<rund::net::SocketAdmission>);
+static_assert(std::is_nothrow_move_constructible_v<rund::net::SocketAdmission>);
+static_assert(std::is_nothrow_move_assignable_v<rund::net::SocketAdmission>);
+static_assert(sizeof(void *) != 8u ||
+              sizeof(rund::net::SocketAdmission) == 24u);
+
+[[nodiscard]] bool AdmissionCarrierContract() {
+  rund::net::SocketAdmission failure =
+      rund::net::SocketAdmission::failure(rund::ReasonCode::IoFdInvalid);
+  if (failure || failure.code() != rund::ReasonCode::IoFdInvalid ||
+      std::move(failure).take_socket() ||
+      failure.code() != rund::ReasonCode::TaskInvalid) {
+    return false;
+  }
+
+  using namespace rund::node::test_contract::net_registry_lifetime;
+  SocketPair pair{};
+  if (!MakeSocketPair(pair)) {
+    return false;
+  }
+  rund::net::SocketAdmission admission =
+      rund::net::AdmitNativeSocket(pair.left);
+  if (!admission || admission.code() != rund::ReasonCode::Ok) {
+    return false;
+  }
+  pair.left = -1;
+
+  rund::net::SocketAdmission moved = std::move(admission);
+  if (admission || admission.code() != rund::ReasonCode::TaskInvalid) {
+    return false;
+  }
+  rund::net::Socket socket = std::move(moved).take_socket();
+  return !moved && moved.code() == rund::ReasonCode::TaskInvalid && socket &&
+         static_cast<bool>(socket.close());
+}
 
 [[nodiscard]] bool CloseKeepsReservation() {
   using namespace rund::node::test_contract::net_registry_lifetime;
@@ -86,7 +127,7 @@ namespace {
           const rund::net::SocketRegistryStats closing = Stats();
           const bool held =
               !blocked &&
-              blocked.code == rund::ReasonCode::TaskCapacityExceeded &&
+              blocked.code() == rund::ReasonCode::TaskCapacityExceeded &&
               reservations->load(std::memory_order_acquire) == 1u &&
               closing.slots == admitted.slots && closing.live == admitted.live;
 
@@ -149,6 +190,7 @@ namespace {
 int RunNetRegistryLifetimeStabilityCase() {
   using namespace rund::node::test_contract::net_registry_lifetime;
 
+  TEST_ASSERT(AdmissionCarrierContract());
   TEST_ASSERT(CloseKeepsReservation());
   TEST_ASSERT(CloseHoldsCapacity());
   TEST_ASSERT(SessionOwnerSurvives());

@@ -107,6 +107,4 @@ void ReleaseRuntimeRegistryOwner(const SocketRegistryOwner &owner) noexcept;
 [[nodiscard]] bool
 ReserveRuntimeRegistryOwner(const SocketRegistryOwner &owner) noexcept;
 
-[[nodiscard]] SocketAdmission AdmitNativeSocketImpl(int native_socket) noexcept;
-
 } // namespace rund::net

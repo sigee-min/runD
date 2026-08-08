@@ -5,6 +5,9 @@
 
 #include "../socket/access.hpp"
 
+#include <cstdlib>
+#include <utility>
+
 namespace rund::net {
 
 class SocketLease final {
@@ -36,13 +39,62 @@ private:
   int native_ = -1;
 };
 
-struct SocketAdmission {
-  Socket socket{};
-  ::rund::ReasonCode code = ::rund::ReasonCode::TaskInvalid;
+class SocketAdmission final {
+public:
+  SocketAdmission() = delete;
+  SocketAdmission(const SocketAdmission &) = delete;
+  SocketAdmission &operator=(const SocketAdmission &) = delete;
+
+  SocketAdmission(SocketAdmission &&other) noexcept
+      : socket_(std::move(other.socket_)),
+        code_(std::exchange(other.code_, ::rund::ReasonCode::TaskInvalid)) {}
+
+  SocketAdmission &operator=(SocketAdmission &&other) noexcept {
+    if (this != &other) {
+      socket_ = std::move(other.socket_);
+      code_ = std::exchange(other.code_, ::rund::ReasonCode::TaskInvalid);
+    }
+    return *this;
+  }
+
+  [[nodiscard]] static SocketAdmission
+  failure(const ::rund::ReasonCode code) noexcept {
+    if (code == ::rund::ReasonCode::Ok) {
+      std::abort();
+    }
+    return SocketAdmission{Socket{}, code};
+  }
+
+  [[nodiscard]] static SocketAdmission success(Socket socket) noexcept {
+    if (!socket) {
+      std::abort();
+    }
+    return SocketAdmission{std::move(socket), ::rund::ReasonCode::Ok};
+  }
 
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
-    return code == ::rund::ReasonCode::Ok;
+    return code_ == ::rund::ReasonCode::Ok;
   }
+
+  [[nodiscard]] constexpr ::rund::ReasonCode code() const noexcept {
+    return code_;
+  }
+
+  [[nodiscard]] Socket take_socket() && noexcept {
+    const ::rund::ReasonCode code =
+        std::exchange(code_, ::rund::ReasonCode::TaskInvalid);
+    if (code != ::rund::ReasonCode::Ok) {
+      return Socket{};
+    }
+    return std::move(socket_);
+  }
+
+private:
+  SocketAdmission(Socket socket, const ::rund::ReasonCode code) noexcept
+      : socket_(std::move(socket)), code_(code) {}
+
+  Socket socket_{};
+  ::rund::ReasonCode code_ = ::rund::ReasonCode::TaskInvalid;
 };
 
 [[nodiscard]] bool IsCurrentSocket(SocketView socket) noexcept;

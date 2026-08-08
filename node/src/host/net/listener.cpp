@@ -85,10 +85,10 @@ OpenResult open(const OpenOptions options) noexcept {
     const node::NativeIoResult closed =
         node::NativeClose(static_cast<int>(native.value));
     (void)closed;
-    return FailOpenSocket(admission.code, native.error, Socket{},
+    return FailOpenSocket(admission.code(), native.error, Socket{},
                           NonblockingResult{});
   }
-  Socket socket = std::move(admission.socket);
+  Socket socket = std::move(admission).take_socket();
   (void)RecordHostEvent(::rund::host::Event{
       .kind = ::rund::host::EventKind::NetSocket,
       .status = StatusForNative(native),
