@@ -1,10 +1,55 @@
-struct HostEventCommitResult {
-  bool ok = false;
-  bool retained = false;
-  ReasonCode code = ReasonCode::HostReplayEventMismatch;
-  std::uint64_t sequence = 0u;
-  std::size_t expected_index = 0u;
-  const char *reason = "host_replay_event_mismatch";
+enum class HostEventPublication : std::uint8_t {
+  Unpublished,
+  Dropped,
+  Retained,
+};
+
+class HostEventCommitResult final {
+public:
+  HostEventCommitResult() = delete;
+
+  [[nodiscard]] static HostEventCommitResult
+  unpublished_failure(const ReasonCode code) noexcept {
+    if (code == ReasonCode::Ok) {
+      std::abort();
+    }
+    return HostEventCommitResult{code, 0u, HostEventPublication::Unpublished};
+  }
+
+  [[nodiscard]] static HostEventCommitResult
+  published(const ReasonCode code, const std::uint64_t sequence,
+            const bool retained) noexcept {
+    if (sequence == 0u) {
+      std::abort();
+    }
+    return HostEventCommitResult{code, sequence,
+                                 retained ? HostEventPublication::Retained
+                                          : HostEventPublication::Dropped};
+  }
+
+  [[nodiscard]] constexpr ReasonCode code() const noexcept { return code_; }
+  [[nodiscard]] constexpr bool ok() const noexcept {
+    return code_ == ReasonCode::Ok;
+  }
+  [[nodiscard]] constexpr bool published() const noexcept {
+    return publication_ != HostEventPublication::Unpublished;
+  }
+  [[nodiscard]] constexpr bool retained() const noexcept {
+    return publication_ == HostEventPublication::Retained;
+  }
+  [[nodiscard]] constexpr std::uint64_t sequence() const noexcept {
+    return sequence_;
+  }
+
+private:
+  constexpr HostEventCommitResult(
+      const ReasonCode code, const std::uint64_t sequence,
+      const HostEventPublication publication) noexcept
+      : sequence_(sequence), code_(code), publication_(publication) {}
+
+  std::uint64_t sequence_;
+  ReasonCode code_;
+  HostEventPublication publication_;
 };
 
 [[nodiscard]] ::rund::node::replay_detail::payload::Archive

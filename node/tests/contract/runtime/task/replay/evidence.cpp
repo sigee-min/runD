@@ -7,5 +7,7 @@ int RunRuntimeTaskReplayEvidenceContract() {
     return rc;
   if (const int rc = RunReplayHostRejectContract(); rc != 0)
     return rc;
+  if (const int rc = RunReplayHostCommitContract(); rc != 0)
+    return rc;
   return RunReplayHostCapacityContract();
 }

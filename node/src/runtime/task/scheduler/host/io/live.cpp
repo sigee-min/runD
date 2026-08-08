@@ -231,7 +231,7 @@ HostIoCompletion Scheduler::CompleteHostIo(void *const token,
       .native_errno = outcome.error,
       .payload_hash = payload_hash,
   });
-  ReasonCode final_code = commit.ok ? code : commit.code;
+  ReasonCode final_code = commit.ok() ? code : commit.code();
   if (final_code == ReasonCode::Ok) {
     final_code =
         RecordHostPayloadForCommittedEvent(commit, event_kind, payload);

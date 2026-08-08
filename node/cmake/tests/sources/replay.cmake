@@ -5,6 +5,7 @@ set(NODE_TEST_REPLAY_HOST_TEST_SOURCES
   tests/contract/runtime/task/replay/host.cpp
   tests/contract/runtime/task/replay/evidence.cpp
   tests/contract/runtime/task/replay/evidence/capacity.cpp
+  tests/contract/runtime/task/replay/evidence/commit.cpp
   tests/contract/runtime/task/replay/evidence/net.cpp
   tests/contract/runtime/task/replay/evidence/reactor.cpp
   tests/contract/runtime/task/replay/evidence/reject.cpp)

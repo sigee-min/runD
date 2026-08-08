@@ -87,8 +87,8 @@ Scheduler::ReplayHostIo(const HostIoOperation &operation) noexcept {
       .native_errno = native_error,
       .payload_hash = payload_hash,
   });
-  if (!commit.ok) {
-    return HostIoCompletion{.code = commit.code};
+  if (!commit.ok()) {
+    return HostIoCompletion{.code = commit.code()};
   }
   const ReasonCode code = ReplayCode(status);
   if (code != ReasonCode::Ok) {
@@ -105,7 +105,7 @@ Scheduler::ReplayHostIo(const HostIoOperation &operation) noexcept {
       state_->plan.value.expected->payloads().host_record_index(
           state_->identity.next_expected_host_payload);
   const replay_detail::payload::Binding binding{
-      .event_sequence = commit.sequence,
+      .event_sequence = commit.sequence(),
       .kind = event_kind,
       .completed_bytes = completed,
       .payload_hash = payload_hash,

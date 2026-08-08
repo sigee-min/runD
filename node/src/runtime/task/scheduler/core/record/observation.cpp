@@ -187,11 +187,8 @@ Scheduler::HostEventCommitResult Scheduler::CommitHostEvent(
     const replay_detail::payload::RawByteSource *const source) noexcept {
   std::lock_guard lock{state_->evidence.mutex};
   state_->RequireSequencer();
-  HostEventCommitResult result{};
   if (state_->plan.failure != ReasonCode::Ok) {
-    result.code = state_->plan.failure;
-    result.reason = ReasonString(result.code);
-    return result;
+    return HostEventCommitResult::unpublished_failure(state_->plan.failure);
   }
   const std::uint64_t physical_sequence =
       state_->identity.next_host_event_sequence++;
@@ -213,25 +210,24 @@ Scheduler::HostEventCommitResult Scheduler::CommitHostEvent(
     state_->plan.retire(physical_handle);
   }
   if (state_->plan.failure != ReasonCode::Ok) {
-    result.code = state_->plan.failure;
-    result.reason = ReasonString(result.code);
-    return result;
+    return HostEventCommitResult::unpublished_failure(state_->plan.failure);
   }
-  result.sequence = event.sequence;
+  const std::uint64_t committed_sequence = event.sequence;
   if (source != nullptr && event.status == ::rund::host::Status::Ok &&
       event.completed_bytes == source->byte_count) {
     if (state_->evidence.input_capture_active.load(std::memory_order_relaxed) &&
         state_->evidence.host_payload_store.CapturesIngress()) {
       event.payload_hash = state_->evidence.host_payload_store.CaptureIngress(
-          result.sequence, event.kind, *source);
+          committed_sequence, event.kind, *source);
     } else if (event.payload_hash.value == 0u) {
       event.payload_hash = replay_detail::payload::HashIngress(*source);
     }
   }
+  bool retained = false;
   if (state_->evidence.host_events.size() <
       state_->resources.limits.host_event_capacity) {
     state_->evidence.host_events.push_back(event);
-    result.retained = true;
+    retained = true;
   } else {
     ++::rund::detail::task::Stat(
         state_->evidence.metrics,
@@ -245,7 +241,6 @@ Scheduler::HostEventCommitResult Scheduler::CommitHostEvent(
       !state_->identity.host_replay_failed) {
     const std::size_t index = state_->identity.next_expected_host_event++;
     const auto &expected_events = state_->plan.value.expected->events();
-    result.expected_index = index;
     const bool matched =
         index < expected_events.size() &&
         SameStableHostEventFields(expected_events[index], event);
@@ -277,18 +272,17 @@ Scheduler::HostEventCommitResult Scheduler::CommitHostEvent(
       }
     }
   }
-  result.ok = !state_->identity.host_replay_failed &&
-              state_->plan.failure == ReasonCode::Ok;
-  result.code = result.ok ? ReasonCode::Ok
-                : state_->plan.failure != ReasonCode::Ok
-                    ? state_->plan.failure
-                    : ReasonCode::HostReplayEventMismatch;
-  result.reason = result.ok ? "ok" : ReasonString(result.code);
-  return result;
+  const ReasonCode code = !state_->identity.host_replay_failed &&
+                                  state_->plan.failure == ReasonCode::Ok
+                              ? ReasonCode::Ok
+                          : state_->plan.failure != ReasonCode::Ok
+                              ? state_->plan.failure
+                              : ReasonCode::HostReplayEventMismatch;
+  return HostEventCommitResult::published(code, committed_sequence, retained);
 }
 
 bool Scheduler::RecordHostEvent(::rund::host::Event event) noexcept {
-  return CommitHostEvent(event).ok;
+  return CommitHostEvent(event).ok();
 }
 
 bool Scheduler::CapturesNetIngress() const noexcept {
@@ -355,17 +349,17 @@ ReasonCode Scheduler::RecordHostPayloadForCommittedEvent(
   {
     std::lock_guard lock{state_->evidence.mutex};
     state_->RequireSequencer();
-    if (!commit.ok) {
-      return commit.code;
+    if (!commit.ok()) {
+      return commit.code();
     }
-    if (!commit.retained) {
+    if (!commit.retained()) {
       return ReasonCode::Ok;
     }
     if (!payload || !FitsHostPayloadCapacity(*state_, payload.bytes().size())) {
       failure = ReasonCode::TaskCapacityExceeded;
     } else {
       try {
-        if (!state_->evidence.host_payload_store.Append(commit.sequence, kind,
+        if (!state_->evidence.host_payload_store.Append(commit.sequence(), kind,
                                                         payload)) {
           failure = ReasonCode::HostReplayPayloadMismatch;
         }
@@ -404,7 +398,7 @@ bool Scheduler::RecordHostEventFromHostApi(
   EnsureCurrentCommit();
   const HostEventCommitResult committed = CommitHostEvent(event, &source);
   CompletePrimitiveCommit();
-  return committed.ok;
+  return committed.ok();
 }
 
 } // namespace rund::node

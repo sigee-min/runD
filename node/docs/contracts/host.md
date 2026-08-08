@@ -509,6 +509,15 @@ mutating domain state. The complete user contract is owned by
 
 Host event ordering is owned by the scheduler sequencer. External wake timing
 is not semantic authority; the recorded host event sequence is.
+The source-private host-event commit result stores one `ReasonCode` as its
+outcome authority and derives success from `code == Ok`. Its publication state
+is exactly `Unpublished`, `Dropped`, or `Retained`: an unpublished failure has
+no sequence, while either published state carries the committed sequence even
+when strict replay subsequently reports a mismatch. That post-publication
+failure does not roll back the event count, hash, sequence, or retained row.
+The result stores no parallel success bit, reason string, or expected-event
+index. Payload storage consumes a successful retained commit and remains a
+separate later operation.
 Canonical structured fields are streamed through a source-private hash state
 with explicit little-endian integers and unsigned 64-bit length prefixes. The
 owners do not dump platform object representations and do not allocate an

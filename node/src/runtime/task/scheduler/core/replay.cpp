@@ -495,7 +495,7 @@ replay_detail::payload::ResolveResult Scheduler::ReplayInput(
   }
   for (const ::rund::host::Event &event : source_events) {
     const HostEventCommitResult committed = CommitHostEvent(event);
-    if (!committed.ok || committed.sequence != event.sequence) {
+    if (!committed.ok() || committed.sequence() != event.sequence) {
       return fail(::rund::replay::Code::InputSourceEventMismatch);
     }
     if (mode == ::rund::replay::detail::scope::Mode::Scenario) {
