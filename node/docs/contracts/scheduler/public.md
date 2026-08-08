@@ -137,26 +137,23 @@ private state dependency to unrelated socket translation units.
   source projection; consumers do not repeat their component fields.
 - `task/stats.hpp`: read-only scheduler telemetry snapshot and direct getter
   surface.
-- `task/stats/storage.hpp`: `detail::task::StatStorage`, the fixed 234-slot live telemetry
+- `task/stats/storage.hpp`: `detail::task::StatStorage`, the compact 232-slot live telemetry
   block. It owns no public field spelling and performs no allocation.
 - `task/stats/schema/slots.def`: the sole exact numeric slot identity and
-  storage-layout schema. Deleting an unreserved counter removes its row and
-  compacts every following internal index. A compatibility hard cut may instead
-  rename an old position to an explicit reservation when the current by-value
-  layout must remain fixed; reserved positions have no live writer or public
-  getter. `storage.hpp` derives its count from these rows; `slots.hpp` validates
-  their contiguous indices and owns the internal counter access primitive.
-- `task/stats/schema/public/*.def`: the sole category-specific mapping from
-  short public getter spelling to stable internal slot. Compatibility getter
-  spellings may project the same canonical slot, so the total public getter
-  count is an ABI cardinality check rather than a getter-to-slot bijection. No
-  storage index or replay order is repeated in these mappings.
+  compact storage-layout schema. Deleting a counter removes its row and
+  compacts every following internal index. `storage.hpp` derives its count
+  from these rows; `slots.hpp` validates their contiguous indices and owns the
+  internal counter access primitive.
+- `task/stats/schema/public/*.def`: the sole category-specific one-to-one
+  mapping from short public getter spelling to its internal slot. No storage
+  index or replay order is repeated in these mappings.
 - `task/stats/{reactor,network,resource}.hpp`: small owning category snapshots
   returned by `reactor()`, `network()`, and `resources()`; they never retain a
   pointer into a temporary full snapshot.
-- `node/runtime/replay/task/schema/{codec,semantic}.def`: source-private replay
-  wire and semantic orders that reference current scheduler slots by name.
-  They are not installed task headers or a second numeric slot authority.
+- `node/runtime/replay/task/stats.hpp` and
+  `node/runtime/replay/task/schema/semantic.def`: source-private replay wire
+  slot set and semantic-hash order. Both reference current scheduler slots by
+  name; neither is an installed task header or a second numeric slot authority.
 - `node/src/runtime/task/stats/access.hpp`: source-private snapshot and
   slot-value access authority. Installed headers expose only an incomplete
   friend declaration and no mutable statistics accessor.
@@ -324,8 +321,8 @@ public scheduler telemetry snapshot. Its `code()`, `ok()`, truth conversion,
 returns the single scheduler telemetry snapshot at the run boundary. This
 applies equally to hot, suspending, and failure results.
 
-`task::Stats` is a 1,872-byte, 8-byte-aligned, trivially copyable report
-value containing 234 ordered 64-bit counters.
+`task::Stats` is a 1,856-byte, 8-byte-aligned, trivially copyable report
+value containing 232 ordered 64-bit counters.
 The scheduler mutates one inline source storage with a compile-time slot load,
 add, and store. It materializes the public value once at the report boundary;
 host-event recording returns only success/failure and never returns or copies

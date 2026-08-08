@@ -33,11 +33,10 @@ Public behavior is owned by the sibling scheduler contract pages.
   the evidence lock.
 - `stats/schema/slots.def` owns the current physical identity and
   `stats/schema/public/*.def` owns public-name projection. Private replay wire
-  and semantic order live under
-  `node/runtime/replay/task/schema/{codec,semantic}.def`; they reference the
-  current slots by name. Explicitly named layout reservations have no live
-  producer or getter, and multiple compatibility getters may read one canonical
-  slot without creating another mutation authority.
+  order lives in `node/runtime/replay/task/stats.hpp` and semantic-hash order in
+  `node/runtime/replay/task/schema/semantic.def`; both reference current slots
+  by name rather than physical index. Each compact slot has one live producer
+  meaning and one public getter.
   Source-only `stats/access.hpp` is the only authority that can materialize or
   read/write a snapshot by slot.
 - `state/storage/batch.hpp` owns commit-ticket sequencing and one fixed pending

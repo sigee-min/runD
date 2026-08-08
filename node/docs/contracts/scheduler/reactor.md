@@ -616,15 +616,9 @@ Network callers see only the meaning-neutral ready-set API routed through the
 network contract. Public telemetry includes `ready_set_creates`,
 `ready_set_destroys`, `ready_set_members`, `ready_set_waits`,
 `ready_set_ready_events`, and `ready_set_invalidations`.
-`ready_set_members_added()` is a compatibility projection of the canonical
-cumulative `ready_set_members()` slot, and `ready_set_events()` is a
-compatibility projection of the canonical cumulative
-`ready_set_ready_events()` slot. They do not own independently mutable
-counters. Physical slots 186 and 190 remain reserved only to preserve the
-234-slot, 1,872-byte `Stats` layout; production code neither writes those
-reservations nor projects a current getter from them. A matched exact SDK
-artifact supplies both headers and the static library, so no old-header/new-
-library mixed tuple is supported. `ready_set_members_removed()` remains a
+Each public getter maps one-to-one to one live physical counter, and the
+physical schema contains exactly the public live counters.
+`ready_set_members_removed()` remains a
 separate cumulative removal-event counter, while
 `resources().live_ready_set_members()` remains the snapshot gauge derived from
 the current ready-set store. Add, remove, clear, and destroy therefore need not

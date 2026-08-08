@@ -150,7 +150,6 @@ bool NetReadySetRemovalHoleKeepsInsertionIndex() {
   READY_SET_ASSERT(events[0u].index == 2u);
   READY_SET_ASSERT(events[0u].ticket.id() == readers[2u].id());
   READY_SET_ASSERT(report.tasks().reactor().ready_set_members() == 3u);
-  READY_SET_ASSERT(report.tasks().reactor().ready_set_members_added() == 3u);
   READY_SET_ASSERT(report.tasks().reactor().ready_set_members_removed() == 1u);
   READY_SET_ASSERT(report.tasks().resources().live_ready_set_members() == 0u);
   return true;

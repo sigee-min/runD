@@ -72,8 +72,8 @@ tools/test/run counter.saturation
 ```
 
 `runtime.task.net-ready-set` verifies the reactor consumer at the exact
-`UINT64_MAX - 1` boundary, proves the reserved compatibility slots remain
-unchanged, and proves both public alias getters read their canonical slots.
+`UINT64_MAX - 1` boundary and proves the canonical add, removal, ready-event,
+and live-resource counters remain distinct.
 `runtime.task.net-stats` drives the production host-event recorder through all
 15 Network event kinds at the same boundary, checks every non-selected call
 slot and the opposite byte slot remain unchanged, and covers the existing

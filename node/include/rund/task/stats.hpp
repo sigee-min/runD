@@ -15,6 +15,35 @@ inline constexpr std::size_t kRootPublicStatCount = 0u
 #include <rund/task/stats/schema/public/root.def>
 #undef RUND_SCHEDULER_PUBLIC_STAT
     ;
+
+inline constexpr StatSlot kPublicStatSlots[] = {
+#define RUND_SCHEDULER_PUBLIC_STAT(public_name, storage_slot)                  \
+  StatSlot::storage_slot,
+#include <rund/task/stats/schema/public/network.def>
+#include <rund/task/stats/schema/public/reactor.def>
+#include <rund/task/stats/schema/public/resource.def>
+#include <rund/task/stats/schema/public/root.def>
+#undef RUND_SCHEDULER_PUBLIC_STAT
+};
+
+[[nodiscard]] consteval bool PublicStatSlotsAreBijective() noexcept {
+  bool seen[kStatCount]{};
+  for (const StatSlot slot : kPublicStatSlots) {
+    const std::size_t index = SlotIndex(slot);
+    if (index >= kStatCount || seen[index]) {
+      return false;
+    }
+    seen[index] = true;
+  }
+  for (const bool present : seen) {
+    if (!present) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static_assert(PublicStatSlotsAreBijective());
 } // namespace rund::detail::task
 
 namespace rund::task {
@@ -58,9 +87,7 @@ private:
 
 static_assert(sizeof(Stats) == sizeof(detail::task::StatStorage));
 static_assert(alignof(Stats) == alignof(detail::task::StatStorage));
-// This is an ABI cardinality check, not a getter-to-slot bijection: compatible
-// public aliases may project one canonical slot more than once while an old
-// physical position remains reserved.
+// Every compact physical slot has exactly one public getter.
 static_assert(detail::task::kRootPublicStatCount +
                   detail::task::kReactorPublicStatCount +
                   detail::task::kNetworkPublicStatCount +

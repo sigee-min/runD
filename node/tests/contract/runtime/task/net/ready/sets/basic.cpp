@@ -76,9 +76,7 @@ bool NetReadySetCreateAddWaitDestroy() {
   READY_SET_ASSERT(events[1u].ticket.id() == readers[1u].id());
   READY_SET_ASSERT(destroyed.ok());
   READY_SET_ASSERT(report.tasks().reactor().ready_set_members() == 2u);
-  READY_SET_ASSERT(report.tasks().reactor().ready_set_members_added() == 2u);
   READY_SET_ASSERT(report.tasks().reactor().ready_set_ready_events() == 2u);
-  READY_SET_ASSERT(report.tasks().reactor().ready_set_events() == 2u);
   READY_SET_ASSERT(report.tasks().reactor().ready_set_invalidations() == 2u);
   READY_SET_ASSERT(report.tasks().resources().live_ready_set_members() == 0u);
   return true;
