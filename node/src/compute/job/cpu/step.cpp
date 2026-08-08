@@ -305,33 +305,34 @@ Status initialize_cpu_run(JobState &job) noexcept {
 
 namespace {
 
-[[nodiscard]] StepResult
+[[nodiscard]] CpuStepProgress
 next_cpu(JobState &job, const std::atomic_bool *const cancel) noexcept {
   const Status prepared = prepare_graph_step(job, cancel);
   if (!prepared) {
-    return {.status = prepared};
+    return CpuStepProgress::failed(prepared);
   }
   const CpuRuntimeGraph &graph = *job.program->cpu_graph->runtime;
-  return {.complete = job.cpu->step >= graph.steps.size()};
+  return job.cpu->step >= graph.steps.size() ? CpuStepProgress::complete()
+                                             : CpuStepProgress::pending();
 }
 
 } // namespace
 
-StepResult start_cpu(JobState &job,
-                     const std::atomic_bool *const cancel) noexcept {
+CpuStepProgress start_cpu(JobState &job,
+                          const std::atomic_bool *const cancel) noexcept {
   const Status initialized = initialize_cpu_run(job);
   return initialized ? next_cpu(job, cancel)
-                     : StepResult{.status = initialized};
+                     : CpuStepProgress::failed(initialized);
 }
 
-StepResult finish_cpu(JobState &job,
-                      const kernel::ComputeTileRunResult *const tiles,
-                      const std::atomic_bool *const cancel) noexcept {
+CpuStepProgress finish_cpu(JobState &job,
+                           const kernel::ComputeTileRunResult *const tiles,
+                           const std::atomic_bool *const cancel) noexcept {
   const PassResult finished = finish_graph_pass(job, tiles, cancel);
   if (!finished) {
-    return {.status = finished.status};
+    return CpuStepProgress::failed(finished.status);
   }
-  return finished.flow == PassFlow::Repeat ? StepResult{}
+  return finished.flow == PassFlow::Repeat ? CpuStepProgress::pending()
                                            : next_cpu(job, cancel);
 }
 

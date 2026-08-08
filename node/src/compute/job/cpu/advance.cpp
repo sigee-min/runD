@@ -10,38 +10,44 @@ namespace rund::compute::detail {
 
 namespace {
 
-[[nodiscard]] StepResult advance_run(const std::shared_ptr<JobState> &state,
-                                     const kernel::WorkerBackend worker_backend,
-                                     const std::atomic_bool *const cancel,
-                                     void *const ready_context,
-                                     const CpuJobReady ready) noexcept {
+[[nodiscard]] CpuStepProgress
+advance_run(const std::shared_ptr<JobState> &state,
+            const kernel::WorkerBackend worker_backend,
+            const std::atomic_bool *const cancel, void *const ready_context,
+            const CpuJobReady ready) noexcept {
   if (state != nullptr && state->program != nullptr &&
       state->program->empty()) {
-    return {.complete = true};
+    return CpuStepProgress::complete();
   }
   if (state == nullptr || state->program == nullptr || state->cpu == nullptr) {
-    return {.status = Status::fail(Reason::RunInvalid)};
+    return CpuStepProgress::failed(Status::fail(Reason::RunInvalid));
   }
   CpuRun &run = *state->cpu;
   if (state->program->cpu_graph == nullptr || run.graph == nullptr) {
-    return {.status = Status::fail(Reason::RunInvalid)};
+    return CpuStepProgress::failed(Status::fail(Reason::RunInvalid));
   }
   kernel::ComputeTileRunResult finished{};
   const kernel::ComputeTileRunResult *view = nullptr;
   if (run.pass != CpuPass::Primitive) {
     kernel::ComputeTileExecutor *const tiles = active_tiles(*state);
     if (tiles == nullptr) {
-      return {.status = Status::fail(Reason::CpuStepInvalid)};
+      return CpuStepProgress::failed(Status::fail(Reason::CpuStepInvalid));
     }
     finished = tiles->finish();
     view = &finished;
   }
-  const StepResult progress = finish_cpu(*state, view, cancel);
-  if (!progress || progress.complete) {
+  const CpuStepProgress progress = finish_cpu(*state, view, cancel);
+  switch (progress.disposition()) {
+  case CpuStepDisposition::Failed:
+  case CpuStepDisposition::Complete:
     return progress;
+  case CpuStepDisposition::Pending:
+    break;
   }
-  return {.status =
-              submit_graph_pass(*state, worker_backend, ready_context, ready)};
+  const Status submitted =
+      submit_graph_pass(*state, worker_backend, ready_context, ready);
+  return submitted ? CpuStepProgress::pending()
+                   : CpuStepProgress::failed(submitted);
 }
 
 } // namespace
@@ -51,10 +57,15 @@ CpuJobProgress advance_cpu_job_on(const std::shared_ptr<JobState> &state,
                                   const std::atomic_bool *const cancel,
                                   void *const ready_context,
                                   const CpuJobReady ready) noexcept {
-  const StepResult advanced =
+  const CpuStepProgress advanced =
       advance_run(state, worker_backend, cancel, ready_context, ready);
-  if (!advanced || !advanced.complete) {
-    return {.status = advanced.status};
+  switch (advanced.disposition()) {
+  case CpuStepDisposition::Failed:
+    return {.status = advanced.status()};
+  case CpuStepDisposition::Pending:
+    return {};
+  case CpuStepDisposition::Complete:
+    break;
   }
   auto run =
       state != nullptr && state->program != nullptr && state->program->empty()
@@ -65,18 +76,13 @@ CpuJobProgress advance_cpu_job_on(const std::shared_ptr<JobState> &state,
              : CpuJobProgress{.status = Status::fail(run.reason())};
 }
 
-CpuPipelineProgress
+CpuStepProgress
 advance_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
                             const kernel::WorkerBackend worker_backend,
                             const std::atomic_bool *const cancel,
                             void *const ready_context,
                             const CpuJobReady ready) noexcept {
-  const StepResult advanced =
-      advance_run(state, worker_backend, cancel, ready_context, ready);
-  if (!advanced || !advanced.complete) {
-    return {.status = advanced.status};
-  }
-  return {.completed = true};
+  return advance_run(state, worker_backend, cancel, ready_context, ready);
 }
 
 } // namespace rund::compute::detail

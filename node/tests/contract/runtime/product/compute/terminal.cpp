@@ -1,8 +1,9 @@
 #include "test/assert.hpp"
 
+#include "src/compute/job/cpu/model.hpp"
+#include "src/runtime/compute/operation.hpp"
 #include "src/runtime/compute/state.hpp"
 #include "src/runtime/compute/terminal.hpp"
-#include "src/runtime/compute/operation.hpp"
 
 #include <node/runtime/compute/access.hpp>
 #include <rund/compute.hpp>
@@ -22,6 +23,8 @@ using ComputeTelemetryEmit = void (*)(void *, const rund::compute::Status &,
 static_assert(std::is_same_v<rund::node::runtime_detail::ComputeHostState::Emit,
                              ComputeTelemetryEmit>);
 
+using rund::compute::detail::CpuStepDisposition;
+using rund::compute::detail::CpuStepProgress;
 using rund::node::compute_detail::Advance;
 using rund::node::compute_detail::AdvanceDisposition;
 using rund::node::compute_detail::Dispatch;
@@ -69,6 +72,25 @@ static_assert(CompleteAdvance.status());
 static_assert(
     Advance::failed(rund::compute::Status::success()).status().reason() ==
     rund::compute::Reason::CompletionInvalid);
+
+static_assert(!std::is_default_constructible_v<CpuStepProgress>);
+static_assert(!std::is_aggregate_v<CpuStepProgress>);
+static_assert(std::is_trivially_copyable_v<CpuStepProgress>);
+
+constexpr CpuStepProgress FailedCpuStep = CpuStepProgress::failed(
+    rund::compute::Status::fail(rund::compute::Reason::Cancelled));
+constexpr CpuStepProgress PendingCpuStep = CpuStepProgress::pending();
+constexpr CpuStepProgress CompleteCpuStep = CpuStepProgress::complete();
+static_assert(FailedCpuStep.disposition() == CpuStepDisposition::Failed);
+static_assert(FailedCpuStep.status().reason() ==
+              rund::compute::Reason::Cancelled);
+static_assert(PendingCpuStep.disposition() == CpuStepDisposition::Pending);
+static_assert(PendingCpuStep.status());
+static_assert(CompleteCpuStep.disposition() == CpuStepDisposition::Complete);
+static_assert(CompleteCpuStep.status());
+static_assert(CpuStepProgress::failed(rund::compute::Status::success())
+                  .status()
+                  .reason() == rund::compute::Reason::CpuStepInvalid);
 
 std::atomic<std::uint32_t> configured_abort_cancels{0u};
 std::atomic<std::uint32_t> configured_abort_retires{0u};

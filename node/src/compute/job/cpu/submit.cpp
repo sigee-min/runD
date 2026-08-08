@@ -40,15 +40,17 @@ namespace {
       state->cpu->graph == nullptr) {
     return Status::fail(Reason::RunInvalid);
   }
-  const StepResult started = start_cpu(*state, cancel);
-  if (!started) {
-    return started.status;
-  }
-  if (started.complete) {
+  const CpuStepProgress started = start_cpu(*state, cancel);
+  switch (started.disposition()) {
+  case CpuStepDisposition::Failed:
+    return started.status();
+  case CpuStepDisposition::Complete:
     ready(ready_context);
     return Status::success();
+  case CpuStepDisposition::Pending:
+    return submit_graph_pass(*state, worker_backend, ready_context, ready);
   }
-  return submit_graph_pass(*state, worker_backend, ready_context, ready);
+  return Status::fail(Reason::CpuStepInvalid);
 }
 
 } // namespace

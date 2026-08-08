@@ -1,6 +1,7 @@
 #include "local.hpp"
 #include "../runtime/local.hpp"
 
+#include "../../compute/job/cpu/model.hpp"
 #include "../../compute/pipeline/local.hpp"
 #include "../task/scheduler/state/model/context.hpp"
 
@@ -405,19 +406,22 @@ AdvancePipelineCpu(const compute_detail::Operation &operation,
   }
   const std::shared_ptr<compute::detail::JobState> job =
       compute::detail::pipeline_job(state, task.pipeline_schedule.step);
-  compute::detail::CpuPipelineProgress progress =
+  const compute::detail::CpuStepProgress progress =
       compute::detail::advance_cpu_pipeline_job_on(
           job, task.host->async_worker_backend, &task.cancel_requested, &task,
           CpuReady);
-  if (!progress) {
+  switch (progress.disposition()) {
+  case compute::detail::CpuStepDisposition::Failed: {
     const compute::Status completed =
         compute::detail::complete_cpu_pipeline_schedule_step(
-            state, task.pipeline_schedule, progress.status);
-    return compute_detail::Advance::failed(completed ? progress.status
+            state, task.pipeline_schedule, progress.status());
+    return compute_detail::Advance::failed(completed ? progress.status()
                                                      : completed);
   }
-  if (!progress.complete()) {
+  case compute::detail::CpuStepDisposition::Pending:
     return compute_detail::Advance::pending();
+  case compute::detail::CpuStepDisposition::Complete:
+    break;
   }
   const compute::Status advanced =
       compute::detail::complete_cpu_pipeline_schedule_step(

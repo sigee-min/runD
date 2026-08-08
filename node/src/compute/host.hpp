@@ -10,6 +10,8 @@
 
 namespace rund::compute::detail {
 
+class CpuStepProgress;
+
 [[nodiscard]] Result<RunState>
 run_buffers(const std::shared_ptr<ProgramState> &program,
             std::span<const std::shared_ptr<BufferState>> inputs,
@@ -28,18 +30,6 @@ struct CpuJobProgress final {
   [[nodiscard]] bool complete() const noexcept { return run.has_value(); }
 };
 
-struct CpuPipelineProgress final {
-  Status status{Status::success()};
-  bool completed{};
-
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(status);
-  }
-
-  [[nodiscard]] bool complete() const noexcept { return completed; }
-
-};
-
 [[nodiscard]] Status submit_cpu_job_on(const std::shared_ptr<JobState> &state,
                                        kernel::WorkerBackend worker_backend,
                                        kernel::u32 workers,
@@ -51,8 +41,7 @@ struct CpuPipelineProgress final {
 [[nodiscard]] Status
 submit_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
                            kernel::WorkerBackend worker_backend,
-                           kernel::u32 workers,
-                           const std::atomic_bool *cancel,
+                           kernel::u32 workers, const std::atomic_bool *cancel,
                            void *ready_context, CpuJobReady ready) noexcept;
 
 [[nodiscard]] CpuJobProgress
@@ -60,11 +49,11 @@ advance_cpu_job_on(const std::shared_ptr<JobState> &state,
                    kernel::WorkerBackend worker_backend,
                    const std::atomic_bool *cancel, void *ready_context,
                    CpuJobReady ready) noexcept;
-[[nodiscard]] CpuPipelineProgress
+[[nodiscard]] CpuStepProgress
 advance_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
                             kernel::WorkerBackend worker_backend,
-                            const std::atomic_bool *cancel,
-                            void *ready_context, CpuJobReady ready) noexcept;
+                            const std::atomic_bool *cancel, void *ready_context,
+                            CpuJobReady ready) noexcept;
 
 [[nodiscard]] Status submit_job_on(const std::shared_ptr<JobState> &state,
                                    std::shared_ptr<void> lifetime,

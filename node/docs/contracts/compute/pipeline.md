@@ -1832,6 +1832,16 @@ synchronous scheduler call. Its retained Job keeps the selected submission
 alive after the Pipeline gate is released. Moving the result transfers that
 owner and normalizes the source to `Failed(PipelineInvalid)`; copying and move
 assignment are unavailable.
+The lower CPU Job step boundary also publishes one exclusive value:
+`Failed` carries one non-success `Status`, `Pending` carries no failure or
+completion payload, and `Complete` carries no failure or pending state. The
+initial submit owner interprets `Pending` by submitting the prepared pass;
+after a ready callback, the advance owner returns `Pending` only after the next
+pass submission succeeds. Pipeline advance consumes that same value directly;
+it does not republish the status and completion state through a second result.
+The pass-local `Next`/`Repeat` decision and the standalone Job result that owns
+a completed `RunState` remain separate authorities because they carry
+different semantics and payloads.
 Private Map Jobs resolve and validate their immutable Buffer owners, base
 addresses, byte strides, and port counts once during Pipeline preparation.
 A warm tick reuses those frozen bindings and changes only the authored dynamic

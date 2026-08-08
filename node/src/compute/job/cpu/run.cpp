@@ -21,8 +21,16 @@ RunState completed_state(JobState &job) noexcept {
 }
 
 Status run_cpu_pipeline_job(JobState &job) {
-  StepResult progress = start_cpu(job, nullptr);
-  while (progress && !progress.complete) {
+  CpuStepProgress progress = start_cpu(job, nullptr);
+  for (;;) {
+    switch (progress.disposition()) {
+    case CpuStepDisposition::Failed:
+      return progress.status();
+    case CpuStepDisposition::Complete:
+      return Status::success();
+    case CpuStepDisposition::Pending:
+      break;
+    }
     if (job.cpu->pass == CpuPass::Primitive) {
       job.cpu->primitive_status = execute_cpu_primitive(job, job.cpu->step);
       progress = finish_cpu(job, nullptr, nullptr);
@@ -31,7 +39,6 @@ Status run_cpu_pipeline_job(JobState &job) {
       progress = finish_cpu(job, &tiles, nullptr);
     }
   }
-  return progress.status;
 }
 
 Result<RunState> run_cpu_job(JobState &job) {
