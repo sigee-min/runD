@@ -12,6 +12,7 @@
 #include "src/accel/metal/scan/limits.hpp"
 #include "src/accel/metal/scan/source.hpp"
 #include "src/accel/metal/sort/source.hpp"
+#include "src/accel/scan/prefix.hpp"
 #include "src/accel/scan/shape.hpp"
 #include "src/accel/scatter/reduce/status.hpp"
 #include "src/accel/segmented/status.hpp"
@@ -43,14 +44,71 @@ namespace {
 
 [[nodiscard]] constexpr bool CollectiveChunkMathIsExact() noexcept {
   using rund::node::accel::detail::CeilGroups;
-  using rund::node::accel::detail::kMetalScanWidth;
-  using rund::node::accel::detail::kVulkanScanWidth;
+  using rund::node::accel::detail::kScanPrefixWorkgroupWidth;
+  using rund::node::accel::detail::PlanScanPrefixExecution;
   using rund::node::accel::detail::ScanDispatches;
+  using rund::node::accel::detail::ScanPrefixPayloadBytes;
+  using rund::node::accel::detail::ScanPrefixTotalsBytes;
   using rund::node::accel::detail::SortDispatches;
+  constexpr rund::kernel::ScanPlan single{
+      .op = rund::kernel::ScanOp::InclusiveSum,
+      .element = rund::kernel::ScanElement::U32,
+      .element_count = 256u,
+      .element_bytes = 4u,
+      .block_size = 256u,
+      .block_count = 1u,
+      .pass_count = 1u,
+      .temp_bytes = 1024u,
+      .ok = true,
+      .reason = "ok",
+  };
+  constexpr rund::kernel::ScanPlan multiple{
+      .op = rund::kernel::ScanOp::InclusiveSum,
+      .element = rund::kernel::ScanElement::U64,
+      .element_count = 513u,
+      .element_bytes = 8u,
+      .block_size = 256u,
+      .block_count = 3u,
+      .pass_count = 2u,
+      .temp_bytes = 4104u,
+      .ok = true,
+      .reason = "ok",
+  };
+  constexpr rund::kernel::ScanPlan malformed{
+      .op = rund::kernel::ScanOp::InclusiveSum,
+      .element = rund::kernel::ScanElement::U32,
+      .element_count = 513u,
+      .element_bytes = 4u,
+      .block_size = 256u,
+      .block_count = 2u,
+      .pass_count = 2u,
+      .temp_bytes = 2052u,
+      .ok = true,
+      .reason = "ok",
+  };
+  constexpr auto single_prefix = PlanScanPrefixExecution(single);
+  constexpr auto multiple_prefix = PlanScanPrefixExecution(multiple);
+  constexpr auto malformed_prefix = PlanScanPrefixExecution(malformed);
   return CeilGroups(0u, 1u) == 0u && CeilGroups(1u, 0u) == 0u &&
          CeilGroups(65'535u, 65'535u) == 1u &&
-         CeilGroups(65'536u, 65'535u) == 2u && kMetalScanWidth == 128u &&
-         kMetalScanWidth == kVulkanScanWidth &&
+         CeilGroups(65'536u, 65'535u) == 2u &&
+         kScanPrefixWorkgroupWidth == 128u && single_prefix.ok() &&
+         single_prefix.stage_count() == 1u &&
+         single_prefix.stage(0u).groups == 1u &&
+         single_prefix.temporary_count() == 1u &&
+         single_prefix.temporary(0u).bytes == 4u && multiple_prefix.ok() &&
+         multiple_prefix.stage_count() == 3u &&
+         multiple_prefix.stage(0u).groups == 3u &&
+         multiple_prefix.stage(1u).groups == 1u &&
+         multiple_prefix.stage(2u).groups == 3u &&
+         multiple_prefix.temporary(0u).bytes == 24u &&
+         multiple_prefix.temporary(0u).last_stage == 2u &&
+         ScanPrefixPayloadBytes(multiple).has_value() &&
+         *ScanPrefixPayloadBytes(multiple) == 4104u &&
+         ScanPrefixTotalsBytes(multiple).has_value() &&
+         *ScanPrefixTotalsBytes(multiple) == 24u && !malformed_prefix.ok() &&
+         !ScanPrefixPayloadBytes(malformed).has_value() &&
+         !ScanPrefixTotalsBytes(malformed).has_value() &&
          ScanDispatches(2u, 1'024u, 65'535u) == 3u &&
          ScanDispatches(1u, 65'536u, 65'535u) == 2u &&
          ScanDispatches(2u, 65'536u, 65'535u) == 5u &&
@@ -120,8 +178,12 @@ namespace {
 
 [[nodiscard]] bool ScanSourceIsCanonical() {
   const std::string metal = rund::node::accel::detail::MetalScanSource();
+  const std::string width_declaration =
+      "constant uint kScanWidth = " +
+      std::to_string(rund::node::accel::detail::kScanPrefixWorkgroupWidth) +
+      "u";
   if (metal.find("atomic_fetch_or_explicit(status, 1u") == std::string::npos ||
-      metal.find("constant uint kScanWidth = 128u") == std::string::npos ||
+      metal.find(width_declaration) == std::string::npos ||
       metal.find("(block_size + ulong(width) - 1ul)") == std::string::npos ||
       Occurrences(metal, "value = input[index]") != 4u ||
       Occurrences(metal, "device const uint* input [[buffer(8)]]") != 1u ||
@@ -141,7 +203,11 @@ namespace {
   const std::string offset = rund::node::accel::detail::VulkanScanSource(
       rund::kernel::ScanElement::U32, rund::kernel::ComputeDomain::I32,
       rund::node::accel::detail::VulkanScanStage::Offset, true);
-  return block.find("layout(local_size_x = 128) in") != std::string::npos &&
+  const std::string local_size =
+      "layout(local_size_x = " +
+      std::to_string(rund::node::accel::detail::kScanPrefixWorkgroupWidth) +
+      ") in";
+  return block.find(local_size) != std::string::npos &&
          block.find("layout(push_constant)") != std::string::npos &&
          block.find("uint64_t(gl_WorkGroupID.x)") != std::string::npos &&
          block.find("lane_begin") != std::string::npos &&
@@ -151,11 +217,11 @@ namespace {
          offset.find("atomicOr(status[0]") != std::string::npos &&
          exclusive.find("output_values[uint(index)] = running") !=
              std::string::npos &&
-         prefix.find("layout(local_size_x = 128) in") != std::string::npos &&
+         prefix.find(local_size) != std::string::npos &&
          prefix.find("chunk_totals[2][kScanWidth]") != std::string::npos &&
          prefix.find("const uint64_t chunk_size") != std::string::npos &&
          prefix.find("step <<= 1u") != std::string::npos &&
-         offset.find("layout(local_size_x = 128) in") != std::string::npos &&
+         offset.find(local_size) != std::string::npos &&
          offset.find("input_values[uint(index)]") != std::string::npos;
 #else
   return true;

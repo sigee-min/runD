@@ -1,14 +1,23 @@
 #pragma once
 
+#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../scan/prefix.hpp"
+
+#include <string_view>
+
 namespace rund::node::accel::detail {
 namespace {
 
-[[nodiscard]] const char *MetalScanBaseSource() {
-  return R"MSL(
+template <typename Sink>
+[[nodiscard]] bool AppendMetalScanBaseSource(Sink &sink) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  backend_source_recipe::SourceBuilder<Sink> source{sink};
+  return source.append(R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 
-constant uint kScanWidth = 128u;
+constant uint kScanWidth = )MSL") &&
+         source.decimal(kScanPrefixWorkgroupWidth) && source.append(R"MSL(u;
 inline uint rund_scan_exclusive_uint(threadgroup uint* values, uint tid,
                                      uint block_size) {
   threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -104,7 +113,7 @@ inline bool rund_scan_overflow_ulong(ulong previous, ulong value, ulong next,
       ((previous ^ next) & 0x8000000000000000ul) != 0ul;
   return same_sign && sign_changed;
 }
-)MSL";
+)MSL");
 }
 
 } // namespace

@@ -56,7 +56,10 @@ namespace rund::node::accel::detail {
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
 
-  BindMetalScanPlanShape(plan, state);
+  if (!BindMetalScanPlanShape(plan, state)) {
+    SetMetalLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
   return CheckMetalScanThreadShape(adapter, plan, state);
 }
 #endif

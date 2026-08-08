@@ -1,15 +1,15 @@
 #include "source.hpp"
 
-#include "source/base.hpp"
+#include "../../kernel/backend/source_recipe.hpp"
 #include "source/32/program.hpp"
 #include "source/64/program.hpp"
-#include "../../kernel/backend/source_recipe.hpp"
+#include "source/base.hpp"
 
 namespace rund::node::accel::detail {
 
 namespace {
 template <typename Sink> [[nodiscard]] bool EmitMetalScanSource(Sink &sink) {
-  return sink.append(MetalScanBaseSource()) &&
+  return AppendMetalScanBaseSource(sink) &&
          sink.append(MetalScanBlockU32Source()) &&
          sink.append(MetalScanBlockFlagU32Source()) &&
          sink.append(MetalScanPrefixU32Source()) &&

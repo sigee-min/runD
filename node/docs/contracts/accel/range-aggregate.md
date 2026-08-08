@@ -11,6 +11,7 @@ Implementation authority:
 
 - `/node/src/accel/range_aggregate/model.hpp`
 - `/node/src/accel/range_aggregate/plan.hpp`
+- `/node/src/accel/scan/prefix.hpp` for the native Scan projection
 
 Verification authority:
 
@@ -149,6 +150,14 @@ requirements. A temporary records role, bytes, alignment, and inclusive first
 and last live stage. PrefixDifference exposes prefix values and per-level block
 summaries. BlockPrefixSuffix exposes distinct forward and backward value
 roles. Direct and SharedHalo have no global temporary.
+
+`RangeAggregatePrefixExecution` is the common source-private stage derivation
+for associative prefix work. Its hierarchical form derives PrefixDifference's
+recursive block, summary, and reverse-fixup stages. Its flat block-total form
+derives native Scan's block, total-prefix, and offset stages from a frozen
+`ScanPlan`. The substrate derives physical stages, temporary roles, and the
+fixed Scan source width; each primitive retains its own semantic result,
+overflow, and public-output authority. It is not a second candidate selector.
 
 The plan stores a compact immutable derivation rather than owning a vector or
 allocating. These are placement-free requirements:

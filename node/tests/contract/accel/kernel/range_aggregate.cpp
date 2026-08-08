@@ -407,6 +407,55 @@ Gpu(const RangeAggregateSourceVariant variant,
          plan.temporary(2u).last_stage == 3u;
 }
 
+[[nodiscard]] constexpr bool PrefixStageSubstrateContract() {
+  constexpr auto hierarchy = PlanRangeAggregatePrefixHierarchy(
+      4097u, 64u, 4u, std::numeric_limits<u32>::max());
+  constexpr auto flat_single = PlanRangeAggregateFlatPrefix(256u, 1u, 128u, 4u);
+  constexpr auto flat_multiple =
+      PlanRangeAggregateFlatPrefix(513u, 3u, 128u, 8u);
+  constexpr auto invalid = PlanRangeAggregateFlatPrefix(0u, 0u, 128u, 4u);
+  constexpr auto dispatch_limited =
+      PlanRangeAggregatePrefixHierarchy(4097u, 64u, 4u, 64u);
+  return hierarchy.ok() &&
+         hierarchy.disposition() ==
+             RangeAggregatePrefixDisposition::Hierarchical &&
+         hierarchy.stage_count() == 5u && hierarchy.temporary_count() == 2u &&
+         hierarchy.stage(0u) ==
+             RangeAggregateStagePlan{
+                 .disposition = RangeAggregateStageDisposition::PrefixBlock,
+                 .level = 0u,
+                 .element_count = 4097u,
+                 .groups = 65u,
+                 .width = 64u} &&
+         hierarchy.stage(4u) ==
+             RangeAggregateStagePlan{
+                 .disposition = RangeAggregateStageDisposition::PrefixFixup,
+                 .level = 0u,
+                 .element_count = 4097u,
+                 .groups = 65u,
+                 .width = 64u} &&
+         hierarchy.temporary(0u).bytes == 260u &&
+         hierarchy.temporary(0u).last_stage == 4u &&
+         hierarchy.temporary(1u).bytes == 8u &&
+         hierarchy.temporary(1u).last_stage == 3u && flat_single.ok() &&
+         flat_single.disposition() ==
+             RangeAggregatePrefixDisposition::FlatBlockTotals &&
+         flat_single.stage_count() == 1u &&
+         flat_single.temporary_count() == 1u &&
+         flat_single.stage(0u).groups == 1u &&
+         flat_single.temporary(0u).bytes == 4u &&
+         flat_single.temporary(0u).last_stage == 0u && flat_multiple.ok() &&
+         flat_multiple.disposition() ==
+             RangeAggregatePrefixDisposition::FlatBlockTotals &&
+         flat_multiple.stage_count() == 3u &&
+         flat_multiple.stage(0u).groups == 3u &&
+         flat_multiple.stage(1u).groups == 1u &&
+         flat_multiple.stage(2u).groups == 3u &&
+         flat_multiple.temporary(0u).bytes == 24u &&
+         flat_multiple.temporary(0u).last_stage == 2u && !invalid.ok() &&
+         !dispatch_limited.ok();
+}
+
 [[nodiscard]] constexpr bool BlockPrefixSuffixContract() {
   constexpr std::uint8_t direct_block =
       RangeAggregateSupportBit(RangeAggregateSupport::Direct) |
@@ -556,6 +605,7 @@ static_assert(CandidateFamilyLegalityContract());
 static_assert(CapabilityBoundaryContract());
 static_assert(CostCrossoverContract());
 static_assert(PrefixHierarchyContract());
+static_assert(PrefixStageSubstrateContract());
 static_assert(BlockPrefixSuffixContract());
 static_assert(IdentityContract());
 static_assert(LinearWorkContract());
@@ -570,6 +620,7 @@ int RunAccelRangeAggregatePlannerContract() {
                  CandidateFamilyLegalityContract() &&
                  ExhaustivePlannerContract() && CapabilityBoundaryContract() &&
                  CostCrossoverContract() && PrefixHierarchyContract() &&
+                 PrefixStageSubstrateContract() &&
                  BlockPrefixSuffixContract() && IdentityContract() &&
                  LinearWorkContract() && FailClosedContract()
              ? 0

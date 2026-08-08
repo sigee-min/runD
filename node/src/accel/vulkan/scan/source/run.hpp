@@ -11,7 +11,7 @@ template <typename Sink>
     const rund::kernel::ComputeDomain domain, const VulkanScanStage stage,
     const bool inclusive) noexcept(noexcept(sink.append(std::string_view{}))) {
   backend_source_recipe::SourceBuilder<Sink> source{sink};
-  AppendVulkanScanPrelude(source, element, domain, kVulkanScanWidth,
+  AppendVulkanScanPrelude(source, element, domain, kScanPrefixWorkgroupWidth,
                           stage != VulkanScanStage::Prefix);
   switch (stage) {
   case VulkanScanStage::Block:

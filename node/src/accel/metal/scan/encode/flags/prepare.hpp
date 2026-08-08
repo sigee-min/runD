@@ -64,8 +64,14 @@ namespace rund::node::accel::detail {
   state.element_count = plan.element_count;
   state.block_size = plan.block_size;
   state.block_count = plan.block_count;
-  state.block_threads = static_cast<NSUInteger>(kMetalScanWidth);
-  state.prefix_threads = static_cast<NSUInteger>(kMetalScanWidth);
+  const RangeAggregatePrefixExecution prefix_execution =
+      PlanScanPrefixExecution(plan);
+  if (!prefix_execution.ok()) {
+    SetMetalLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
+  state.block_threads = static_cast<NSUInteger>(prefix_execution.width());
+  state.prefix_threads = static_cast<NSUInteger>(prefix_execution.width());
   if (state.block == nil || state.prefix == nil || state.offset == nil ||
       state.encoder == nil) {
     SetMetalLastError(adapter, "accel_metal_command_unavailable");

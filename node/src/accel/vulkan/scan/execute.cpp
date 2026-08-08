@@ -1,9 +1,10 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../scan/prefix.hpp"
 #include "../buffer/resident/batch.hpp"
-#include "encode/pass.hpp"
 #include "../kernel/pipeline/template.hpp"
+#include "encode/pass.hpp"
 #include "local.hpp"
 #include "pipeline.hpp"
 #include "resources/validation.hpp"
@@ -37,8 +38,7 @@ rund::AccelCheck PrepareVulkanScanBuffers(
     const VulkanBuffer &totals, VulkanStatus &status,
     std::shared_ptr<void> &resources, const std::uint64_t input_offset,
     const std::uint64_t input_range, const std::uint64_t output_offset,
-    const std::uint64_t output_range,
-    const std::uint64_t logical_count_offset,
+    const std::uint64_t output_range, const std::uint64_t logical_count_offset,
     const std::uint64_t logical_count_range,
     const VulkanKernelImmutablePipelines *const pipelines,
     const std::uint32_t pipeline_offset) {
@@ -49,6 +49,10 @@ rund::AccelCheck PrepareVulkanScanBuffers(
       adapter, desc, plan, input, output, totals, status);
   if (!valid.ok) {
     return valid;
+  }
+  if (!PlanScanPrefixExecution(plan).ok()) {
+    SetVulkanLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
   }
 
   auto *const raw = new VulkanScanEncodeResources{};
@@ -87,24 +91,22 @@ rund::AccelCheck PrepareVulkanScanBuffers(
                                                VulkanScanStage::Block)
                    : pipelines->borrow(tuple_kind, tuple_count, pipeline_offset,
                                        kScanDescriptorCount, 1u);
-  raw->prefix =
-      plan.pass_count == 2u
-          ? (pipelines == nullptr
-                 ? AcquireVulkanScanPipeline(adapter, desc, domain,
-                                             VulkanScanStage::Prefix)
-                 : pipelines->borrow(tuple_kind, tuple_count,
-                                     pipeline_offset + 1u,
-                                     kScanDescriptorCount, 1u))
-          : nullptr;
-  raw->offset =
-      plan.pass_count == 2u
-          ? (pipelines == nullptr
-                 ? AcquireVulkanScanPipeline(adapter, desc, domain,
-                                             VulkanScanStage::Offset)
-                 : pipelines->borrow(tuple_kind, tuple_count,
-                                     pipeline_offset + 2u,
-                                     kScanDescriptorCount, 1u))
-          : nullptr;
+  raw->prefix = plan.pass_count == 2u
+                    ? (pipelines == nullptr
+                           ? AcquireVulkanScanPipeline(adapter, desc, domain,
+                                                       VulkanScanStage::Prefix)
+                           : pipelines->borrow(tuple_kind, tuple_count,
+                                               pipeline_offset + 1u,
+                                               kScanDescriptorCount, 1u))
+                    : nullptr;
+  raw->offset = plan.pass_count == 2u
+                    ? (pipelines == nullptr
+                           ? AcquireVulkanScanPipeline(adapter, desc, domain,
+                                                       VulkanScanStage::Offset)
+                           : pipelines->borrow(tuple_kind, tuple_count,
+                                               pipeline_offset + 2u,
+                                               kScanDescriptorCount, 1u))
+                    : nullptr;
   if (raw->dispatch_count == 0u || raw->block == nullptr ||
       (plan.pass_count == 2u &&
        (raw->prefix == nullptr || raw->offset == nullptr)) ||
@@ -140,9 +142,9 @@ rund::AccelCheck PrepareVulkanScanBuffers(
 #endif
 }
 
-rund::AccelCheck EncodeVulkanScanBuffers(
-    VulkanAdapter &adapter, const std::shared_ptr<void> &resources,
-    void *const command_buffer_handle) {
+rund::AccelCheck EncodeVulkanScanBuffers(VulkanAdapter &adapter,
+                                         const std::shared_ptr<void> &resources,
+                                         void *const command_buffer_handle) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   VulkanScanEncodeState state{};
   const rund::AccelCheck loaded = LoadVulkanScanEncodeState(

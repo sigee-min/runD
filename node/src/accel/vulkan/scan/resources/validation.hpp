@@ -2,6 +2,7 @@
 
 #include <accel/check.hpp>
 
+#include "../../../scan/prefix.hpp"
 #include "../local.hpp"
 
 #include <cstdint>
@@ -31,11 +32,15 @@ namespace {
     SetVulkanLastError(adapter, "compute_scan_invalid");
     return rund::AccelCheck{false, "compute_scan_invalid"};
   }
-  const rund::kernel::u64 scan_bytes = plan.element_count * plan.element_bytes;
-  const rund::kernel::u64 totals_bytes = plan.block_count * plan.element_bytes;
+  const auto scan_bytes = ScanPrefixPayloadBytes(plan);
+  const auto totals_bytes = ScanPrefixTotalsBytes(plan);
+  if (!scan_bytes.has_value() || !totals_bytes.has_value()) {
+    SetVulkanLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
   constexpr rund::kernel::u64 status_bytes = sizeof(rund::kernel::u32);
-  if (input.bytes < scan_bytes || output.bytes < scan_bytes ||
-      totals.bytes < totals_bytes || status.device.bytes < status_bytes) {
+  if (input.bytes < *scan_bytes || output.bytes < *scan_bytes ||
+      totals.bytes < *totals_bytes || status.device.bytes < status_bytes) {
     SetVulkanLastError(adapter, "compute_scan_invalid");
     return rund::AccelCheck{false, "compute_scan_invalid"};
   }

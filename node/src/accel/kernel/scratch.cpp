@@ -3,6 +3,7 @@
 #include "../context/internal.hpp"
 #include "../primitive/block.hpp"
 #include "../range_aggregate/model.hpp"
+#include "../scan/prefix.hpp"
 #include "../segmented/reduce/model.hpp"
 #include "../sort/block/metal.hpp"
 #include "../sort/block/vulkan.hpp"
@@ -14,6 +15,7 @@
 #include <limits>
 #include <new>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -73,7 +75,13 @@ scratch_requests(const Operation &operation,
   switch (operation.kind()) {
   case rund::kernel::NodeKind::Scan: {
     const auto &plan = operation.get<operation::Scan>().plan;
-    result.product(plan.block_count, plan.element_bytes);
+    const std::optional<std::uint64_t> totals_bytes =
+        ScanPrefixTotalsBytes(plan);
+    if (!totals_bytes.has_value()) {
+      result.ok = false;
+      break;
+    }
+    result.push(*totals_bytes);
     break;
   }
   case rund::kernel::NodeKind::SegmentedScan: {

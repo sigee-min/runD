@@ -276,75 +276,72 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
     return std::nullopt;
   }
   evaluation.cost.shared_bytes = local_shared;
+  const RangeAggregatePrefixExecution hierarchy =
+      PlanRangeAggregatePrefixHierarchy(
+          shape.element_count(), candidate.width(), shape.element_bytes(),
+          capabilities.maximum_group_count());
+  if (!hierarchy.ok() || hierarchy.stage_count() == 0u ||
+      hierarchy.stage_count() >= std::numeric_limits<std::uint8_t>::max()) {
+    return std::nullopt;
+  }
   if (!AppendTemporary(evaluation, RangeTemporaryRole::PrefixValues, 0u,
-                       shape.payload_bytes(), shape.element_bytes(), 0u, 0u,
+                       shape.payload_bytes(), shape.element_bytes(), 0u,
+                       static_cast<std::uint8_t>(hierarchy.stage_count()),
                        overflow)) {
     return std::nullopt;
   }
 
-  std::array<rund::kernel::u64, kRangeTemporaryCapacity> level_values{};
-  std::array<rund::kernel::u64, kRangeTemporaryCapacity> level_groups{};
-  std::size_t level_count = 0u;
-  rund::kernel::u64 values = shape.element_count();
-  while (true) {
-    if (level_count == level_values.size()) {
+  for (std::size_t index = 0u; index < hierarchy.stage_count(); ++index) {
+    const RangeAggregateStagePlan stage = hierarchy.stage(index);
+    if (!AppendStage(evaluation, capabilities, stage.disposition, stage.level,
+                     stage.element_count, stage.groups, stage.width,
+                     overflow)) {
       return std::nullopt;
     }
-    const rund::kernel::u64 groups = Groups(values, candidate.width());
-    if (!FitsGroups(capabilities, groups)) {
-      return std::nullopt;
+    if (stage.disposition == RangeAggregateStageDisposition::PrefixBlock ||
+        stage.disposition == RangeAggregateStageDisposition::PrefixSummary) {
+      if (!AccumulateBytes(evaluation.cost.global_read_bytes,
+                           stage.element_count, shape.element_bytes()) ||
+          !AccumulateBytes(evaluation.cost.global_write_bytes,
+                           stage.element_count, shape.element_bytes()) ||
+          !AccumulateProduct(evaluation.cost.combine_ops, stage.groups,
+                             2u * (candidate.width() - 1u))) {
+        overflow = true;
+        return std::nullopt;
+      }
+      if (stage.groups > 1u) {
+        bool found = false;
+        for (std::size_t temporary_index = 0u;
+             temporary_index < hierarchy.temporary_count(); ++temporary_index) {
+          const RangeTemporaryRequirement temporary =
+              hierarchy.temporary(temporary_index);
+          if (temporary.role != RangeTemporaryRole::BlockSummaries ||
+              temporary.ordinal != stage.level) {
+            continue;
+          }
+          found = AppendTemporary(evaluation, temporary.role, temporary.ordinal,
+                                  temporary.bytes, temporary.alignment,
+                                  temporary.first_stage, temporary.last_stage,
+                                  overflow) &&
+                  AccumulateBytes(evaluation.cost.global_write_bytes,
+                                  stage.groups, shape.element_bytes());
+          break;
+        }
+        if (!found) {
+          overflow = true;
+          return std::nullopt;
+        }
+      }
+      continue;
     }
-    level_values[level_count] = values;
-    level_groups[level_count] = groups;
-    const std::uint8_t stage =
-        static_cast<std::uint8_t>(evaluation.stage_count);
-    if (!AppendStage(evaluation, capabilities,
-                     level_count == 0u
-                         ? RangeAggregateStageDisposition::PrefixBlock
-                         : RangeAggregateStageDisposition::PrefixSummary,
-                     static_cast<std::uint8_t>(level_count), values, groups,
-                     candidate.width(), overflow) ||
-        !AccumulateBytes(evaluation.cost.global_read_bytes, values,
-                         shape.element_bytes()) ||
-        !AccumulateBytes(evaluation.cost.global_write_bytes, values,
-                         shape.element_bytes()) ||
-        !AccumulateProduct(evaluation.cost.combine_ops, groups,
-                           2u * (candidate.width() - 1u))) {
+    if (stage.disposition != RangeAggregateStageDisposition::PrefixFixup) {
       overflow = true;
       return std::nullopt;
     }
-    ++level_count;
-    if (groups == 1u) {
-      break;
-    }
-    rund::kernel::u64 summary_bytes = 0u;
-    if (!rund::kernel::checked::mul(groups, shape.element_bytes(),
-                                    summary_bytes) ||
-        !AppendTemporary(evaluation, RangeTemporaryRole::BlockSummaries,
-                         static_cast<std::uint8_t>(level_count - 1u),
-                         summary_bytes, shape.element_bytes(), stage, 0u,
-                         overflow) ||
-        !AccumulateBytes(evaluation.cost.global_write_bytes, groups,
-                         shape.element_bytes())) {
-      overflow = true;
-      return std::nullopt;
-    }
-    values = groups;
-  }
-
-  for (std::size_t level = level_count - 1u; level != 0u; --level) {
-    const std::size_t child = level - 1u;
-    const rund::kernel::u64 child_values = level_values[child];
     const rund::kernel::u64 adjusted =
-        child_values -
-        std::min<rund::kernel::u64>(child_values, candidate.width());
-    const std::uint8_t stage =
-        static_cast<std::uint8_t>(evaluation.stage_count);
-    if (!AppendStage(evaluation, capabilities,
-                     RangeAggregateStageDisposition::PrefixFixup,
-                     static_cast<std::uint8_t>(child), child_values,
-                     level_groups[child], candidate.width(), overflow) ||
-        !AccumulateBytes(evaluation.cost.global_read_bytes,
+        stage.element_count -
+        std::min<rund::kernel::u64>(stage.element_count, candidate.width());
+    if (!AccumulateBytes(evaluation.cost.global_read_bytes,
                          static_cast<rund::kernel::u128>(adjusted) * 2u,
                          shape.element_bytes()) ||
         !AccumulateBytes(evaluation.cost.global_write_bytes, adjusted,
@@ -353,13 +350,10 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
       overflow = true;
       return std::nullopt;
     }
-    evaluation.temporaries[1u + child].last_stage = stage;
   }
 
   const rund::kernel::u64 output_groups =
       Groups(shape.element_count(), candidate.width());
-  const std::uint8_t output_stage =
-      static_cast<std::uint8_t>(evaluation.stage_count);
   const rund::kernel::u64 left_prefix_reads =
       shape.radius() < shape.element_count()
           ? shape.element_count() - shape.radius() - 1u
@@ -383,7 +377,6 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
     overflow = true;
     return std::nullopt;
   }
-  evaluation.temporaries[0u].last_stage = output_stage;
   return evaluation;
 }
 

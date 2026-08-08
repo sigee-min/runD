@@ -126,6 +126,16 @@ an invalid logical-count bit. There is no element-count or device-selected
 width, serial lane-zero domain branch, status binding in `prefix`, retry, or
 fallback.
 
+The source-private `PlanScanPrefixExecution` projects each frozen Kernel
+`ScanPlan` into the shared `RangeAggregatePrefixExecution` flat block-total
+stage graph. It supplies the one native 128-lane source width, full logical
+block count, block-total temporary role, and one- or three-stage lifetime used
+by both Metal and Vulkan preparation. The Pipeline scratch planner and direct
+backend scratch allocation consume that same derived block-total byte count;
+they retain their own physical arena and buffer ownership. Kernel remains the
+owner of Scan's visible-prefix, inclusive/exclusive, and overflow semantics;
+RangeAggregate does not select a window algorithm for Scan.
+
 The 32-bit block and block-total prefix use a two-bank Kogge-Stone tree. For a
 product power-of-two width `W`, it has fixed depth `log2(W)`, exactly
 `W log2(W) - W + 1` modulo additions, and `1 + log2(W)` threadgroup barriers.

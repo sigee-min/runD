@@ -2,6 +2,7 @@
 
 #include <accel/check.hpp>
 
+#include "../../../scan/prefix.hpp"
 #include "local.hpp"
 
 namespace rund::node::accel::detail {
@@ -13,7 +14,12 @@ namespace {
 CreateVulkanScanScratch(VulkanAdapter &adapter,
                         const rund::kernel::ScanPlan &plan,
                         VulkanKernelScanResources &resources) {
-  if (CreateVulkanBuffer(adapter, plan.block_count * plan.element_bytes,
+  const auto totals_bytes = ScanPrefixTotalsBytes(plan);
+  if (!totals_bytes.has_value()) {
+    SetVulkanLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
+  if (CreateVulkanBuffer(adapter, *totals_bytes,
                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, resources.totals,
                          nullptr, VulkanMemoryUse::Scratch) &&
       CreateVulkanStatus(adapter, sizeof(rund::kernel::u32),
