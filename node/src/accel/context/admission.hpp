@@ -36,13 +36,13 @@ struct TransferAdmission {
 
 struct OpenBufferAdmission {
   rund::AccelCheck check{};
-  ContextTokenAdmission context{};
+  std::shared_ptr<ContextToken> context{};
   std::shared_ptr<void> handle{};
   rund::kernel::ResidentBufferRef resident{};
   std::uint64_t byte_extent = 0u;
 };
 
-[[nodiscard]] ContextTokenAdmission
+[[nodiscard]] std::shared_ptr<ContextToken>
 AdmitContextToken(const rund::AccelContext &context);
 
 [[nodiscard]] rund::AccelCheck
@@ -54,12 +54,12 @@ AdmitAccelBufferOpen(const rund::AccelContext &context,
                      const rund::AccelBufferDesc &desc);
 
 [[nodiscard]] OpenBufferAdmission
-AdmitAccelBufferOpen(const ContextTokenAdmission &context,
+AdmitAccelBufferOpen(const std::shared_ptr<ContextToken> &context,
                      const rund::Buffer &buffer,
                      const rund::AccelBufferDesc &desc);
 
 [[nodiscard]] ContextAdmission
-SupportAdmissionFrom(const ContextTokenAdmission &admission);
+SupportAdmissionFrom(const std::shared_ptr<ContextToken> &context);
 
 [[nodiscard]] SupportBufferAdmission
 AdmitAccelBufferForSupport(const ContextAdmission &admission,
@@ -70,7 +70,7 @@ AdmitAccelBufferTransfer(const rund::AccelContext &context,
                          const rund::AccelBuffer &buffer);
 
 [[nodiscard]] TransferAdmission
-AdmitAccelBufferTransfer(const ContextTokenAdmission &context,
+AdmitAccelBufferTransfer(const std::shared_ptr<ContextToken> &context,
                          const rund::AccelBuffer &buffer);
 
 [[nodiscard]] rund::AccelCheck

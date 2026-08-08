@@ -4,10 +4,19 @@
 #include "local.hpp"
 #include <node/accel/context.hpp>
 
+#include "src/accel/context/admission.hpp"
+
 namespace node_accel_contract {
 
 bool PublicContextApiOpensRealBackend() {
   namespace ctx = node_accel_contract::context;
+  namespace detail = rund::node::accel::detail;
+  static_assert(std::is_same_v<decltype(&detail::AdmitContextToken),
+                               std::shared_ptr<detail::ContextToken> (*)(
+                                   const rund::AccelContext &)>);
+  if (detail::AdmitContextToken(rund::AccelContext{}) != nullptr) {
+    return false;
+  }
   const ctx::State state = ctx::OpenState();
   if (!state.available) {
     return state.unavailable_ok;
@@ -19,6 +28,26 @@ bool PublicContextApiOpensRealBackend() {
       rund::node::test::SameOwner(state.context.owner, state.pick.owner) ||
       !state.context.evidence.ok ||
       std::string_view{state.context.evidence.reason} != "ok") {
+    return false;
+  }
+
+  std::shared_ptr<detail::ContextToken> context_token =
+      detail::AdmitContextToken(state.context);
+  if (context_token == nullptr || context_token->id != state.context.id ||
+      context_token->api != state.context.api ||
+      context_token->pick == nullptr) {
+    return false;
+  }
+  context_token.reset();
+  if (detail::AdmitContextToken(state.context) == nullptr) {
+    return false;
+  }
+
+  int context_alias{};
+  rund::AccelContext forged_context = state.context;
+  forged_context.owner =
+      std::shared_ptr<void>(state.context.owner, &context_alias);
+  if (detail::AdmitContextToken(forged_context) != nullptr) {
     return false;
   }
 

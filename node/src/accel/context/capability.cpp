@@ -87,17 +87,16 @@ LookupContextToken(const std::shared_ptr<void> &owner) {
 }
 
 std::shared_ptr<AccelBufferToken>
-MakeAccelBufferToken(const ContextTokenAdmission &admission,
+MakeAccelBufferToken(const std::shared_ptr<ContextToken> &context,
                      rund::Buffer backend,
                      const rund::kernel::ResidentBufferRef &resident,
                      const std::uint64_t byte_extent,
                      const rund::AccelBufferDesc &desc) noexcept {
-  if (!admission.check.ok || admission.token == nullptr ||
-      backend.handle == nullptr) {
+  if (context == nullptr || backend.handle == nullptr) {
     return {};
   }
   AccelBufferToken *const raw = new (std::nothrow) AccelBufferToken{
-      admission.token, std::move(backend), resident, byte_extent, desc};
+      context, std::move(backend), resident, byte_extent, desc};
   if (raw == nullptr) {
     return {};
   }

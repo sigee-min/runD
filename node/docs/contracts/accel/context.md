@@ -25,8 +25,11 @@ context-local support token in `context.owner`, assigns a nonzero `context.id`, 
 records node runtime stats as advisory evidence. The token is authenticated
 through a private deleter type sealed into its `shared_ptr` control block, not
 by trusting the public `shared_ptr<void>` field alone. Admission recovers the
-typed token with `std::get_deleter` in `O(1)` and checks the public context id,
-adapter owner, caps, API, evidence, and exact stored pointer. There is no
+typed token with `std::get_deleter` in `O(1)` and returns that retained
+`shared_ptr<ContextToken>` directly. A null token is rejection and a non-null
+token is admission; there is no parallel `AccelCheck` or wrapper state that
+can disagree with the capability lifetime. Admission checks the public context
+id, adapter owner, caps, API, evidence, and exact stored pointer. There is no
 process-global context table, mutex, expired-entry compaction, owner-order
 search, or second token lifetime authority. A forged control block lacks the
 private deleter and an alias stored pointer fails the exact-pointer check. The

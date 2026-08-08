@@ -12,13 +12,13 @@ OpenBufferAdmission AdmitAccelBufferOpen(const rund::AccelContext &context,
   return AdmitAccelBufferOpen(AdmitContextToken(context), buffer, desc);
 }
 
-OpenBufferAdmission AdmitAccelBufferOpen(const ContextTokenAdmission &admission,
-                                         const rund::Buffer &buffer,
-                                         const rund::AccelBufferDesc &desc) {
-  if (!admission.check.ok || !buffer.check.ok || buffer.id == 0u ||
+OpenBufferAdmission
+AdmitAccelBufferOpen(const std::shared_ptr<ContextToken> &context,
+                     const rund::Buffer &buffer,
+                     const rund::AccelBufferDesc &desc) {
+  if (context == nullptr || !buffer.check.ok || buffer.id == 0u ||
       buffer.bytes == 0u || buffer.owner == nullptr ||
-      buffer.handle == nullptr ||
-      !SameObject(admission.token->pick, buffer.owner) ||
+      buffer.handle == nullptr || !SameObject(context->pick, buffer.owner) ||
       !KnownUsage(buffer.usage) || !UsageCompatible(desc.usage, buffer.usage)) {
     return OpenBufferAdmission{
         .check = RejectAccelCheck("accel_context_buffer_invalid")};
@@ -39,7 +39,7 @@ OpenBufferAdmission AdmitAccelBufferOpen(const ContextTokenAdmission &admission,
       .usage = ResidentUsage(buffer.usage),
   };
   const BackendLookup lookup =
-      LookupBackendBuffer(admission.token->pick, requested, handle);
+      LookupBackendBuffer(context->pick, requested, handle);
   if (requested.id == 0u || handle == nullptr || !lookup.check.ok ||
       !PublicBufferMatchesCanonical(buffer, lookup.ref) ||
       !SameObject(handle, lookup.handle)) {
@@ -53,7 +53,7 @@ OpenBufferAdmission AdmitAccelBufferOpen(const ContextTokenAdmission &admission,
 
   return OpenBufferAdmission{
       .check = OkAccelCheck(),
-      .context = admission,
+      .context = context,
       .handle = handle,
       .resident = ResidentRefFrom(lookup.ref, desc),
       .byte_extent = byte_extent,

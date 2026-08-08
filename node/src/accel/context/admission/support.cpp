@@ -6,17 +6,19 @@
 
 namespace rund::node::accel::detail {
 
-ContextAdmission SupportAdmissionFrom(const ContextTokenAdmission &admission) {
-  if (!admission.check.ok) {
-    return ContextAdmission{.check = admission.check};
+ContextAdmission
+SupportAdmissionFrom(const std::shared_ptr<ContextToken> &context) {
+  if (context == nullptr) {
+    return ContextAdmission{
+        .check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
   return ContextAdmission{
-      .check = admission.check,
-      .context_id = admission.token->id,
-      .api = admission.token->api,
-      .caps = admission.token->caps,
-      .owner = PublicTokenOwner(admission.token),
-      .pick = admission.token->pick,
+      .check = OkAccelCheck(),
+      .context_id = context->id,
+      .api = context->api,
+      .caps = context->caps,
+      .owner = PublicTokenOwner(context),
+      .pick = context->pick,
   };
 }
 

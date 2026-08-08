@@ -8,8 +8,7 @@
 namespace rund::node::accel::detail {
 
 ContextAdmission AdmitContextForSupport(const rund::AccelContext &context) {
-  const ContextTokenAdmission admission = AdmitContextToken(context);
-  return SupportAdmissionFrom(admission);
+  return SupportAdmissionFrom(AdmitContextToken(context));
 }
 
 rund::AccelCheck

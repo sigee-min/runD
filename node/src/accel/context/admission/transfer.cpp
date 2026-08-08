@@ -15,17 +15,17 @@ TransferAdmission AdmitAccelBufferTransfer(const rund::AccelContext &context,
 }
 
 TransferAdmission
-AdmitAccelBufferTransfer(const ContextTokenAdmission &admission,
+AdmitAccelBufferTransfer(const std::shared_ptr<ContextToken> &context,
                          const rund::AccelBuffer &buffer) {
   SupportBufferAdmission support =
-      AdmitAccelBufferForSupport(SupportAdmissionFrom(admission), buffer);
+      AdmitAccelBufferForSupport(SupportAdmissionFrom(context), buffer);
   if (!support.check.ok) {
     return TransferAdmission{.check = support.check};
   }
 
   return TransferAdmission{
       .check = OkAccelCheck(),
-      .pick = admission.token->pick,
+      .pick = context->pick,
       .route = std::move(support.lookup),
       .byte_extent = support.byte_extent,
   };

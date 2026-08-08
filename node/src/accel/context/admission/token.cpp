@@ -5,7 +5,8 @@
 
 namespace rund::node::accel::detail {
 
-ContextTokenAdmission AdmitContextToken(const rund::AccelContext &context) {
+std::shared_ptr<ContextToken>
+AdmitContextToken(const rund::AccelContext &context) {
   std::shared_ptr<ContextToken> token = LookupContextToken(context.owner);
   if (token == nullptr || !SameObject(token, context.owner) ||
       token->pick == nullptr || token->pick->ops == nullptr ||
@@ -15,8 +16,7 @@ ContextTokenAdmission AdmitContextToken(const rund::AccelContext &context) {
       context.evidence.api != token->api ||
       !SameCaps(context.evidence.caps, token->caps) ||
       !SameReason(context.evidence.reason, "ok")) {
-    return ContextTokenAdmission{
-        .check = RejectAccelCheck("accel_context_buffer_invalid")};
+    return {};
   }
 
   const rund::AccelDevice &raw = token->pick->raw;
@@ -27,14 +27,10 @@ ContextTokenAdmission AdmitContextToken(const rund::AccelContext &context) {
       !SameCpuCaps(context.pick.cpu_caps, raw.cpu_caps) ||
       !SameDispatch(context.pick.backend, raw.backend) ||
       !SameBackendInfo(context.pick.backend_info, raw.backend_info)) {
-    return ContextTokenAdmission{
-        .check = RejectAccelCheck("accel_context_buffer_invalid")};
+    return {};
   }
 
-  return ContextTokenAdmission{
-      .check = OkAccelCheck(),
-      .token = token,
-  };
+  return token;
 }
 
 } // namespace rund::node::accel::detail

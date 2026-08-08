@@ -8,6 +8,7 @@
 #include "local.hpp"
 
 #include <cstdint>
+#include <memory>
 
 namespace rund::node::accel {
 namespace {
@@ -24,7 +25,7 @@ SealAccelBuffer(const detail::OpenBufferAdmission &admission,
     return detail::RejectBuffer(desc, backend, "accel_context_buffer_invalid");
   }
   const std::shared_ptr<void> context_owner =
-      detail::PublicTokenOwner(admission.context.token);
+      detail::PublicTokenOwner(admission.context);
   const std::shared_ptr<void> capability =
       detail::PublicBufferTokenOwner(token);
   rund::Buffer public_buffer = backend;
@@ -32,7 +33,7 @@ SealAccelBuffer(const detail::OpenBufferAdmission &admission,
   public_buffer.handle = capability;
   return rund::AccelBuffer{
       .check = rund::AccelCheck{true, "ok"},
-      .context_id = admission.context.token->id,
+      .context_id = admission.context->id,
       .buffer = std::move(public_buffer),
       .resident = admission.resident,
       .byte_extent = admission.byte_extent,
@@ -65,16 +66,16 @@ rund::AccelBuffer detail::CreateAccelBufferWithInitialization(
   if (!desc_check.ok) {
     return detail::RejectBuffer(desc, rund::Buffer{}, desc_check.reason);
   }
-  const detail::ContextTokenAdmission admission =
+  const std::shared_ptr<detail::ContextToken> context_token =
       detail::AdmitContextToken(context);
-  if (!admission.check.ok) {
+  if (context_token == nullptr) {
     return detail::RejectBuffer(desc, rund::Buffer{},
                                 "accel_context_buffer_invalid");
   }
 
   const std::uint64_t byte_extent = desc.scalar_width_bytes * desc.count;
   const rund::Buffer buffer =
-      detail::CreateBackendBuffer(admission.token->pick,
+      detail::CreateBackendBuffer(context_token->pick,
                                   rund::BufferDesc{
                                       .bytes = byte_extent,
                                       .usage = desc.usage,
@@ -86,7 +87,7 @@ rund::AccelBuffer detail::CreateAccelBufferWithInitialization(
   }
 
   const detail::OpenBufferAdmission opened =
-      detail::AdmitAccelBufferOpen(admission, buffer, desc);
+      detail::AdmitAccelBufferOpen(context_token, buffer, desc);
   if (!opened.check.ok) {
     return detail::RejectBuffer(desc, buffer, opened.check.reason);
   }

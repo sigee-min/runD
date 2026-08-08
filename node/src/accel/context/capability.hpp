@@ -30,21 +30,6 @@ struct ContextToken final {
   const std::shared_ptr<PickToken> pick;
 };
 
-struct ContextTokenAdmission {
-  rund::AccelCheck check{};
-  std::shared_ptr<ContextToken> token{};
-
-  [[nodiscard]] const rund::AccelDevice *raw() const noexcept {
-    return token == nullptr || token->pick == nullptr ? nullptr
-                                                      : &token->pick->raw;
-  }
-
-  [[nodiscard]] const BackendOps *ops() const noexcept {
-    return token == nullptr || token->pick == nullptr ? nullptr
-                                                      : token->pick->ops;
-  }
-};
-
 struct AccelBufferToken final {
   AccelBufferToken(std::shared_ptr<ContextToken> admitted_context,
                    rund::Buffer backend_buffer,
@@ -93,12 +78,10 @@ MintContextToken(rund::AccelApi api, const rund::kernel::ComputeCaps &caps,
 [[nodiscard]] std::shared_ptr<ContextToken>
 LookupContextToken(const std::shared_ptr<void> &owner);
 
-[[nodiscard]] std::shared_ptr<AccelBufferToken>
-MakeAccelBufferToken(const ContextTokenAdmission &admission,
-                     rund::Buffer backend,
-                     const rund::kernel::ResidentBufferRef &resident,
-                     std::uint64_t byte_extent,
-                     const rund::AccelBufferDesc &desc) noexcept;
+[[nodiscard]] std::shared_ptr<AccelBufferToken> MakeAccelBufferToken(
+    const std::shared_ptr<ContextToken> &context, rund::Buffer backend,
+    const rund::kernel::ResidentBufferRef &resident, std::uint64_t byte_extent,
+    const rund::AccelBufferDesc &desc) noexcept;
 
 [[nodiscard]] std::shared_ptr<void>
 PublicBufferTokenOwner(const std::shared_ptr<AccelBufferToken> &token) noexcept;

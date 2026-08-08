@@ -8,6 +8,7 @@
 #include "transfer.hpp"
 
 #include <cstdint>
+#include <memory>
 
 namespace rund::node::accel {
 
@@ -51,11 +52,12 @@ detail::UploadAccelBuffers(const rund::AccelContext &context,
   if (requests.empty() || routes.size() < requests.size()) {
     return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
-  const ContextTokenAdmission context_admission = AdmitContextToken(context);
-  if (!context_admission.check.ok) {
-    return {.check = context_admission.check};
+  const std::shared_ptr<ContextToken> context_token =
+      AdmitContextToken(context);
+  if (context_token == nullptr) {
+    return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
-  const std::shared_ptr<PickToken> &pick = context_admission.token->pick;
+  const std::shared_ptr<PickToken> &pick = context_token->pick;
   for (std::size_t index = 0u; index < requests.size(); ++index) {
     const UploadEntry &request = requests[index];
     if (request.buffer == nullptr ||
@@ -63,7 +65,7 @@ detail::UploadAccelBuffers(const rund::AccelContext &context,
       return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
     }
     const TransferAdmission admission =
-        AdmitAccelBufferTransfer(context_admission, *request.buffer);
+        AdmitAccelBufferTransfer(context_token, *request.buffer);
     if (!admission.check.ok) {
       return {.check = admission.check};
     }
@@ -102,11 +104,12 @@ detail::AccelTransfer detail::DownloadAccelBuffersMeasured(
   if (requests.empty() || routes.size() < requests.size()) {
     return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
-  const ContextTokenAdmission context_admission = AdmitContextToken(context);
-  if (!context_admission.check.ok) {
-    return {.check = context_admission.check};
+  const std::shared_ptr<ContextToken> context_token =
+      AdmitContextToken(context);
+  if (context_token == nullptr) {
+    return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
-  const std::shared_ptr<PickToken> &pick = context_admission.token->pick;
+  const std::shared_ptr<PickToken> &pick = context_token->pick;
   for (std::size_t index = 0u; index < requests.size(); ++index) {
     const DownloadEntry &request = requests[index];
     if (request.buffer == nullptr || request.payload_hash == nullptr ||
@@ -114,7 +117,7 @@ detail::AccelTransfer detail::DownloadAccelBuffersMeasured(
       return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
     }
     const TransferAdmission admission =
-        AdmitAccelBufferTransfer(context_admission, *request.buffer);
+        AdmitAccelBufferTransfer(context_token, *request.buffer);
     if (!admission.check.ok) {
       return {.check = admission.check};
     }
@@ -156,20 +159,21 @@ detail::CopyAccelBuffers(const rund::AccelContext &context,
   if (requests.empty() || routes.size() < requests.size()) {
     return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
-  const ContextTokenAdmission context_admission = AdmitContextToken(context);
-  if (!context_admission.check.ok) {
-    return {.check = context_admission.check};
+  const std::shared_ptr<ContextToken> context_token =
+      AdmitContextToken(context);
+  if (context_token == nullptr) {
+    return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
-  const std::shared_ptr<PickToken> &pick = context_admission.token->pick;
+  const std::shared_ptr<PickToken> &pick = context_token->pick;
   for (std::size_t index = 0u; index < requests.size(); ++index) {
     const CopyEntry &request = requests[index];
     if (request.source == nullptr || request.target == nullptr) {
       return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
     }
     const TransferAdmission source =
-        AdmitAccelBufferTransfer(context_admission, *request.source);
+        AdmitAccelBufferTransfer(context_token, *request.source);
     const TransferAdmission target =
-        AdmitAccelBufferTransfer(context_admission, *request.target);
+        AdmitAccelBufferTransfer(context_token, *request.target);
     if (!source.check.ok) {
       return {.check = source.check};
     }
