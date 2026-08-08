@@ -7,8 +7,9 @@
 
 #include <node/runtime/compute/access.hpp>
 
-#include "../../../../src/accel/kernel/memory.hpp"
 #include "../../../../src/accel/context/transfer.hpp"
+#include "../../../../src/accel/graph/token.hpp"
+#include "../../../../src/accel/kernel/memory.hpp"
 #include "../../../../src/compute/device/state.hpp"
 #include "../../../../src/compute/flow/state.hpp"
 #include "../../../../src/compute/job/state.hpp"
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -125,9 +127,20 @@ int CheckAccelProgramHostAccounting(const rund::compute::Backend backend) {
       state->graph_info.nodes.size() != 2u) {
     return 3;
   }
+  const std::optional<std::uint64_t> measured =
+      rund::node::accel::detail::MeasureKernelTokenRetainedMemory(
+          state->accel->kernel);
+  rund::AccelKernel tampered = state->accel->kernel;
+  ++tampered.node_count;
+  if (!measured.has_value() ||
+      *measured != state->accel->kernel_token_host_bytes ||
+      rund::node::accel::detail::MeasureKernelTokenRetainedMemory(tampered)
+          .has_value()) {
+    return 4;
+  }
   MemoryStats memory{};
   if (!ReadMemory(*program, memory)) {
-    return 4;
+    return 5;
   }
   MemoryStats snapshot_stats{};
   const SnapshotAccounting snapshot = SnapshotMemory(*program, snapshot_stats);
@@ -141,7 +154,7 @@ int CheckAccelProgramHostAccounting(const rund::compute::Backend backend) {
       !physical.complete || physical.count != 0u || physical.bytes != 0u ||
       memory.host.current < owner_floor || memory.device.current != 0u ||
       memory.tile.current != 0u) {
-    return 5;
+    return 6;
   }
   return 0;
 }

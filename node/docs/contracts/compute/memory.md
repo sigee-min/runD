@@ -1378,7 +1378,12 @@ Node authenticates it through a private `shared_ptr` control-block capability
 and measures the complete typed token tree once at compilation. Capability
 lookup is `O(1)` through the source-only deleter type and stored kernel id; it
 uses no process-global token table, mutex, weak entry, or owner-order scan. The
-frozen result includes one final execution-step allocation and its nested
+allocation-free measurement returns one optional byte count: disengaged means
+capability authentication failure or an unexpected exception, while an engaged
+value is the canonical retained Host byte count under the repository's
+saturating counter arithmetic. There is no parallel `exact` flag that can
+disagree with the byte payload. The frozen result includes one final
+execution-step allocation and its nested
 artifact, metadata, and overflow-binding allocations. A fused token's retained
 owner is the final execution tree plus an inline precomputed
 original-dispatch-count scalar. Observation reads that cached result and does

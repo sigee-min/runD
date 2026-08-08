@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <utility>
 
 namespace rund::compute::detail {
@@ -274,12 +275,12 @@ Status compile(DeviceState &device, AccelProgram &program,
     return Status::fail(
         project_reason(program.kernel.check.reason, Reason::LoweringInvalid));
   }
-  const node::accel::detail::KernelTokenRetainedMemory token_memory =
+  const std::optional<std::uint64_t> token_memory =
       node::accel::detail::MeasureKernelTokenRetainedMemory(program.kernel);
-  if (!token_memory.exact) {
+  if (!token_memory.has_value()) {
     return Status::fail(Reason::AccelProgramInvalid);
   }
-  program.kernel_token_host_bytes = token_memory.host_bytes;
+  program.kernel_token_host_bytes = *token_memory;
   return Status::success();
 }
 

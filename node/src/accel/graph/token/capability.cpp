@@ -86,7 +86,7 @@ LookupKernelToken(const std::shared_ptr<void> &owner,
   return std::shared_ptr<KernelToken>{owner, capability->token};
 }
 
-KernelTokenRetainedMemory
+std::optional<std::uint64_t>
 MeasureKernelTokenRetainedMemory(const rund::AccelKernel &kernel) noexcept {
   try {
     const std::shared_ptr<KernelToken> token =
@@ -111,7 +111,7 @@ MeasureKernelTokenRetainedMemory(const rund::AccelKernel &kernel) noexcept {
     bytes = Add(bytes, VectorCapacityBytes(token->resets));
     bytes = Add(bytes, VectorCapacityBytes(token->required_barriers));
     bytes = Add(bytes, StepListMemory(token->steps));
-    return KernelTokenRetainedMemory{.host_bytes = bytes, .exact = true};
+    return bytes;
   } catch (...) {
     return {};
   }

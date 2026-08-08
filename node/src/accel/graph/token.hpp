@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace rund::node::accel::detail {
@@ -17,11 +18,6 @@ namespace rund::node::accel::detail {
 struct KernelTokenMint {
   std::shared_ptr<void> owner{};
   std::uint64_t kernel_id = 0u;
-};
-
-struct KernelTokenRetainedMemory final {
-  std::uint64_t host_bytes{};
-  bool exact = false;
 };
 
 [[nodiscard]] KernelTokenMint MintKernelToken(
@@ -44,7 +40,7 @@ struct KernelTokenRetainedMemory final {
 // capability, then measures the immutable token allocation tree without
 // allocating. Shared context ownership belongs to its own owner and is
 // intentionally outside this Program-retained result.
-[[nodiscard]] KernelTokenRetainedMemory
+[[nodiscard]] std::optional<std::uint64_t>
 MeasureKernelTokenRetainedMemory(const rund::AccelKernel &kernel) noexcept;
 
 } // namespace rund::node::accel::detail
