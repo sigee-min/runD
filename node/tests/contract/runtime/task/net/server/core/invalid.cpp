@@ -37,12 +37,21 @@ int RunServerInvalidListenerCase() {
       rund::net::server::PeerResult::stop();
   const rund::net::server::PeerResult failed =
       rund::net::server::PeerResult::fail(rund::ReasonCode::IoUnsupported);
+  const rund::net::server::PeerResult flattened_stop_failure =
+      rund::net::server::detail::flatten(
+          rund::task::Result<rund::net::server::PeerResult>::fail(
+              rund::ReasonCode::NetPeerHandlerStopped));
   runtime_task_allocation::Stop();
   TEST_ASSERT(runtime_task_allocation::Count() == 0u);
   TEST_ASSERT(complete.code() == rund::ReasonCode::Ok);
   TEST_ASSERT(stopped.code() == rund::ReasonCode::NetPeerHandlerStopped);
   TEST_ASSERT(failed.code() == rund::ReasonCode::IoUnsupported);
   TEST_ASSERT(rund::net::server::detail::classify_peer_terminal(failed) ==
+              rund::net::server::detail::PeerTerminalClass::Failed);
+  TEST_ASSERT(flattened_stop_failure.code() ==
+              rund::ReasonCode::NetPeerHandlerFailed);
+  TEST_ASSERT(rund::net::server::detail::classify_peer_terminal(
+                  flattened_stop_failure) ==
               rund::net::server::detail::PeerTerminalClass::Failed);
   TEST_ASSERT(
       rund::net::server::PeerResult::fail(rund::ReasonCode::Ok).code() ==

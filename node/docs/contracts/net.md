@@ -398,14 +398,13 @@ of completed, stopped, or failed. Sequential and parallel serving consume that
 same classification; only their sequential update/early-return and atomic
 update/lowest-index selection mechanics differ.
 
-A failed peer coroutine reaches `flatten`, whose current compatibility behavior
-preserves valid failure reasons other than `Ok` and
-`NetPeerHandlerStopped`; those reserved reasons and invalid values normalize to
-`NetPeerHandlerFailed` through `PeerResult::fail`. Whether a failed
-`Task<PeerResult>` carrying `NetPeerHandlerStopped` should instead become a
-stopped terminal is an unresolved public result/counter meaning decision. A
-synchronously thrown handler invocation becomes `NetPeerHandlerFailed`, and an
-explicit `PeerResult` preserves its already-normalized reason. Sequential
+A failed peer coroutine reaches `flatten`, which preserves valid failure
+reasons other than `Ok` and `NetPeerHandlerStopped`; those reserved reasons and
+invalid values normalize to `NetPeerHandlerFailed` through `PeerResult::fail`.
+Only a successful handler task returning `PeerResult::stop()` publishes a
+stopped terminal; a failed task cannot impersonate that outcome. A synchronously
+thrown handler invocation becomes `NetPeerHandlerFailed`, and an explicit
+`PeerResult` preserves its already-normalized reason. Sequential
 serving stops at that terminal. Parallel serving joins all admitted handlers,
 then selects the non-success terminal with the lowest canonical accept index;
 worker count, completion order, and stopped-versus-failed category cannot
