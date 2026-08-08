@@ -15,13 +15,10 @@
 namespace rund::node {
 namespace {
 
-[[nodiscard]] bool CleanupInvalid(
-    Scheduler &scheduler, ReactorRuntime &reactor,
-    const std::span<const ReactorWait> stale,
-    ReasonCode *const failure, bool *const invalidated) noexcept {
-  if (failure != nullptr) {
-    *failure = ReasonCode::Ok;
-  }
+[[nodiscard]] ReasonCode
+CleanupInvalid(Scheduler &scheduler, ReactorRuntime &reactor,
+               const std::span<const ReactorWait> stale,
+               bool *const invalidated) noexcept {
   if (invalidated != nullptr) {
     *invalidated = false;
   }
@@ -32,7 +29,7 @@ namespace {
     }
   }
 
-  bool cleanup_ok = true;
+  ReasonCode failure = ReasonCode::Ok;
   for (const ReactorWait &wait : stale) {
     if (ReactorRegistryFindWait(reactor, wait.wait_id) == nullptr) {
       continue;
@@ -48,10 +45,7 @@ namespace {
     if (!scheduler.RecordReactorHostEvent(ReasonCode::IoFdInvalid,
                                           wait.task_id,
                                           wait.host_handle_id)) {
-      if (failure != nullptr) {
-        *failure = ReasonCode::HostReplayEventMismatch;
-      }
-      cleanup_ok = false;
+      failure = ReasonCode::HostReplayEventMismatch;
       continue;
     }
     if (!ReactorCleanupWait(
@@ -64,13 +58,12 @@ namespace {
                            .cleanup_siblings = true,
                            .events = ReactorEventsForInterest(wait.interest),
                            .store_event = true})) {
-      if (failure != nullptr && *failure == ReasonCode::Ok) {
-        *failure = ReasonCode::IoPollFailed;
+      if (failure == ReasonCode::Ok) {
+        failure = ReasonCode::IoPollFailed;
       }
-      cleanup_ok = false;
     }
   }
-  return cleanup_ok;
+  return failure;
 }
 
 } // namespace
@@ -115,21 +108,17 @@ bool ReactorGenerationCollectStaleWaits(
   return true;
 }
 
-bool ReactorGenerationCleanupStaleWaits(Scheduler &scheduler,
-                                        const ReactorHandle fd,
-                                        const std::uint64_t current_generation,
-                                        ReasonCode *const failure) noexcept {
+ReasonCode ReactorGenerationCleanupStaleWaits(
+    Scheduler &scheduler, const ReactorHandle fd,
+    const std::uint64_t current_generation) noexcept {
   ReactorRuntime &reactor = scheduler.state_->reactor.reactor;
   std::vector<ReactorWait> &stale = reactor.stale_wait_scratch;
   if (!ReactorGenerationCollectStaleWaits(reactor, fd, current_generation,
                                           stale)) {
-    if (failure != nullptr) {
-      *failure = ReasonCode::ReactorWaitCapacityExceeded;
-    }
-    return false;
+    return ReasonCode::ReactorWaitCapacityExceeded;
   }
 
-  return CleanupInvalid(scheduler, reactor, stale, failure, nullptr);
+  return CleanupInvalid(scheduler, reactor, stale, nullptr);
 }
 
 bool ReactorGenerationCleanupInvalidWaits(
@@ -154,7 +143,8 @@ bool ReactorGenerationCleanupInvalidWaits(
             [](const ReactorWait &left, const ReactorWait &right) {
               return left.wait_id < right.wait_id;
             });
-  return CleanupInvalid(scheduler, reactor, stale, nullptr, invalidated);
+  return CleanupInvalid(scheduler, reactor, stale, invalidated) ==
+         ReasonCode::Ok;
 }
 
 } // namespace rund::node

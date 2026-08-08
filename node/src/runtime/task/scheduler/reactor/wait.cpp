@@ -44,11 +44,10 @@ Scheduler::WaitReactor(const int fd, const short interest,
   const std::uint64_t wait_host_handle_id =
       ReactorHostHandleId(fd, host_handle_id);
   if (fd_generation != 0u) {
-    ReasonCode generation_failure = ReasonCode::Ok;
-    if (!ReactorGenerationCleanupStaleWaits(*this, ReactorHandleFromPublic(fd),
-                                            fd_generation,
-                                            &generation_failure)) {
-      ::rund::detail::task::IoDecision result = FailIo(generation_failure);
+    const ReasonCode generation_code = ReactorGenerationCleanupStaleWaits(
+        *this, ReactorHandleFromPublic(fd), fd_generation);
+    if (generation_code != ReasonCode::Ok) {
+      ::rund::detail::task::IoDecision result = FailIo(generation_code);
       CompletePrimitiveCommit();
       return result;
     }

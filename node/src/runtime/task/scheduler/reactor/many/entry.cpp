@@ -68,10 +68,10 @@ ReadyManyEntry ReadyManyAccess::PrepareEntry(
     if (generation == 0u) {
       continue;
     }
-    ReasonCode generation_failure = ReasonCode::Ok;
-    if (!ReactorGenerationCleanupStaleWaits(scheduler, request.fd, generation,
-                                            &generation_failure)) {
-      entry.code = generation_failure;
+    const ReasonCode generation_code =
+        ReactorGenerationCleanupStaleWaits(scheduler, request.fd, generation);
+    if (generation_code != ReasonCode::Ok) {
+      entry.code = generation_code;
       scheduler.CompletePrimitiveCommit();
       return entry;
     }

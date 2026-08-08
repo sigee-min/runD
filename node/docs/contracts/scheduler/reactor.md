@@ -116,6 +116,9 @@ capacity check can abandon a committed prefix.
 - `reactor/generation.cpp`: stale fd-generation discovery and invalidation
   evidence for waits whose native fd number was reused after a new admitted
   socket generation; wait cleanup routes through the reactor cleanup owner.
+  Stale-generation cleanup returns its one `ReasonCode` directly: `Ok` is
+  success, while capacity, host-replay, and cleanup failures retain their
+  exact codes without a parallel success boolean or failure output.
 - `reactor/lease.hpp`: the single ready-drain lifetime scope. Every network
   wait must acquire its nonempty current-generation socket lease; a typed host
   fd wait is explicitly classified and instead retains the reactor-owned fd
@@ -396,7 +399,11 @@ readiness calls. Before immediate probing or parking a new generation wait, the
 generation owner invalidates older waits on the same fd whose generation no
 longer matches. Those stale waits wake with `IoInvalid` and `io_fd_invalid`,
 and registration state for the fd is reset so the new generation forces a
-native add rather than modifying stale scheduler state. Plain typed
+native add rather than modifying stale scheduler state. Generation cleanup
+returns `Ok`, `ReactorWaitCapacityExceeded`,
+`HostReplayEventMismatch`, or `IoPollFailed` as its sole outcome authority.
+A non-`Ok` result may follow an already-committed stale-wait cleanup prefix;
+it reports that partial cleanup and never claims rollback. Plain typed
 `rund::host::io::FdView` waits use generation `0`; the reactor snapshots their
 `fstat` device, inode,
 and mode identity as one typed value and retains one close-on-exec duplicate

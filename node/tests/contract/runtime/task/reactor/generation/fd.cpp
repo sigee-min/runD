@@ -1,5 +1,6 @@
-#include "src/host/net/test/socket.hpp"
 #include "../await.hpp"
+#include "src/host/net/test/socket.hpp"
+#include "src/runtime/task/scheduler/reactor/generation.hpp"
 #include "test/assert.hpp"
 
 #include <rund/net/ready.hpp>
@@ -10,10 +11,18 @@
 #include <rund/task/await.hpp>
 
 #include <cstdint>
+#include <type_traits>
 
 #include <unistd.h>
 
 namespace {
+
+using GenerationCleanupFunction = rund::ReasonCode (*)(
+    rund::node::Scheduler &, rund::node::ReactorHandle, std::uint64_t) noexcept;
+
+static_assert(
+    std::is_same_v<decltype(&rund::node::ReactorGenerationCleanupStaleWaits),
+                   GenerationCleanupFunction>);
 
 [[nodiscard]] bool MakePipe(int (&fds)[2]) {
   fds[0] = -1;

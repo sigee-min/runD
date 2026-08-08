@@ -15,10 +15,9 @@ class Scheduler;
     const ReactorRuntime &reactor, ReactorHandle fd,
     std::uint64_t current_generation, std::vector<ReactorWait> &stale) noexcept;
 
-[[nodiscard]] bool
+[[nodiscard]] ReasonCode
 ReactorGenerationCleanupStaleWaits(Scheduler &scheduler, ReactorHandle fd,
-                                   std::uint64_t current_generation,
-                                   ReasonCode *failure) noexcept;
+                                   std::uint64_t current_generation) noexcept;
 
 [[nodiscard]] bool ReactorGenerationCleanupInvalidWaits(
     Scheduler &scheduler, bool *invalidated) noexcept;
