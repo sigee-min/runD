@@ -5,6 +5,7 @@
 #include "../../state/model/task.hpp"
 #include "../../state/storage.hpp"
 #include "../../state/task/commit.hpp"
+#include "../ready/pick.hpp"
 
 #include <deque>
 
@@ -85,10 +86,11 @@ Scheduler::JoinManyWithProvidedSlots(const task::Handle *const handles,
         break;
       }
       const ReadyPick ready = PopSubmittableReady(0u);
-      if (ready.activity) {
+      if (ready.disposition() == ReadyPickDisposition::Activity) {
         continue;
       }
-      if (ready.id == 0u || !DispatchReadyTask(ready.id, 0u)) {
+      if (ready.disposition() != ReadyPickDisposition::Task ||
+          !DispatchReadyTask(ready.task_id(), 0u)) {
         break;
       }
     }

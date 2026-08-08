@@ -10,8 +10,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <vector>
 
+#include "../../../../../src/runtime/task/scheduler/progress/ready/pick.hpp"
 #include "../../../../../src/runtime/task/scheduler/state.hpp"
 #include "../../../../../src/runtime/task/scheduler/state/model/work.hpp"
 #include "../../../../../src/runtime/task/scheduler/state/storage/ready/queue.hpp"
@@ -161,6 +163,28 @@ rund::task::Task<void> AwaitAtTaskLimit(
 }  // namespace
 
 int RunRuntimeTaskReadyQueueContract() {
+  using rund::node::ReadyPick;
+  using rund::node::ReadyPickDisposition;
+
+  static_assert(!std::is_aggregate_v<ReadyPick>);
+  static_assert(!std::is_default_constructible_v<ReadyPick>);
+  static_assert(std::is_trivially_copyable_v<ReadyPick>);
+  constexpr ReadyPick no_pick = ReadyPick::none();
+  static_assert(no_pick.disposition() == ReadyPickDisposition::None);
+  static_assert(no_pick.task_id() == 0u);
+  constexpr ReadyPick zero_task = ReadyPick::task(0u);
+  static_assert(zero_task.disposition() == ReadyPickDisposition::None);
+  static_assert(zero_task.task_id() == 0u);
+  constexpr ReadyPick task_pick = ReadyPick::task(17u);
+  static_assert(task_pick.disposition() == ReadyPickDisposition::Task);
+  static_assert(task_pick.task_id() == 17u);
+  constexpr ReadyPick blocked_pick = ReadyPick::blocked();
+  static_assert(blocked_pick.disposition() == ReadyPickDisposition::Blocked);
+  static_assert(blocked_pick.task_id() == 0u);
+  constexpr ReadyPick activity_pick = ReadyPick::activity();
+  static_assert(activity_pick.disposition() == ReadyPickDisposition::Activity);
+  static_assert(activity_pick.task_id() == 0u);
+
   ReadyQueue queue{};
   queue.configure(4u);
   TEST_ASSERT(queue.capacity() == 4u);

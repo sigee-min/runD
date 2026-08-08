@@ -1,4 +1,5 @@
 class Scheduler;
+class ReadyPick;
 struct ScopeEvidence;
 struct ReadyManyEntry;
 struct ReadyManyAccess;

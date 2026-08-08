@@ -8,6 +8,8 @@ drain failure propagation.
 
 - `state/storage/ready/queue.hpp`: the single fixed-capacity intrusive-index
   ready queue.
+- `progress/ready/pick.hpp`: the source-private exhaustive ready-selection
+  value. Only its `Task` disposition carries a task id.
 - `progress/ready/queue.cpp`: O(1) front selection and restore, O(1)
   ready-depth accounting, and bounded scope-specific selection.
 - `progress/ready/wait.cpp`: direct-job waits, timer sleep, scheduler-owned fd
@@ -27,7 +29,7 @@ drain failure propagation.
 - `progress/join/wake.cpp`: stable linear join-wait compaction, ready enqueue,
   and `JoinWake` evidence.
 - `progress/scope.cpp`: child scope enter/park/wake completion authority.
-- `state/progress.hpp`: progress-loop result contracts.
+- `state/progress.hpp`: scheduler-private progress-loop operation declarations.
 
 Lane dispatch internals are owned by [Lane](./lane.md), and fd reactor waits
 are owned by [Reactor](./reactor.md).
@@ -147,9 +149,16 @@ and direct_jobs_in_flight = 0
 
 Scoped progress uses a narrower predicate. A Ready task in another scope does
 not prove that the selected scope can progress. Ready selection therefore
-returns both the selected id and whether an eligible id was temporarily blocked
-by its lane. Only that scope-local blocked bit causes a retry; otherwise timer
-activity, reactor activity, and direct jobs are evaluated before deadlock.
+publishes exactly one source-private disposition: `None`, `Task`, `Blocked`, or
+`Activity`. Only `Task` carries a nonzero task id. `Blocked` means an eligible
+id was temporarily blocked by its lane and causes a retry; `Activity` means a
+queued dispatch, timer wait, reactor drain, or replay-failure transition made
+progress without publishing a task id. Timer and reactor waits return that
+same value through one external-progress selection owner rather than pairing a
+boolean activity result with an output selection. If a lane worker registers a
+reactor wait while the control thread sleeps for a timer, that owner performs
+the newly-live reactor poll before publishing the final disposition. Otherwise
+direct jobs are evaluated before deadlock.
 This prevents both a false deadlock after a wake and a busy loop caused by an
 unrelated scope's ready task.
 

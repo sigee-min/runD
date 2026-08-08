@@ -1,21 +1,14 @@
 [[nodiscard]] bool Step(std::uint64_t only_scope_id = 0u) noexcept;
 [[nodiscard]] std::size_t ReadyDepth() const noexcept;
 [[nodiscard]] bool ReadyQueuesEmpty() const noexcept;
-struct ReadyPick final {
-  std::uint64_t id = 0u;
-  bool blocked = false;
-  bool activity = false;
-};
 void RestoreReadyFront(std::uint64_t id,
                        std::uint64_t only_scope_id = 0u) noexcept;
 [[nodiscard]] bool RequeueReadyTask(
     std::uint64_t id, std::uint64_t only_scope_id = 0u) noexcept;
 [[nodiscard]] ReadyPick
 PopSubmittableReady(std::uint64_t only_scope_id) noexcept;
-[[nodiscard]] bool WaitUntilTimerReady(std::uint64_t only_scope_id,
-                                       ReadyPick *ready) noexcept;
-[[nodiscard]] bool PollUntilReactorReady(std::uint64_t only_scope_id,
-                                         ReadyPick *ready) noexcept;
+[[nodiscard]] ReadyPick
+WaitUntilProgressReady(std::uint64_t only_scope_id) noexcept;
 [[nodiscard]] bool DispatchReadyTask(std::uint64_t id,
                                      std::uint64_t only_scope_id) noexcept;
 [[nodiscard]] bool RunMultiLaneReadyBatch(std::uint64_t id) noexcept;

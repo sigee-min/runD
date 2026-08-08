@@ -177,25 +177,4 @@ Scheduler::WaitReactor(const int fd, const short interest,
   }
 }
 
-bool Scheduler::PollUntilReactorReady(const std::uint64_t only_scope_id,
-                                      ReadyPick *const ready) noexcept {
-  if (ready->id != 0u || ready->activity ||
-      ReactorRegistryEmpty(state_->reactor.reactor)) {
-    return false;
-  }
-  int timeout_ms = TimerBoundIoPollTimeoutMs();
-  {
-    std::lock_guard lock{state_->batches.direct_mutex};
-    if (state_->batches.direct_jobs_in_flight != 0u)
-      timeout_ms = 0;
-  }
-  const bool host_replay_failed_before = state_->identity.host_replay_failed;
-  const bool activity = DrainReadyReactor(timeout_ms, true);
-  if (!host_replay_failed_before && state_->identity.host_replay_failed) {
-    return true;
-  }
-  *ready = PopSubmittableReady(only_scope_id);
-  return activity;
-}
-
 } // namespace rund::node

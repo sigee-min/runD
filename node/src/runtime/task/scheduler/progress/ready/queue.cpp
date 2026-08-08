@@ -2,6 +2,7 @@
 
 #include "../../state/model/task.hpp"
 #include "../../state/storage.hpp"
+#include "pick.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -73,7 +74,7 @@ void Scheduler::RestoreReadyFront(const std::uint64_t id,
   ::rund::detail::task::Stat(state_->evidence.metrics,
                              ::rund::detail::task::StatSlot::MaxReadyDepth) =
       std::max<std::uint64_t>(
-      ::rund::detail::task::Stat(
+          ::rund::detail::task::Stat(
               state_->evidence.metrics,
               ::rund::detail::task::StatSlot::MaxReadyDepth),
           state_->ready.ready_depth);
@@ -93,7 +94,7 @@ bool Scheduler::RequeueReadyTask(const std::uint64_t id,
   return true;
 }
 
-Scheduler::ReadyPick
+ReadyPick
 Scheduler::PopSubmittableReady(const std::uint64_t only_scope_id) noexcept {
   if (only_scope_id == 0u) {
     std::uint64_t head = 0u;
@@ -108,21 +109,21 @@ Scheduler::PopSubmittableReady(const std::uint64_t only_scope_id) noexcept {
       }
     }
     if (semantic_head && !CanSubmitToLane(head)) {
-      return ReadyPick{.id = 0u, .blocked = true};
+      return ReadyPick::blocked();
     }
   }
 
   const std::uint64_t id = PopReady(only_scope_id);
   if (id == 0u || CanSubmitToLane(id)) {
-    return ReadyPick{.id = id};
+    return ReadyPick::task(id);
   }
   const TaskRecord *const record = state_->Find(id);
   if (record != nullptr && !record->lane_segment_side_exit &&
       !record->coroutine_task && DispatchQueuedReady(id)) {
-    return ReadyPick{.activity = true};
+    return ReadyPick::activity();
   }
   RestoreReadyFront(id, only_scope_id);
-  return ReadyPick{.id = 0u, .blocked = true};
+  return ReadyPick::blocked();
 }
 
 } // namespace rund::node

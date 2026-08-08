@@ -3,6 +3,7 @@
 #include "../../state/model/context.hpp"
 #include "../../state/model/task.hpp"
 #include "../../state/storage.hpp"
+#include "pick.hpp"
 
 #include <thread>
 
@@ -47,51 +48,38 @@ bool Scheduler::Step(const std::uint64_t only_scope_id) noexcept {
   const std::uint64_t failed_before = ::rund::detail::task::Stat(
       state_->evidence.metrics, ::rund::detail::task::StatSlot::Failed);
   ReadyPick ready = PopSubmittableReady(only_scope_id);
-  if (ready.id != 0u) {
-    return DispatchReadyTask(ready.id, only_scope_id);
-  }
-  if (ready.activity) {
-    return true;
-  }
-  if (ready.blocked) {
-    std::this_thread::yield();
-    return true;
-  }
-  if (state_->identity.host_replay_failed &&
-      ::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::Failed) !=
-          failed_before) {
-    return true;
-  }
-  const bool timer_activity =
-      WaitUntilTimerReady(only_scope_id, &ready);
-  const bool reactor_activity =
-      PollUntilReactorReady(only_scope_id, &ready);
-  if (state_->identity.host_replay_failed &&
-      ::rund::detail::task::Stat(state_->evidence.metrics,
-                                 ::rund::detail::task::StatSlot::Failed) !=
-          failed_before) {
-    return true;
-  }
-  if (ready.id != 0u) {
-    return DispatchReadyTask(ready.id, only_scope_id);
-  }
-  if (ready.activity) {
-    return true;
-  }
-  if (ready.blocked) {
-    std::this_thread::yield();
-    return true;
-  }
-  if (timer_activity || reactor_activity) {
-    return true;
-  }
-  {
-    if (WaitForDirectJobs()) {
+  if (ready.disposition() == ReadyPickDisposition::None) {
+    if (state_->identity.host_replay_failed &&
+        ::rund::detail::task::Stat(state_->evidence.metrics,
+                                   ::rund::detail::task::StatSlot::Failed) !=
+            failed_before) {
       return true;
     }
-    return false;
+    ready = WaitUntilProgressReady(only_scope_id);
+    if (state_->identity.host_replay_failed &&
+        ::rund::detail::task::Stat(state_->evidence.metrics,
+                                   ::rund::detail::task::StatSlot::Failed) !=
+            failed_before) {
+      return true;
+    }
   }
+
+  switch (ready.disposition()) {
+  case ReadyPickDisposition::Task:
+    return DispatchReadyTask(ready.task_id(), only_scope_id);
+  case ReadyPickDisposition::Blocked:
+    std::this_thread::yield();
+    return true;
+  case ReadyPickDisposition::Activity:
+    return true;
+  case ReadyPickDisposition::None:
+    break;
+  }
+
+  if (WaitForDirectJobs()) {
+    return true;
+  }
+  return false;
 }
 
 } // namespace rund::node

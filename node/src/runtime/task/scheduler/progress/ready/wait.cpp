@@ -1,7 +1,8 @@
+#include "../../reactor/registry.hpp"
 #include "../../state/model/task.hpp"
 #include "../../state/model/timer.hpp"
 #include "../../state/storage.hpp"
-#include "../../reactor/registry.hpp"
+#include "pick.hpp"
 
 #include <algorithm>
 #include <thread>
@@ -74,16 +75,48 @@ bool Scheduler::WaitForDirectJobs() noexcept {
   return true;
 }
 
-bool Scheduler::WaitUntilTimerReady(const std::uint64_t only_scope_id,
-                                    ReadyPick *const ready) noexcept {
-  if (ready->id != 0u || ready->activity || state_->ready.timers.empty() ||
-      !ReactorRegistryEmpty(state_->reactor.reactor)) {
-    return false;
+ReadyPick
+Scheduler::WaitUntilProgressReady(const std::uint64_t only_scope_id) noexcept {
+  ReadyPick ready = ReadyPick::none();
+  bool timer_slept = false;
+  if (!state_->ready.timers.empty() &&
+      ReactorRegistryEmpty(state_->reactor.reactor)) {
+    std::this_thread::sleep_until(
+        NextLogicalTimerWallDeadline(state_->ready.timers));
+    ready = PopSubmittableReady(only_scope_id);
+    timer_slept = true;
   }
-  std::this_thread::sleep_until(
-      NextLogicalTimerWallDeadline(state_->ready.timers));
-  *ready = PopSubmittableReady(only_scope_id);
-  return true;
+
+  if (ready.disposition() == ReadyPickDisposition::Task ||
+      ready.disposition() == ReadyPickDisposition::Activity) {
+    return ready;
+  }
+  if (ReactorRegistryEmpty(state_->reactor.reactor)) {
+    return ready.disposition() == ReadyPickDisposition::Blocked
+               ? ready
+               : (timer_slept ? ReadyPick::activity() : ReadyPick::none());
+  }
+
+  int timeout_ms = TimerBoundIoPollTimeoutMs();
+  {
+    std::lock_guard lock{state_->batches.direct_mutex};
+    if (state_->batches.direct_jobs_in_flight != 0u) {
+      timeout_ms = 0;
+    }
+  }
+  const bool host_replay_failed_before = state_->identity.host_replay_failed;
+  const bool reactor_activity = DrainReadyReactor(timeout_ms, true);
+  if (!host_replay_failed_before && state_->identity.host_replay_failed) {
+    return ready.disposition() == ReadyPickDisposition::Blocked
+               ? ready
+               : ReadyPick::activity();
+  }
+  ready = PopSubmittableReady(only_scope_id);
+  if (ready.disposition() != ReadyPickDisposition::None) {
+    return ready;
+  }
+  return timer_slept || reactor_activity ? ReadyPick::activity()
+                                         : ReadyPick::none();
 }
 
 } // namespace rund::node
