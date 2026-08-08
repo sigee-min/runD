@@ -50,15 +50,15 @@ namespace {
                                                "  uint inclusive;\n"
                                                "  uint reserved;\n"
                                                "};") &&
-         OneLayout(
-             MetalSegmentedScanSource(),
-             "    if (bad != 0u) { \\\n"
-             "      atomic_fetch_max_explicit(&segment_status, bad, "
-             "memory_order_relaxed); \\\n"
-             "    } \\\n"
-             "    threadgroup_barrier(mem_flags::mem_threadgroup); \\\n"
-             "    if (lane == 0u) { \\") &&
-         OneLayout(MetalStencilSource(rund::kernel::StencilOp::Sum),
+         OneLayout(MetalSegmentedScanSource(),
+                   "    if (bad != 0u) { \\\n"
+                   "      atomic_fetch_max_explicit(&segment_status, bad, "
+                   "memory_order_relaxed); \\\n"
+                   "    } \\\n"
+                   "    threadgroup_barrier(mem_flags::mem_threadgroup); \\\n"
+                   "    if (lane == 0u) { \\") &&
+         OneLayout(MetalStencilSource(rund::kernel::StencilOp::Sum,
+                                      kStencilMaximumSourceShape),
                    "struct StencilParams {\n"
                    "  ulong element_count;\n"
                    "  ulong radius;\n"
@@ -104,17 +104,17 @@ namespace {
              "  uint64_t block_count; uint inclusive; uint reserved;\n"
              "} params;") &&
          OneLayout(
-             VulkanSegmentedScanSource(
-                 rund::kernel::SegmentedScanElement::U32,
-                 rund::kernel::ComputeDomain::U32,
-                 VulkanSegmentedScanStage::Block),
+             VulkanSegmentedScanSource(rund::kernel::SegmentedScanElement::U32,
+                                       rund::kernel::ComputeDomain::U32,
+                                       VulkanSegmentedScanStage::Block),
              "    if (bad != 0u) { atomicMax(segment_status, bad); }\n"
              "    barrier();\n"
              "    if (lane == 0u) {\n") &&
          OneLayout(
              VulkanStencilSource(rund::kernel::StencilOp::Sum,
                                  rund::kernel::StencilElement::U32,
-                                 rund::kernel::ComputeDomain::U32),
+                                 rund::kernel::ComputeDomain::U32,
+                                 kStencilMaximumSourceShape),
              "layout(set = 0, binding = 0, std430) readonly buffer Params {\n"
              "  uint64_t element_count;\n"
              "  uint64_t radius;\n"

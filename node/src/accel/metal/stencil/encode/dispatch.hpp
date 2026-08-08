@@ -19,7 +19,7 @@ inline void EncodeMetalStencilDispatch(const MetalStencilCommandState &state,
   [state.encoder setBytes:&params length:sizeof(params) atIndex:2u];
   [state.encoder
        dispatchThreadgroups:MTLSizeMake(state.workgroups, 1u, 1u)
-      threadsPerThreadgroup:MTLSizeMake(kStencilPhysicalGroupWidth, 1u, 1u)];
+      threadsPerThreadgroup:MTLSizeMake(state.stencil->shape.width(), 1u, 1u)];
 }
 #endif
 

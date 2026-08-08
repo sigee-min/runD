@@ -70,12 +70,47 @@ inter-thread races from becoming Stencil semantics.
 ## Resident GPU Shape
 
 `/node/src/accel/stencil/shape.hpp` is the single physical-shape authority for
-both resident GPU backends. It fixes workgroups at `W = 256` lanes, a shared
-halo radius cap `R = 8`, and shared storage for `W + 2R = 272` elements. Metal
-dispatches complete threadgroups, including the final partial semantic group;
-Vulkan already has that dispatch shape. A lane outside the semantic tail may
-return only after every lane in its group has crossed the shared-memory
-barrier.
+both resident GPU backends. For each admitted descriptor and device it selects
+one width from
+
+```text
+W in {64, 128, 256}
+```
+
+and ranks the admitted shared-halo and direct-only shapes. A shared shape has
+capacity `C > 0`; a direct-only shape has `C = 0`. Every admitted width always
+contributes its direct shape, even when its shared shape is also usable. The
+first backend-supported `(W, C)` in that finite ranking is frozen in the
+resident resource; it does not change the Kernel descriptor, `HashStencil`,
+plan, or CPU reference semantics.
+
+Shared capacity is derived only from integer device limits. Let `e` be the
+element width in bytes, `L` the backend's shared-memory limit in bytes, and
+`q = 4` the fixed shared-memory reserve. Define
+
+```text
+S(L, e, q) = floor(floor(L / q) / e)
+C(W, e, L, q) = min(W, floor((S(L, e, q) - W) / 2))
+                 = min(W, floor((floor(L / q / e) - W) / 2))
+```
+
+The capacity expression is evaluated only when `q > 0`, `e in {4, 8}`, `W`
+fits the device's workgroup limits, and `S > W`; otherwise the capacity is
+zero. Equivalently, the guarded numerator is
+`floor(L / q / e) - W`. The `q = 4` reserve is a deterministic resource budget
+used by shape selection. It is not evidence that the driver will place four
+workgroups concurrently, and it makes no physical occupancy guarantee.
+
+The capacity is clamped to `C <= W`, which is the current loader invariant:
+the lanes of one workgroup can cover every distinct input in either halo. A
+shared candidate is usable only when `radius <= C`. A direct-only candidate
+has `C = 0`, declares no shared array, executes no shared load, and contains no
+workgroup barrier.
+
+Metal dispatches complete threadgroups, including the final partial semantic
+group; Vulkan uses the same complete-group shape. On a shared path, a lane
+outside the semantic tail may return only after every lane in its group has
+crossed the shared-memory barrier.
 
 For element count `N`, a group beginning at `B` with `A` active semantic lanes
 ends at `E = B + A`. The direct kernel performs
@@ -92,7 +127,8 @@ L = min(r, B)
 Q = min(r, N - E)
 ```
 
-The GPU kernels load every element in the expanded input union exactly once:
+The shared loader reads every element in the expanded input union exactly
+once:
 
 ```text
 H(N, B, A, r) = A + L + Q
@@ -102,23 +138,95 @@ H(N, B, A, r) = A + L + Q
 Equivalently, with clamped-halo fractions `bL = 1 - L/r` and
 `bR = 1 - Q/r`, this is `H = A + r(2 - bL - bR)`. An interior full group has
 `bL=bR=0`; a fully clamped first or last side has the corresponding value one.
-The center lane already loading the first or last endpoint fans that register
-out to every clamped shared-halo slot. If only part of the following halo is
-resident, the lane loading its final distinct endpoint fans that register out
-to the remaining clamped slots. Clamp duplicates therefore cause no additional
-global read.
+The center lane already loading the first or last endpoint fans that
+lane-private loaded value out to every clamped shared-halo slot. If only part
+of the following halo is resident, the lane loading its final distinct
+endpoint fans that lane-private loaded value out to the remaining clamped
+slots. Clamp duplicates therefore cause no additional global read. This is a
+source-level value-lifetime statement, not a claim about physical register
+allocation.
 
-For every admitted `1 <= r <= R`, `H < D`: when `A >= 2`,
+For every selected shared shape with `1 <= r <= C`, `H < D`: when `A >= 2`,
 `H <= A + 2r < A + 2Ar = D`; when `A = 1`, the group is a domain boundary, so
-at least one halo is clamped and `L + Q < 2r`. The generated kernel therefore
-selects the shared path directly from `r <= R`; it carries no per-group traffic
-arithmetic or redundant `H < D` branch. An interior full group changes radius
-one from `768` global reads to `258`, and radius eight from `4352` to `272`; a
-256-element domain needs only its 256 distinct inputs for either boundary.
-This is an exact structural input-read lower bound, not a hardware transaction
-or wall-time claim. Radius values above eight retain the direct semantic
-fallback in the same compiled function; no asymptotic optimality claim is made
-for that fallback.
+at least one halo is clamped and `L + Q < 2r`. The generated shared variant
+therefore needs no per-group traffic comparison or redundant `H < D` branch.
+This is an exact structural input-read lower bound for the selected shared
+shape, not a hardware transaction or wall-time claim.
+
+For a complete dispatch, let
+
+```text
+G(W, N) = ceil(N / W)
+T(W, N) = N - (G - 1)W
+```
+
+where `T` is the active-lane count in the final group. The selector computes
+the exact shared-path input-read total as
+
+```text
+R_shared = N                                      when G = 1
+R_shared = N + (2G - 3)r + min(r, T)             when G > 1
+```
+
+and the direct path has `R_direct = N(2r + 1)`. Every usable shared candidate
+has strictly fewer exact input reads than a direct candidate, so the selector
+uses the following timing-free lexicographic integer order:
+
+1. shared candidate before every direct candidate;
+2. fewer exact shared input reads;
+3. fewer launched lanes, `GW`;
+4. fewer groups, `G`;
+5. fewer declared shared bytes, `(W + 2C)e` for shared and zero for direct;
+6. smaller width as the final deterministic tie-break.
+
+The result is exact for this finite candidate set and declared resource model.
+It is not a global algorithmic optimum, a wall-time ranking, or a prediction
+of compiler register allocation, driver scheduling, cache transactions, or
+physical occupancy.
+
+Metal applies that same complete integer order to actual pipeline support. For
+each candidate in order, a cached or newly compiled pipeline must belong to
+the selected device, report at least `W` executable threads, and carry the
+exact preparation-mode plus `(W, C)` pipeline label. A shared shape must report
+at least `(W + 2C)e` static threadgroup bytes while satisfying the
+overflow-safe check
+
+```text
+q * staticThreadgroupMemoryLength <= maxThreadgroupMemoryLength.
+```
+
+A direct pipeline must report zero static threadgroup bytes. Metal advances to
+the next ranked candidate, including the direct candidates, only when an
+otherwise valid compiled pipeline explicitly reports insufficient thread
+capacity or an over-budget static allocation. Source construction, allocation,
+library/function/pipeline creation, cache publication, device ownership,
+identity, and under-reported static-allocation failures abort preparation; they
+are not laundered into a lower-ranked shape. No branch consults compile
+duration or execution timing. The first passing pipeline and its shape are
+frozen together. Thus a device may advertise width 256 while a particular
+compiled pipeline admits only width 128; that deterministically selects the
+first width-128-or-smaller candidate in the common ranking instead of rejecting
+an otherwise executable Stencil.
+
+Candidate compilation uses explicit source-library and named-pipeline cache
+transactions. A newly compiled library for a candidate rejected by compiled
+resource assessment is not published. Once a valid PSO exists, source
+publication returns exactly one of `Inserted`, `Existing`, or `Failed`; a
+failed insertion leaves every prior LRU entry intact, while `Existing` returns
+the canonical cached owner. Every constructed library and PSO contributes
+exactly once to its compile counter and latency accumulator regardless of
+publication disposition. If source publication succeeds but named-pipeline
+publication fails, the source remains an adapter-cache entry. A retry must hit
+that exact source owner and may rebuild only the missing PSO. Adapter-cache
+residency is not manifest ownership: only a fully prepared candidate
+contributes the manifest's one source dependency and one pipeline stage.
+Rejected compile attempts remain sequential cold transients within the same
+maximum-source envelope.
+
+A Program-template immutable Stencil still owns one bare pipeline pointer.
+Reuse therefore scans the same ranked list and accepts the one candidate whose
+preparation-mode label, device, and reported limits match that pointer; it
+neither guesses a shape nor compiles a replacement behind the immutable owner.
 
 Center and distinct halo loads are contiguous. Each lane keeps its accumulator
 private, shared-memory reads preserve the original increasing-distance order,
@@ -126,19 +234,11 @@ sum still wraps at the declared width, and min/max still compare the declared
 signed or unsigned interpretation. Every lane reaches the barrier
 before an inactive tail lane may return.
 
-The maximum declared shared allocation is
-
-```text
-u32: 272 * 4 = 1088 bytes
-u64: 272 * 8 = 2176 bytes
-```
-
-Vulkan pipeline acquisition verifies the selected device's reported
-`maxComputeSharedMemorySize`, 256-invocation capacity, and first-dimension
-workgroup capacity against that shape; 2176 bytes is also below the Vulkan
-Core 16 KiB minimum. Metal pipeline acquisition verifies 256-thread capacity
-and rejects a compiler-reported static threadgroup allocation above the
-selected device's `maxThreadgroupMemoryLength`. These checks are pipeline
+Vulkan shape admission uses the selected device's reported
+`maxComputeSharedMemorySize`, invocation capacity, first-dimension workgroup
+capacity, and first-dimension group-count limit. Metal uses the device's
+threadgroup-width and `maxThreadgroupMemoryLength` limits, then applies the
+compiled-pipeline fallback above. These checks are resource and pipeline
 admission, not an assumed device schedule.
 
 Both shaders derive the logical index from `group_base + local_lane`. Metal
@@ -147,11 +247,32 @@ threadgroup identifier narrows. Vulkan's storage-buffer index is 32-bit, so
 pipeline acquisition, resource preparation, and command encoding all require
 `N <= UINT32_MAX`; only then may the overflow-safe 64-bit group computation
 narrow to the proven index. Vulkan additionally rejects
-`G > maxComputeWorkGroupCount[0]`. Stencil count and radius remain runtime
-parameters. Vulkan's pseudo artifact identity normalizes both fields to zero,
-so equal operation, element width, signed-extrema mode, and source text reuse
-one compiled pipeline across count, shared-path radius, and direct-fallback
-radius changes.
+`G > maxComputeWorkGroupCount[0]`.
+
+The selected width and capacity are stored in the resident resource and are
+part of Metal and Vulkan source/pipeline identity. On the same backend, count
+or radius changes may reuse a pipeline only when selection produces the same
+`(W, C)` and the operation, element width, and signed-extrema variant also
+match. A shape change is a different physical pipeline even when Kernel
+semantics are otherwise equal.
+
+Shared and direct variants preserve the same per-lane update order and must
+produce exact output parity for every admitted operation and integer domain.
+Metal and Vulkan outputs must each match the unchanged CPU reference and each
+other bit for bit. Backend or variant selection cannot become a new semantic
+hash authority.
+
+The resident-backend maximum-shared contract enumerates the actual device
+selection at `N = 515` from radius 256 down through radius 1. Because
+`515 mod W = 3` for every legal `W`, every selected shape crosses workgroups
+and has a three-lane tail. The first shared result must report `r = C`; the
+test then prepares and executes that exact descriptor, requires the resident
+resource to carry the same shared `(W, C)`, and compares every output with the
+CPU reference. Its Program-template immutable retry must borrow the same
+pipeline and shape without a compile or cache lookup. If every valid selection
+in the enumeration is direct, the contract records a distinct verified
+no-shared-capability disposition. A direct resource is never counted as
+maximum-shared execution evidence.
 
 Input and output buffers must exactly match the planned element width and
 `element_count`. Resident Stencil runs do not stage host input and do not

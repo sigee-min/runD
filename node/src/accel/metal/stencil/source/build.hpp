@@ -45,7 +45,8 @@ MetalStencilSharedUpdateLine(const rund::kernel::StencilOp op) noexcept {
 template <typename Sink>
 inline void
 AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
-                         const char *const type, const char *const suffix) {
+                         const StencilGpuShape shape, const char *const type,
+                         const char *const suffix) {
   source += "kernel void rund_compute_stencil_";
   source += MetalStencilSourceOpName(op);
   source += "_";
@@ -60,23 +61,25 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     constant StencilParams& params [[buffer(2)]],
     uint tid [[thread_index_in_threadgroup]],
     uint group [[threadgroup_position_in_grid]]) {
-  threadgroup )MSL";
-  source += type;
-  source += " tile[";
-  (void)source.decimal(kStencilSharedElementCapacity);
-  source += R"MSL(];
-  const ulong group_base = ulong(group) * )MSL";
-  (void)source.decimal(kStencilPhysicalGroupWidth);
-  source += R"MSL(ul;
-  const ulong active_lanes = group_base >= params.element_count
+)MSL";
+  if (shape.uses_shared_memory()) {
+    source += "  threadgroup ";
+    source += type;
+    source += " tile[";
+    (void)source.decimal(shape.shared_element_capacity());
+    source += "];\n";
+  }
+  source += R"MSL(  const ulong group_base = ulong(group) * )MSL";
+  (void)source.decimal(shape.width());
+  source += "ul;\n";
+  if (shape.uses_shared_memory()) {
+    source +=
+        R"MSL(  const ulong active_lanes = group_base >= params.element_count
                                  ? 0ul
                                  : min(params.element_count - group_base, )MSL";
-  (void)source.decimal(kStencilPhysicalGroupWidth);
-  source += R"MSL(ul);
-  if (params.radius <= )MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(ul) {
-    const ulong group_end = group_base + active_lanes;
+    (void)source.decimal(shape.width());
+    source += R"MSL(ul);
+  const ulong group_end = group_base + active_lanes;
     const uint left_inputs = uint(min(group_base, params.radius));
     const uint right_inputs = group_end >= params.element_count
                                   ? 0u
@@ -84,55 +87,55 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
                                              params.radius));
     if (ulong(tid) < active_lanes) {
       const )MSL";
-  source += type;
-  source += R"MSL( center_value = input[group_base + ulong(tid)];
+    source += type;
+    source += R"MSL( center_value = input[group_base + ulong(tid)];
       tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u + tid] = center_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u + tid] = center_value;
       if (left_inputs == 0u && tid == 0u) {
         for (uint slot = 0u; ulong(slot) < params.radius; ++slot) {
           tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u - uint(params.radius) + slot] = center_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u - uint(params.radius) + slot] = center_value;
         }
       }
       if (right_inputs == 0u && ulong(tid) + 1ul == active_lanes) {
         for (uint slot = 0u; ulong(slot) < params.radius; ++slot) {
           tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u + uint(active_lanes) + slot] = center_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u + uint(active_lanes) + slot] = center_value;
         }
       }
     }
     if (tid < left_inputs) {
       const )MSL";
-  source += type;
-  source +=
-      R"MSL( left_value = input[group_base - ulong(left_inputs) + ulong(tid)];
+    source += type;
+    source +=
+        R"MSL( left_value = input[group_base - ulong(left_inputs) + ulong(tid)];
       tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u - left_inputs + tid] = left_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u - left_inputs + tid] = left_value;
       if (tid == 0u && ulong(left_inputs) < params.radius) {
         for (uint slot = 0u;
              ulong(slot) < params.radius - ulong(left_inputs); ++slot) {
           tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u - uint(params.radius) + slot] = left_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u - uint(params.radius) + slot] = left_value;
         }
       }
     }
     if (tid < right_inputs) {
       const )MSL";
-  source += type;
-  source += R"MSL( right_value = input[group_end + ulong(tid)];
+    source += type;
+    source += R"MSL( right_value = input[group_end + ulong(tid)];
       tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u + uint(active_lanes) + tid] = right_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u + uint(active_lanes) + tid] = right_value;
       if (tid + 1u == right_inputs && ulong(right_inputs) < params.radius) {
         for (uint slot = right_inputs; ulong(slot) < params.radius; ++slot) {
           tile[)MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u + uint(active_lanes) + slot] = right_value;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u + uint(active_lanes) + slot] = right_value;
         }
       }
     }
@@ -140,19 +143,21 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     if (ulong(tid) >= active_lanes) { return; }
     const ulong i = group_base + ulong(tid);
     const uint center = )MSL";
-  (void)source.decimal(kStencilSharedRadiusCap);
-  source += R"MSL(u + tid;
+    (void)source.decimal(shape.radius_cap());
+    source += R"MSL(u + tid;
     )MSL";
-  source += type;
-  source += R"MSL( value = tile[center];
+    source += type;
+    source += R"MSL( value = tile[center];
     for (uint step = 1u; ulong(step) <= params.radius; ++step) {
 )MSL";
-  source += MetalStencilSharedUpdateLine(op);
-  source += R"MSL(    }
+    source += MetalStencilSharedUpdateLine(op);
+    source += R"MSL(    }
     output[i] = value;
+  }
+)MSL";
     return;
   }
-  const ulong i = group_base + ulong(tid);
+  source += R"MSL(  const ulong i = group_base + ulong(tid);
   if (i >= params.element_count) { return; }
   )MSL";
   source += type;
@@ -171,9 +176,13 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
 }
 
 template <typename Sink>
-[[nodiscard]] bool
-EmitMetalStencilSource(Sink &sink, const rund::kernel::StencilOp op) noexcept(
-    noexcept(sink.append(std::string_view{}))) {
+[[nodiscard]] bool EmitMetalStencilSource(
+    Sink &sink, const rund::kernel::StencilOp op,
+    const StencilGpuShape
+        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+  if (!shape.valid()) {
+    return false;
+  }
   backend_source_recipe::SourceBuilder<Sink> source{sink};
   source += R"MSL(
 #include <metal_stdlib>
@@ -185,12 +194,14 @@ struct StencilParams {
 };
 
 )MSL";
-  AppendMetalStencilKernel(source, op, "uint", "u32");
-  AppendMetalStencilKernel(source, op, "ulong", "u64");
+  AppendMetalStencilKernel(source, op, shape, "uint", "u32");
+  AppendMetalStencilKernel(source, op, shape, "ulong", "u64");
+  AppendMetalStencilKernel(source, op, shape,
+                           op == rund::kernel::StencilOp::Sum ? "uint" : "int",
+                           "i32");
   AppendMetalStencilKernel(
-      source, op, op == rund::kernel::StencilOp::Sum ? "uint" : "int", "i32");
-  AppendMetalStencilKernel(
-      source, op, op == rund::kernel::StencilOp::Sum ? "ulong" : "long", "i64");
+      source, op, shape, op == rund::kernel::StencilOp::Sum ? "ulong" : "long",
+      "i64");
   return source.valid();
 }
 

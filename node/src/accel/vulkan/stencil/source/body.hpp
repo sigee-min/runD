@@ -78,27 +78,18 @@ template <typename Sink>
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitVulkanStencilBody(
+[[nodiscard]] bool EmitVulkanStencilSharedBody(
     Sink &sink, const rund::kernel::StencilOp op, const bool wide,
-    const bool
-        signed_extrema) noexcept(noexcept(sink.append(std::string_view{}))) {
+    const bool signed_extrema,
+    const rund::node::accel::detail::StencilGpuShape
+        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
-  if (!sink.append(R"glsl(void main() {
-  const uint lane = gl_LocalInvocationID.x;
-  const uint64_t group_base = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
-      !backend_source_recipe::append_decimal(sink,
-                                             kStencilPhysicalGroupWidth) ||
-      !sink.append(R"glsl();
-  const uint64_t active_lanes = group_base >= params.element_count
-                                    ? uint64_t(0)
-                                    : min(params.element_count - group_base,
-                                          uint64_t()glsl") ||
-      !backend_source_recipe::append_decimal(sink,
-                                             kStencilPhysicalGroupWidth) ||
+  if (!sink.append(R"glsl(  const uint64_t active_lanes =
+      group_base >= params.element_count
+          ? uint64_t(0)
+          : min(params.element_count - group_base, uint64_t()glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
       !sink.append(R"glsl());
-  if (params.radius <= uint64_t()glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
-      !sink.append(R"glsl()) {
     const uint64_t group_end = group_base + active_lanes;
     const uint left_inputs = uint(min(group_base, params.radius));
     const uint right_inputs = group_end >= params.element_count
@@ -111,19 +102,19 @@ template <typename Sink>
       !sink.append(
           R"glsl( center_value = input_values[uint(group_base + uint64_t(lane))];
       stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u + lane] = center_value;
       if (left_inputs == 0u && lane == 0u) {
         for (uint slot = 0u; uint64_t(slot) < params.radius; ++slot) {
           stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u - uint(params.radius) + slot] = center_value;
         }
       }
       if (right_inputs == 0u && uint64_t(lane) + uint64_t(1) == active_lanes) {
         for (uint slot = 0u; uint64_t(slot) < params.radius; ++slot) {
           stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + slot] = center_value;
         }
       }
@@ -134,13 +125,13 @@ template <typename Sink>
       !sink.append(
           R"glsl( left_value = input_values[uint(group_base - uint64_t(left_inputs) + uint64_t(lane))];
       stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u - left_inputs + lane] = left_value;
       if (lane == 0u && uint64_t(left_inputs) < params.radius) {
         for (uint slot = 0u;
              uint64_t(slot) < params.radius - uint64_t(left_inputs); ++slot) {
           stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u - uint(params.radius) + slot] = left_value;
         }
       }
@@ -151,12 +142,12 @@ template <typename Sink>
       !sink.append(
           R"glsl( right_value = input_values[uint(group_end + uint64_t(lane))];
       stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + lane] = right_value;
       if (lane + 1u == right_inputs && uint64_t(right_inputs) < params.radius) {
         for (uint slot = right_inputs; uint64_t(slot) < params.radius; ++slot) {
           stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + slot] = right_value;
         }
       }
@@ -165,7 +156,7 @@ template <typename Sink>
     if (uint64_t(lane) >= active_lanes) { return; }
     const uint gid = uint(group_base + uint64_t(lane));
     const uint center = )glsl") ||
-      !backend_source_recipe::append_decimal(sink, kStencilSharedRadiusCap) ||
+      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
       !sink.append("u + lane;\n") ||
       !sink.append(
           signed_extrema
@@ -181,9 +172,19 @@ template <typename Sink>
       !sink.append("    }\n    output_values[gid] = ") ||
       !sink.append(wide ? "uint64_t(value)" : "uint(value)") ||
       !sink.append(R"glsl(;
-    return;
+}
+)glsl")) {
+    return false;
   }
-  const uint gid = uint(group_base + uint64_t(lane));
+  return true;
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanStencilDirectBody(
+    Sink &sink, const rund::kernel::StencilOp op, const bool wide,
+    const bool
+        signed_extrema) noexcept(noexcept(sink.append(std::string_view{}))) {
+  if (!sink.append(R"glsl(  const uint gid = uint(group_base + uint64_t(lane));
   if (uint64_t(gid) >= params.element_count) { return; }
 )glsl") ||
       !sink.append(
@@ -205,4 +206,24 @@ template <typename Sink>
   return sink.append("  }\n  output_values[gid] = ") &&
          sink.append(wide ? "uint64_t(value)" : "uint(value)") &&
          sink.append(";\n}\n");
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanStencilBody(
+    Sink &sink, const rund::kernel::StencilOp op, const bool wide,
+    const bool signed_extrema,
+    const rund::node::accel::detail::StencilGpuShape
+        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+  using namespace rund::node::accel::detail;
+  if (!shape.valid() || !sink.append(R"glsl(void main() {
+  const uint lane = gl_LocalInvocationID.x;
+  const uint64_t group_base = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(");\n")) {
+    return false;
+  }
+  if (shape.uses_shared_memory()) {
+    return EmitVulkanStencilSharedBody(sink, op, wide, signed_extrema, shape);
+  }
+  return EmitVulkanStencilDirectBody(sink, op, wide, signed_extrema);
 }

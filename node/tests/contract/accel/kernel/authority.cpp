@@ -2510,8 +2510,15 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   };
   for (const rund::kernel::StencilOp op : stencil_ops) {
     if (!MetalStencilSourceUpperBytes(op, bytes) ||
-        !exact(MetalStencilSource(op), bytes)) {
+        !exact(MetalStencilSource(op, kStencilMaximumSourceShape), bytes)) {
       return false;
+    }
+    for (const StencilGpuShape shape :
+         {StencilGpuShape::direct(64u), StencilGpuShape::shared(64u, 64u),
+          StencilGpuShape::shared(128u, 128u), kStencilMaximumSourceShape}) {
+      if (MetalStencilSource(op, shape).size() > bytes) {
+        return false;
+      }
     }
   }
 
@@ -2555,18 +2562,26 @@ static_assert(PreparedControlPhaseCodesAreChecked());
     return false;
   }
 
+  constexpr StencilGpuShape shape64 = StencilGpuShape::shared(64u, 64u);
+  constexpr StencilGpuShape shape128 = StencilGpuShape::shared(128u, 128u);
   return StencilPipelineKey(rund::kernel::StencilOp::Sum,
                             rund::kernel::StencilElement::U32,
-                            rund::kernel::ComputeDomain::U32) ==
+                            rund::kernel::ComputeDomain::U32, shape64) ==
              StencilPipelineKey(rund::kernel::StencilOp::Sum,
                                 rund::kernel::StencilElement::U32,
-                                rund::kernel::ComputeDomain::I32) &&
+                                rund::kernel::ComputeDomain::I32, shape64) &&
+         StencilPipelineKey(rund::kernel::StencilOp::Sum,
+                            rund::kernel::StencilElement::U32,
+                            rund::kernel::ComputeDomain::U32, shape64) !=
+             StencilPipelineKey(rund::kernel::StencilOp::Sum,
+                                rund::kernel::StencilElement::U32,
+                                rund::kernel::ComputeDomain::U32, shape128) &&
          StencilPipelineKey(rund::kernel::StencilOp::Min,
                             rund::kernel::StencilElement::U32,
-                            rund::kernel::ComputeDomain::U32) !=
+                            rund::kernel::ComputeDomain::U32, shape64) !=
              StencilPipelineKey(rund::kernel::StencilOp::Min,
                                 rund::kernel::StencilElement::U32,
-                                rund::kernel::ComputeDomain::I32);
+                                rund::kernel::ComputeDomain::I32, shape64);
 #else
   return true;
 #endif
@@ -2819,7 +2834,9 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   auto &stencil = step.operation.set<operation::Stencil>();
   stencil.plan.op = rund::kernel::StencilOp::Sum;
   if (!verify(step, 1u, 1u, 1u, 3u,
-              guarded_size(MetalStencilSource(stencil.plan.op), 4u))) {
+              guarded_size(MetalStencilSource(stencil.plan.op,
+                                              kStencilMaximumSourceShape),
+                           4u))) {
     return false;
   }
   const std::uint64_t numeric_source_bytes =

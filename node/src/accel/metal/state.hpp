@@ -90,6 +90,8 @@ struct MetalAdapter {
   MetalRuntimeStats stats{};
   MetalMemoryStats memory{};
   const char *last_error = "ok";
+  std::atomic<bool> fault_source_library_publish_once{false};
+  std::atomic<bool> fault_named_pipeline_publish_once{false};
   std::atomic<bool> fault_device_lost_once{false};
 
   MetalAdapter();

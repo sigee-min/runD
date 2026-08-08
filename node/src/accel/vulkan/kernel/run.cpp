@@ -1198,7 +1198,8 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
     const auto &active = step.operation.get<operation::Stencil>();
     std::uint64_t source_bytes = 0u;
     if (!VulkanStencilSourceBytes(active.desc.op, active.desc.element,
-                                  plan.domain, source_bytes) ||
+                                  plan.domain, kStencilMaximumSourceShape,
+                                  source_bytes) ||
         !AddPreparedBackendCacheDependency(
             manifest, PreparedBackendCacheDependency{
                           .source_recipe = 0x76756c6b2e737465ull,

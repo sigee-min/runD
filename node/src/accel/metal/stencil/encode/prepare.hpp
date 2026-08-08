@@ -17,7 +17,8 @@ namespace rund::node::accel::detail {
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
   if (!StencilPhysicalGroupsFit(state.stencil->plan.element_count,
-                                std::numeric_limits<std::uint32_t>::max())) {
+                                std::numeric_limits<std::uint32_t>::max(),
+                                state.stencil->shape)) {
     SetMetalLastError(adapter, "compute_dispatch_overflow");
     return rund::AccelCheck{false, "compute_dispatch_overflow"};
   }
@@ -33,8 +34,8 @@ namespace rund::node::accel::detail {
     SetMetalLastError(adapter, "accel_metal_command_unavailable");
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
-  state.workgroups = static_cast<std::uint32_t>(
-      StencilPhysicalGroupCount(state.stencil->plan.element_count));
+  state.workgroups = static_cast<std::uint32_t>(StencilPhysicalGroupCount(
+      state.stencil->plan.element_count, state.stencil->shape));
   return rund::AccelCheck{true, "ok"};
 }
 #endif

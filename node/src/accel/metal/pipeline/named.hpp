@@ -72,7 +72,8 @@ AcquireMetalLibrary(MetalAdapter &adapter, std::string source_text,
   std::shared_ptr<void> owner = RetainMetalObject((__bridge void *)library);
   return PublishMetalSourceLibrary(adapter, std::move(source_text),
                                    std::move(owner),
-                                   MonotonicNanoseconds() - begin);
+                                   MonotonicNanoseconds() - begin)
+      .library;
 }
 
 [[nodiscard]] inline bool

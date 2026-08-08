@@ -22,17 +22,19 @@ struct VulkanStencilEncodeState {
   state.command = reinterpret_cast<VkCommandBuffer>(command_buffer_raw);
   if (state.stencil == nullptr || state.stencil->adapter != &adapter ||
       state.command == VK_NULL_HANDLE || state.stencil->pipeline == nullptr ||
-      state.stencil->input == nullptr || state.stencil->output == nullptr) {
+      state.stencil->input == nullptr || state.stencil->output == nullptr ||
+      !state.stencil->shape.valid()) {
     SetVulkanLastError(adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
   if (!StencilVulkanDispatchFits(state.stencil->plan.element_count,
-                                 adapter.max_dispatch_groups)) {
+                                 adapter.max_dispatch_groups,
+                                 state.stencil->shape)) {
     SetVulkanLastError(adapter, "compute_dispatch_overflow");
     return rund::AccelCheck{false, "compute_dispatch_overflow"};
   }
-  state.workgroups = static_cast<std::uint32_t>(
-      StencilPhysicalGroupCount(state.stencil->plan.element_count));
+  state.workgroups = static_cast<std::uint32_t>(StencilPhysicalGroupCount(
+      state.stencil->plan.element_count, state.stencil->shape));
   return rund::AccelCheck{true, "ok"};
 }
 

@@ -44,8 +44,10 @@ rund::AccelCheck PrepareVulkanStencil(
     SetVulkanLastError(*adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
+  const StencilGpuShape shape = SelectVulkanStencilGpuShape(
+      *adapter, plan.element_count, plan.radius, desc.element);
   if (!StencilVulkanDispatchFits(plan.element_count,
-                                 adapter->max_dispatch_groups)) {
+                                 adapter->max_dispatch_groups, shape)) {
     SetVulkanLastError(*adapter, "compute_dispatch_overflow");
     return rund::AccelCheck{false, "compute_dispatch_overflow"};
   }
@@ -60,6 +62,7 @@ rund::AccelCheck PrepareVulkanStencil(
   std::shared_ptr<void> owned{raw, DestroyVulkanStencilEncodeResources};
   raw->adapter = adapter;
   raw->plan = plan;
+  raw->shape = shape;
   raw->input = lookup.input.device_buffer;
   raw->output = lookup.output.device_buffer;
   raw->input_binding =
@@ -67,9 +70,15 @@ rund::AccelCheck PrepareVulkanStencil(
   raw->output_binding =
       VulkanStorageBindingFor(lookup.output.device_buffer, lookup.output.ref);
   raw->pipeline = pipelines == nullptr
-                      ? AcquireStencilPipeline(*adapter, desc, domain)
+                      ? AcquireStencilPipeline(*adapter, desc, domain, shape)
                       : pipelines->borrow(rund::kernel::NodeKind::Stencil, 1u,
                                           0u, kStencilDescriptorCount, 1u);
+  if (pipelines != nullptr &&
+      !VulkanStencilPipelineMatches(*adapter, raw->pipeline, desc, domain,
+                                    shape)) {
+    SetVulkanLastError(*adapter, "accel_vulkan_pipeline_unavailable");
+    return rund::AccelCheck{false, "accel_vulkan_pipeline_unavailable"};
+  }
   const StencilParams params_value{plan.element_count, plan.radius};
   if (raw->input_binding.buffer == nullptr ||
       raw->output_binding.buffer == nullptr || raw->pipeline == nullptr ||

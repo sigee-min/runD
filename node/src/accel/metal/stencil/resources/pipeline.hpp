@@ -11,12 +11,35 @@ namespace rund::node::accel::detail {
 PrepareMetalStencilPipeline(MetalAdapter &adapter,
                             const rund::kernel::StencilPlan &plan,
                             const rund::kernel::ComputeDomain domain,
+                            const StencilGpuShapeCandidates &candidates,
                             MetalStencilEncodeResources &resources) {
-  if (CompileMetalStencilPipeline(adapter, plan.op, plan.element, domain,
-                                  resources.pipeline)) {
-    return rund::AccelCheck{true, "ok"};
+  resources.pipeline.reset();
+  MetalStencilPipelineAttempt failed{};
+  const StencilGpuShapeSelection selection = SelectStencilGpuShapeCandidate(
+      candidates, [&](const StencilGpuShape shape) {
+        std::shared_ptr<void> pipeline;
+        const MetalStencilPipelineAttempt attempt = CompileMetalStencilPipeline(
+            adapter, plan.op, plan.element, domain, shape, pipeline);
+        if (attempt.status == MetalStencilPipelineAttemptStatus::Unsupported) {
+          return StencilGpuCandidateDecision::Skip;
+        }
+        if (attempt.status == MetalStencilPipelineAttemptStatus::Failed) {
+          failed = attempt;
+          return StencilGpuCandidateDecision::Abort;
+        }
+        resources.pipeline = std::move(pipeline);
+        return StencilGpuCandidateDecision::Select;
+      });
+  if (selection.aborted) {
+    resources.pipeline.reset();
+    return rund::AccelCheck{false, failed.reason};
   }
-  return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
+  resources.shape = selection.shape;
+  if (!resources.shape.valid()) {
+    resources.pipeline.reset();
+    return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
+  }
+  return rund::AccelCheck{true, "ok"};
 }
 #endif
 

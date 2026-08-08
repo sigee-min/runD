@@ -19,10 +19,11 @@ namespace {
   using namespace rund::node::accel::detail;
   MetalAdapter adapter{};
   for (std::size_t index = 0u; index < kMetalSourceLibraryCapacity; ++index) {
-    std::shared_ptr<void> published =
+    const MetalSourceLibraryPublishResult published =
         PublishMetalSourceLibrary(adapter, "source-" + std::to_string(index),
                                   std::make_shared<std::size_t>(index), 1u);
-    if (published == nullptr) {
+    if (published.status != MetalSourceLibraryPublishStatus::Inserted ||
+        published.library == nullptr) {
       return false;
     }
   }
@@ -30,9 +31,10 @@ namespace {
       LookupMetalSourceLibrary(adapter, "source-0") == nullptr) {
     return false;
   }
-  std::shared_ptr<void> published = PublishMetalSourceLibrary(
+  const MetalSourceLibraryPublishResult published = PublishMetalSourceLibrary(
       adapter, "source-extra", std::make_shared<std::size_t>(17u), 1u);
-  return published != nullptr &&
+  return published.status == MetalSourceLibraryPublishStatus::Inserted &&
+         published.library != nullptr &&
          adapter.source_libraries.size() == kMetalSourceLibraryCapacity &&
          LookupMetalSourceLibrary(adapter, "source-1") == nullptr &&
          LookupMetalSourceLibrary(adapter, "source-0") != nullptr &&

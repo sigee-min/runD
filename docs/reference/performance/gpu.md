@@ -75,9 +75,13 @@ accesses for a 64-bit value. Misaligned bindings retain the bytewise source.
 These are generated-source memory-operation counts, not claims about device
 transactions, cache lines, or measured latency.
 
-For Stencil's admitted shared-halo radius `1 <= r <= 8`, let a physical group
+Stencil derives a physical workgroup width `W` from `{64, 128, 256}` and a
+shared-halo capacity `C` from the selected device's workgroup and shared-memory
+limits. The exact selection policy and pipeline-identity contract are owned by
+the [Accel Stencil contract](../../../node/docs/contracts/accel/stencil.md).
+For a selected shared shape and an admitted `1 <= r <= C`, let a physical group
 cover `A` active outputs beginning at `B` in a domain of `N` elements and end at
-`E = B + A`. The direct loop reads
+`E = B + A`. The direct candidate reads
 
 ```text
 D = A(2r + 1)
@@ -93,10 +97,12 @@ H = A + min(r, B) + min(r, N - E)
 
 Any correct single-group evaluation needs every element in that union, so `H`
 is the global-input-read lower bound for the group. The boundary loader reaches
-it by fanning already-loaded endpoint registers into clamped halo slots. For
-all admitted `r <= 8`, `H < D`, so the shader selects the shared path directly
-without calculating or comparing those costs at runtime. Radius values above
-eight use the semantic direct fallback and carry no asymptotic-optimality claim.
+it by fanning lane-private loaded endpoint values into clamped halo slots. For
+every selected shared candidate, `H < D`, so its generated shader executes the
+shared path directly without a runtime traffic branch. A selected direct-only
+candidate declares no shared array and executes no workgroup barrier. These are
+exact source-level input-read bounds, not claims about physical memory
+transactions, occupancy, or measured latency.
 
 ## Vulkan Executable Construction
 
