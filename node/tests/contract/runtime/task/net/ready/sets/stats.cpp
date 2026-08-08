@@ -12,16 +12,16 @@ namespace {
 
 using ::rund::detail::task::StatSlot;
 
-static_assert(::rund::detail::task::kStatCount == 232u);
-static_assert(sizeof(::rund::detail::task::StatStorage) == 1856u);
-static_assert(sizeof(::rund::task::Stats) == 1856u);
+static_assert(::rund::detail::task::kStatCount == 223u);
+static_assert(sizeof(::rund::detail::task::StatStorage) == 1784u);
+static_assert(sizeof(::rund::task::Stats) == 1784u);
 static_assert(sizeof(::rund::task::ReactorStats) == 176u);
 static_assert(
-    ::rund::detail::task::SlotIndex(StatSlot::ReactorReadySetMembers) == 185u);
+    ::rund::detail::task::SlotIndex(StatSlot::ReactorReadySetMembers) == 176u);
 static_assert(::rund::detail::task::SlotIndex(
-                  StatSlot::ReactorReadySetMembersRemoved) == 186u);
+                  StatSlot::ReactorReadySetMembersRemoved) == 177u);
 static_assert(::rund::detail::task::SlotIndex(
-                  StatSlot::ReactorReadySetReadyEvents) == 188u);
+                  StatSlot::ReactorReadySetReadyEvents) == 179u);
 
 } // namespace
 

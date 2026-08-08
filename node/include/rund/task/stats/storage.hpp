@@ -24,7 +24,7 @@ struct StatStorage {
   }
 };
 
-static_assert(sizeof(StatStorage) == 1856u);
+static_assert(sizeof(StatStorage) == 1784u);
 static_assert(alignof(StatStorage) == alignof(std::uint64_t));
 
 } // namespace rund::detail::task

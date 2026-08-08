@@ -137,8 +137,8 @@ private state dependency to unrelated socket translation units.
   source projection; consumers do not repeat their component fields.
 - `task/stats.hpp`: read-only scheduler telemetry snapshot and direct getter
   surface.
-- `task/stats/storage.hpp`: `detail::task::StatStorage`, the compact 232-slot live telemetry
-  block. It owns no public field spelling and performs no allocation.
+- `task/stats/storage.hpp`: `detail::task::StatStorage`, the compact 223-slot
+  telemetry block. It owns no public field spelling and performs no allocation.
 - `task/stats/schema/slots.def`: the sole exact numeric slot identity and
   compact storage-layout schema. Deleting a counter removes its row and
   compacts every following internal index. `storage.hpp` derives its count
@@ -321,8 +321,8 @@ public scheduler telemetry snapshot. Its `code()`, `ok()`, truth conversion,
 returns the single scheduler telemetry snapshot at the run boundary. This
 applies equally to hot, suspending, and failure results.
 
-`task::Stats` is a 1,856-byte, 8-byte-aligned, trivially copyable report
-value containing 232 ordered 64-bit counters.
+`task::Stats` is a 1,784-byte, 8-byte-aligned, trivially copyable report
+value containing 223 ordered 64-bit counters.
 The scheduler mutates one inline source storage with a compile-time slot load,
 add, and store. It materializes the public value once at the report boundary;
 host-event recording returns only success/failure and never returns or copies

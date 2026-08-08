@@ -616,8 +616,8 @@ Network callers see only the meaning-neutral ready-set API routed through the
 network contract. Public telemetry includes `ready_set_creates`,
 `ready_set_destroys`, `ready_set_members`, `ready_set_waits`,
 `ready_set_ready_events`, and `ready_set_invalidations`.
-Each public getter maps one-to-one to one live physical counter, and the
-physical schema contains exactly the public live counters.
+Each public getter maps one-to-one to one physical counter, and every physical
+counter has at least one production owner reference.
 `ready_set_members_removed()` remains a
 separate cumulative removal-event counter, while
 `resources().live_ready_set_members()` remains the snapshot gauge derived from
