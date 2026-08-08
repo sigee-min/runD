@@ -1,6 +1,7 @@
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/backend.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/many/events.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/many/probe/raw.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/model.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/poll.hpp"
@@ -23,6 +24,94 @@ int RunRuntimeTaskReactorResultContract() {
   static_assert(std::is_trivially_copyable_v<ReactorApplyResult>);
   static_assert(!std::is_aggregate_v<ReactorInvalidChangeToken>);
   static_assert(std::is_trivially_copyable_v<ReactorInvalidChangeToken>);
+  static_assert(!std::is_aggregate_v<ReactorManyEventSlot>);
+
+  ReactorManyGroup event_group{
+      .group_id = 41u,
+      .request_count = 2u,
+      .max_events = 1u,
+  };
+  std::vector<ReactorManyEventSlot> event_slots{};
+  ReactorManyEventSlotsReset(event_slots, event_group.request_count);
+  TEST_ASSERT(event_slots.size() == event_group.request_count);
+  TEST_ASSERT(!event_slots[0].has_value());
+  TEST_ASSERT(!event_slots[1].has_value());
+
+  const ReactorManyRequest first_event_request{
+      .group_id = event_group.group_id,
+      .fd = ReactorHandleFromPublic(13),
+      .slot = 0u,
+      .event_index = 17u,
+      .interest = ReactorInterest::Read,
+  };
+  const ReactorManyRequest stale_event_request{
+      .group_id = event_group.group_id + 1u,
+      .fd = first_event_request.fd,
+      .slot = first_event_request.slot,
+      .event_index = first_event_request.event_index,
+      .interest = first_event_request.interest,
+  };
+  ReactorManyEventSlotsAppend(event_group, stale_event_request,
+                              ReactorEvent::Read, ::rund::ReasonCode::Ok,
+                              event_slots);
+  TEST_ASSERT(!event_slots[0].has_value());
+  TEST_ASSERT(event_group.stored_event_count == 0u);
+  TEST_ASSERT(!event_group.budget_exhausted);
+
+  const ReactorManyRequest out_of_range_event_request{
+      .group_id = event_group.group_id,
+      .fd = first_event_request.fd,
+      .slot = event_group.request_count,
+      .event_index = first_event_request.event_index,
+      .interest = first_event_request.interest,
+  };
+  ReactorManyEventSlotsAppend(event_group, out_of_range_event_request,
+                              ReactorEvent::Read, ::rund::ReasonCode::Ok,
+                              event_slots);
+  TEST_ASSERT(!event_slots[0].has_value());
+  TEST_ASSERT(!event_slots[1].has_value());
+  TEST_ASSERT(event_group.stored_event_count == 0u);
+  TEST_ASSERT(!event_group.budget_exhausted);
+
+  ReactorManyEventSlotsAppend(event_group, first_event_request,
+                              ReactorEvent::Read, ::rund::ReasonCode::Ok,
+                              event_slots);
+  TEST_ASSERT(event_slots[0].has_value());
+  TEST_ASSERT(event_slots[0]->group_id == event_group.group_id);
+  TEST_ASSERT(event_slots[0]->fd == first_event_request.fd);
+  TEST_ASSERT(event_slots[0]->event_index == first_event_request.event_index);
+  TEST_ASSERT(event_slots[0]->events == ReactorEvent::Read);
+  TEST_ASSERT(event_group.stored_event_count == 1u);
+
+  ReactorManyEventSlotsAppend(event_group, first_event_request,
+                              ReactorEvent::Error,
+                              ::rund::ReasonCode::IoFdInvalid, event_slots);
+  TEST_ASSERT(event_slots[0]->events == ReactorEvent::Read);
+  TEST_ASSERT(event_slots[0]->code == ::rund::ReasonCode::Ok);
+  TEST_ASSERT(event_group.stored_event_count == 1u);
+  TEST_ASSERT(!event_group.budget_exhausted);
+
+  const ReactorManyRequest budgeted_event_request{
+      .group_id = event_group.group_id,
+      .fd = ReactorHandleFromPublic(19),
+      .slot = 1u,
+      .event_index = 23u,
+      .interest = ReactorInterest::Write,
+  };
+  ReactorManyEventSlotsAppend(event_group, budgeted_event_request,
+                              ReactorEvent::Write, ::rund::ReasonCode::Ok,
+                              event_slots);
+  TEST_ASSERT(!event_slots[1].has_value());
+  TEST_ASSERT(event_group.stored_event_count == 1u);
+  TEST_ASSERT(event_group.budget_exhausted);
+
+  std::array<::rund::net::ready::Event, 2u> copied_events{};
+  std::uint32_t copied_event_count = 0u;
+  TEST_ASSERT(ReactorManyEventSlotsCopy(event_group, event_slots, copied_events,
+                                        &copied_event_count));
+  TEST_ASSERT(copied_event_count == 1u);
+  TEST_ASSERT(copied_events[0].index == first_event_request.event_index);
+  TEST_ASSERT(copied_events[0].ticket.code() == ::rund::ReasonCode::Ok);
 
   constexpr ReactorApplyResult apply_success = ReactorApplyResult::success();
   static_assert(apply_success.disposition() ==

@@ -21,32 +21,31 @@ void ReactorManyEventSlotsReset(std::vector<ReactorManyEventSlot>& slots,
   }
 }
 
-bool ReactorManyEventSlotsAppend(
+void ReactorManyEventSlotsAppend(
     ReactorManyGroup& group,
     const ReactorManyRequest& request,
     const ReactorEvent events,
     const ReasonCode code,
     std::vector<ReactorManyEventSlot>& slots) noexcept {
   if (request.group_id != group.group_id || request.slot >= group.request_count) {
-    return true;
+    return;
   }
   const std::size_t slot_index =
       static_cast<std::size_t>(group.first_request) + request.slot;
   if (slot_index >= slots.size()) {
-    return true;
+    return;
   }
 
   ReactorManyEventSlot& slot = slots[slot_index];
-  if (slot.occupied) {
-    return true;
+  if (slot.has_value()) {
+    return;
   }
   if (group.stored_event_count >= group.max_events) {
     group.budget_exhausted = true;
-    return true;
+    return;
   }
 
-  slot.occupied = true;
-  slot.event = ReactorManyEvent{
+  slot.emplace(ReactorManyEvent{
       .group_id = group.group_id,
       .socket = request.socket,
       .fd = request.fd,
@@ -55,9 +54,8 @@ bool ReactorManyEventSlotsAppend(
       .interest = request.interest,
       .events = events,
       .code = code,
-  };
+  });
   ++group.stored_event_count;
-  return true;
 }
 
 bool ReactorManyEventSlotsCopy(
@@ -78,18 +76,17 @@ bool ReactorManyEventSlotsCopy(
   for (std::size_t offset = 0u; offset < count && *copied < out.size();
        ++offset) {
     const ReactorManyEventSlot& slot = slots[first + offset];
-    if (!slot.occupied || slot.event.group_id != group.group_id) {
+    if (!slot.has_value() || slot->group_id != group.group_id) {
       continue;
     }
     ::rund::net::ready::Interest interest{};
-    if (!::rund::net::InterestFromReactor(slot.event.interest, &interest)) {
+    if (!::rund::net::InterestFromReactor(slot->interest, &interest)) {
       return false;
     }
     ::rund::net::ready::Event event{};
-    event.index = slot.event.event_index;
+    event.index = slot->event_index;
     event.ticket = ::rund::net::ready::detail::Access::make(
-        slot.event.code, slot.event.socket, interest,
-        ReactorEventBits(slot.event.events));
+        slot->code, slot->socket, interest, ReactorEventBits(slot->events));
     out[*copied] = std::move(event);
     ++(*copied);
   }

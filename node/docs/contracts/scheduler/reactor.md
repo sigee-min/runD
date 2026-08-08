@@ -177,9 +177,13 @@ caller-required `R` full records; no second full-wait authority exists.
   task-cancellation result construction.
 - `reactor/many/resume/result.cpp`: ReadyMany resume final public result-code
   normalization and result payload construction.
-- `reactor/many/events.cpp`: ReadyMany direct event-slot projection owner; each
-  event stores its public socket identity, interest, insertion index, and
-  status once, then bounded resume copies require no request-span lookup.
+- `reactor/many/events.cpp`: ReadyMany direct event-slot projection owner. An
+  aligned slot is either disengaged or owns one complete event; there is no
+  independent occupancy flag. Each event stores its public socket identity,
+  interest, insertion index, and status once, then bounded resume copies
+  require no request-span lookup. Append is total and allocation-free: stale,
+  duplicate, and out-of-range requests are no-ops, while a full event budget
+  sets the group budget result without exposing a synthetic failure channel.
 - `reactor/ready/set/result.cpp`: shared ready-set result materialization and
   current-generation validation helpers.
 - `reactor/ready/set/identity.{hpp,cpp}`: the one ready-set capability
@@ -490,6 +494,10 @@ timeout, and resume borrow the canonical range; no phase creates a second
 group-wide request vector. Descriptor copies at park are therefore exactly
 `N` for `N` members, independent of the number of ready events or sibling
 cleanup operations.
+
+Each aligned event slot uses optional engagement as its only occupancy state.
+An engaged slot already contains the complete event payload; an independent
+boolean cannot disagree with partially or previously stored event data.
 
 Requests, aligned event slots, and the group record publish as one storage
 transaction. A failure before group publication restores every prior live

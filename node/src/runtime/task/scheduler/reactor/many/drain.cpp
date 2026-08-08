@@ -42,10 +42,10 @@ bool Scheduler::WakeReactorManyGroupFromWait(const ReactorWait &wait,
   if (store_event) {
     const ReactorManyRequest *const request =
         ReactorManyFindRequest(requests, wait.wait_id);
-    if (request != nullptr && !ReactorManyEventSlotsAppend(
-                                  *group, *request, events, code,
-                                  state_->reactor.reactor_many_event_slots)) {
-      return false;
+    if (request != nullptr) {
+      ReactorManyEventSlotsAppend(
+          *group, *request, events, code,
+          state_->reactor.reactor_many_event_slots);
     }
   }
 

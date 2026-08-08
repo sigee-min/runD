@@ -86,17 +86,9 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
           .total_ready = result.total_ready,
       };
     }
-    if (result.total_ready < limit &&
-        !ReactorManyEventSlotsAppend(group, *request, ready.events, ready_code,
-                                     event_slots)) {
-      scheduler.RecordReactorObservation(
-          task::ObservationKind::IoPollFailed, ReasonCode::IoPollFailed,
-          task_id, request->wait_id, ReactorHandleForPublic(request->fd),
-          ReactorInterestBits(request->interest), 0);
-      return ReactorManyProbeResult{
-          .code = ReasonCode::ReactorWaitCapacityExceeded,
-          .total_ready = result.total_ready,
-      };
+    if (result.total_ready < limit) {
+      ReactorManyEventSlotsAppend(group, *request, ready.events, ready_code,
+                                  event_slots);
     }
     ++result.total_ready;
     if (ready.invalid) {

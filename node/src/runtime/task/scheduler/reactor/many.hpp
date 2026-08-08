@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <rund/net/ready/set.hpp>
 #include <rund/net/socket.hpp>
 #include <rund/reason.hpp>
@@ -30,10 +31,7 @@ struct ReactorManyEvent {
   ReasonCode code = ReasonCode::Ok;
 };
 
-struct ReactorManyEventSlot {
-  bool occupied = false;
-  ReactorManyEvent event{};
-};
+using ReactorManyEventSlot = std::optional<ReactorManyEvent>;
 
 struct ReactorManyGroup {
   std::uint64_t group_id = 0u;

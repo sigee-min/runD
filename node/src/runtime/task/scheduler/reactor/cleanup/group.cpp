@@ -55,11 +55,10 @@ bool CleanupGroup(Scheduler &scheduler,
   if (request.store_event) {
     const ReactorManyRequest *const stored_request =
         ReactorManyFindRequest(requests, request.wait_id);
-    if (stored_request != nullptr &&
-        !ReactorManyEventSlotsAppend(
-            *group, *stored_request, request.events, request.reason,
-            scheduler.state_->reactor.reactor_many_event_slots)) {
-      return false;
+    if (stored_request != nullptr) {
+      ReactorManyEventSlotsAppend(
+          *group, *stored_request, request.events, request.reason,
+          scheduler.state_->reactor.reactor_many_event_slots);
     }
   }
 

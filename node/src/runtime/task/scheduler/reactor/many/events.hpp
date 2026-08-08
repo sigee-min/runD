@@ -13,11 +13,10 @@ namespace rund::node {
 void ReactorManyEventSlotsReset(std::vector<ReactorManyEventSlot> &slots,
                                 std::uint32_t request_count) noexcept;
 
-[[nodiscard]] bool
-ReactorManyEventSlotsAppend(ReactorManyGroup &group,
-                            const ReactorManyRequest &request,
-                            ReactorEvent events, ReasonCode code,
-                            std::vector<ReactorManyEventSlot> &slots) noexcept;
+void ReactorManyEventSlotsAppend(
+    ReactorManyGroup &group, const ReactorManyRequest &request,
+    ReactorEvent events, ReasonCode code,
+    std::vector<ReactorManyEventSlot> &slots) noexcept;
 
 [[nodiscard]] bool ReactorManyEventSlotsCopy(
     const ReactorManyGroup &group, std::span<const ReactorManyEventSlot> slots,
