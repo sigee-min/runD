@@ -72,10 +72,12 @@ int CheckComputeAccelBackend(const compute::Target target) {
                  result.error().data());
     return 5;
   }
+  const compute::Poll completed = task.poll();
   const compute::Stats warm = result.stats();
-  if (warm.backend != backend || warm.pipeline_compiles != 0u ||
-      warm.buffer_allocations != 0u || warm.uploaded_bytes != 0u ||
-      warm.download_events != 0u || warm.dispatches == 0u) {
+  if (!completed.backend_submitted || warm.backend != backend ||
+      warm.pipeline_compiles != 0u || warm.buffer_allocations != 0u ||
+      warm.uploaded_bytes != 0u || warm.download_events != 0u ||
+      warm.dispatches == 0u) {
     return 6;
   }
   if (telemetry.events != 1u || telemetry.event.compute.dispatches != 1u ||
@@ -111,7 +113,8 @@ int CheckComputeAccelBackend(const compute::Target target) {
   const compute::Completion empty_result = empty_task.wait();
   const compute::Poll completed_poll = empty_task.poll();
   const compute::Stats empty_stats = empty_result.stats();
-  if (!empty_result || !completed_poll.submitted || !completed_poll.completed ||
+  if (!empty_result || !completed_poll.submitted ||
+      completed_poll.backend_submitted || !completed_poll.completed ||
       empty_stats.backend != backend || empty_stats.graph_hash == 0u ||
       empty_stats.pipeline_compiles != 0u ||
       empty_stats.buffer_allocations != 0u ||

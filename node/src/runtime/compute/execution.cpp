@@ -82,34 +82,42 @@ task::Task<void> RunCpuCoordinator(compute_detail::TaskState *const task) {
   }
   const compute_detail::Dispatch submitted =
       task->operation.table->submit_cpu(task->operation, *task);
-  if (!submitted) {
+  switch (submitted.disposition()) {
+  case compute_detail::DispatchDisposition::Failed: {
     const compute::Status status =
-        compute_detail::FinishFailure(*task, submitted.status);
+        compute_detail::FinishFailure(*task, submitted.status());
     Complete(task, status, OperationEvidence(task->operation));
     co_return;
   }
-  task->backend_submitted.store(submitted.backend_submitted,
-                                std::memory_order_release);
-  if (submitted.backend_submitted) {
+  case compute_detail::DispatchDisposition::AcceptedNoBackend:
+    task->backend_submitted.store(false, std::memory_order_release);
+    break;
+  case compute_detail::DispatchDisposition::BackendSubmitted:
+    task->backend_submitted.store(true, std::memory_order_release);
     Signal(host, ::rund::TraceEvent::ComputeBackendSubmitted);
+    break;
   }
   for (;;) {
     co_await BackendAwaiter{task};
     task->completion_phase.store(0u, std::memory_order_release);
     const compute_detail::Advance progress =
         task->operation.table->advance_cpu(task->operation, *task);
-    if (!progress) {
+    switch (progress.disposition()) {
+    case compute_detail::AdvanceDisposition::Failed: {
       const compute::Status status =
-          compute_detail::FinishFailure(*task, progress.status);
+          compute_detail::FinishFailure(*task, progress.status());
       Complete(task, status, OperationEvidence(task->operation));
       co_return;
     }
-    if (progress.backend_submitted &&
-        !task->backend_submitted.exchange(true, std::memory_order_acq_rel)) {
-      Signal(host, ::rund::TraceEvent::ComputeBackendSubmitted);
-    }
-    if (!progress.complete) {
+    case compute_detail::AdvanceDisposition::Pending:
       continue;
+    case compute_detail::AdvanceDisposition::BackendSubmitted:
+      if (!task->backend_submitted.exchange(true, std::memory_order_acq_rel)) {
+        Signal(host, ::rund::TraceEvent::ComputeBackendSubmitted);
+      }
+      continue;
+    case compute_detail::AdvanceDisposition::Complete:
+      break;
     }
     const compute::Status status = compute_detail::FinishCpu(*task);
     Complete(task, status, OperationEvidence(task->operation));
@@ -124,16 +132,20 @@ task::Task<void> RunAccelCoordinator(compute_detail::TaskState *const task) {
   }
   const compute_detail::Dispatch submitted =
       task->operation.table->submit_accel(task->operation, *task);
-  if (!submitted) {
+  switch (submitted.disposition()) {
+  case compute_detail::DispatchDisposition::Failed: {
     const compute::Status status =
-        compute_detail::FinishFailure(*task, submitted.status);
+        compute_detail::FinishFailure(*task, submitted.status());
     Complete(task, status, OperationEvidence(task->operation));
     co_return;
   }
-  task->backend_submitted.store(submitted.backend_submitted,
-                                std::memory_order_release);
-  if (submitted.backend_submitted) {
+  case compute_detail::DispatchDisposition::AcceptedNoBackend:
+    task->backend_submitted.store(false, std::memory_order_release);
+    break;
+  case compute_detail::DispatchDisposition::BackendSubmitted:
+    task->backend_submitted.store(true, std::memory_order_release);
     Signal(host, ::rund::TraceEvent::ComputeBackendSubmitted);
+    break;
   }
   co_await BackendAwaiter{task};
   const compute::Status status = compute_detail::FinishAccel(*task);

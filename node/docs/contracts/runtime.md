@@ -329,6 +329,20 @@ stable diagnostic text are projections of that typed value. Pending admitted
 work has no synthetic failure: it reports `Reason::Ok` until terminal
 publication, while an immediate admission rejection is already terminal.
 
+The source-private Compute operation table returns exclusive coordinator
+outcomes. Initial dispatch is exactly one of `Failed(status)`,
+`AcceptedNoBackend`, or `BackendSubmitted`. CPU progression is exactly one of
+`Failed(status)`, `Pending`, `BackendSubmitted`, or `Complete`. Status is a
+payload only of `Failed`; there is no parallel success, completion, or backend
+submission boolean with which it can disagree. A backend-submission outcome is
+an edge produced only after that submit boundary succeeds. The coordinator
+latches the first such edge into the task's atomic `backend_submitted`
+observation and emits its trace once. `Complete` cannot also be pending, and a
+failed outcome cannot publish a backend-submission observation.
+`AcceptedNoBackend` and `Pending` mean only that this transition did not accept
+physical backend work; an empty Job or Pipeline step may already have published
+its ready callback inline before returning either state.
+
 Cancellation and completion publish through one atomic job gate. Active job
 count is incremented before accepted execution becomes observable and is
 released exactly once on terminal publication. Session close reads that owner

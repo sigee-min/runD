@@ -22,6 +22,54 @@ using ComputeTelemetryEmit = void (*)(void *, const rund::compute::Status &,
 static_assert(std::is_same_v<rund::node::runtime_detail::ComputeHostState::Emit,
                              ComputeTelemetryEmit>);
 
+using rund::node::compute_detail::Advance;
+using rund::node::compute_detail::AdvanceDisposition;
+using rund::node::compute_detail::Dispatch;
+using rund::node::compute_detail::DispatchDisposition;
+
+static_assert(!std::is_default_constructible_v<Dispatch>);
+static_assert(!std::is_aggregate_v<Dispatch>);
+static_assert(std::is_trivially_copyable_v<Dispatch>);
+static_assert(!std::is_default_constructible_v<Advance>);
+static_assert(!std::is_aggregate_v<Advance>);
+static_assert(std::is_trivially_copyable_v<Advance>);
+
+constexpr Dispatch FailedDispatch = Dispatch::failed(
+    rund::compute::Status::fail(rund::compute::Reason::RuntimeMissing));
+constexpr Dispatch AcceptedDispatch = Dispatch::accepted_without_backend();
+constexpr Dispatch SubmittedDispatch = Dispatch::backend_submitted();
+static_assert(FailedDispatch.disposition() == DispatchDisposition::Failed);
+static_assert(FailedDispatch.status().reason() ==
+              rund::compute::Reason::RuntimeMissing);
+static_assert(AcceptedDispatch.disposition() ==
+              DispatchDisposition::AcceptedNoBackend);
+static_assert(AcceptedDispatch.status());
+static_assert(SubmittedDispatch.disposition() ==
+              DispatchDisposition::BackendSubmitted);
+static_assert(SubmittedDispatch.status());
+static_assert(
+    Dispatch::failed(rund::compute::Status::success()).status().reason() ==
+    rund::compute::Reason::CompletionInvalid);
+
+constexpr Advance FailedAdvance = Advance::failed(
+    rund::compute::Status::fail(rund::compute::Reason::RuntimeMissing));
+constexpr Advance PendingAdvance = Advance::pending();
+constexpr Advance SubmittedAdvance = Advance::backend_submitted();
+constexpr Advance CompleteAdvance = Advance::complete();
+static_assert(FailedAdvance.disposition() == AdvanceDisposition::Failed);
+static_assert(FailedAdvance.status().reason() ==
+              rund::compute::Reason::RuntimeMissing);
+static_assert(PendingAdvance.disposition() == AdvanceDisposition::Pending);
+static_assert(PendingAdvance.status());
+static_assert(SubmittedAdvance.disposition() ==
+              AdvanceDisposition::BackendSubmitted);
+static_assert(SubmittedAdvance.status());
+static_assert(CompleteAdvance.disposition() == AdvanceDisposition::Complete);
+static_assert(CompleteAdvance.status());
+static_assert(
+    Advance::failed(rund::compute::Status::success()).status().reason() ==
+    rund::compute::Reason::CompletionInvalid);
+
 std::atomic<std::uint32_t> configured_abort_cancels{0u};
 std::atomic<std::uint32_t> configured_abort_retires{0u};
 

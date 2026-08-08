@@ -200,39 +200,43 @@ ReserveJob(const std::shared_ptr<void> &owner) noexcept {
 SubmitJobCpu(const compute_detail::Operation &operation,
              compute_detail::TaskState &task) noexcept {
   if (task.host == nullptr) {
-    return {.status =
-                compute::Status::fail(compute::Reason::RuntimeMissing)};
+    return compute_detail::Dispatch::failed(
+        compute::Status::fail(compute::Reason::RuntimeMissing));
   }
   const std::shared_ptr<compute::detail::JobState> job =
       JobOwner(operation.owner);
-  return {.status = compute::detail::submit_cpu_job_on(
-              job, task.host->async_worker_backend, task.host->workers,
-              &task.cancel_requested, &task, CpuReady),
-          .backend_submitted = job != nullptr && job->program != nullptr &&
-                               !job->program->empty()};
+  const compute::Status submitted = compute::detail::submit_cpu_job_on(
+      job, task.host->async_worker_backend, task.host->workers,
+      &task.cancel_requested, &task, CpuReady);
+  if (!submitted) {
+    return compute_detail::Dispatch::failed(submitted);
+  }
+  return job->program->empty()
+             ? compute_detail::Dispatch::accepted_without_backend()
+             : compute_detail::Dispatch::backend_submitted();
 }
 
 [[nodiscard]] compute_detail::Advance
 AdvanceJobCpu(const compute_detail::Operation &operation,
               compute_detail::TaskState &task) noexcept {
   if (task.host == nullptr) {
-    return {.status =
-                compute::Status::fail(compute::Reason::RuntimeMissing)};
+    return compute_detail::Advance::failed(
+        compute::Status::fail(compute::Reason::RuntimeMissing));
   }
   compute::detail::CpuJobProgress progress =
       compute::detail::advance_cpu_job_on(
           JobOwner(operation.owner), task.host->async_worker_backend,
           &task.cancel_requested, &task, CpuReady);
   if (!progress) {
-    return {.status = progress.status};
+    return compute_detail::Advance::failed(progress.status);
   }
   if (!progress.complete()) {
-    return {};
+    return compute_detail::Advance::pending();
   }
   task.job_result.emplace(
       compute::Result<compute::detail::RunState>::success(
           std::move(*progress.run)));
-  return {.complete = true};
+  return compute_detail::Advance::complete();
 }
 
 [[nodiscard]] compute::Status
@@ -255,10 +259,14 @@ SubmitJobAccel(const compute_detail::Operation &operation,
                compute_detail::TaskState &task) noexcept {
   const std::shared_ptr<compute::detail::JobState> job =
       JobOwner(operation.owner);
-  return {.status = compute::detail::submit_job_on(job, {}, CompleteAsync,
-                                                   &task),
-          .backend_submitted = job != nullptr && job->program != nullptr &&
-                               !job->program->empty()};
+  const compute::Status submitted =
+      compute::detail::submit_job_on(job, {}, CompleteAsync, &task);
+  if (!submitted) {
+    return compute_detail::Dispatch::failed(submitted);
+  }
+  return job->program->empty()
+             ? compute_detail::Dispatch::accepted_without_backend()
+             : compute_detail::Dispatch::backend_submitted();
 }
 
 [[nodiscard]] compute::Status
@@ -308,31 +316,21 @@ ReservePipeline(const std::shared_ptr<void> &owner) noexcept {
   return compute::detail::queue_pipeline(PipelineOwner(owner));
 }
 
-struct PipelineStepDispatch final {
-  compute::Status status{compute::Status::success()};
-  bool complete{};
-  bool backend_submitted{};
-
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(status);
-  }
-};
-
-[[nodiscard]] PipelineStepDispatch
+[[nodiscard]] compute_detail::Advance
 SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
                    compute_detail::TaskState &task) noexcept {
   if (task.host == nullptr) {
-    return {.status =
-                compute::Status::fail(compute::Reason::CompletionInvalid)};
+    return compute_detail::Advance::failed(
+        compute::Status::fail(compute::Reason::CompletionInvalid));
   }
   const compute::detail::CpuPipelineSelection selected =
       compute::detail::select_cpu_pipeline_step(state,
                                                 task.pipeline_schedule);
   switch (selected.disposition()) {
   case compute::detail::CpuPipelineSelectionDisposition::Failed:
-    return {.status = selected.status()};
+    return compute_detail::Advance::failed(selected.status());
   case compute::detail::CpuPipelineSelectionDisposition::Complete:
-    return {.complete = true};
+    return compute_detail::Advance::complete();
   case compute::detail::CpuPipelineSelectionDisposition::Selected:
     break;
   }
@@ -345,7 +343,7 @@ SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
     const compute::Status completed =
         compute::detail::complete_cpu_pipeline_schedule_step(
             state, task.pipeline_schedule, submitted);
-    return {.status = completed ? submitted : completed};
+    return compute_detail::Advance::failed(completed ? submitted : completed);
   }
   const bool backend_submitted =
       job->program != nullptr && !job->program->empty();
@@ -354,10 +352,11 @@ SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
         compute::detail::begin_pipeline_step(state, selected.step());
     if (!started) {
       (void)compute::detail::cancel_job(job);
-      return {.status = started};
+      return compute_detail::Advance::failed(started);
     }
   }
-  return {.backend_submitted = backend_submitted};
+  return backend_submitted ? compute_detail::Advance::backend_submitted()
+                           : compute_detail::Advance::pending();
 }
 
 [[nodiscard]] compute_detail::Dispatch
@@ -369,16 +368,22 @@ SubmitPipelineCpu(const compute_detail::Operation &operation,
       compute::detail::initialize_cpu_pipeline_schedule(
           state, task.pipeline_schedule);
   if (!initialized) {
-    return {.status = initialized};
+    return compute_detail::Dispatch::failed(initialized);
   }
-  const PipelineStepDispatch submitted = SubmitPipelineStep(state, task);
-  if (!submitted) {
-    return {.status = submitted.status};
-  }
-  if (submitted.complete) {
+  const compute_detail::Advance submitted = SubmitPipelineStep(state, task);
+  switch (submitted.disposition()) {
+  case compute_detail::AdvanceDisposition::Failed:
+    return compute_detail::Dispatch::failed(submitted.status());
+  case compute_detail::AdvanceDisposition::Complete:
     CpuReady(&task);
+    return compute_detail::Dispatch::accepted_without_backend();
+  case compute_detail::AdvanceDisposition::Pending:
+    return compute_detail::Dispatch::accepted_without_backend();
+  case compute_detail::AdvanceDisposition::BackendSubmitted:
+    return compute_detail::Dispatch::backend_submitted();
   }
-  return {.backend_submitted = submitted.backend_submitted};
+  return compute_detail::Dispatch::failed(
+      compute::Status::fail(compute::Reason::CompletionInvalid));
 }
 
 [[nodiscard]] compute_detail::Advance
@@ -387,16 +392,16 @@ AdvancePipelineCpu(const compute_detail::Operation &operation,
   const std::shared_ptr<compute::detail::PipelineState> state =
       PipelineOwner(operation.owner);
   if (task.host == nullptr) {
-    return {.status =
-                compute::Status::fail(compute::Reason::CompletionInvalid)};
+    return compute_detail::Advance::failed(
+        compute::Status::fail(compute::Reason::CompletionInvalid));
   }
   if (task.pipeline_schedule.step == compute::detail::pipeline_size(state)) {
-    return {.complete = true};
+    return compute_detail::Advance::complete();
   }
   if (task.pipeline_schedule.step >
       compute::detail::pipeline_size(state)) {
-    return {.status =
-                compute::Status::fail(compute::Reason::CompletionInvalid)};
+    return compute_detail::Advance::failed(
+        compute::Status::fail(compute::Reason::CompletionInvalid));
   }
   const std::shared_ptr<compute::detail::JobState> job =
       compute::detail::pipeline_job(state, task.pipeline_schedule.step);
@@ -408,23 +413,19 @@ AdvancePipelineCpu(const compute_detail::Operation &operation,
     const compute::Status completed =
         compute::detail::complete_cpu_pipeline_schedule_step(
             state, task.pipeline_schedule, progress.status);
-    return {.status = completed ? progress.status : completed};
+    return compute_detail::Advance::failed(completed ? progress.status
+                                                     : completed);
   }
   if (!progress.complete()) {
-    return {};
+    return compute_detail::Advance::pending();
   }
   const compute::Status advanced =
       compute::detail::complete_cpu_pipeline_schedule_step(
           state, task.pipeline_schedule, compute::Status::success());
   if (!advanced) {
-    return {.status = advanced};
+    return compute_detail::Advance::failed(advanced);
   }
-  const PipelineStepDispatch submitted = SubmitPipelineStep(state, task);
-  if (!submitted) {
-    return {.status = submitted.status};
-  }
-  return {.complete = submitted.complete,
-          .backend_submitted = submitted.backend_submitted};
+  return SubmitPipelineStep(state, task);
 }
 
 [[nodiscard]] compute::Status
@@ -439,9 +440,14 @@ SubmitPipelineAccel(const compute_detail::Operation &operation,
                     compute_detail::TaskState &task) noexcept {
   const std::shared_ptr<compute::detail::PipelineState> pipeline =
       PipelineOwner(operation.owner);
-  return {.status = compute::detail::submit_pipeline_on(
-              pipeline, {}, CompletePipeline, &task),
-          .backend_submitted = pipeline != nullptr && pipeline->prepared.ok};
+  const compute::Status submitted = compute::detail::submit_pipeline_on(
+      pipeline, {}, CompletePipeline, &task);
+  if (!submitted) {
+    return compute_detail::Dispatch::failed(submitted);
+  }
+  return pipeline->prepared.ok
+             ? compute_detail::Dispatch::backend_submitted()
+             : compute_detail::Dispatch::accepted_without_backend();
 }
 
 [[nodiscard]] compute::Status

@@ -11,23 +11,101 @@ namespace rund::node::compute_detail {
 struct TaskState;
 struct Operation;
 
-struct Advance final {
-  compute::Status status{compute::Status::success()};
-  bool complete = false;
-  bool backend_submitted = false;
-
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(status);
-  }
+enum class DispatchDisposition : std::uint8_t {
+  Failed,
+  AcceptedNoBackend,
+  BackendSubmitted,
 };
 
-struct Dispatch final {
-  compute::Status status{compute::Status::success()};
-  bool backend_submitted = false;
-
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(status);
+class Dispatch final {
+public:
+  [[nodiscard]] static constexpr Dispatch
+  failed(compute::Status failure) noexcept {
+    if (failure) {
+      failure = compute::Status::fail(compute::Reason::CompletionInvalid);
+    }
+    return Dispatch{failure};
   }
+
+  [[nodiscard]] static constexpr Dispatch accepted_without_backend() noexcept {
+    return Dispatch{DispatchDisposition::AcceptedNoBackend};
+  }
+
+  [[nodiscard]] static constexpr Dispatch backend_submitted() noexcept {
+    return Dispatch{DispatchDisposition::BackendSubmitted};
+  }
+
+  [[nodiscard]] constexpr DispatchDisposition disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr compute::Status status() const noexcept {
+    return disposition_ == DispatchDisposition::Failed
+               ? failure_
+               : compute::Status::success();
+  }
+
+private:
+  explicit constexpr Dispatch(const compute::Status failure) noexcept
+      : disposition_(DispatchDisposition::Failed), failure_(failure) {}
+
+  explicit constexpr Dispatch(const DispatchDisposition disposition) noexcept
+      : disposition_(disposition) {}
+
+  DispatchDisposition disposition_ = DispatchDisposition::Failed;
+  compute::Status failure_ =
+      compute::Status::fail(compute::Reason::CompletionInvalid);
+};
+
+enum class AdvanceDisposition : std::uint8_t {
+  Failed,
+  Pending,
+  BackendSubmitted,
+  Complete,
+};
+
+class Advance final {
+public:
+  [[nodiscard]] static constexpr Advance
+  failed(compute::Status failure) noexcept {
+    if (failure) {
+      failure = compute::Status::fail(compute::Reason::CompletionInvalid);
+    }
+    return Advance{failure};
+  }
+
+  [[nodiscard]] static constexpr Advance pending() noexcept {
+    return Advance{AdvanceDisposition::Pending};
+  }
+
+  [[nodiscard]] static constexpr Advance backend_submitted() noexcept {
+    return Advance{AdvanceDisposition::BackendSubmitted};
+  }
+
+  [[nodiscard]] static constexpr Advance complete() noexcept {
+    return Advance{AdvanceDisposition::Complete};
+  }
+
+  [[nodiscard]] constexpr AdvanceDisposition disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr compute::Status status() const noexcept {
+    return disposition_ == AdvanceDisposition::Failed
+               ? failure_
+               : compute::Status::success();
+  }
+
+private:
+  explicit constexpr Advance(const compute::Status failure) noexcept
+      : disposition_(AdvanceDisposition::Failed), failure_(failure) {}
+
+  explicit constexpr Advance(const AdvanceDisposition disposition) noexcept
+      : disposition_(disposition) {}
+
+  AdvanceDisposition disposition_ = AdvanceDisposition::Failed;
+  compute::Status failure_ =
+      compute::Status::fail(compute::Reason::CompletionInvalid);
 };
 
 // Session erases Job and Pipeline once, at admission. This is the only

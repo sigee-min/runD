@@ -387,6 +387,7 @@ int RunRuntimeComputeHostContract() {
   TEST_ASSERT(result);
   const rund::compute::Poll completed = task.poll();
   TEST_ASSERT(completed.submitted);
+  TEST_ASSERT(completed.backend_submitted);
   TEST_ASSERT(completed.completed);
   TEST_ASSERT(completed.reason() == rund::compute::Reason::Ok);
   TEST_ASSERT(completed.code() == rund::compute::Code::Ok);
@@ -460,6 +461,7 @@ int RunRuntimeComputeHostContract() {
   TEST_ASSERT(empty_result);
   const rund::compute::Poll empty_poll = empty_task.poll();
   TEST_ASSERT(empty_poll.submitted);
+  TEST_ASSERT(!empty_poll.backend_submitted);
   TEST_ASSERT(empty_poll.completed);
   TEST_ASSERT(empty_result.stats().backend == rund::compute::Backend::Cpu);
   TEST_ASSERT(empty_result.stats().graph_hash != 0u);
