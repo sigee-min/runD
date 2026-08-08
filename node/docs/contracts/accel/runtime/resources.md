@@ -192,10 +192,16 @@ Encoder calls outside the frozen prefix fail closed, and appends cannot grow
 beyond those reservations. No current Pipeline encoder authors dynamic threadgroup-memory
 bindings, so no host threadgroup snapshot or ICB replay owner is retained.
 
-Metal Pipeline command storage has one adapter-calibrated size-class authority.
-Adapter opening allocates the exact Pipeline descriptor at capacities
-`1, 2, ..., 65,536`, freezes every nonzero monotonic `allocatedSize`, and then
-releases each probe. The descriptor admits both concurrent dispatch command
+Metal Pipeline command storage has one device-calibrated size-class authority.
+On the first opening of an exact nonzero Metal `registryID`, a locked fixed
+last-device process-cache entry allocates the exact Pipeline descriptor at
+capacities `1, 2, ..., 65,536`, freezes every nonzero monotonic
+`allocatedSize`, and then releases each probe. A later opening with the same ID
+copies the table without another native probe. A different ID cannot consume
+the entry and replaces it only with its own valid result; `A, B, A` therefore
+performs three misses. A failed probe leaves the prior valid entry unchanged
+and remains retryable, and a zero ID is never cached. The descriptor
+admits both concurrent dispatch command
 types, inherits neither pipeline state nor Buffers, exposes 31 kernel Buffer
 bindings and zero dynamic threadgroup-memory bindings where supported, and
 uses Shared storage. Because the SDK defines `maxKernelBufferBindCount` as a

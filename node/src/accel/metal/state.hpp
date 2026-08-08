@@ -7,8 +7,8 @@
 #include <kernel/program/compute/artifact.hpp>
 #include <kernel/program/compute/model.hpp>
 
-#include <condition_variable>
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -71,8 +71,9 @@ struct MetalAdapter {
   std::weak_ptr<void> owner_token{};
   std::shared_ptr<void> device{};
   std::shared_ptr<void> queue{};
-  // Immutable device-capability calibration. It is measured once while the
-  // adapter is opened and is never charged to an individual Pipeline owner.
+  // Immutable device-capability calibration. A successful exact-registry
+  // measurement is reused from the process cache and is never charged to an
+  // individual Pipeline owner.
   MetalIcbCalibration pipeline_icb_calibration{};
   rund::kernel::ComputeCaps caps{};
   rund::AccelBackendInfo info{};

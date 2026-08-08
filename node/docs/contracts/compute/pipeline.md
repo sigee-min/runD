@@ -1872,21 +1872,28 @@ fields that are structurally zero or Pipeline-owned.
 
 ### Metal
 
-Adapter opening calibrates the only Pipeline ICB descriptor on the selected
-device. It probes the 17 capacities `2^i`, `i = 0..16`, through the same
-allocation helper later used by materialization and freezes each nonzero,
-monotonic `allocatedSize` as device capability. The descriptor admits both
-concurrent thread and threadgroup dispatch command types, inherits neither
-pipeline state nor Buffers, exposes exactly 31 kernel Buffer bindings, exposes
-zero dynamic threadgroup-memory bindings where the SDK field exists, and uses
-Shared storage for CPU-authored commands. The SDK defines
+The first adapter opening for an exact nonzero Metal `registryID` calibrates
+the only Pipeline ICB descriptor on the selected device. It probes the 17
+capacities `2^i`, `i = 0..16`, through the same allocation helper later used by
+materialization and freezes each nonzero, monotonic `allocatedSize` as device
+capability. A mutex serializes lookup and the miss probe in one fixed
+last-device process-cache entry: a later opening with the retained ID copies
+the immutable table, while a different ID never consumes stale dimensions and
+replaces the entry only after its own valid probe. `A, B, A` therefore performs
+three misses. A failed probe leaves the prior valid entry unchanged and remains
+retryable. An unidentifiable zero-ID Device is probed but not cached. The cache
+owns no dynamic container and its lookup is `noexcept`. The descriptor admits
+both concurrent thread and threadgroup dispatch command types, inherits
+neither pipeline state nor Buffers, exposes exactly 31 kernel Buffer bindings,
+exposes zero dynamic threadgroup-memory bindings where the SDK field exists,
+and uses Shared storage for CPU-authored commands. The SDK defines
 `maxKernelBufferBindCount` as the maximum bind index rather than a cardinality,
 but native A/B execution rejects Pipeline commands binding guard index 30 when
 the descriptor value is 30 and passes the same semantic suite at 31. The frozen
 descriptor therefore retains the empirically required value 31 for the
 admitted indices `0..30`; changing it requires equivalent native execution
-evidence, not header wording alone. A calibration failure leaves the
-standalone Metal adapter usable and rejects only Pipeline planning with
+evidence, not header wording alone. A calibration failure leaves the standalone
+Metal adapter usable and rejects only Pipeline planning with
 `accel_metal_icb_calibration_failed`.
 
 For a frozen command upper `D`, the sole chunk planner defines
@@ -3808,12 +3815,16 @@ can claim the Pipeline contract:
     Warm execution walks only the 16-byte retained
     chunk records, with no command, binding, indirect-grid, or recurrence-state
     traversal. Pure contracts cover zero, class-boundary, multi-full, tail, and
-    overflow decomposition on every platform; Metal-native contracts require
-    all 17 calibrated `allocatedSize` values to match reallocation, or require
-    the narrower Pipeline calibration failure while standalone Metal remains
-    available. The explicit `--metal-icb-boundary` route crosses 65,536 with a
-    write immediately before and read immediately after the boundary, requiring
-    exact result parity, one direct boundary barrier, and one native submission.
+    overflow decomposition on every platform. Portable cache-state contracts
+    inject counted probes and cover zero-ID bypass, `A, A`, valid `A` plus
+    failed `B` preserving `A`, failure then retry, `A, B, A` replacement, and
+    concurrent same-`A` coalescing to one probe. Metal-native contracts require
+    all 17 adapter-calibrated `allocatedSize` values to match reallocation, or
+    require the narrower Pipeline calibration failure while standalone Metal
+    remains available. The explicit `--metal-icb-boundary` route crosses
+    65,536 with a write immediately before and read immediately after the
+    boundary, requiring exact result parity, one direct boundary barrier, and
+    one native submission.
     Focused semantic tests and an immediate-pre-edit/after ABBA measurement are
     both required; a one-submit counter alone is not hard-cut evidence.
 30. the exact `WindowIndexedReduceSumU32` aggregate proof rejects every

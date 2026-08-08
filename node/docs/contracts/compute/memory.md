@@ -482,9 +482,14 @@ It prevents two mutually exclusive finalizer workspaces from being reported as
 simultaneously live while retaining every final current owner. Storage that is
 actually concurrent within one owner continues to use additive composition.
 Metal Pipeline ICB storage is the explicit exception to “unqueryable” native
-bookkeeping: adapter opening probes `allocatedSize` for the exact descriptor at
-all power-of-two capacities from 1 through 65,536. For command count `D`, the
-reservation charges every full 65,536-command class plus the
+bookkeeping: the first adapter opening for an exact nonzero Metal `registryID`
+probes `allocatedSize` for the exact descriptor at all power-of-two capacities
+from 1 through 65,536. A locked fixed last-device process-cache entry lets
+later adapters with that same retained ID copy the immutable table, while a
+different ID replaces the entry only after its own valid probe. `A, B, A`
+therefore performs three misses. A failed probe leaves the prior valid entry
+unchanged and remains retryable; a zero ID is never cached. For command
+count `D`, the reservation charges every full 65,536-command class plus the
 next-power-of-two tail class exactly, exposes their sum as
 `backend_command_native_bytes`, counts the native objects as
 `backend_command_chunk_count`, and adds one 16-byte retained host record per

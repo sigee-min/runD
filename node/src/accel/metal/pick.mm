@@ -2,8 +2,10 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "kernel/pipeline/calibration.hpp"
 #include "object.hpp"
 #include "state.hpp"
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
@@ -30,15 +32,14 @@ namespace {
 }
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-[[nodiscard]] bool CalibrateMetalPipelineIcbs(
-    id<MTLDevice> const device,
-    MetalIcbCalibration &calibration) noexcept {
+[[nodiscard]] bool
+CalibrateMetalPipelineIcbs(id<MTLDevice> const device,
+                           MetalIcbCalibration &calibration) noexcept {
   calibration = {};
   if (device == nil) {
     return false;
   }
-  for (std::uint32_t index = 0u; index < MetalPipelineIcbClassCount;
-       ++index) {
+  for (std::uint32_t index = 0u; index < MetalPipelineIcbClassCount; ++index) {
     @autoreleasepool {
       const NSUInteger capacity = NSUInteger{1u} << index;
       id<MTLIndirectCommandBuffer> const probe =
@@ -46,8 +47,7 @@ namespace {
       const std::uint64_t bytes =
           probe == nil ? 0u : static_cast<std::uint64_t>(probe.allocatedSize);
       if (probe == nil || probe.size != capacity || bytes == 0u ||
-          (index != 0u &&
-           bytes < calibration.allocated_bytes[index - 1u])) {
+          (index != 0u && bytes < calibration.allocated_bytes[index - 1u])) {
         calibration = {};
         return false;
       }
@@ -55,6 +55,27 @@ namespace {
     }
   }
   return ValidMetalIcbCalibration(calibration);
+}
+
+[[nodiscard]] MetalIcbCalibrationCache &MetalIcbProcessCache() {
+  static MetalIcbCalibrationCache cache{};
+  return cache;
+}
+
+[[nodiscard]] MetalIcbCalibration
+LoadMetalIcbCalibration(id<MTLDevice> const device) noexcept {
+  if (device == nil) {
+    return {};
+  }
+  const std::uint64_t registry_id =
+      static_cast<std::uint64_t>(device.registryID);
+  // registryID is the sole exact physical-Device identity available through
+  // PickMetal. Never cache an unidentifiable Device or reuse another Device's
+  // native allocation dimensions.
+  auto probe = [device](MetalIcbCalibration &calibration) noexcept {
+    return CalibrateMetalPipelineIcbs(device, calibration);
+  };
+  return MetalIcbProcessCache().load(registry_id, probe);
 }
 #endif
 
@@ -77,11 +98,11 @@ rund::AccelDevice PickMetal() {
     if (queue == nil) {
       return RejectMetal("accel_metal_queue_unavailable");
     }
-    MetalIcbCalibration pipeline_icb_calibration{};
+    const MetalIcbCalibration pipeline_icb_calibration =
+        LoadMetalIcbCalibration(device);
     // Standalone Metal execution does not require an ICB. Preserve that
     // capability if calibration is unavailable and reject only Pipeline
     // planning at the narrower authority boundary.
-    (void)CalibrateMetalPipelineIcbs(device, pipeline_icb_calibration);
 
     try {
       std::shared_ptr<MetalAdapter> adapter = std::make_shared<MetalAdapter>();

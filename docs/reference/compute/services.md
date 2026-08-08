@@ -446,9 +446,15 @@ Job/prepared-resource owners across the cold-frozen stream and perform one
 native submission with no warm allocation, compilation, descriptor growth,
 rebind, count readback, or fallback.
 
-Metal normal command buffers are single-use. Adapter opening therefore probes
-the exact Pipeline ICB descriptor at the 17 power-of-two capacities from 1
-through 65,536 and freezes each native `allocatedSize`. Cold preparation owns
+Metal normal command buffers are single-use. The first adapter opening for an
+exact nonzero Metal `registryID` therefore probes the Pipeline ICB descriptor
+at the 17 power-of-two capacities from 1 through 65,536 and freezes each native
+`allocatedSize` in one locked last-device process-cache entry. Later openings
+with the retained ID copy that immutable table. A different ID never reuses it
+and replaces the entry only after its own successful probe, so `A, B, A`
+reprobes all three misses. A failed probe leaves the prior valid entry unchanged
+and remains retryable, while an unidentifiable Device is probed without
+caching. Cold preparation owns
 one globally ordered guarded stream split into 65,536-command full chunks and
 the smallest power-of-two tail chunk. Pipeline-private kernels reserve Buffer
 index 30, unowned controls bind zero, recurrence-owned payloads bind the

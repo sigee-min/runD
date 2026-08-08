@@ -1,14 +1,21 @@
+#include "src/accel/metal/kernel/pipeline/calibration.hpp"
+
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <thread>
+#include <type_traits>
+#include <utility>
+
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-#include "src/accel/metal/kernel/template_memory.hpp"
 #include "src/accel/metal/buffer/owner.hpp"
 #include "src/accel/metal/kernel/local.hpp"
 #include "src/accel/metal/kernel/pipeline/build.hpp"
-#include "src/accel/metal/kernel/pipeline/icb.hpp"
+#include "src/accel/metal/kernel/template_memory.hpp"
 
 #import <Metal/Metal.h>
 
-#include <array>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string_view>
@@ -20,9 +27,177 @@ namespace rund::node::accel::detail {
 
 namespace node_accel_contract {
 
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 namespace {
 
+using rund::node::accel::detail::MetalIcbCalibration;
+using rund::node::accel::detail::MetalIcbCalibrationCache;
+
+[[nodiscard]] constexpr MetalIcbCalibration
+Calibration(const std::uint64_t base) noexcept {
+  MetalIcbCalibration calibration{};
+  for (std::uint64_t index = 0u; index < calibration.allocated_bytes.size();
+       ++index) {
+    calibration.allocated_bytes[index] = base + 64u * index;
+  }
+  return calibration;
+}
+
+struct FixedCalibrationProbe final {
+  std::atomic<std::uint32_t> *calls{};
+  MetalIcbCalibration calibration{};
+  bool succeeds{};
+
+  [[nodiscard]] bool operator()(MetalIcbCalibration &out) noexcept {
+    calls->fetch_add(1u, std::memory_order_relaxed);
+    if (!succeeds) {
+      return false;
+    }
+    out = calibration;
+    return true;
+  }
+};
+
+struct RetryCalibrationProbe final {
+  std::atomic<std::uint32_t> calls{};
+  MetalIcbCalibration calibration{};
+
+  [[nodiscard]] bool operator()(MetalIcbCalibration &out) noexcept {
+    const std::uint32_t call =
+        calls.fetch_add(1u, std::memory_order_relaxed) + 1u;
+    if (call == 1u) {
+      return false;
+    }
+    out = calibration;
+    return true;
+  }
+};
+
+[[nodiscard]] bool SameCalibration(const MetalIcbCalibration &left,
+                                   const MetalIcbCalibration &right) noexcept {
+  return left.allocated_bytes == right.allocated_bytes;
+}
+
+[[nodiscard]] bool MetalIcbCalibrationCacheContract() {
+  constexpr MetalIcbCalibration a = Calibration(256u);
+  constexpr MetalIcbCalibration b = Calibration(512u);
+  static_assert(rund::node::accel::detail::ValidMetalIcbCalibration(a));
+  static_assert(rund::node::accel::detail::ValidMetalIcbCalibration(b));
+  static_assert(
+      std::is_nothrow_default_constructible_v<MetalIcbCalibrationCache>);
+  static_assert(noexcept(std::declval<MetalIcbCalibrationCache &>().load(
+      1u, std::declval<FixedCalibrationProbe &>())));
+
+  {
+    MetalIcbCalibrationCache cache{};
+    std::atomic<std::uint32_t> a_calls{};
+    std::atomic<std::uint32_t> zero_calls{};
+    FixedCalibrationProbe a_probe{&a_calls, a, true};
+    FixedCalibrationProbe zero_probe{&zero_calls, b, true};
+    const MetalIcbCalibration first = cache.load(11u, a_probe);
+    const MetalIcbCalibration zero_first = cache.load(0u, zero_probe);
+    const MetalIcbCalibration zero_second = cache.load(0u, zero_probe);
+    const MetalIcbCalibration repeated = cache.load(11u, a_probe);
+    if (!SameCalibration(first, a) || !SameCalibration(zero_first, b) ||
+        !SameCalibration(zero_second, b) || !SameCalibration(repeated, a) ||
+        a_calls.load(std::memory_order_relaxed) != 1u ||
+        zero_calls.load(std::memory_order_relaxed) != 2u) {
+      return false;
+    }
+  }
+
+  {
+    MetalIcbCalibrationCache cache{};
+    std::atomic<std::uint32_t> calls{};
+    FixedCalibrationProbe probe{&calls, a, true};
+    const MetalIcbCalibration first = cache.load(17u, probe);
+    const MetalIcbCalibration repeated = cache.load(17u, probe);
+    if (!SameCalibration(first, a) || !SameCalibration(repeated, a) ||
+        calls.load(std::memory_order_relaxed) != 1u) {
+      return false;
+    }
+  }
+
+  {
+    MetalIcbCalibrationCache cache{};
+    std::atomic<std::uint32_t> a_calls{};
+    std::atomic<std::uint32_t> b_calls{};
+    FixedCalibrationProbe a_probe{&a_calls, a, true};
+    FixedCalibrationProbe b_failure{&b_calls, b, false};
+    const MetalIcbCalibration first = cache.load(23u, a_probe);
+    const MetalIcbCalibration failed = cache.load(29u, b_failure);
+    const MetalIcbCalibration preserved = cache.load(23u, a_probe);
+    if (!SameCalibration(first, a) ||
+        rund::node::accel::detail::ValidMetalIcbCalibration(failed) ||
+        !SameCalibration(preserved, a) ||
+        a_calls.load(std::memory_order_relaxed) != 1u ||
+        b_calls.load(std::memory_order_relaxed) != 1u) {
+      return false;
+    }
+  }
+
+  {
+    MetalIcbCalibrationCache cache{};
+    RetryCalibrationProbe probe{{}, a};
+    const MetalIcbCalibration failed = cache.load(31u, probe);
+    const MetalIcbCalibration retried = cache.load(31u, probe);
+    const MetalIcbCalibration repeated = cache.load(31u, probe);
+    if (rund::node::accel::detail::ValidMetalIcbCalibration(failed) ||
+        !SameCalibration(retried, a) || !SameCalibration(repeated, a) ||
+        probe.calls.load(std::memory_order_relaxed) != 2u) {
+      return false;
+    }
+  }
+
+  {
+    MetalIcbCalibrationCache cache{};
+    std::atomic<std::uint32_t> a_calls{};
+    std::atomic<std::uint32_t> b_calls{};
+    FixedCalibrationProbe a_probe{&a_calls, a, true};
+    FixedCalibrationProbe b_probe{&b_calls, b, true};
+    const MetalIcbCalibration a_first = cache.load(37u, a_probe);
+    const MetalIcbCalibration b_first = cache.load(41u, b_probe);
+    const MetalIcbCalibration a_second = cache.load(37u, a_probe);
+    if (!SameCalibration(a_first, a) || !SameCalibration(b_first, b) ||
+        !SameCalibration(a_second, a) ||
+        a_calls.load(std::memory_order_relaxed) != 2u ||
+        b_calls.load(std::memory_order_relaxed) != 1u) {
+      return false;
+    }
+  }
+
+  {
+    constexpr std::size_t ThreadCount = 8u;
+    MetalIcbCalibrationCache cache{};
+    std::atomic<std::uint32_t> calls{};
+    std::atomic<bool> start{};
+    FixedCalibrationProbe probe{&calls, a, true};
+    std::array<MetalIcbCalibration, ThreadCount> calibrations{};
+    std::array<std::thread, ThreadCount> threads{};
+    for (std::size_t index = 0u; index < threads.size(); ++index) {
+      threads[index] = std::thread([&, index] {
+        while (!start.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+        calibrations[index] = cache.load(43u, probe);
+      });
+    }
+    start.store(true, std::memory_order_release);
+    for (std::thread &thread : threads) {
+      thread.join();
+    }
+    for (const MetalIcbCalibration &calibration : calibrations) {
+      if (!SameCalibration(calibration, a)) {
+        return false;
+      }
+    }
+    if (calls.load(std::memory_order_relaxed) != 1u) {
+      return false;
+    }
+  }
+  return true;
+}
+
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 [[nodiscard]] bool ExactMetalIcbDescriptorContract() {
   using namespace rund::node::accel::detail;
   @autoreleasepool {
@@ -47,9 +222,9 @@ namespace {
   }
 }
 
-} // namespace
-
 #endif
+
+} // namespace
 
 [[nodiscard]] bool MetalTemplateMemoryContract() {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
@@ -144,6 +319,9 @@ namespace {
 }
 
 [[nodiscard]] bool MetalIcbCalibrationContract() {
+  if (!MetalIcbCalibrationCacheContract()) {
+    return false;
+  }
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   using namespace rund::node::accel::detail;
   if (!ExactMetalIcbDescriptorContract()) {
