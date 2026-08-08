@@ -4,17 +4,39 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 bool CreateVulkanStencilDescriptorSet(VulkanAdapter &adapter,
-                                      VulkanStencilEncodeResources &resources) {
-  if (!AcquireVulkanCollectiveDescriptorSet(adapter, *resources.pipeline,
-                                            kStencilDescriptorCount,
-                                            resources.descriptor_set)) {
+                                      VulkanStencilEncodeResources &resources,
+                                      const std::uint32_t stage_index) {
+  if (stage_index >= resources.stage_count ||
+      resources.pipelines[stage_index] == nullptr) {
     return false;
   }
-  return WriteVulkanStorageDescriptorSet(
-      adapter, resources.descriptor_set,
-      std::array<VulkanStorageBinding, kStencilDescriptorCount>{
-          VulkanStorageBindingFor(resources.params), resources.input_binding,
-          resources.output_binding});
+  const std::uint32_t descriptor_count =
+      StencilRangeDescriptorCount(resources.range);
+  if (!AcquireVulkanCollectiveDescriptorSet(
+          adapter, *resources.pipelines[stage_index], descriptor_count,
+          resources.descriptor_sets[stage_index])) {
+    return false;
+  }
+  const VulkanStorageBinding params =
+      VulkanStorageBindingFor(resources.params[stage_index]);
+  if (descriptor_count == kStencilDirectDescriptorCount) {
+    return WriteVulkanStorageDescriptorSet(
+        adapter, resources.descriptor_sets[stage_index],
+        std::array<VulkanStorageBinding, kStencilDirectDescriptorCount>{
+            params, resources.input_binding, resources.output_binding});
+  }
+  const VulkanBuffer *scratch0 = nullptr;
+  const VulkanBuffer *scratch1 = nullptr;
+  return descriptor_count == kStencilRangeDescriptorCount &&
+         VulkanStencilStageScratchBindings(resources, stage_index, scratch0,
+                                           scratch1) &&
+         scratch0 != nullptr && scratch1 != nullptr &&
+         WriteVulkanStorageDescriptorSet(
+             adapter, resources.descriptor_sets[stage_index],
+             std::array<VulkanStorageBinding, kStencilRangeDescriptorCount>{
+                 params, resources.input_binding, resources.output_binding,
+                 VulkanStorageBindingFor(*scratch0),
+                 VulkanStorageBindingFor(*scratch1)});
 }
 #endif
 

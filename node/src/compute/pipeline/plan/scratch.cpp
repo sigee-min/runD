@@ -14,10 +14,12 @@
 
 namespace rund::compute::detail {
 
-Status plan_pipeline_scratch(const DeviceState &device,
-                             const std::span<const ProgramState *const> programs,
-                             PipelineMemoryPlan &plan) {
+Status
+plan_pipeline_scratch(const DeviceState &device,
+                      const std::span<const ProgramState *const> programs,
+                      PipelineMemoryPlan &plan) {
   plan.scratch.clear();
+  plan.summary.scratch_payload_bytes = 0u;
   plan.summary.scratch_bytes = 0u;
   plan.summary.scratch_count = 0u;
   if (device.backend == Backend::Cpu) {
@@ -37,6 +39,7 @@ Status plan_pipeline_scratch(const DeviceState &device,
   }
   std::size_t page_count = 0u;
   std::uint64_t last_bytes = 0u;
+  std::uint64_t payload_bytes = 0u;
   for (const ProgramState *const program : programs) {
     if (program == nullptr) {
       return Status::fail(Reason::PipelineInvalid);
@@ -53,6 +56,26 @@ Status plan_pipeline_scratch(const DeviceState &device,
     if (!scratch.ok) {
       return Status::fail(
           project_reason(scratch.reason, Reason::LoweringInvalid));
+    }
+    payload_bytes = std::max(payload_bytes, scratch.payload_bytes);
+    std::uint64_t expected_backing = 0u;
+    if (scratch.page_count != 0u) {
+      std::uint64_t leading = 0u;
+      if (scratch.last_bytes == 0u || scratch.last_bytes > page ||
+          scratch.page_count - 1u >
+              static_cast<std::size_t>(
+                  std::numeric_limits<std::uint64_t>::max()) ||
+          !kernel::checked::mul(
+              static_cast<std::uint64_t>(scratch.page_count - 1u), page,
+              leading) ||
+          !kernel::checked::add(leading, scratch.last_bytes,
+                                expected_backing) ||
+          expected_backing != scratch.backing_bytes) {
+        return Status::fail(Reason::PipelineCapacity);
+      }
+    } else if (scratch.last_bytes != 0u || scratch.backing_bytes != 0u ||
+               scratch.payload_bytes != 0u) {
+      return Status::fail(Reason::PipelineCapacity);
     }
     if (scratch.page_count > page_count) {
       page_count = scratch.page_count;
@@ -86,6 +109,10 @@ Status plan_pipeline_scratch(const DeviceState &device,
                             plan.summary.prepared_buffer_bytes)) {
     return Status::fail(Reason::PipelineCapacity);
   }
+  if (payload_bytes > physical) {
+    return Status::fail(Reason::PipelineCapacity);
+  }
+  plan.summary.scratch_payload_bytes = payload_bytes;
   plan.summary.scratch_bytes = physical;
   plan.summary.scratch_count = plan.scratch.size();
   return Status::success();

@@ -3124,11 +3124,12 @@ PSO tuple, and prepares every route before publication. A failed source,
 native pipeline, tuple freeze, route, or allocation publishes nothing; a
 step-owned failure records that Program node and preserves its native reason,
 while allocation failure is `compute_pipeline_capacity`. `view_bytes`,
-`view_step`, `view_iteration`, and `view_binding`
-identify the largest View requirement; `scratch_bytes` and `scratch_count`
-identify the accelerator scratch backing and page count; `largest_*` continues
-to identify Program workspace. `total_bytes = persistent_bytes + peak_bytes`
-is checked without saturation. `MemoryBudget` admits `peak_bytes`; a budget
+`view_step`, `view_iteration`, and `view_binding` identify the largest View
+requirement; `scratch_payload_bytes` identifies the accelerator scratch
+simultaneous-live logical high-water, while `scratch_bytes` and `scratch_count`
+identify its retained aligned backing and page count; `largest_*` continues to
+identify Program workspace. `total_bytes = persistent_bytes + peak_bytes` is
+checked without saturation. `MemoryBudget` admits `peak_bytes`; a budget
 failure therefore occurs before state/workspace/View Buffers, CPU run storage,
 private Jobs, or accelerator command materialization.
 
@@ -3224,10 +3225,11 @@ materialization. After successful prepare, `memory()` and `memory_snapshot()`
 enumerate View/scratch Buffers, CPU storage, and native owners once and measure
 retained host, tile, device, resident, and staging categories from their actual
 owners. Snapshot rows classify accelerator scratch as `MemoryUse::Scratch`;
-Resident rows report logical Buffer payload and Device rows report actual
-physical allocation. Backend allocation or native preparation failure retains
-the typed Reason, template/occurrence and nested coordinates when known, and a
-process-lifetime native reason key.
+Resident rows report retained aligned Buffer backing rather than logical
+temporary-role payload, and Device rows report actual physical allocation.
+Backend allocation or native preparation failure retains the typed Reason,
+template/occurrence and nested coordinates when known, and a process-lifetime
+native reason key.
 
 Host-width binding, View, snapshot, and recurrence products consume the one
 private `compute/size.hpp` law; U64 plan totals consume the Kernel checked law.

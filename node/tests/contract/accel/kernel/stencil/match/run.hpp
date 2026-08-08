@@ -8,6 +8,20 @@
 
 namespace node_accel_contract::stencil {
 
+template <typename T, std::size_t Count>
+[[nodiscard]] bool MatchesDirectAndForcedRangePath(
+    const rund::AccelDevice &pick, const rund::kernel::ComputeScalar scalar,
+    const rund::kernel::ComputeDomain domain, const rund::kernel::StencilOp op,
+    const rund::kernel::StencilElement element, const rund::kernel::u64 radius,
+    const std::array<T, Count> &input,
+    const match_detail::ForcedRangeAggregatePath path) {
+  return MatchesForcedPathReference(
+             pick, scalar, domain, op, element, radius, input,
+             match_detail::ForcedRangeAggregatePath::Direct) &&
+         MatchesForcedPathReference(pick, scalar, domain, op, element, radius,
+                                    input, path);
+}
+
 bool MatchesU32(const rund::AccelDevice &pick) {
   return MatchesReference<rund::kernel::u32>(
       pick, rund::kernel::ComputeScalar::Lane32,
@@ -78,7 +92,7 @@ bool MatchesCapabilitySharedBoundaryU32(const rund::AccelDevice &pick,
       rund::kernel::StencilElement::U32, radius, input);
 }
 
-bool MatchesDirectVariantU32(const rund::AccelDevice &pick) {
+bool MatchesPrefixDifferenceU32(const rund::AccelDevice &pick) {
   std::array<rund::kernel::u32, 257u> input{};
   for (std::size_t index = 0u; index < input.size(); ++index) {
     input[index] =
@@ -88,6 +102,50 @@ bool MatchesDirectVariantU32(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane32,
       rund::kernel::ComputeDomain::U32, rund::kernel::StencilOp::Sum,
       rund::kernel::StencilElement::U32, 257u, input);
+}
+
+bool MatchesForcedPrefixDifferenceU32(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u32, 257u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] =
+        static_cast<rund::kernel::u32>(index * index + 3u * index + 1u);
+  }
+  return MatchesDirectAndForcedRangePath(
+      pick, rund::kernel::ComputeScalar::Lane32,
+      rund::kernel::ComputeDomain::U32, rund::kernel::StencilOp::Sum,
+      rund::kernel::StencilElement::U32, 257u, input,
+      match_detail::ForcedRangeAggregatePath::PrefixDifference);
+}
+
+bool MatchesForcedPrefixDifferenceU64(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u64, 257u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] =
+        static_cast<rund::kernel::u64>(index) * 11400714819323198485ull +
+        static_cast<rund::kernel::u64>(index % 23u) * 14029467366897019727ull;
+  }
+  return MatchesDirectAndForcedRangePath(
+      pick, rund::kernel::ComputeScalar::Lane64,
+      rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Sum,
+      rund::kernel::StencilElement::U64, 257u, input,
+      match_detail::ForcedRangeAggregatePath::PrefixDifference);
+}
+
+// 65,537 is deliberately one past 256^2.  It creates at least three prefix
+// hierarchy levels for every legal RangeAggregate width (64, 128, or 256),
+// so the run proves that summary-role bindings and reverse fix-up are not
+// limited to the first local block layer.
+bool MatchesDeepPrefixHierarchyU32(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u32, 65537u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] = static_cast<rund::kernel::u32>(index * 2654435761u +
+                                                  (index % 29u) * 2246822519u);
+  }
+  return MatchesForcedPathReference(
+      pick, rund::kernel::ComputeScalar::Lane32,
+      rund::kernel::ComputeDomain::U32, rund::kernel::StencilOp::Sum,
+      rund::kernel::StencilElement::U32, 257u, input,
+      match_detail::ForcedRangeAggregatePath::PrefixDifference);
 }
 
 bool MatchesMinU32(const rund::AccelDevice &pick) {
@@ -115,7 +173,7 @@ bool MatchesMinI32(const rund::AccelDevice &pick) {
                                         0xfffffff9u});
 }
 
-bool MatchesDirectMinI32(const rund::AccelDevice &pick) {
+bool MatchesBlockPrefixSuffixMinI32(const rund::AccelDevice &pick) {
   std::array<rund::kernel::u32, 257u> input{};
   for (std::size_t index = 0u; index < input.size(); ++index) {
     input[index] = static_cast<rund::kernel::u32>(index * 747796405u +
@@ -129,7 +187,7 @@ bool MatchesDirectMinI32(const rund::AccelDevice &pick) {
       rund::kernel::StencilElement::U32, 257u, input);
 }
 
-bool MatchesDirectMaxI32(const rund::AccelDevice &pick) {
+bool MatchesBlockPrefixSuffixMaxI32(const rund::AccelDevice &pick) {
   std::array<rund::kernel::u32, 257u> input{};
   for (std::size_t index = 0u; index < input.size(); ++index) {
     input[index] = static_cast<rund::kernel::u32>(index * 747796405u +
@@ -143,7 +201,7 @@ bool MatchesDirectMaxI32(const rund::AccelDevice &pick) {
       rund::kernel::StencilElement::U32, 257u, input);
 }
 
-bool MatchesDirectMinU64(const rund::AccelDevice &pick) {
+bool MatchesBlockPrefixSuffixMinU64(const rund::AccelDevice &pick) {
   std::array<rund::kernel::u64, 257u> input{};
   for (std::size_t index = 0u; index < input.size(); ++index) {
     input[index] =
@@ -158,7 +216,7 @@ bool MatchesDirectMinU64(const rund::AccelDevice &pick) {
       rund::kernel::StencilElement::U64, 257u, input);
 }
 
-bool MatchesDirectMaxU64(const rund::AccelDevice &pick) {
+bool MatchesBlockPrefixSuffixMaxU64(const rund::AccelDevice &pick) {
   std::array<rund::kernel::u64, 257u> input{};
   for (std::size_t index = 0u; index < input.size(); ++index) {
     input[index] =
@@ -171,6 +229,68 @@ bool MatchesDirectMaxU64(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane64,
       rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Max,
       rund::kernel::StencilElement::U64, 257u, input);
+}
+
+bool MatchesForcedBlockPrefixSuffixMinI32(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u32, 257u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] = static_cast<rund::kernel::u32>(index * 747796405u +
+                                                  (index % 17u) * 2891336453u);
+  }
+  input[31u] = 0x80000000u;
+  input[197u] = 0x7fffffffu;
+  return MatchesDirectAndForcedRangePath(
+      pick, rund::kernel::ComputeScalar::Lane32,
+      rund::kernel::ComputeDomain::I32, rund::kernel::StencilOp::Min,
+      rund::kernel::StencilElement::U32, 257u, input,
+      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+}
+
+bool MatchesForcedBlockPrefixSuffixMaxI32(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u32, 257u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] = static_cast<rund::kernel::u32>(index * 747796405u +
+                                                  (index % 17u) * 2891336453u);
+  }
+  input[31u] = 0x80000000u;
+  input[197u] = 0x7fffffffu;
+  return MatchesDirectAndForcedRangePath(
+      pick, rund::kernel::ComputeScalar::Lane32,
+      rund::kernel::ComputeDomain::I32, rund::kernel::StencilOp::Max,
+      rund::kernel::StencilElement::U32, 257u, input,
+      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+}
+
+bool MatchesForcedBlockPrefixSuffixMinU64(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u64, 257u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] =
+        static_cast<rund::kernel::u64>(index) * 11400714819323198485ull +
+        static_cast<rund::kernel::u64>(index % 19u) * 14029467366897019727ull;
+  }
+  input[43u] = 0u;
+  input[211u] = std::numeric_limits<rund::kernel::u64>::max();
+  return MatchesDirectAndForcedRangePath(
+      pick, rund::kernel::ComputeScalar::Lane64,
+      rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Min,
+      rund::kernel::StencilElement::U64, 257u, input,
+      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+}
+
+bool MatchesForcedBlockPrefixSuffixMaxU64(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u64, 257u> input{};
+  for (std::size_t index = 0u; index < input.size(); ++index) {
+    input[index] =
+        static_cast<rund::kernel::u64>(index) * 11400714819323198485ull +
+        static_cast<rund::kernel::u64>(index % 19u) * 14029467366897019727ull;
+  }
+  input[43u] = 0u;
+  input[211u] = std::numeric_limits<rund::kernel::u64>::max();
+  return MatchesDirectAndForcedRangePath(
+      pick, rund::kernel::ComputeScalar::Lane64,
+      rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Max,
+      rund::kernel::StencilElement::U64, 257u, input,
+      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
 }
 
 } // namespace node_accel_contract::stencil

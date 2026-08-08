@@ -4,6 +4,7 @@
 #include <accel/device.hpp>
 
 #include "../kernel/bindings/stencil.hpp"
+#include "../range_aggregate/model.hpp"
 #include <kernel/program/compute/stencil/model.hpp>
 
 #include <memory>
@@ -13,14 +14,18 @@ namespace rund::node::accel::detail {
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
+[[nodiscard]] RangeAggregateCapabilities
+VulkanRangeAggregateCapabilities(const rund::AccelDevice &pick) noexcept;
+
 [[nodiscard]] rund::AccelCheck ExecuteVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings);
+    const StencilBinds &bindings, const RangeAggregatePlan &range);
 [[nodiscard]] rund::AccelCheck PrepareVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings, std::shared_ptr<void> &resources,
+    const StencilBinds &bindings, const RangeAggregatePlan &range,
+    std::shared_ptr<void> &resources,
     const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck
 EncodeVulkanStencil(VulkanAdapter &adapter,

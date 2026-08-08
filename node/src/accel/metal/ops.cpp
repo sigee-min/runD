@@ -3,6 +3,7 @@
 #include "../backend/usage.hpp"
 #include "../kernel/backend/execute.hpp"
 
+#include "../stencil/metal.hpp"
 #include "buffer/owner.hpp"
 #include "kernel.hpp"
 #include "kernel/manifest.hpp"
@@ -144,6 +145,7 @@ const BackendOps Operations{
     .stats = Stats,
     .reset = ResetMetalRuntimeStats,
     .memory = Memory,
+    .range_aggregate_capabilities = MetalRangeAggregateCapabilities,
     .run = RunMetalKernel,
     .prepare = PrepareMetalKernel,
     .plan_pipeline_private = PlanMetalPipelinePrivateKernel,

@@ -16,26 +16,29 @@ namespace rund::node::accel::detail {
     SetMetalLastError(adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
-  if (!StencilPhysicalGroupsFit(state.stencil->plan.element_count,
-                                std::numeric_limits<std::uint32_t>::max(),
-                                state.stencil->shape)) {
-    SetMetalLastError(adapter, "compute_dispatch_overflow");
-    return rund::AccelCheck{false, "compute_dispatch_overflow"};
+  if (state.stencil->stage_count == 0u ||
+      state.stencil->stage_count != state.stencil->range.stage_count()) {
+    SetMetalLastError(adapter, "compute_stencil_invalid");
+    return rund::AccelCheck{false, "compute_stencil_invalid"};
+  }
+  for (std::size_t index = 0u; index < state.stencil->stage_count; ++index) {
+    if (state.stencil->pipelines[index] == nullptr ||
+        !RangeAggregateStageDispatchFits(
+            state.stencil->range, index,
+            std::numeric_limits<std::uint32_t>::max())) {
+      SetMetalLastError(adapter, "compute_dispatch_overflow");
+      return rund::AccelCheck{false, "compute_dispatch_overflow"};
+    }
   }
   state.encoder = (__bridge id<MTLComputeCommandEncoder>)command_encoder;
-  state.pipeline =
-      (__bridge id<MTLComputePipelineState>)state.stencil->pipeline.get();
   state.input =
       (__bridge id<MTLBuffer>)state.stencil->input.device_buffer.get();
   state.output =
       (__bridge id<MTLBuffer>)state.stencil->output.device_buffer.get();
-  if (state.encoder == nil || state.pipeline == nil || state.input == nil ||
-      state.output == nil) {
+  if (state.encoder == nil || state.input == nil || state.output == nil) {
     SetMetalLastError(adapter, "accel_metal_command_unavailable");
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
-  state.workgroups = static_cast<std::uint32_t>(StencilPhysicalGroupCount(
-      state.stencil->plan.element_count, state.stencil->shape));
   return rund::AccelCheck{true, "ok"};
 }
 #endif

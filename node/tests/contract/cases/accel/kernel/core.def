@@ -1,2 +1,3 @@
 RUND_NODE_TEST_CASE("accel.kernel-core", RunAccelKernelCoreContract, "tests/contract/accel/kernel/core.cpp", accel)
 RUND_NODE_TEST_CASE("accel.segmented-reduce-model", RunAccelSegmentedReduceModelContract, "tests/contract/accel/kernel/segmented/reduce/model.cpp", accel)
+RUND_NODE_TEST_CASE("accel.range-aggregate-planner", RunAccelRangeAggregatePlannerContract, "tests/contract/accel/kernel/range_aggregate.cpp", accel)

@@ -15,7 +15,7 @@
 
 namespace node_accel_contract {
 
-bool BackendRunsInclusiveScan(const rund::AccelDevice &pick) {
+inline bool BackendRunsInclusiveScan(const rund::AccelDevice &pick) {
   return InclusiveScanMatchesReference<rund::kernel::u32>(
              pick, rund::kernel::ComputeScalar::Lane32,
              rund::kernel::ScanElement::U32,
@@ -28,7 +28,7 @@ bool BackendRunsInclusiveScan(const rund::AccelDevice &pick) {
                                                19u});
 }
 
-bool RequiredMetalRunsInclusiveScan() {
+inline bool RequiredMetalRunsInclusiveScan() {
   const rund::AccelDevice pick =
       rund::node::accel::PickAccel(primitive::Policy(rund::AccelApi::Metal));
   if (!pick.check.ok) {
@@ -38,7 +38,7 @@ bool RequiredMetalRunsInclusiveScan() {
   return pick.api == rund::AccelApi::Metal && BackendRunsInclusiveScan(pick);
 }
 
-bool RequiredVulkanRunsInclusiveScan() {
+inline bool RequiredVulkanRunsInclusiveScan() {
   const rund::AccelDevice pick =
       rund::node::accel::PickAccel(primitive::Policy(rund::AccelApi::Vulkan));
   if (!pick.check.ok) {

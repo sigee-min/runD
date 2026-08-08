@@ -100,12 +100,17 @@ namespace rund_node_test_pipeline {
   const auto device_info = device.info();
   const std::uint64_t expected_scratch =
       accelerated && device_info ? device_info->storage_alignment : 0u;
+  const std::uint64_t expected_scratch_payload =
+      accelerated ? sizeof(std::int32_t) : 0u;
   if ((accelerated &&
        (!device_info || device_info->storage_alignment == 0u ||
+        plan->scratch_payload_bytes != expected_scratch_payload ||
         plan->scratch_bytes != expected_scratch || plan->scratch_count != 1u ||
+        plan->scratch_payload_bytes > plan->scratch_bytes ||
         plan->scratch_bytes > plan->prepared_bytes)) ||
       (!accelerated &&
-       (plan->scratch_bytes != 0u || plan->scratch_count != 0u))) {
+       (plan->scratch_payload_bytes != 0u || plan->scratch_bytes != 0u ||
+        plan->scratch_count != 0u))) {
     return 16;
   }
   auto prepared = std::move(builder).prepare();

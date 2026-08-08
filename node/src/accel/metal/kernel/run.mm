@@ -109,7 +109,10 @@ AddAlignedMetalParameterBytes(std::uint64_t &target,
     out = 8u;
     break;
   case rund::kernel::NodeKind::Stencil:
-    out = 3u;
+    out = StencilRangeUsesGlobalScratch(
+              step.operation.get<operation::Stencil>().range)
+              ? 5u
+              : 3u;
     break;
   case rund::kernel::NodeKind::Transform:
     out = 6u;
@@ -418,11 +421,12 @@ MetalSegmentedReducePipelineSourceRecipe(
              : MetalPipelineSourceRecipe{};
 }
 
-[[nodiscard]] MetalPipelineSourceRecipe MetalStencilPipelineSourceRecipe(
-    const rund::kernel::StencilPlan &plan) noexcept {
+[[nodiscard]] MetalPipelineSourceRecipe
+MetalStencilPipelineSourceRecipe(const operation::Stencil &active) noexcept {
   std::uint64_t raw_upper = 0u;
-  return MetalStencilSourceUpperBytes(plan.op, raw_upper)
-             ? MetalSourceRecipe(0x6d6574616c73746eull, raw_upper, 4u, 1u)
+  return MetalStencilSourceUpperBytes(active.plan.op, active.range, raw_upper)
+             ? MetalSourceRecipe(0x6d6574616c73746eull, raw_upper, 4u,
+                                 active.range.stage_count())
              : MetalPipelineSourceRecipe{};
 }
 
@@ -763,10 +767,11 @@ PreparedBackendManifest BuildMetalBackendManifest(
     }
     break;
   case rund::kernel::NodeKind::Stencil:
-    dimensions(1u, 1u, 1u);
+    dimensions(1u, step.operation.get<operation::Stencil>().range.stage_count(),
+               1u);
     if (!AddMetalPipelineSourceRecipe(
             manifest, MetalStencilPipelineSourceRecipe(
-                          step.operation.get<operation::Stencil>().plan))) {
+                          step.operation.get<operation::Stencil>()))) {
       return manifest;
     }
     break;

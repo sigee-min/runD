@@ -23,11 +23,12 @@ struct VulkanKernelImmutablePipelineStage final {
   std::uint64_t sets_per_route{};
 };
 
-// Sort is the audited five-stage maximum.  Route-owned buffers, descriptor
-// leases, and mutable dispatch state never enter this Program-level owner.
+// RangeAggregate PrefixDifference has at most 24 hierarchy/fix-up/window
+// stages for the legal 64-lane width. Route-owned buffers, descriptor leases,
+// and mutable dispatch state never enter this Program-level owner.
 struct VulkanKernelImmutablePipelines final {
   rund::kernel::NodeKind kind{rund::kernel::NodeKind::Map};
-  std::array<VulkanKernelImmutablePipelineStage, 5u> stages{};
+  std::array<VulkanKernelImmutablePipelineStage, 24u> stages{};
   std::uint32_t count{};
   std::uint64_t capture_direct_dispatch_count{};
   std::uint64_t capture_indirect_dispatch_count{};

@@ -1,5 +1,7 @@
 #include "surface/api.hpp"
 
+#include "../scan/inclusive/run.hpp"
+
 #include "test/assert.hpp"
 
 namespace node_accel_contract {

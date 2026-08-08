@@ -1104,15 +1104,17 @@ consume less but cannot exceed either the frozen byte reservation or its object
 counts. Opaque allocator headers and driver-private allocation granularity are
 not invented as plan bytes.
 
-Multiple logical View slots and ordered primitive temporary requests are
+Multiple logical View slots and typed primitive temporary roles are
 suballocated from shared owners at the required scalar and selected backend
-storage alignment. Sequential uses of different scalar types may share the
-same raw-word slot. The arenas are planned and allocated once by Pipeline,
-shared by sequential Programs and recurrence phases, and never privately
-allocated by a prepared Job. `scratch_bytes` and `scratch_count` expose the
-retained accelerator scratch payload and physical page count. Because Pipeline
-steps are serial, scratch capacity is the maximum deterministic Program page
-envelope rather than the sum of every prepared occurrence. CPU
+storage alignment. Sequential uses with disjoint closed stage lifetimes may
+share the same frozen byte range. The arenas are planned and allocated once by
+Pipeline, shared by sequential Programs and recurrence phases, and never
+privately allocated by a prepared Job. `scratch_payload_bytes` exposes the
+maximum simultaneously-live logical role payload; `scratch_bytes` exposes the
+retained aligned backing, and `scratch_count` exposes its physical page count.
+Because Pipeline steps are serial, scratch capacity is the maximum
+deterministic Program page envelope rather than the sum of every prepared
+occurrence. CPU
 Program-private Map/collective descriptors are materialized once per distinct
 Program. All CPU mutable execution slabs, route and binding arrays, workspace
 objects/offsets, collective arrays, and primitive scratch live in one typed

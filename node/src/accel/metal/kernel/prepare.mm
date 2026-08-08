@@ -148,15 +148,16 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
     if (raw == nullptr) {
       break;
     }
-    frozen->stages =
-        raw->block_offset_path
-            ? std::array<std::shared_ptr<void>,
-                         5u>{raw->pipelines.count_blocks,
-                             raw->pipelines.scatter_blocks, raw->scan_block,
-                             raw->scan_prefix, raw->scan_offset}
-            : std::array<std::shared_ptr<void>, 5u>{
-                  raw->pipelines.scatter, raw->pipelines.status,
-                  raw->scan_block, raw->scan_prefix, raw->scan_offset};
+    if (raw->block_offset_path) {
+      frozen->stages[0u] = raw->pipelines.count_blocks;
+      frozen->stages[1u] = raw->pipelines.scatter_blocks;
+    } else {
+      frozen->stages[0u] = raw->pipelines.scatter;
+      frozen->stages[1u] = raw->pipelines.status;
+    }
+    frozen->stages[2u] = raw->scan_block;
+    frozen->stages[3u] = raw->scan_prefix;
+    frozen->stages[4u] = raw->scan_offset;
     frozen->count = 5u;
     break;
   }
@@ -225,11 +226,14 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
   case rund::kernel::NodeKind::Stencil: {
     const auto *const raw =
         MetalPrimitiveResource<MetalStencilEncodeResources>(resource);
-    if (raw == nullptr) {
+    if (raw == nullptr || raw->stage_count == 0u ||
+        raw->stage_count > frozen->stages.size()) {
       break;
     }
-    frozen->stages[0u] = raw->pipeline;
-    frozen->count = 1u;
+    for (std::size_t index = 0u; index < raw->stage_count; ++index) {
+      frozen->stages[index] = raw->pipelines[index];
+    }
+    frozen->count = raw->stage_count;
     break;
   }
   case rund::kernel::NodeKind::Transform:

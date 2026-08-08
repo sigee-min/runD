@@ -26,7 +26,8 @@ StencilUsesSignedArithmetic(const rund::kernel::StencilOp op,
 StencilPipelineKey(const rund::kernel::StencilOp op,
                    const rund::kernel::StencilElement element,
                    const rund::kernel::ComputeDomain domain,
-                   const StencilGpuShape shape) {
+                   const StencilGpuShape shape,
+                   const RangeAggregatePlan &range) {
   std::string key = "stencil.";
   key += StencilOpName(op);
   key += StencilUsesSignedArithmetic(op, domain) ? ".i" : ".u";
@@ -35,6 +36,21 @@ StencilPipelineKey(const rund::kernel::StencilOp op,
   key += std::to_string(shape.width());
   key += ".r";
   key += std::to_string(shape.radius_cap());
+  key += ".a";
+  switch (range.candidate().disposition()) {
+  case RangeAggregateCandidateDisposition::Direct:
+    key += "direct";
+    break;
+  case RangeAggregateCandidateDisposition::SharedHalo:
+    key += "halo";
+    break;
+  case RangeAggregateCandidateDisposition::PrefixDifference:
+    key += "prefix";
+    break;
+  case RangeAggregateCandidateDisposition::BlockPrefixSuffix:
+    key += "block";
+    break;
+  }
   return key;
 }
 #endif

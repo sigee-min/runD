@@ -1188,23 +1188,34 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
     break;
   }
   case rund::kernel::NodeKind::Stencil: {
-    manifest = PreparedBackendManifest{.source_build_count = 1u,
-                                       .source_library_dependency_count = 1u,
-                                       .pipeline_stage_count = 1u,
-                                       .descriptor_set_count = 1u,
-                                       .descriptor_binding_count = 3u,
-                                       .descriptor_lease_count = 1u,
-                                       .descriptor_dependency_count = 1u};
     const auto &active = step.operation.get<operation::Stencil>();
+    const std::uint64_t stage_count = active.range.stage_count();
+    const std::uint32_t descriptor_count =
+        StencilRangeDescriptorCount(active.range);
+    std::uint64_t descriptor_bindings = 0u;
+    if (!active.range.ok() || stage_count == 0u ||
+        !rund::kernel::checked::mul(stage_count, descriptor_count,
+                                    descriptor_bindings)) {
+      return manifest;
+    }
+    manifest =
+        PreparedBackendManifest{.source_build_count = 1u,
+                                .source_library_dependency_count = 1u,
+                                .pipeline_stage_count = stage_count,
+                                .descriptor_set_count = stage_count,
+                                .descriptor_binding_count = descriptor_bindings,
+                                .descriptor_lease_count = stage_count,
+                                .descriptor_dependency_count = stage_count};
     std::uint64_t source_bytes = 0u;
-    if (!VulkanStencilSourceBytes(active.desc.op, active.desc.element,
-                                  plan.domain, kStencilMaximumSourceShape,
-                                  source_bytes) ||
+    if (!VulkanStencilSourceBytes(
+            active.desc.op, active.desc.element, plan.domain,
+            StencilGpuShapeFromRangeAggregatePlan(active.range), active.range,
+            source_bytes) ||
         !AddPreparedBackendCacheDependency(
             manifest, PreparedBackendCacheDependency{
                           .source_recipe = 0x76756c6b2e737465ull,
                           .source_upper_bytes = source_bytes,
-                          .pipeline_stage_count = 1u,
+                          .pipeline_stage_count = stage_count,
                       })) {
       return manifest;
     }

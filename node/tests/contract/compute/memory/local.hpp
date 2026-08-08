@@ -16,6 +16,7 @@ inline constexpr std::uint64_t kCounterMaximum =
 [[nodiscard]] int CheckCpuProgramOwnerDeltas();
 [[nodiscard]] int CheckCpuPrimitiveScratchOwnership();
 [[nodiscard]] int CheckCpuCollectiveScratchOwnership();
+[[nodiscard]] int CheckAcceleratorScratchPlacementAuthority();
 [[nodiscard]] int CheckValueRouteArena();
 [[nodiscard]] int CheckCpuSealedArena();
 [[nodiscard]] int CheckCpuGraphStorageFormula();

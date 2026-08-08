@@ -2,6 +2,7 @@
 #include "../kernel/artifact.hpp"
 #include "local.hpp"
 #include <kernel/program/compute/stencil/identity.hpp>
+#include <kernel/program/compute/stencil/plan.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -15,13 +16,13 @@ namespace {
 PseudoStencilPlan(const rund::kernel::StencilDesc &desc,
                   const rund::kernel::ComputeDomain domain,
                   const rund::kernel::ComputeApi api,
-                  const StencilGpuShape shape) noexcept {
+                  const RangeAggregatePlan &range) noexcept {
   rund::kernel::StencilDesc source_identity = desc;
   source_identity.element_count = 0u;
   source_identity.radius = 0u;
   const rund::kernel::StencilHash hash =
       rund::kernel::HashStencil(source_identity);
-  const std::uint64_t physical = shape.identity();
+  const RangeAggregateIdentity physical = range.source_identity();
   const bool wide = desc.element == rund::kernel::StencilElement::U64;
   const bool signed_extrema =
       desc.op != rund::kernel::StencilOp::Sum && IsSignedDomain(domain);
@@ -31,8 +32,10 @@ PseudoStencilPlan(const rund::kernel::StencilDesc &desc,
                      : (wide ? rund::kernel::ComputeDomain::U64
                              : rund::kernel::ComputeDomain::U32);
   return rund::kernel::ComputePlan{
-      .op_hash_hi = hash.hi ^ (physical * UINT64_C(0x9e3779b97f4a7c15)),
-      .op_hash_lo = hash.lo ^ physical,
+      .op_hash_hi =
+          hash.hi ^ (physical.hi * UINT64_C(0x9e3779b97f4a7c15)) ^ physical.lo,
+      .op_hash_lo =
+          hash.lo ^ physical.lo ^ (physical.hi * UINT64_C(0x94d049bb133111eb)),
       .api = api,
       .scalar = desc.element == rund::kernel::StencilElement::U64
                     ? rund::kernel::ComputeScalar::Lane64
@@ -48,45 +51,19 @@ PseudoStencilPlan(const rund::kernel::StencilDesc &desc,
 
 } // namespace
 
-StencilGpuShape SelectVulkanStencilGpuShape(
-    const VulkanAdapter &adapter, const rund::kernel::u64 element_count,
-    const rund::kernel::u64 radius,
-    const rund::kernel::StencilElement element) noexcept {
-  if (adapter.physical_device == VK_NULL_HANDLE ||
-      element_count > std::numeric_limits<rund::kernel::u32>::max() ||
-      (element != rund::kernel::StencilElement::U32 &&
-       element != rund::kernel::StencilElement::U64)) {
-    return {};
-  }
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(adapter.physical_device, &properties);
-  const rund::kernel::u32 maximum_width =
-      std::min(properties.limits.maxComputeWorkGroupInvocations,
-               properties.limits.maxComputeWorkGroupSize[0]);
-  const rund::kernel::u64 maximum_groups = std::min<rund::kernel::u64>(
-      adapter.max_dispatch_groups,
-      properties.limits.maxComputeWorkGroupCount[0]);
-  return SelectStencilGpuShape(
-      element_count, radius, StencilElementBytes(element),
-      StencilGpuCapabilities{
-          .maximum_workgroup_width = maximum_width,
-          .shared_memory_occupancy_budget = kStencilSharedMemoryOccupancyBudget,
-          .shared_memory_limit = properties.limits.maxComputeSharedMemorySize,
-          .maximum_group_count = maximum_groups,
-      });
-}
-
 bool VulkanStencilPipelineMatches(
     const VulkanAdapter &adapter,
     const VulkanCollectivePipeline *const pipeline,
     const rund::kernel::StencilDesc &desc,
     const rund::kernel::ComputeDomain domain,
-    const StencilGpuShape shape) noexcept {
+    const RangeAggregatePlan &range) noexcept {
+  const StencilGpuShape shape = StencilGpuShapeFromRangeAggregatePlan(range);
+  const std::uint32_t descriptor_count = StencilRangeDescriptorCount(range);
   if (pipeline == nullptr || adapter.device == VK_NULL_HANDLE ||
       pipeline->device != adapter.device || !shape.valid() ||
-      shape != SelectVulkanStencilGpuShape(adapter, desc.element_count,
-                                           desc.radius, desc.element) ||
-      pipeline->descriptor_count != kStencilDescriptorCount ||
+      !StencilRangeAggregatePlanMatches(rund::kernel::PlanStencil(desc), domain,
+                                        range) ||
+      pipeline->descriptor_count != descriptor_count ||
       pipeline->push_bytes != 0u ||
       pipeline->specialization != VulkanSpecialization{} ||
       pipeline->pipeline == VK_NULL_HANDLE ||
@@ -96,7 +73,7 @@ bool VulkanStencilPipelineMatches(
     return false;
   }
   const rund::kernel::ComputePlan pseudo =
-      PseudoStencilPlan(desc, domain, rund::kernel::ComputeApi::Vulkan, shape);
+      PseudoStencilPlan(desc, domain, rund::kernel::ComputeApi::Vulkan, range);
   const rund::kernel::ArtifactKey expected_key{
       .api = rund::kernel::ComputeApi::Vulkan,
       .scalar = pseudo.scalar,
@@ -109,36 +86,79 @@ bool VulkanStencilPipelineMatches(
       .canonical_ir_hash_lo = pseudo.op_hash_lo,
   };
   return pipeline->key == expected_key &&
-         VulkanStencilSourceMatches(desc.op, desc.element, domain, shape,
+         VulkanStencilSourceMatches(desc.op, desc.element, domain, shape, range,
                                     pipeline->source, pipeline->source_hash);
 }
 
 VulkanCollectivePipeline *AcquireStencilPipeline(
     VulkanAdapter &adapter, const rund::kernel::StencilDesc &desc,
-    const rund::kernel::ComputeDomain domain, const StencilGpuShape shape) {
+    const rund::kernel::ComputeDomain domain, const RangeAggregatePlan &range) {
+  const StencilGpuShape shape = StencilGpuShapeFromRangeAggregatePlan(range);
+  const std::uint32_t descriptor_count = StencilRangeDescriptorCount(range);
   if (!shape.valid() ||
       !StencilVulkanDispatchFits(desc.element_count,
                                  adapter.max_dispatch_groups, shape)) {
     SetVulkanLastError(adapter, "compute_dispatch_overflow");
     return nullptr;
   }
-  if (shape != SelectVulkanStencilGpuShape(adapter, desc.element_count,
-                                           desc.radius, desc.element)) {
+  if (!StencilRangeAggregatePlanMatches(rund::kernel::PlanStencil(desc), domain,
+                                        range)) {
     SetVulkanLastError(adapter, "accel_vulkan_pipeline_unavailable");
     return nullptr;
   }
   const rund::kernel::ComputePlan pseudo =
-      PseudoStencilPlan(desc, domain, rund::kernel::ComputeApi::Vulkan, shape);
+      PseudoStencilPlan(desc, domain, rund::kernel::ComputeApi::Vulkan, range);
   std::string source =
-      VulkanStencilSource(desc.op, desc.element, domain, shape);
+      VulkanStencilSource(desc.op, desc.element, domain, shape, range);
   const std::uint64_t source_bytes = source.size();
   const rund::kernel::LoweringArtifact artifact =
       MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
   if (!artifact.ok) {
     return nullptr;
   }
-  return AcquireVulkanCollectivePipeline(adapter, kStencilDescriptorCount, 0u,
-                                         pseudo, artifact);
+  return AcquireVulkanCollectivePipeline(adapter, descriptor_count, 0u, pseudo,
+                                         artifact);
 }
 #endif
+
+RangeAggregateCapabilities
+VulkanRangeAggregateCapabilities(const rund::AccelDevice &pick) noexcept {
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  VulkanAdapter *const adapter = CheckedVulkanAdapter(pick);
+  if (adapter == nullptr || adapter->physical_device == VK_NULL_HANDLE) {
+    return RangeAggregateCapabilities::unavailable();
+  }
+  VkPhysicalDeviceProperties properties{};
+  vkGetPhysicalDeviceProperties(adapter->physical_device, &properties);
+  const rund::kernel::u32 maximum_width =
+      std::min(properties.limits.maxComputeWorkGroupInvocations,
+               properties.limits.maxComputeWorkGroupSize[0]);
+  const rund::kernel::u64 maximum_groups = std::min<rund::kernel::u64>(
+      adapter->max_dispatch_groups,
+      properties.limits.maxComputeWorkGroupCount[0]);
+  std::uint8_t widths = 0u;
+  for (const rund::kernel::u32 width : kRangeAggregateWorkgroupWidths) {
+    if (width <= maximum_width) {
+      widths |= width == 64u    ? kRangeAggregateWidth64Bit
+                : width == 128u ? kRangeAggregateWidth128Bit
+                                : kRangeAggregateWidth256Bit;
+    }
+  }
+  const std::optional<RangeAggregateCapabilities> capabilities =
+      RangeAggregateCapabilities::gpu(
+          RangeAggregateSourceVariant::Vulkan, widths, maximum_width,
+          kRangeAggregateSharedMemoryReserve,
+          properties.limits.maxComputeSharedMemorySize, maximum_groups,
+          RangeAggregateSupportBit(RangeAggregateSupport::Direct) |
+              RangeAggregateSupportBit(RangeAggregateSupport::SharedHalo) |
+              RangeAggregateSupportBit(
+                  RangeAggregateSupport::PrefixDifference) |
+              RangeAggregateSupportBit(
+                  RangeAggregateSupport::BlockPrefixSuffix));
+  return capabilities.value_or(RangeAggregateCapabilities::unavailable());
+#else
+  (void)pick;
+  return RangeAggregateCapabilities::unavailable();
+#endif
+}
 } // namespace rund::node::accel::detail

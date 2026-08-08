@@ -32,7 +32,7 @@ const char *AppendGraphCompileNode(const ContextAdmission &admission,
        node.ir->fixed_format == graph.fixed_format);
   PopulateBaseCompileData(node, compile_data);
   const char *const primitive_reason =
-      AdmitGraphNodePrimitive(node, admission.caps.api, compile_data);
+      AdmitGraphNodePrimitive(node, admission, graph.domain, compile_data);
   if (!SameReason(primitive_reason, "ok")) {
     return primitive_reason;
   }

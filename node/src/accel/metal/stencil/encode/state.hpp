@@ -8,10 +8,8 @@ namespace rund::node::accel::detail {
 struct MetalStencilCommandState {
   MetalStencilEncodeResources *stencil = nullptr;
   id<MTLComputeCommandEncoder> encoder = nil;
-  id<MTLComputePipelineState> pipeline = nil;
   id<MTLBuffer> input = nil;
   id<MTLBuffer> output = nil;
-  std::uint32_t workgroups = 0u;
 };
 #endif
 

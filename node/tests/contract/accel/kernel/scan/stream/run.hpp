@@ -11,7 +11,8 @@
 
 namespace node_accel_contract {
 
-bool ScanThenMapPreservesInternalRoundtrip(const rund::AccelDevice &pick) {
+inline bool
+ScanThenMapPreservesInternalRoundtrip(const rund::AccelDevice &pick) {
   namespace p = node_accel_contract::primitive;
   if (!pick.check.ok) {
     return false;

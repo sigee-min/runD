@@ -1,7 +1,7 @@
 #include "memory/local.hpp"
 
-#include "allocation.hpp"
 #include "../target/selection.hpp"
+#include "allocation.hpp"
 
 #include <array>
 #include <cstdint>
@@ -15,6 +15,11 @@ int RunComputeMemoryContract() {
   }
   if (!rund_node_memory_contract::CheckPreparedMemorySnapshot()) {
     return 391;
+  }
+  if (const int scratch = rund_node_memory_contract::
+          CheckAcceleratorScratchPlacementAuthority();
+      scratch != 0) {
+    return 350 + scratch;
   }
 
   if (const int arena = rund_node_memory_contract::CheckValueRouteArena();
@@ -154,8 +159,7 @@ int RunComputeMemoryContract() {
   for (const Backend backend :
        rund::node::test_contract::selected_accelerators()) {
     const int backend_code = 100 * static_cast<int>(backend);
-    if (const int memory =
-            rund_node_memory_contract::CheckAccelMemory(backend);
+    if (const int memory = rund_node_memory_contract::CheckAccelMemory(backend);
         memory != 0) {
       return 20 + backend_code + memory;
     }
@@ -169,8 +173,7 @@ int RunComputeMemoryContract() {
         retained != 0) {
       return 60 + backend_code + retained;
     }
-    if (const int run =
-            rund_node_memory_contract::CheckSortRunMemory(backend);
+    if (const int run = rund_node_memory_contract::CheckSortRunMemory(backend);
         run != 0) {
       return 80 + backend_code + run;
     }

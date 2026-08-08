@@ -7,11 +7,12 @@
 
 namespace rund::node::accel::detail {
 
-// Frozen primitive executable tuple. The five-slot ceiling is the audited
-// maximum for one Metal primitive (Sort, Compact, and Partition). Route-owned
-// buffers and mutable dispatch state never enter this Program-level owner.
+// Frozen primitive executable tuple. RangeAggregate PrefixDifference has at
+// most 24 hierarchy/fix-up/window stages for the legal 64-lane width. Route-
+// owned buffers and mutable dispatch state never enter this Program-level
+// owner.
 struct MetalKernelImmutablePipelines final {
-  std::array<std::shared_ptr<void>, 5u> stages{};
+  std::array<std::shared_ptr<void>, 24u> stages{};
   std::uint32_t count{};
 
   [[nodiscard]] bool ready(const std::uint32_t expected) const noexcept {

@@ -19,6 +19,8 @@
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
 
+#include "../range_aggregate/model.hpp"
+
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -63,8 +65,30 @@ using Scatter = Primitive<rund::kernel::NodeKind::Scatter,
 using ScatterReduce =
     Primitive<rund::kernel::NodeKind::ScatterReduce,
               rund::kernel::ScatterReduceDesc, rund::kernel::ScatterReducePlan>;
-using Stencil = Primitive<rund::kernel::NodeKind::Stencil,
-                          rund::kernel::StencilDesc, rund::kernel::StencilPlan>;
+
+// Stencil has two deliberately separate plans: the kernel plan remains the
+// device-neutral semantic authority, while the frozen RangeAggregate plan
+// owns the capability-derived physical algorithm, stages, and scratch roles.
+// Neither can be absent from an admitted retained operation.
+class Stencil final {
+public:
+  static constexpr auto kind = rund::kernel::NodeKind::Stencil;
+
+  Stencil() = delete;
+
+  constexpr Stencil(rund::kernel::StencilDesc descriptor,
+                    rund::kernel::StencilPlan semantic_plan,
+                    RangeAggregatePlan aggregate_plan) noexcept
+      : desc(std::move(descriptor)), plan(std::move(semantic_plan)),
+        range(std::move(aggregate_plan)) {}
+
+  rund::kernel::StencilDesc desc;
+  rund::kernel::StencilPlan plan;
+  RangeAggregatePlan range;
+};
+
+static_assert(std::is_nothrow_move_constructible_v<Stencil>);
+static_assert(std::is_nothrow_move_assignable_v<Stencil>);
 using Transform =
     Primitive<rund::kernel::NodeKind::Transform, rund::kernel::TransformDesc,
               rund::kernel::TransformPlan>;

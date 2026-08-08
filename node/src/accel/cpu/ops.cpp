@@ -2,6 +2,7 @@
 #include "../backend/buffer.hpp"
 #include "../backend/ops/table.hpp"
 #include "../backend/usage.hpp"
+#include "../range_aggregate/model.hpp"
 #include "buffer.hpp"
 #include "kernel/run.hpp"
 #include "local.hpp"
@@ -55,6 +56,11 @@ rund::node::accel::AccelMemoryStats Memory(const rund::AccelDevice &) noexcept {
   return {};
 }
 
+[[nodiscard]] RangeAggregateCapabilities
+RangeAggregateCapabilitiesForCpu(const rund::AccelDevice &) noexcept {
+  return RangeAggregateCapabilities::cpu();
+}
+
 const BackendOps Operations{
     .api = rund::AccelApi::Cpu,
     .resident = true,
@@ -65,6 +71,7 @@ const BackendOps Operations{
     .stats = ReadCpuRuntimeStats,
     .reset = ResetCpuRuntimeStats,
     .memory = Memory,
+    .range_aggregate_capabilities = RangeAggregateCapabilitiesForCpu,
     .run = RunCpuKernel,
     .prepare = PrepareCpuKernel,
     .run_batch = nullptr,

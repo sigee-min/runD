@@ -3,6 +3,7 @@
 #include "buffer/owner.hpp"
 #include "resident.hpp"
 
+#include <algorithm>
 #include <new>
 
 namespace rund::node::accel::detail {
@@ -28,8 +29,8 @@ MetalScratch::MetalScratch(const rund::AccelDevice &pick,
     pages_.reserve(layout.size());
     for (const KernelScratchPage page : layout) {
       const rund::kernel::ResidentBufferRef &ref = binds.refs()[page.slot];
-      MetalResidentBufferResult resolved = LookupMetalResidentBuffer(
-          pick, ref, binds.handles()[page.slot]);
+      MetalResidentBufferResult resolved =
+          LookupMetalResidentBuffer(pick, ref, binds.handles()[page.slot]);
       if (!resolved.check.ok || resolved.device_buffer == nullptr ||
           ref.offset_bytes > ref.bytes ||
           page.bytes > ref.bytes - ref.offset_bytes) {
@@ -53,8 +54,14 @@ bool MetalScratch::valid() const noexcept { return valid_; }
 
 bool MetalScratch::used() const noexcept { return used_; }
 
-bool MetalScratch::active() const noexcept {
-  return scratch::active(pages_);
+bool MetalScratch::active() const noexcept { return scratch::active(pages_); }
+
+std::uint64_t MetalScratch::page_bytes() const noexcept {
+  std::uint64_t result = 0u;
+  for (const Page &page : pages_) {
+    result = std::max(result, page.bytes);
+  }
+  return result;
 }
 
 void MetalScratch::reset() noexcept { scratch::reset(pages_); }
@@ -75,6 +82,30 @@ MetalRuntimeBuffer MetalScratch::acquire(const std::uint64_t bytes) noexcept {
       .usage = MetalBufferUsage::Scratch,
       .buffer = page.buffer,
       .offset = page.base + placed.offset,
+      .reused = true,
+      .borrowed = true,
+  };
+}
+
+MetalRuntimeBuffer
+MetalScratch::acquire(const KernelScratchPlacement &placement) noexcept {
+  if (!valid_ || adapter_ == nullptr || placement.page >= pages_.size()) {
+    return {};
+  }
+  Page &page = pages_[placement.page];
+  const std::uint64_t alignment = adapter_->caps.storage_alignment;
+  if (page.buffer == nullptr ||
+      !scratch::valid(placement, alignment, page.bytes)) {
+    return {};
+  }
+  const std::uint64_t end = placement.offset + placement.requirement.bytes;
+  page.used = std::max(page.used, end);
+  used_ = true;
+  return MetalRuntimeBuffer{
+      .bytes = placement.requirement.bytes,
+      .usage = MetalBufferUsage::Scratch,
+      .buffer = page.buffer,
+      .offset = page.base + placement.offset,
       .reused = true,
       .borrowed = true,
   };

@@ -1,6 +1,7 @@
 #include "ops.hpp"
 #include "../backend/ops/table.hpp"
 #include "../kernel/backend/execute.hpp"
+#include "../range_aggregate/model.hpp"
 
 #include <accel/buffer.hpp>
 #include <accel/device.hpp>
@@ -56,6 +57,11 @@ Memory(const rund::AccelDevice &) noexcept {
   return {};
 }
 
+[[nodiscard]] RangeAggregateCapabilities
+RangeAggregateCapabilitiesForFake(const rund::AccelDevice &) noexcept {
+  return RangeAggregateCapabilities::unavailable();
+}
+
 const BackendOps Operations{
     .api = rund::AccelApi::Fake,
     .create = RejectBuffer,
@@ -65,6 +71,7 @@ const BackendOps Operations{
     .stats = Stats,
     .reset = Reset,
     .memory = Memory,
+    .range_aggregate_capabilities = RangeAggregateCapabilitiesForFake,
     .run = RunFakeKernel,
     .prepare = PrepareFakeKernel,
     .run_batch = nullptr,

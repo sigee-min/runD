@@ -3,6 +3,7 @@
 
 #include "../compact/local.hpp"
 #include "../scan/local.hpp"
+#include "../scan/stream/run.hpp"
 #include "local.hpp"
 #include "scan/run.hpp"
 #include "sort.hpp"

@@ -69,6 +69,8 @@ AdmitSegmentedReduceNode(const rund::AccelGraphNode &node,
 [[nodiscard]] const char *AdmitScatterReduceNode(
     const rund::AccelGraphNode &node, GraphCompileNode &compile_data);
 [[nodiscard]] const char *AdmitStencilNode(const rund::AccelGraphNode &node,
+                                           const ContextAdmission &admission,
+                                           rund::kernel::ComputeDomain domain,
                                            GraphCompileNode &compile_data);
 [[nodiscard]] const char *AdmitTransformNode(const rund::AccelGraphNode &node,
                                              GraphCompileNode &compile_data);

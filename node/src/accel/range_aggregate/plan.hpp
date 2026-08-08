@@ -1,0 +1,729 @@
+#pragma once
+
+#include "model.hpp"
+
+#include <kernel/core/checked.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <optional>
+#include <type_traits>
+#include <utility>
+
+namespace rund::node::accel::detail {
+namespace range_aggregate_plan_detail {
+
+inline constexpr rund::kernel::u128 kU128Maximum =
+    ~static_cast<rund::kernel::u128>(0u);
+
+[[nodiscard]] constexpr bool Add(const rund::kernel::u128 left,
+                                 const rund::kernel::u128 right,
+                                 rund::kernel::u128 &out) noexcept {
+  if (left > kU128Maximum - right) {
+    return false;
+  }
+  out = left + right;
+  return true;
+}
+
+[[nodiscard]] constexpr bool Multiply(const rund::kernel::u128 left,
+                                      const rund::kernel::u128 right,
+                                      rund::kernel::u128 &out) noexcept {
+  if (right != 0u && left > kU128Maximum / right) {
+    return false;
+  }
+  out = left * right;
+  return true;
+}
+
+[[nodiscard]] constexpr bool
+Accumulate(rund::kernel::u128 &target,
+           const rund::kernel::u128 value) noexcept {
+  return Add(target, value, target);
+}
+
+[[nodiscard]] constexpr bool
+AccumulateProduct(rund::kernel::u128 &target, const rund::kernel::u128 left,
+                  const rund::kernel::u128 right) noexcept {
+  rund::kernel::u128 product = 0u;
+  return Multiply(left, right, product) && Accumulate(target, product);
+}
+
+[[nodiscard]] constexpr bool
+AccumulateBytes(rund::kernel::u128 &target, const rund::kernel::u128 elements,
+                const rund::kernel::u32 element_bytes) noexcept {
+  return AccumulateProduct(target, elements, element_bytes);
+}
+
+[[nodiscard]] constexpr rund::kernel::u64
+Groups(const rund::kernel::u64 count, const rund::kernel::u32 width) noexcept {
+  return width == 0u ? 0u
+                     : count / width +
+                           static_cast<rund::kernel::u64>(count % width != 0u);
+}
+
+[[nodiscard]] constexpr bool
+FitsGroups(const RangeAggregateCapabilities &capabilities,
+           const rund::kernel::u64 groups) noexcept {
+  return groups != 0u && (capabilities.cpu_only() ||
+                          groups <= capabilities.maximum_group_count());
+}
+
+[[nodiscard]] constexpr rund::kernel::u32
+SharedRadiusCapacity(const RangeAggregateCapabilities &capabilities,
+                     const rund::kernel::u32 width,
+                     const rund::kernel::u32 element_bytes) noexcept {
+  const rund::kernel::u32 occupancy =
+      capabilities.shared_memory_occupancy_budget();
+  if (occupancy == 0u || element_bytes == 0u) {
+    return 0u;
+  }
+  const rund::kernel::u64 element_capacity =
+      capabilities.shared_memory_limit() / occupancy / element_bytes;
+  if (element_capacity <= width) {
+    return 0u;
+  }
+  const rund::kernel::u64 radius_capacity = (element_capacity - width) / 2u;
+  return static_cast<rund::kernel::u32>(
+      std::min<rund::kernel::u64>(width, radius_capacity));
+}
+
+[[nodiscard]] constexpr bool
+SharedBudgetFits(const RangeAggregateCapabilities &capabilities,
+                 const rund::kernel::u64 shared_bytes) noexcept {
+  const rund::kernel::u32 occupancy =
+      capabilities.shared_memory_occupancy_budget();
+  return occupancy != 0u &&
+         shared_bytes <= capabilities.shared_memory_limit() / occupancy;
+}
+
+struct CandidateEvaluation final {
+  explicit constexpr CandidateEvaluation(
+      const RangeAggregateCandidate candidate_value) noexcept
+      : candidate(candidate_value) {}
+
+  RangeAggregateCandidate candidate;
+  RangeAggregateCost cost{};
+  std::array<RangeAggregateStagePlan, kRangeAggregateStageCapacity> stages{};
+  std::size_t stage_count{};
+  std::array<RangeTemporaryRequirement, kRangeTemporaryCapacity> temporaries{};
+  std::size_t temporary_count{};
+};
+
+[[nodiscard]] constexpr bool
+AppendStage(CandidateEvaluation &evaluation,
+            const RangeAggregateCapabilities &capabilities,
+            const RangeAggregateStageDisposition disposition,
+            const std::uint8_t level, const rund::kernel::u64 element_count,
+            const rund::kernel::u64 groups, const rund::kernel::u32 width,
+            bool &overflow) noexcept {
+  if (evaluation.stage_count == evaluation.stages.size() ||
+      !FitsGroups(capabilities, groups)) {
+    return false;
+  }
+  evaluation.stages[evaluation.stage_count++] = RangeAggregateStagePlan{
+      .disposition = disposition,
+      .level = level,
+      .element_count = element_count,
+      .groups = groups,
+      .width = width,
+  };
+  if (evaluation.cost.dispatch_count ==
+      std::numeric_limits<rund::kernel::u64>::max()) {
+    overflow = true;
+    return false;
+  }
+  ++evaluation.cost.dispatch_count;
+  if (width != 0u &&
+      !AccumulateProduct(evaluation.cost.launched_lanes, groups, width)) {
+    overflow = true;
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] constexpr bool
+AppendTemporary(CandidateEvaluation &evaluation, const RangeTemporaryRole role,
+                const std::uint8_t ordinal, const rund::kernel::u64 bytes,
+                const rund::kernel::u64 alignment,
+                const std::uint8_t first_stage, const std::uint8_t last_stage,
+                bool &overflow) noexcept {
+  if (evaluation.temporary_count == evaluation.temporaries.size()) {
+    return false;
+  }
+  rund::kernel::u64 scratch = 0u;
+  if (!rund::kernel::checked::add(evaluation.cost.scratch_bytes, bytes,
+                                  scratch)) {
+    overflow = true;
+    return false;
+  }
+  evaluation.cost.scratch_bytes = scratch;
+  evaluation.temporaries[evaluation.temporary_count++] =
+      RangeTemporaryRequirement{.role = role,
+                                .ordinal = ordinal,
+                                .bytes = bytes,
+                                .alignment = alignment,
+                                .first_stage = first_stage,
+                                .last_stage = last_stage};
+  return true;
+}
+
+[[nodiscard]] constexpr std::optional<CandidateEvaluation>
+BuildDirect(const RangeAggregateShape &shape,
+            const RangeAggregateCapabilities &capabilities,
+            const RangeAggregateCandidate candidate, bool &overflow) noexcept {
+  CandidateEvaluation evaluation{candidate};
+  rund::kernel::u128 twice_radius = 0u;
+  rund::kernel::u128 window = 0u;
+  rund::kernel::u128 read_elements = 0u;
+  if (!Multiply(shape.radius(), 2u, twice_radius) ||
+      !Add(twice_radius, 1u, window) ||
+      !Multiply(shape.element_count(), window, read_elements) ||
+      !AccumulateBytes(evaluation.cost.global_read_bytes, read_elements,
+                       shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes,
+                       shape.element_count(), shape.element_bytes()) ||
+      !Multiply(shape.element_count(), twice_radius,
+                evaluation.cost.combine_ops)) {
+    overflow = true;
+    return std::nullopt;
+  }
+
+  const bool cpu = candidate.width() == 0u;
+  const rund::kernel::u64 groups =
+      cpu ? 1u : Groups(shape.element_count(), candidate.width());
+  if (!AppendStage(
+          evaluation, capabilities, RangeAggregateStageDisposition::Direct, 0u,
+          shape.element_count(), groups, candidate.width(), overflow)) {
+    return std::nullopt;
+  }
+  if (cpu) {
+    evaluation.cost.launched_lanes = shape.element_count();
+  }
+  return evaluation;
+}
+
+[[nodiscard]] constexpr std::optional<CandidateEvaluation>
+BuildSharedHalo(const RangeAggregateShape &shape,
+                const RangeAggregateCapabilities &capabilities,
+                const RangeAggregateCandidate candidate,
+                bool &overflow) noexcept {
+  if (candidate.radius_capacity() < shape.radius()) {
+    return std::nullopt;
+  }
+  CandidateEvaluation evaluation{candidate};
+  const rund::kernel::u64 groups =
+      Groups(shape.element_count(), candidate.width());
+  if (!FitsGroups(capabilities, groups)) {
+    return std::nullopt;
+  }
+  const rund::kernel::u64 shared_elements =
+      candidate.width() + 2u * candidate.radius_capacity();
+  const rund::kernel::u64 shared_bytes =
+      shared_elements * shape.element_bytes();
+  if (!SharedBudgetFits(capabilities, shared_bytes)) {
+    return std::nullopt;
+  }
+  evaluation.cost.shared_bytes = shared_bytes;
+
+  rund::kernel::u128 read_elements = shape.element_count();
+  if (groups > 1u) {
+    rund::kernel::u128 group_term = 0u;
+    rund::kernel::u128 halo = 0u;
+    const rund::kernel::u64 tail =
+        shape.element_count() - (groups - 1u) * candidate.width();
+    if (!Multiply(groups, 2u, group_term) || group_term < 3u ||
+        !Multiply(group_term - 3u, shape.radius(), halo) ||
+        !Add(halo, std::min<rund::kernel::u64>(shape.radius(), tail), halo) ||
+        !Add(read_elements, halo, read_elements)) {
+      overflow = true;
+      return std::nullopt;
+    }
+  }
+  rund::kernel::u128 twice_radius = 0u;
+  if (!AccumulateBytes(evaluation.cost.global_read_bytes, read_elements,
+                       shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes,
+                       shape.element_count(), shape.element_bytes()) ||
+      !Multiply(shape.radius(), 2u, twice_radius) ||
+      !Multiply(shape.element_count(), twice_radius,
+                evaluation.cost.combine_ops) ||
+      !AppendStage(
+          evaluation, capabilities, RangeAggregateStageDisposition::SharedHalo,
+          0u, shape.element_count(), groups, candidate.width(), overflow)) {
+    overflow = true;
+    return std::nullopt;
+  }
+  return evaluation;
+}
+
+[[nodiscard]] constexpr std::optional<CandidateEvaluation>
+BuildPrefixDifference(const RangeAggregateShape &shape,
+                      const RangeAggregateCapabilities &capabilities,
+                      const RangeAggregateCandidate candidate,
+                      bool &overflow) noexcept {
+  if (!shape.traits().associative() || !shape.traits().has_identity() ||
+      !shape.traits().invertible()) {
+    return std::nullopt;
+  }
+  CandidateEvaluation evaluation{candidate};
+  const rund::kernel::u64 local_shared =
+      static_cast<rund::kernel::u64>(candidate.width()) * shape.element_bytes();
+  if (!SharedBudgetFits(capabilities, local_shared)) {
+    return std::nullopt;
+  }
+  evaluation.cost.shared_bytes = local_shared;
+  if (!AppendTemporary(evaluation, RangeTemporaryRole::PrefixValues, 0u,
+                       shape.payload_bytes(), shape.element_bytes(), 0u, 0u,
+                       overflow)) {
+    return std::nullopt;
+  }
+
+  std::array<rund::kernel::u64, kRangeTemporaryCapacity> level_values{};
+  std::array<rund::kernel::u64, kRangeTemporaryCapacity> level_groups{};
+  std::size_t level_count = 0u;
+  rund::kernel::u64 values = shape.element_count();
+  while (true) {
+    if (level_count == level_values.size()) {
+      return std::nullopt;
+    }
+    const rund::kernel::u64 groups = Groups(values, candidate.width());
+    if (!FitsGroups(capabilities, groups)) {
+      return std::nullopt;
+    }
+    level_values[level_count] = values;
+    level_groups[level_count] = groups;
+    const std::uint8_t stage =
+        static_cast<std::uint8_t>(evaluation.stage_count);
+    if (!AppendStage(evaluation, capabilities,
+                     level_count == 0u
+                         ? RangeAggregateStageDisposition::PrefixBlock
+                         : RangeAggregateStageDisposition::PrefixSummary,
+                     static_cast<std::uint8_t>(level_count), values, groups,
+                     candidate.width(), overflow) ||
+        !AccumulateBytes(evaluation.cost.global_read_bytes, values,
+                         shape.element_bytes()) ||
+        !AccumulateBytes(evaluation.cost.global_write_bytes, values,
+                         shape.element_bytes()) ||
+        !AccumulateProduct(evaluation.cost.combine_ops, groups,
+                           2u * (candidate.width() - 1u))) {
+      overflow = true;
+      return std::nullopt;
+    }
+    ++level_count;
+    if (groups == 1u) {
+      break;
+    }
+    rund::kernel::u64 summary_bytes = 0u;
+    if (!rund::kernel::checked::mul(groups, shape.element_bytes(),
+                                    summary_bytes) ||
+        !AppendTemporary(evaluation, RangeTemporaryRole::BlockSummaries,
+                         static_cast<std::uint8_t>(level_count - 1u),
+                         summary_bytes, shape.element_bytes(), stage, 0u,
+                         overflow) ||
+        !AccumulateBytes(evaluation.cost.global_write_bytes, groups,
+                         shape.element_bytes())) {
+      overflow = true;
+      return std::nullopt;
+    }
+    values = groups;
+  }
+
+  for (std::size_t level = level_count - 1u; level != 0u; --level) {
+    const std::size_t child = level - 1u;
+    const rund::kernel::u64 child_values = level_values[child];
+    const rund::kernel::u64 adjusted =
+        child_values -
+        std::min<rund::kernel::u64>(child_values, candidate.width());
+    const std::uint8_t stage =
+        static_cast<std::uint8_t>(evaluation.stage_count);
+    if (!AppendStage(evaluation, capabilities,
+                     RangeAggregateStageDisposition::PrefixFixup,
+                     static_cast<std::uint8_t>(child), child_values,
+                     level_groups[child], candidate.width(), overflow) ||
+        !AccumulateBytes(evaluation.cost.global_read_bytes,
+                         static_cast<rund::kernel::u128>(adjusted) * 2u,
+                         shape.element_bytes()) ||
+        !AccumulateBytes(evaluation.cost.global_write_bytes, adjusted,
+                         shape.element_bytes()) ||
+        !Accumulate(evaluation.cost.combine_ops, adjusted)) {
+      overflow = true;
+      return std::nullopt;
+    }
+    evaluation.temporaries[1u + child].last_stage = stage;
+  }
+
+  const rund::kernel::u64 output_groups =
+      Groups(shape.element_count(), candidate.width());
+  const std::uint8_t output_stage =
+      static_cast<std::uint8_t>(evaluation.stage_count);
+  const rund::kernel::u64 left_prefix_reads =
+      shape.radius() < shape.element_count()
+          ? shape.element_count() - shape.radius() - 1u
+          : 0u;
+  rund::kernel::u128 output_reads = 0u;
+  rund::kernel::u128 endpoint_reads = 0u;
+  if (!Multiply(shape.radius(), 2u, endpoint_reads) ||
+      !Add(shape.element_count(), left_prefix_reads, output_reads) ||
+      !Add(output_reads, endpoint_reads, output_reads) ||
+      !AppendStage(evaluation, capabilities,
+                   RangeAggregateStageDisposition::PrefixWindow, 0u,
+                   shape.element_count(), output_groups, candidate.width(),
+                   overflow) ||
+      !AccumulateBytes(evaluation.cost.global_read_bytes, output_reads,
+                       shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes,
+                       shape.element_count(), shape.element_bytes()) ||
+      !Accumulate(evaluation.cost.inverse_ops, left_prefix_reads) ||
+      !Accumulate(evaluation.cost.scale_ops, endpoint_reads) ||
+      !Accumulate(evaluation.cost.combine_ops, endpoint_reads)) {
+    overflow = true;
+    return std::nullopt;
+  }
+  evaluation.temporaries[0u].last_stage = output_stage;
+  return evaluation;
+}
+
+[[nodiscard]] constexpr std::optional<CandidateEvaluation>
+BuildBlockPrefixSuffix(const RangeAggregateShape &shape,
+                       const RangeAggregateCapabilities &capabilities,
+                       const RangeAggregateCandidate candidate,
+                       bool &overflow) noexcept {
+  if (!shape.traits().associative() || !shape.traits().has_identity() ||
+      !shape.traits().idempotent() || !shape.traits().ordered()) {
+    return std::nullopt;
+  }
+  rund::kernel::u64 twice_radius = 0u;
+  rund::kernel::u64 window = 0u;
+  rund::kernel::u64 padded = 0u;
+  if (!rund::kernel::checked::mul(shape.radius(), 2u, twice_radius) ||
+      !rund::kernel::checked::add(twice_radius, 1u, window) ||
+      !rund::kernel::checked::add(shape.element_count(), twice_radius,
+                                  padded)) {
+    overflow = true;
+    return std::nullopt;
+  }
+  const rund::kernel::u64 blocks =
+      padded / window + static_cast<rund::kernel::u64>(padded % window != 0u);
+  const rund::kernel::u64 prepare_groups = Groups(blocks, candidate.width());
+  const rund::kernel::u64 output_groups =
+      Groups(shape.element_count(), candidate.width());
+  if (!FitsGroups(capabilities, prepare_groups) ||
+      !FitsGroups(capabilities, output_groups)) {
+    return std::nullopt;
+  }
+  rund::kernel::u64 value_bytes = 0u;
+  if (!rund::kernel::checked::mul(padded, shape.element_bytes(), value_bytes)) {
+    overflow = true;
+    return std::nullopt;
+  }
+
+  CandidateEvaluation evaluation{candidate};
+  if (!AppendTemporary(evaluation, RangeTemporaryRole::ForwardValues, 0u,
+                       value_bytes, shape.element_bytes(), 0u, 1u, overflow) ||
+      !AppendTemporary(evaluation, RangeTemporaryRole::BackwardValues, 0u,
+                       value_bytes, shape.element_bytes(), 0u, 1u, overflow) ||
+      !AppendStage(evaluation, capabilities,
+                   RangeAggregateStageDisposition::BlockPrefixSuffix, 0u,
+                   padded, prepare_groups, candidate.width(), overflow) ||
+      !AppendStage(evaluation, capabilities,
+                   RangeAggregateStageDisposition::BlockWindow, 0u,
+                   shape.element_count(), output_groups, candidate.width(),
+                   overflow) ||
+      !AccumulateBytes(evaluation.cost.global_read_bytes,
+                       static_cast<rund::kernel::u128>(padded) * 2u,
+                       shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_read_bytes,
+                       static_cast<rund::kernel::u128>(shape.element_count()) *
+                           2u,
+                       shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes,
+                       static_cast<rund::kernel::u128>(padded) * 2u,
+                       shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes,
+                       shape.element_count(), shape.element_bytes()) ||
+      !AccumulateProduct(evaluation.cost.combine_ops, padded - blocks, 2u) ||
+      !Accumulate(evaluation.cost.combine_ops, shape.element_count())) {
+    overflow = true;
+    return std::nullopt;
+  }
+  return evaluation;
+}
+
+[[nodiscard]] constexpr bool
+LessOrEqual(const RangeAggregateCost &left,
+            const RangeAggregateCost &right) noexcept {
+  return left.global_read_bytes <= right.global_read_bytes &&
+         left.global_write_bytes <= right.global_write_bytes &&
+         left.combine_ops <= right.combine_ops &&
+         left.inverse_ops <= right.inverse_ops &&
+         left.scale_ops <= right.scale_ops &&
+         left.shared_bytes <= right.shared_bytes &&
+         left.scratch_bytes <= right.scratch_bytes &&
+         left.dispatch_count <= right.dispatch_count &&
+         left.launched_lanes <= right.launched_lanes;
+}
+
+[[nodiscard]] constexpr bool
+Dominates(const RangeAggregateCost &left,
+          const RangeAggregateCost &right) noexcept {
+  return LessOrEqual(left, right) && !(left == right);
+}
+
+template <typename T>
+[[nodiscard]] constexpr int CompareScalar(const T left,
+                                          const T right) noexcept {
+  return left < right ? -1 : (right < left ? 1 : 0);
+}
+
+[[nodiscard]] constexpr int
+CompareLexicographic(const CandidateEvaluation &left,
+                     const CandidateEvaluation &right) noexcept {
+#define RUND_RANGE_COMPARE(field)                                              \
+  if (const int order = CompareScalar(left.cost.field, right.cost.field);      \
+      order != 0) {                                                            \
+    return order;                                                              \
+  }
+  RUND_RANGE_COMPARE(global_read_bytes)
+  RUND_RANGE_COMPARE(global_write_bytes)
+  RUND_RANGE_COMPARE(combine_ops)
+  RUND_RANGE_COMPARE(inverse_ops)
+  RUND_RANGE_COMPARE(scale_ops)
+  RUND_RANGE_COMPARE(scratch_bytes)
+  RUND_RANGE_COMPARE(dispatch_count)
+  RUND_RANGE_COMPARE(shared_bytes)
+  RUND_RANGE_COMPARE(launched_lanes)
+#undef RUND_RANGE_COMPARE
+  if (const int order = CompareScalar(
+          static_cast<std::uint8_t>(left.candidate.disposition()),
+          static_cast<std::uint8_t>(right.candidate.disposition()));
+      order != 0) {
+    return order;
+  }
+  if (const int order =
+          CompareScalar(left.candidate.width(), right.candidate.width());
+      order != 0) {
+    return order;
+  }
+  return CompareScalar(left.candidate.radius_capacity(),
+                       right.candidate.radius_capacity());
+}
+
+class IdentityBuilder final {
+public:
+  constexpr IdentityBuilder() noexcept = default;
+
+  template <typename T>
+    requires(std::is_integral_v<T> && sizeof(T) <= sizeof(std::uint64_t))
+  constexpr void add(const T value) noexcept {
+    add64(static_cast<std::uint64_t>(value));
+  }
+
+  constexpr void add(const rund::kernel::u128 value) noexcept {
+    add64(static_cast<std::uint64_t>(value >> 64u));
+    add64(static_cast<std::uint64_t>(value));
+  }
+
+  [[nodiscard]] constexpr RangeAggregateIdentity finish() const noexcept {
+    return RangeAggregateIdentity{.hi = hi_, .lo = lo_};
+  }
+
+private:
+  constexpr void add64(const std::uint64_t value) noexcept {
+    hi_ ^= value + 0x9e3779b97f4a7c15ull + (hi_ << 6u) + (hi_ >> 2u);
+    hi_ *= 0xbf58476d1ce4e5b9ull;
+    lo_ ^= value + 0x94d049bb133111ebull + (lo_ << 7u) + (lo_ >> 3u);
+    lo_ *= 0x9e3779b185ebca87ull;
+  }
+  std::uint64_t hi_{0x6a09e667f3bcc909ull};
+  std::uint64_t lo_{0xbb67ae8584caa73bull};
+};
+
+[[nodiscard]] constexpr RangeAggregateIdentity
+SourceIdentity(const RangeAggregateShape &shape,
+               const RangeAggregateCapabilities &capabilities,
+               const RangeAggregateCandidate candidate) noexcept {
+  IdentityBuilder identity{};
+  identity.add(0x72616e67652d7372ull); // "range-sr"
+  identity.add(1u);
+  identity.add(static_cast<std::uint8_t>(capabilities.source_variant()));
+  identity.add(static_cast<std::uint8_t>(candidate.disposition()));
+  identity.add(candidate.width());
+  identity.add(candidate.radius_capacity());
+  identity.add(static_cast<std::uint8_t>(shape.traits().operation()));
+  identity.add(static_cast<std::uint8_t>(shape.traits().domain()));
+  identity.add(static_cast<std::uint8_t>(shape.traits().arithmetic_law()));
+  identity.add(static_cast<std::uint8_t>(shape.boundary()));
+  identity.add(shape.element_bytes());
+  return identity.finish();
+}
+
+[[nodiscard]] constexpr RangeAggregateIdentity
+ExecutionIdentity(const RangeAggregateShape &shape,
+                  const CandidateEvaluation &evaluation,
+                  const RangeAggregateIdentity source_identity) noexcept {
+  IdentityBuilder identity{};
+  identity.add(0x72616e67652d6578ull); // "range-ex"
+  identity.add(source_identity.hi);
+  identity.add(source_identity.lo);
+  identity.add(shape.element_count());
+  identity.add(shape.radius());
+  identity.add(evaluation.stage_count);
+  for (std::size_t index = 0u; index < evaluation.stage_count; ++index) {
+    const RangeAggregateStagePlan &stage = evaluation.stages[index];
+    identity.add(static_cast<std::uint8_t>(stage.disposition));
+    identity.add(stage.level);
+    identity.add(stage.element_count);
+    identity.add(stage.groups);
+    identity.add(stage.width);
+  }
+  identity.add(evaluation.temporary_count);
+  for (std::size_t index = 0u; index < evaluation.temporary_count; ++index) {
+    const RangeTemporaryRequirement &temporary = evaluation.temporaries[index];
+    identity.add(static_cast<std::uint8_t>(temporary.role));
+    identity.add(temporary.ordinal);
+    identity.add(temporary.bytes);
+    identity.add(temporary.alignment);
+    identity.add(temporary.first_stage);
+    identity.add(temporary.last_stage);
+  }
+  identity.add(evaluation.cost.global_read_bytes);
+  identity.add(evaluation.cost.global_write_bytes);
+  identity.add(evaluation.cost.combine_ops);
+  identity.add(evaluation.cost.inverse_ops);
+  identity.add(evaluation.cost.scale_ops);
+  identity.add(evaluation.cost.shared_bytes);
+  identity.add(evaluation.cost.scratch_bytes);
+  identity.add(evaluation.cost.dispatch_count);
+  identity.add(evaluation.cost.launched_lanes);
+  return identity.finish();
+}
+
+} // namespace range_aggregate_plan_detail
+
+[[nodiscard]] constexpr RangeAggregatePlan
+PlanRangeAggregate(const RangeAggregateShape &shape,
+                   const RangeAggregateCapabilities &capabilities) noexcept {
+  using namespace range_aggregate_plan_detail;
+  if (!shape.valid()) {
+    return RangeAggregatePlan::rejected(
+        "compute_range_aggregate_shape_invalid");
+  }
+  if (!capabilities.valid()) {
+    return RangeAggregatePlan::rejected(
+        capabilities.available()
+            ? "compute_range_aggregate_capabilities_invalid"
+            : "compute_range_aggregate_unavailable");
+  }
+
+  std::array<std::optional<CandidateEvaluation>,
+             kRangeAggregateCandidateCapacity>
+      evaluations{};
+  std::size_t evaluation_count = 0u;
+  bool saw_overflow = false;
+  const auto append = [&](std::optional<CandidateEvaluation> evaluation) {
+    if (evaluation.has_value() && evaluation_count < evaluations.size()) {
+      evaluations[evaluation_count++] = std::move(evaluation);
+    }
+  };
+
+  if (capabilities.cpu_only()) {
+    append(BuildDirect(shape, capabilities,
+                       RangeAggregateCandidate::direct_cpu(), saw_overflow));
+  } else {
+    for (const rund::kernel::u32 width : kRangeAggregateWorkgroupWidths) {
+      if (!capabilities.supports_width(width)) {
+        continue;
+      }
+      if (capabilities.supports(RangeAggregateSupport::Direct)) {
+        const std::optional<RangeAggregateCandidate> candidate =
+            RangeAggregateCandidate::direct_gpu(width);
+        if (candidate.has_value()) {
+          append(BuildDirect(shape, capabilities, *candidate, saw_overflow));
+        }
+      }
+      if (capabilities.supports(RangeAggregateSupport::SharedHalo)) {
+        const rund::kernel::u32 capacity =
+            SharedRadiusCapacity(capabilities, width, shape.element_bytes());
+        const std::optional<RangeAggregateCandidate> candidate =
+            RangeAggregateCandidate::shared_halo(width, capacity);
+        if (candidate.has_value()) {
+          append(
+              BuildSharedHalo(shape, capabilities, *candidate, saw_overflow));
+        }
+      }
+      if (capabilities.supports(RangeAggregateSupport::PrefixDifference) &&
+          shape.traits().invertible()) {
+        const std::optional<RangeAggregateCandidate> candidate =
+            RangeAggregateCandidate::prefix_difference(width);
+        if (candidate.has_value()) {
+          append(BuildPrefixDifference(shape, capabilities, *candidate,
+                                       saw_overflow));
+        }
+      }
+      if (capabilities.supports(RangeAggregateSupport::BlockPrefixSuffix) &&
+          shape.traits().idempotent() && shape.traits().ordered()) {
+        const std::optional<RangeAggregateCandidate> candidate =
+            RangeAggregateCandidate::block_prefix_suffix(width);
+        if (candidate.has_value()) {
+          append(BuildBlockPrefixSuffix(shape, capabilities, *candidate,
+                                        saw_overflow));
+        }
+      }
+    }
+  }
+
+  if (evaluation_count == 0u) {
+    return RangeAggregatePlan::rejected(
+        saw_overflow ? "compute_range_aggregate_cost_overflow"
+                     : "compute_range_aggregate_candidate_unavailable");
+  }
+
+  std::array<bool, kRangeAggregateCandidateCapacity> pareto{};
+  std::size_t pareto_count = 0u;
+  for (std::size_t index = 0u; index < evaluation_count; ++index) {
+    bool dominated = false;
+    for (std::size_t other = 0u; other < evaluation_count; ++other) {
+      if (other != index &&
+          Dominates(evaluations[other]->cost, evaluations[index]->cost)) {
+        dominated = true;
+        break;
+      }
+    }
+    pareto[index] = !dominated;
+    pareto_count += static_cast<std::size_t>(!dominated);
+  }
+
+  std::size_t selected = evaluation_count;
+  for (std::size_t index = 0u; index < evaluation_count; ++index) {
+    if (pareto[index] && (selected == evaluation_count ||
+                          CompareLexicographic(*evaluations[index],
+                                               *evaluations[selected]) < 0)) {
+      selected = index;
+    }
+  }
+  if (selected == evaluation_count || evaluation_count > 255u ||
+      pareto_count > 255u) {
+    return RangeAggregatePlan::rejected(
+        "compute_range_aggregate_candidate_unavailable");
+  }
+
+  const CandidateEvaluation &choice = *evaluations[selected];
+  const RangeAggregateIdentity source_identity =
+      SourceIdentity(shape, capabilities, choice.candidate);
+  const RangeAggregateIdentity execution_identity =
+      ExecutionIdentity(shape, choice, source_identity);
+  return RangeAggregatePlan::selected(
+      shape, choice.candidate, choice.cost, choice.stage_count,
+      choice.temporary_count, static_cast<std::uint8_t>(evaluation_count),
+      static_cast<std::uint8_t>(pareto_count), source_identity,
+      execution_identity);
+}
+
+static_assert(std::is_nothrow_move_constructible_v<RangeAggregatePlan>);
+static_assert(std::is_nothrow_move_assignable_v<RangeAggregatePlan>);
+
+} // namespace rund::node::accel::detail

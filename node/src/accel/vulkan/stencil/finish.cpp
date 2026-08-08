@@ -14,7 +14,7 @@ rund::AccelCheck FinishVulkanStencil(VulkanAdapter &adapter,
   if (!check.ok) {
     return check;
   }
-  return AcceptVulkanDispatches(adapter, stencil->plan.pass_count);
+  return AcceptVulkanDispatches(adapter, stencil->range.stage_count());
 #else
   (void)adapter;
   (void)resources;

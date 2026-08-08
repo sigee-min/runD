@@ -18,48 +18,56 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-inline constexpr std::uint32_t kStencilDescriptorCount = 3u;
+inline constexpr std::uint32_t kStencilDirectDescriptorCount = 3u;
+inline constexpr std::uint32_t kStencilRangeDescriptorCount = 5u;
 
 struct VulkanStencilEncodeResources {
   VulkanAdapter *adapter = nullptr;
   rund::kernel::StencilPlan plan{};
+  RangeAggregatePlan range{
+      RangeAggregatePlan::rejected("compute_range_aggregate_unavailable")};
   StencilGpuShape shape{};
-  VulkanCollectivePipeline *pipeline = nullptr;
-  VulkanBuffer params{};
+  std::array<VulkanCollectivePipeline *, kRangeAggregateStageCapacity>
+      pipelines{};
+  std::array<VulkanBuffer, kRangeAggregateStageCapacity> params{};
+  std::array<VkDescriptorSet, kRangeAggregateStageCapacity> descriptor_sets{};
+  std::array<VulkanBuffer, kRangeTemporaryCapacity> temporaries{};
+  std::uint32_t stage_count{};
   const VulkanBuffer *input = nullptr;
   const VulkanBuffer *output = nullptr;
   VulkanStorageBinding input_binding{};
   VulkanStorageBinding output_binding{};
-  VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
 };
 
 void DestroyVulkanStencilEncodeResources(void *raw);
-[[nodiscard]] StencilGpuShape SelectVulkanStencilGpuShape(
-    const VulkanAdapter &adapter, rund::kernel::u64 element_count,
-    rund::kernel::u64 radius, rund::kernel::StencilElement element) noexcept;
 [[nodiscard]] std::string
 VulkanStencilSource(rund::kernel::StencilOp op,
                     rund::kernel::StencilElement element,
-                    rund::kernel::ComputeDomain domain, StencilGpuShape shape);
-[[nodiscard]] bool
-VulkanStencilSourceBytes(rund::kernel::StencilOp op,
-                         rund::kernel::StencilElement element,
-                         rund::kernel::ComputeDomain domain,
-                         StencilGpuShape shape, std::uint64_t &bytes) noexcept;
+                    rund::kernel::ComputeDomain domain, StencilGpuShape shape,
+                    const RangeAggregatePlan &range);
+[[nodiscard]] bool VulkanStencilSourceBytes(
+    rund::kernel::StencilOp op, rund::kernel::StencilElement element,
+    rund::kernel::ComputeDomain domain, StencilGpuShape shape,
+    const RangeAggregatePlan &range, std::uint64_t &bytes) noexcept;
 [[nodiscard]] bool VulkanStencilSourceMatches(
     rund::kernel::StencilOp op, rund::kernel::StencilElement element,
     rund::kernel::ComputeDomain domain, StencilGpuShape shape,
-    std::string_view source, std::uint64_t source_hash) noexcept;
+    const RangeAggregatePlan &range, std::string_view source,
+    std::uint64_t source_hash) noexcept;
 [[nodiscard]] VulkanCollectivePipeline *AcquireStencilPipeline(
     VulkanAdapter &adapter, const rund::kernel::StencilDesc &desc,
-    rund::kernel::ComputeDomain domain, StencilGpuShape shape);
+    rund::kernel::ComputeDomain domain, const RangeAggregatePlan &range);
 [[nodiscard]] bool VulkanStencilPipelineMatches(
     const VulkanAdapter &adapter, const VulkanCollectivePipeline *pipeline,
     const rund::kernel::StencilDesc &desc, rund::kernel::ComputeDomain domain,
-    StencilGpuShape shape) noexcept;
+    const RangeAggregatePlan &range) noexcept;
 [[nodiscard]] bool
 CreateVulkanStencilDescriptorSet(VulkanAdapter &adapter,
-                                 VulkanStencilEncodeResources &resources);
+                                 VulkanStencilEncodeResources &resources,
+                                 std::uint32_t stage_index);
+[[nodiscard]] bool VulkanStencilStageScratchBindings(
+    const VulkanStencilEncodeResources &resources, std::uint32_t stage_index,
+    const VulkanBuffer *&scratch0, const VulkanBuffer *&scratch1) noexcept;
 #endif
 
 } // namespace rund::node::accel::detail

@@ -217,8 +217,8 @@ PrepareMetalStencilStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalStencil(pick, active->desc, active->plan,
-                                   step.planned->domain, *bindings, resources,
-                                   pipelines);
+                                   step.planned->domain, *bindings,
+                                   active->range, resources, pipelines);
 }
 
 #include "prepare/numeric.hpp"

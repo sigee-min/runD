@@ -48,6 +48,7 @@ struct BoundStep;
 struct PreparedBackendManifest;
 class PreparedMemoryMeter;
 struct PreparedPipelineStatusLayout;
+class RangeAggregateCapabilities;
 
 enum class BackendBufferInitialization : std::uint8_t {
   Zeroed,
@@ -81,6 +82,11 @@ struct BackendOps final {
   rund::RuntimeStats (*stats)(const rund::AccelDevice &) = nullptr;
   void (*reset)(const rund::AccelDevice &) = nullptr;
   rund::node::accel::AccelMemoryStats (*memory)(
+      const rund::AccelDevice &) noexcept = nullptr;
+  // The selected backend projects immutable, timing-free range-execution
+  // capability facts once. Graph admission freezes the resulting plan before
+  // any scratch, source, or pipeline identity is materialized.
+  RangeAggregateCapabilities (*range_aggregate_capabilities)(
       const rund::AccelDevice &) noexcept = nullptr;
   rund::AccelCheck (*run)(const BackendRun &) = nullptr;
   rund::AccelCheck (*prepare)(const BackendRun &, std::shared_ptr<void> &,

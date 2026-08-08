@@ -444,16 +444,20 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
   }
   case rund::kernel::NodeKind::Stencil: {
     const auto *const active = OperationFor<operation::Stencil>(step);
-    const StencilGpuShape shape =
-        active == nullptr
-            ? StencilGpuShape{}
-            : SelectVulkanStencilGpuShape(*adapter, active->desc.element_count,
-                                          active->desc.radius,
-                                          active->desc.element);
-    complete = active != nullptr && shape.valid() &&
-               add(AcquireStencilPipeline(*adapter, active->desc,
-                                          step.planned->domain, shape),
-                   kStencilDescriptorCount);
+    complete = active != nullptr && active->range.ok() &&
+               StencilGpuShapeFromRangeAggregatePlan(active->range).valid();
+    if (complete) {
+      const std::uint32_t descriptor_count =
+          StencilRangeDescriptorCount(active->range);
+      for (std::size_t index = 0u; index < active->range.stage_count();
+           ++index) {
+        complete =
+            complete &&
+            add(AcquireStencilPipeline(*adapter, active->desc,
+                                       step.planned->domain, active->range),
+                descriptor_count);
+      }
+    }
     break;
   }
   case rund::kernel::NodeKind::Transform:

@@ -516,18 +516,71 @@ exactly `peak_bytes`. Every multiplication and addition is checked and no
 report is clamped to another report. The public equations and symbols are
 owned by [Compute](../../../../docs/reference/compute.md).
 
-The scratch planner consumes the admitted Kernel operation sequence and emits
-the exact temporary requests used by Scan, segmented Scan/Reduce, Sort,
-Compact, Partition, Reduce, and ScatterReduce. For storage-page size `P`,
-alignment `A`, and ordered request `r`, it places each operation's requests in
-the first page whose aligned end remains at most `P`; otherwise it appends one
-page. Operation boundaries reset placement because canonical dispatch barriers
-close the prior temporary lifetime. If the largest operation envelope uses `q`
+The scratch planner consumes the admitted Kernel operation sequence and is the
+single physical placement authority for accelerator temporary storage. Its
+typed batch input is
+
+```text
+KernelScratchRequirement {
+  role,
+  bytes,
+  alignment,
+  first_stage,
+  last_stage,
+}
+```
+
+Roles are unique within one batch, byte counts and alignments are positive,
+alignments are powers of two dominated by the backend storage alignment, and
+stage lifetimes are closed. The planner canonicalizes by first stage and role,
+then selects the lowest aligned gap in the first page whose byte range does not
+intersect a placement with an overlapping lifetime. It appends one page only
+when no admitted page fits. Consequently two roles may share the same exact
+`(page, offset)` only when their closed stage intervals are disjoint. A role
+lookup returns the frozen placement without rerunning placement or allocating.
+
+Existing Scan, segmented Scan/Reduce, Sort, Compact, Partition, Reduce, and
+ScatterReduce requests enter this typed path as one-stage batches in their
+canonical acquire order. Their runtime `acquire(bytes)` first-fit behavior and
+operation-boundary reset are unchanged. Metal and Vulkan scratch wrappers also
+accept a frozen typed placement, validate its page, offset, extent, and
+alignment against the same backing, and borrow that range without creating a
+buffer or arena. Algorithm planners may therefore supply typed stage roles
+without becoming physical memory owners.
+
+An admitted Stencil projects every temporary from its frozen
+`RangeAggregatePlan` into this same batch. The source-private role factory maps
+each `(RangeTemporaryRole, ordinal)` pair into a unique tagged
+`KernelScratchRole`; bytes, alignment, and inclusive stage lifetime pass
+through unchanged. PrefixDifference therefore contributes prefix and block
+summary storage, BlockPrefixSuffix contributes forward and backward storage,
+and Direct or SharedHalo contributes an empty global-scratch batch. The
+Pipeline maximum envelope and the public scratch telemetry include that batch;
+no Range-specific arena or retained vector exists.
+
+Batch planning builds its canonical order, pages, and placements in local cold
+workspace and publishes only the exclusive ready result. A capacity overflow,
+`std::bad_alloc`, or `std::length_error` publishes no partial placement or
+physical owner; the same immutable requirements may be retried from the
+beginning.
+
+For storage-page size `P`, if the largest serial operation envelope uses `q`
 pages and, among operations with that page count, the maximum aligned terminal
-extent is `L`, the Program requires
+extent is `L`, the Program retained backing is
 
 ```text
 scratch(Program) = (q - 1) * P + L
+```
+
+Separately, `scratch_payload_bytes` is the exact maximum, over stage
+frontiers and serial Programs, of the sum of simultaneously-live requirement
+`bytes`. It excludes alignment holes, terminal padding, and roles from inactive
+serial stages. `scratch_bytes` remains the retained aligned backing above and
+`scratch_count = q`; therefore
+
+```text
+scratch_payload_bytes = max_s sum_i(bytes_i * [first_i <= s <= last_i])
+0 <= scratch_payload_bytes <= scratch_bytes
 ```
 
 Pipeline steps are serial, so the Pipeline arena repeats the same maximum
@@ -548,9 +601,11 @@ For `L` logical chunk occurrences and `U_s` physical owners touched by step
 the placement workspace as the touched-owner list and never clears or sums all
 owners for every step.
 Prepared Jobs may only borrow their sealed offsets. A single request larger
-than `P` is rejected before allocation; no private backend allocation path
-remains for Pipeline scratch. `scratch_bytes` and `scratch_count` continue to
-describe the shared Buffer arena used by accelerator primitives. CPU
+than `P`, a duplicate or invalid role, an invalid lifetime or alignment, or any
+capacity overflow is rejected before allocation; no private
+backend allocation path remains for Pipeline scratch. The three public scratch
+fields describe the one shared Buffer arena used by accelerator primitives.
+CPU
 Map/collective/primitive execution storage instead has one allocation-free
 plan per distinct Program whose mutable maximum envelopes are merged into one
 Pipeline-wide `CpuPreparedArena`. Compact Program wrappers and immutable
@@ -634,16 +689,17 @@ crossing template and Program-node coordinate in the public failure. Its
 stable native reason key is `compute_pipeline_template_step_capacity`; the
 public projection is `PipelineCapacity`, not a generic lowering failure.
 
-`PipelinePlan::scratch_bytes` and `scratch_count` expose the logical
-accelerator scratch backing and page count. `allocation_count` remains the
-retained Buffer-owner count and is not repurposed as a host/native allocation
-counter. `Pipeline::memory_snapshot()` enumerates shared owners once and
-labels scratch separately in Resident and Device categories; Device bytes are
-the actual physical allocation and may exceed logical Buffer payload through
-backend allocation granularity. Host/native current and peak telemetry are
-compared with their planned reservations after preparation. Native allocation
-failure retains its typed public Reason plus stable preparation location and
-native reason key when the rejecting route is known.
+`PipelinePlan::scratch_payload_bytes`, `scratch_bytes`, and `scratch_count`
+expose the simultaneous-live logical payload, retained aligned backing, and
+page count respectively. `allocation_count` remains the retained Buffer-owner
+count and is not repurposed as a host/native allocation counter.
+`Pipeline::memory_snapshot()` enumerates shared owners once and labels scratch
+separately in Resident and Device categories; Resident bytes equal the retained
+backing, while Device bytes are the actual physical allocation and may exceed
+that backing through backend allocation granularity. Host/native current and
+peak telemetry are compared with their planned reservations after preparation.
+Native allocation failure retains its typed public Reason plus stable
+preparation location and native reason key when the rejecting route is known.
 
 ### Device Pipeline Admission
 

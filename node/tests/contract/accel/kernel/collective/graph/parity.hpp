@@ -4,6 +4,7 @@
 
 #include "../../compact/local.hpp"
 #include "../../scan/local.hpp"
+#include "../../scan/stream/run.hpp"
 #include "../../sort/identity.hpp"
 #include "../sort.hpp"
 #include "scan.hpp"

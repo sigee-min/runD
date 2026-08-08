@@ -13,7 +13,7 @@ rund::AccelCheck FinishMetalStencil(MetalAdapter &adapter,
     SetMetalLastError(adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
-  RecordMetalDispatches(adapter, stencil->plan.pass_count);
+  RecordMetalDispatches(adapter, stencil->range.stage_count());
   SetMetalLastError(adapter, "ok");
   return rund::AccelCheck{true, "ok"};
 #else

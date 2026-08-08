@@ -9,13 +9,14 @@ namespace {
 
 void EncodeVulkanStencilDispatch(const VulkanStencilEncodeResources &stencil,
                                  const VkCommandBuffer command,
-                                 const std::uint32_t workgroups) {
+                                 const std::uint32_t stage_index) {
+  const RangeAggregateStagePlan stage = stencil.range.stage(stage_index);
   BindVulkanPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                     stencil.pipeline->pipeline);
+                     stencil.pipelines[stage_index]->pipeline);
   BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        stencil.pipeline->pipeline_layout, 0u, 1u,
-                        &stencil.descriptor_set, 0u, nullptr);
-  DispatchVulkan(command, workgroups, 1u, 1u);
+                        stencil.pipelines[stage_index]->pipeline_layout, 0u, 1u,
+                        &stencil.descriptor_sets[stage_index], 0u, nullptr);
+  DispatchVulkan(command, static_cast<std::uint32_t>(stage.groups), 1u, 1u);
 }
 
 } // namespace

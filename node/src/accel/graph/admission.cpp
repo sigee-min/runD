@@ -4,10 +4,11 @@
 namespace rund::node::accel::detail {
 
 const char *AdmitGraphNodePrimitive(const rund::AccelGraphNode &node,
-                                    const rund::kernel::ComputeApi api,
+                                    const ContextAdmission &admission,
+                                    const rund::kernel::ComputeDomain domain,
                                     GraphCompileNode &compile_data) {
   if (node.kind == rund::kernel::NodeKind::Map) {
-    return AdmitMapNode(node, api, compile_data);
+    return AdmitMapNode(node, admission.caps.api, compile_data);
   }
   if (ScanGraphNode(node.kind)) {
     return AdmitScanNode(node, compile_data);
@@ -43,7 +44,7 @@ const char *AdmitGraphNodePrimitive(const rund::AccelGraphNode &node,
     return AdmitScatterReduceNode(node, compile_data);
   }
   if (StencilGraphNode(node.kind)) {
-    return AdmitStencilNode(node, compile_data);
+    return AdmitStencilNode(node, admission, domain, compile_data);
   }
   if (TransformGraphNode(node.kind)) {
     return AdmitTransformNode(node, compile_data);

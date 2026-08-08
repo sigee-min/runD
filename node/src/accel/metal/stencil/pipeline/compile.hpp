@@ -17,15 +17,17 @@ enum class MetalStencilPipelineAssessment : std::uint8_t {
 MetalStencilPipelineLabel(const rund::kernel::StencilOp op,
                           const rund::kernel::StencilElement element,
                           const rund::kernel::ComputeDomain domain,
-                          const StencilGpuShape shape) {
-  return MetalPipelineCacheKey(StencilPipelineKey(op, element, domain, shape));
+                          const StencilGpuShape shape,
+                          const RangeAggregatePlan &range) {
+  return MetalPipelineCacheKey(
+      StencilPipelineKey(op, element, domain, shape, range));
 }
 
 [[nodiscard]] inline MetalStencilPipelineAssessment AssessMetalStencilPipeline(
     MetalAdapter &adapter, const rund::kernel::StencilOp op,
     const rund::kernel::StencilElement element,
     const rund::kernel::ComputeDomain domain, const StencilGpuShape shape,
-    const std::shared_ptr<void> &owner) {
+    const RangeAggregatePlan &range, const std::shared_ptr<void> &owner) {
   id<MTLDevice> device = (__bridge id<MTLDevice>)adapter.device.get();
   id<MTLComputePipelineState> pipeline =
       (__bridge id<MTLComputePipelineState>)owner.get();
@@ -35,7 +37,7 @@ MetalStencilPipelineLabel(const rund::kernel::StencilOp op,
   }
 
   const std::string identity =
-      MetalStencilPipelineLabel(op, element, domain, shape);
+      MetalStencilPipelineLabel(op, element, domain, shape, range);
   NSString *const label = [[NSString alloc] initWithBytes:identity.data()
                                                    length:identity.size()
                                                  encoding:NSUTF8StringEncoding];
@@ -51,7 +53,7 @@ MetalStencilPipelineLabel(const rund::kernel::StencilOp op,
                               pipeline.maxTotalThreadsPerThreadgroup);
   const MetalStencilCompiledPipelineSupport support =
       MetalStencilShapeCompiledPipelineSupport(
-          shape, element,
+          shape, range, element,
           MetalStencilCompiledPipelineLimits{
               .maximum_workgroup_width =
                   static_cast<rund::kernel::u32>(std::min<std::uint64_t>(
@@ -74,10 +76,11 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
                                    const rund::kernel::StencilElement element,
                                    const rund::kernel::ComputeDomain domain,
                                    const StencilGpuShape shape,
+                                   const RangeAggregatePlan &range,
                                    std::shared_ptr<void> &out) {
   out.reset();
   std::string source =
-      PipelinePrivateMetalSource(MetalStencilSource(op, shape));
+      PipelinePrivateMetalSource(MetalStencilSource(op, shape, range));
   if (source.empty()) {
     return {MetalStencilPipelineAttemptStatus::Failed,
             "compute_pipeline_capacity"};
@@ -107,7 +110,7 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
   id<MTLLibrary> library = (__bridge id<MTLLibrary>)library_owner.get();
   const std::string function_name = StencilFunctionName(op, element, domain);
   const std::string identity =
-      MetalStencilPipelineLabel(op, element, domain, shape);
+      MetalStencilPipelineLabel(op, element, domain, shape, range);
   NSString *const function =
       [[NSString alloc] initWithBytes:function_name.data()
                                length:function_name.size()
@@ -149,8 +152,8 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
     return {MetalStencilPipelineAttemptStatus::Failed,
             "accel_metal_pipeline_unavailable"};
   }
-  const MetalStencilPipelineAssessment assessment =
-      AssessMetalStencilPipeline(adapter, op, element, domain, shape, out);
+  const MetalStencilPipelineAssessment assessment = AssessMetalStencilPipeline(
+      adapter, op, element, domain, shape, range, out);
   if (assessment != MetalStencilPipelineAssessment::Ready) {
     RecordMetalUncachedPipelineCompile(adapter, pipeline_create_ns);
     record_unpublished_library();

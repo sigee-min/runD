@@ -20,8 +20,12 @@ public:
   [[nodiscard]] bool valid() const noexcept;
   [[nodiscard]] bool used() const noexcept;
   [[nodiscard]] bool active() const noexcept;
+  [[nodiscard]] std::uint64_t page_bytes() const noexcept;
   void reset() noexcept;
   [[nodiscard]] bool acquire(VkDeviceSize bytes, VkBufferUsageFlags usage,
+                             VulkanBuffer &buffer) noexcept;
+  [[nodiscard]] bool acquire(const KernelScratchPlacement &placement,
+                             VkBufferUsageFlags usage,
                              VulkanBuffer &buffer) noexcept;
 
 private:

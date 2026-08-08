@@ -40,8 +40,12 @@ struct PipelinePlan final {
   // driver bookkeeping that has no allocation query remains post-prepare
   // telemetry.
   std::uint64_t prepared_native_bytes{};
-  // Backend primitive scratch is one serially reused arena. scratch_bytes is
-  // its retained payload and scratch_count is its physical page count.
+  // Backend primitive scratch is one serially reused arena.
+  // scratch_payload_bytes is the exact maximum simultaneously-live logical
+  // temporary payload. scratch_bytes is its retained aligned backing,
+  // including suballocation holes and terminal padding, and scratch_count is
+  // its physical page count.
+  std::uint64_t scratch_payload_bytes{};
   std::uint64_t scratch_bytes{};
   std::uint64_t scratch_count{};
   // Bytes copied by final and append-only window publication. This is traffic,

@@ -208,6 +208,187 @@ template <typename Sink>
          sink.append(";\n}\n");
 }
 
+[[nodiscard]] constexpr std::uint32_t VulkanStencilStageValue(
+    const rund::node::accel::detail::RangeAggregateStageDisposition
+        stage) noexcept {
+  return static_cast<std::uint32_t>(stage);
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanPrefixDifferenceBody(
+    Sink &sink, const bool wide,
+    const rund::node::accel::detail::StencilGpuShape
+        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+  using namespace rund::node::accel::detail;
+  const char *const scalar = wide ? "uint64_t" : "uint";
+  if (!sink.append(R"glsl(void main() {
+  const uint lane = gl_LocalInvocationID.x;
+  const uint64_t group_base = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl();
+  if (params.stage == )glsl") ||
+      !backend_source_recipe::append_decimal(
+          sink, VulkanStencilStageValue(
+                    RangeAggregateStageDisposition::PrefixBlock)) ||
+      !sink.append(R"glsl(u || params.stage == )glsl") ||
+      !backend_source_recipe::append_decimal(
+          sink, VulkanStencilStageValue(
+                    RangeAggregateStageDisposition::PrefixSummary)) ||
+      !sink.append(R"glsl(u) {
+    const uint64_t index = group_base + uint64_t(lane);
+    const bool is_active = index < params.stage_element_count;
+    const )glsl") ||
+      !sink.append(scalar) || !sink.append(R"glsl( value = is_active
+        ? (params.stage == )glsl") ||
+      !backend_source_recipe::append_decimal(
+          sink, VulkanStencilStageValue(
+                    RangeAggregateStageDisposition::PrefixBlock)) ||
+      !sink.append(R"glsl(u ? input_values[uint(index)]
+                            : scratch0_values[uint(index)])
+        : )glsl") ||
+      !sink.append(scalar) || !sink.append(R"glsl((0);
+    range_scan[lane] = value;
+    barrier();
+    for (uint offset = 1u; offset < )glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl(u; offset <<= 1u) {
+      const uint tree = (lane + 1u) * offset * 2u - 1u;
+      if (tree < )glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl(u) { range_scan[tree] += range_scan[tree - offset]; }
+      barrier();
+    }
+    if (lane == 0u) {
+      if (params.stage_aux_count > uint64_t(1)) {
+        scratch1_values[gl_WorkGroupID.x] = range_scan[)glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width() - 1u) ||
+      !sink.append(R"glsl(];
+      }
+      range_scan[)glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width() - 1u) ||
+      !sink.append(R"glsl(] = )glsl") || !sink.append(scalar) ||
+      !sink.append(R"glsl((0);
+    }
+    barrier();
+    for (uint offset = )glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width() / 2u) ||
+      !sink.append(R"glsl(u; offset > 0u; offset >>= 1u) {
+      const uint tree = (lane + 1u) * offset * 2u - 1u;
+      if (tree < )glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl(u) {
+        const )glsl") ||
+      !sink.append(scalar) ||
+      !sink.append(R"glsl( prior = range_scan[tree - offset];
+        range_scan[tree - offset] = range_scan[tree];
+        range_scan[tree] += prior;
+      }
+      barrier();
+    }
+    if (is_active) { scratch0_values[uint(index)] = range_scan[lane] + value; }
+    return;
+  }
+  if (params.stage == )glsl") ||
+      !backend_source_recipe::append_decimal(
+          sink, VulkanStencilStageValue(
+                    RangeAggregateStageDisposition::PrefixFixup)) ||
+      !sink.append(R"glsl(u) {
+    const uint64_t index = group_base + uint64_t(lane);
+    if (index < params.stage_element_count && gl_WorkGroupID.x != 0u) {
+      scratch0_values[uint(index)] += scratch1_values[gl_WorkGroupID.x - 1u];
+    }
+    return;
+  }
+  const uint64_t index = group_base + uint64_t(lane);
+  if (index >= params.element_count) { return; }
+  const uint64_t left = index < params.radius ? uint64_t(0)
+                                                : index - params.radius;
+  const uint64_t right = min(params.element_count - uint64_t(1),
+                             index + params.radius);
+  )glsl") ||
+      !sink.append(scalar) ||
+      !sink.append(R"glsl( value = scratch0_values[uint(right)];
+  if (left != uint64_t(0)) { value -= scratch0_values[uint(left - uint64_t(1))]; }
+  if (index < params.radius) {
+    value += )glsl") ||
+      !sink.append(scalar) ||
+      !sink.append(R"glsl((params.radius - index) * input_values[0u];
+  }
+  if (index + params.radius >= params.element_count) {
+    value += )glsl") ||
+      !sink.append(scalar) ||
+      !sink.append(
+          R"glsl((index + params.radius - (params.element_count - uint64_t(1))) *
+             input_values[uint(params.element_count - uint64_t(1))];
+  }
+  output_values[uint(index)] = value;
+}
+)glsl")) {
+    return false;
+  }
+  return true;
+}
+
+template <typename Sink>
+[[nodiscard]] bool EmitVulkanBlockPrefixSuffixBody(
+    Sink &sink, const rund::kernel::StencilOp op,
+    const rund::node::accel::detail::StencilGpuShape
+        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+  using namespace rund::node::accel::detail;
+  const char *const combine =
+      op == rund::kernel::StencilOp::Min ? "min" : "max";
+  if (!sink.append(R"glsl(void main() {
+  const uint64_t block = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl() + uint64_t(gl_LocalInvocationID.x);
+  if (params.stage == )glsl") ||
+      !backend_source_recipe::append_decimal(
+          sink, VulkanStencilStageValue(
+                    RangeAggregateStageDisposition::BlockPrefixSuffix)) ||
+      !sink.append(R"glsl(u) {
+    if (block >= params.stage_aux_count) { return; }
+    const uint64_t window = params.radius * uint64_t(2) + uint64_t(1);
+    const uint64_t begin = block * window;
+    const uint64_t end = min(begin + window, params.stage_element_count);
+    for (uint64_t index = begin; index < end; ++index) {
+      const value_type value = index < params.radius
+          ? input_values[0u]
+          : (index - params.radius < params.element_count
+                 ? input_values[uint(index - params.radius)]
+                 : input_values[uint(params.element_count - uint64_t(1))]);
+      if (index == begin) { scratch0_values[uint(index)] = value; }
+      else { scratch0_values[uint(index)] = )glsl") ||
+      !sink.append(combine) ||
+      !sink.append(R"glsl((scratch0_values[uint(index - uint64_t(1))], value); }
+    }
+    for (uint64_t cursor = end; cursor > begin;) {
+      const uint64_t index = cursor - uint64_t(1);
+      const value_type value = index < params.radius
+          ? input_values[0u]
+          : (index - params.radius < params.element_count
+                 ? input_values[uint(index - params.radius)]
+                 : input_values[uint(params.element_count - uint64_t(1))]);
+      if (index + uint64_t(1) == end) { scratch1_values[uint(index)] = value; }
+      else { scratch1_values[uint(index)] = )glsl") ||
+      !sink.append(combine) ||
+      !sink.append(R"glsl((value, scratch1_values[uint(index + uint64_t(1))]); }
+      cursor = index;
+    }
+    return;
+  }
+  if (block >= params.element_count) { return; }
+  const uint64_t right = block + params.radius * uint64_t(2);
+  output_values[uint(block)] = )glsl") ||
+      !sink.append(combine) ||
+      !sink.append(
+          R"glsl((scratch1_values[uint(block)], scratch0_values[uint(right)]);
+}
+)glsl")) {
+    return false;
+  }
+  return true;
+}
+
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanStencilBody(
     Sink &sink, const rund::kernel::StencilOp op, const bool wide,

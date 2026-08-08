@@ -535,13 +535,14 @@ types may share the same raw-word slot. `view_bytes` and its
 step/iteration/binding coordinates name the largest requirement. Its addressed
 span, backing extent, offset, stride, element width, count, and authored
 alignment are available in the corresponding `view_*` fields.
-The same plan walks the admitted Kernel operation sequence once, derives each
-collective's exact simultaneous temporary requests, and first-fit packs each
-operation into storage-sized aligned pages. Operation boundaries reset that
-placement behind an explicit visibility barrier. `scratch_bytes` and
-`scratch_count` expose the maximum serial operation and Program envelope.
-Prepared Metal and Vulkan primitives borrow those offsets; neither owns a
-hidden scratch allocation.
+The same plan walks the admitted Kernel operation sequence once, derives typed
+temporary roles and their closed stage lifetimes, and deterministically packs
+non-overlapping lifetimes into storage-sized aligned pages. Operation
+boundaries reset that placement behind an explicit visibility barrier.
+`scratch_payload_bytes` exposes the simultaneous-live logical high-water;
+`scratch_bytes` and `scratch_count` expose the retained aligned backing and
+maximum serial page envelope. Prepared Metal and Vulkan primitives borrow
+those offsets; neither owns a hidden scratch allocation.
 CPU compact Map/collective run wrappers and immutable index arrays are retained
 once per distinct Program. Their mutable spans, every route/binding array,
 workspace object and offset, worker/tile state, collective array, primitive
