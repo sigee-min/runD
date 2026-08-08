@@ -179,12 +179,15 @@ reduces the Vulkan workgroup count from `N` to `ceil(N / 256)` while preserving
 one independent invocation for every original `gid`. No padding buffer, copy,
 fallback pipeline, or alternate result order exists.
 
-Prepared invocation resets consume the single overflow-free value and
+Prepared invocation resets consume the single overflow-free `Range` value and
 projection proof owned by
 [Compute Memory Ownership](../../compute/memory.md). Metal and Vulkan retain
 only their native handle, descriptor, and command form around that proved
 range; command encoding never reconstructs the range or repeats its bounds
-proof.
+proof. `Range::valid()` is the sole reset-proof disposition: rejection returns
+the canonical empty range, and each consumer projects the fixed
+`accel_kernel_reset_invalid` reason at its own API boundary. No parallel check,
+reason, or conditional range carrier survives proof publication.
 
 ## Prepared Lifetime
 

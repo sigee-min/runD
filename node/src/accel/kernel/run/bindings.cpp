@@ -149,15 +149,14 @@ ResetBindBuild BuildResetBinds(const KernelExecution &execution,
     if (source_ref.bytes == 0u || handle == nullptr) {
       return result;
     }
-    const reset::Result proved =
+    const reset::Range proved =
         reset::Prove(reset::Project(source_ref, nullptr), source_ref.bytes);
-    if (!proved.check.ok) {
-      result.reason = proved.check.reason;
+    if (!proved.valid()) {
       return result;
     }
     std::optional<BoundReset> sealed =
-        BoundReset::Seal(source_ref, std::move(handle), proved.range,
-                         reset.binding, reset.step, reset.last,
+        BoundReset::Seal(source_ref, std::move(handle), proved, reset.binding,
+                         reset.step, reset.last,
                          execution.graph_visibilities[reset.binding] ==
                              rund::GraphBufferVisibility::External);
     if (!sealed.has_value()) {

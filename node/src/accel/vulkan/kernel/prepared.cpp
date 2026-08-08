@@ -356,12 +356,12 @@ rund::AccelCheck PrepareVulkanResources(
         };
         reset::Range range = route.range();
         if (replacement != nullptr) {
-          const reset::Result proved = reset::Prove(
+          const reset::Range proved = reset::Prove(
               reset::Project(ref, &dense), resolved.device_buffer->bytes);
-          if (!proved.check.ok) {
-            return proved.check;
+          if (!proved.valid()) {
+            return rund::AccelCheck{false, "accel_kernel_reset_invalid"};
           }
-          range = proved.range;
+          range = proved;
         }
         const std::uint64_t reset_window =
             static_cast<std::uint64_t>(adapter->max_dispatch_groups) * 256u;

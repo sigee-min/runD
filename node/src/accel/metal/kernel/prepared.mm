@@ -73,13 +73,13 @@ kernel void rund_compute_reset(device uint *target [[buffer(0)]],
     id<MTLBuffer> buffer = (__bridge id<MTLBuffer>)resident.device_buffer.get();
     reset::Range range = route.range();
     if (replacement != nullptr) {
-      const reset::Result proved = reset::Prove(
-          reset::Project(ref, &dense),
-          static_cast<std::uint64_t>(buffer.length));
-      if (!proved.check.ok) {
+      const reset::Range proved =
+          reset::Prove(reset::Project(ref, &dense),
+                       static_cast<std::uint64_t>(buffer.length));
+      if (!proved.valid()) {
         return false;
       }
-      range = proved.range;
+      range = proved;
     } else if (!range.valid()) {
       return false;
     }

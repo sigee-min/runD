@@ -20,8 +20,7 @@ struct Spec final {
 };
 
 class Range;
-struct Result;
-[[nodiscard]] Result Prove(Spec, std::uint64_t) noexcept;
+[[nodiscard]] Range Prove(Spec, std::uint64_t) noexcept;
 
 class Range final {
 public:
@@ -64,7 +63,7 @@ private:
   std::uint64_t element_{};
   std::uint64_t end_{};
 
-  friend Result Prove(Spec, std::uint64_t) noexcept;
+  friend Range Prove(Spec, std::uint64_t) noexcept;
 };
 
 struct Replacement final {
