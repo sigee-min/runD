@@ -20,18 +20,14 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
                       std::vector<ReactorManyEventSlot> &event_slots) noexcept {
   ReactorManyEventSlotsReset(event_slots, group.request_count);
   if (event_slots.size() != group.request_count) {
-    return ReactorManyProbeResult{
-        .code = ReasonCode::ReactorWaitCapacityExceeded,
-    };
+    return ReactorManyProbeResult::wait_capacity_exceeded();
   }
 
   const BatchIoProbeResult probed = ReactorProbeManyReadyNow(
       platform, requests, poll_requests, ready_results);
   switch (probed.disposition()) {
   case BatchIoProbeDisposition::BackendUnavailable:
-    return ReactorManyProbeResult{
-        .code = ReasonCode::ReactorBackendUnavailable,
-    };
+    return ReactorManyProbeResult::backend_unavailable();
   case BatchIoProbeDisposition::Failed: {
     const ReactorManyRequest *const first =
         requests.empty() ? nullptr : &requests.front();
@@ -48,19 +44,15 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
                                        ReactorInterestBits(interest), 0);
     if (!scheduler.RecordReactorHostEvent(ReasonCode::IoPollFailed, task_id,
                                           host_handle_id)) {
-      return ReactorManyProbeResult{
-          .code = ReasonCode::HostReplayEventMismatch,
-      };
+      return ReactorManyProbeResult::host_replay_mismatch();
     }
-    return ReactorManyProbeResult{
-        .code = ReasonCode::IoPollFailed,
-    };
+    return ReactorManyProbeResult::poll_failed();
   }
   case BatchIoProbeDisposition::Success:
     break;
   }
 
-  ReactorManyProbeResult result{};
+  std::uint32_t total_ready = 0u;
   for (const BatchIoReady &ready : ready_results) {
     const ReactorManyRequest *const request =
         ReactorManyProbeRequestForReady(requests, ready);
@@ -81,22 +73,18 @@ ReactorProbeManyReady(Scheduler &scheduler, ReactorPlatform &platform,
         ReactorInterestBits(request->interest), ReactorEventBits(ready.events));
     if (!scheduler.RecordReactorHostEvent(ready_code, task_id,
                                           request->socket.id())) {
-      return ReactorManyProbeResult{
-          .code = ReasonCode::HostReplayEventMismatch,
-          .total_ready = result.total_ready,
-      };
+      return ReactorManyProbeResult::host_replay_mismatch(total_ready);
     }
-    if (result.total_ready < limit) {
+    if (total_ready < limit) {
       ReactorManyEventSlotsAppend(group, *request, ready.events, ready_code,
                                   event_slots);
     }
-    ++result.total_ready;
     if (ready.invalid) {
-      result.code = ReasonCode::IoFdInvalid;
-      return result;
+      return ReactorManyProbeResult::invalid_after(total_ready);
     }
+    ++total_ready;
   }
-  return result;
+  return ReactorManyProbeResult::success(total_ready);
 }
 
 BatchIoProbeResult

@@ -17,34 +17,6 @@ OutputLimit(const std::span<::rund::net::ready::Event> out,
              : static_cast<std::uint32_t>(limit);
 }
 
-bool Scheduler::ProbeReactorManyReady(
-    const std::span<const ReactorManyRequest> requests,
-    const std::uint64_t task_id, const std::uint64_t group_id,
-    const std::uint32_t limit, std::uint32_t *const total_ready,
-    ReasonCode *const code) noexcept {
-  if (total_ready == nullptr || code == nullptr) {
-    return false;
-  }
-  *total_ready = 0u;
-  *code = ReasonCode::Ok;
-
-  ReactorManyGroup immediate_group{
-      .group_id = group_id,
-      .task_id = task_id,
-      .first_request = 0u,
-      .request_count = static_cast<std::uint32_t>(requests.size()),
-      .max_events = limit,
-  };
-  const ReactorManyProbeResult probed = ReactorProbeManyReady(
-      *this, state_->reactor.reactor.platform, task_id, limit, requests,
-      state_->reactor.reactor_many_poll_request_scratch,
-      state_->reactor.reactor_many_ready_result_scratch, immediate_group,
-      state_->reactor.reactor_many_event_slots_scratch);
-  *total_ready = probed.total_ready;
-  *code = probed.code;
-  return probed.ok();
-}
-
 bool Scheduler::CopyReactorManyEvents(const std::uint64_t group_id,
                                       const std::span<::rund::net::ready::Event> out,
                                       std::uint32_t *const copied) noexcept {

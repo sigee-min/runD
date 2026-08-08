@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cerrno>
+#include <limits>
 #include <type_traits>
 #include <unistd.h>
 #include <vector>
@@ -25,6 +26,56 @@ int RunRuntimeTaskReactorResultContract() {
   static_assert(!std::is_aggregate_v<ReactorInvalidChangeToken>);
   static_assert(std::is_trivially_copyable_v<ReactorInvalidChangeToken>);
   static_assert(!std::is_aggregate_v<ReactorManyEventSlot>);
+  static_assert(!std::is_aggregate_v<ReactorManyProbeResult>);
+  static_assert(!std::is_default_constructible_v<ReactorManyProbeResult>);
+  static_assert(std::is_trivially_copyable_v<ReactorManyProbeResult>);
+
+  constexpr ReactorManyProbeResult many_probe_success =
+      ReactorManyProbeResult::success(3u);
+  static_assert(many_probe_success.ok());
+  static_assert(many_probe_success.code() == ::rund::ReasonCode::Ok);
+  static_assert(many_probe_success.total_ready() == 3u);
+
+  constexpr ReactorManyProbeResult many_probe_capacity =
+      ReactorManyProbeResult::wait_capacity_exceeded();
+  static_assert(!many_probe_capacity.ok());
+  static_assert(many_probe_capacity.code() ==
+                ::rund::ReasonCode::ReactorWaitCapacityExceeded);
+  static_assert(many_probe_capacity.total_ready() == 0u);
+
+  constexpr ReactorManyProbeResult many_probe_unavailable =
+      ReactorManyProbeResult::backend_unavailable();
+  static_assert(!many_probe_unavailable.ok());
+  static_assert(many_probe_unavailable.code() ==
+                ::rund::ReasonCode::ReactorBackendUnavailable);
+  static_assert(many_probe_unavailable.total_ready() == 0u);
+
+  constexpr ReactorManyProbeResult many_probe_failed =
+      ReactorManyProbeResult::poll_failed();
+  static_assert(!many_probe_failed.ok());
+  static_assert(many_probe_failed.code() == ::rund::ReasonCode::IoPollFailed);
+  static_assert(many_probe_failed.total_ready() == 0u);
+
+  constexpr ReactorManyProbeResult many_probe_mismatch =
+      ReactorManyProbeResult::host_replay_mismatch(5u);
+  static_assert(!many_probe_mismatch.ok());
+  static_assert(many_probe_mismatch.code() ==
+                ::rund::ReasonCode::HostReplayEventMismatch);
+  static_assert(many_probe_mismatch.total_ready() == 5u);
+
+  constexpr ReactorManyProbeResult many_probe_invalid =
+      ReactorManyProbeResult::invalid_after(7u);
+  static_assert(!many_probe_invalid.ok());
+  static_assert(many_probe_invalid.code() == ::rund::ReasonCode::IoFdInvalid);
+  static_assert(many_probe_invalid.total_ready() == 8u);
+
+  constexpr ReactorManyProbeResult many_probe_invalid_overflow =
+      ReactorManyProbeResult::invalid_after(
+          std::numeric_limits<std::uint32_t>::max());
+  static_assert(!many_probe_invalid_overflow.ok());
+  static_assert(many_probe_invalid_overflow.code() ==
+                ::rund::ReasonCode::ReactorWaitCapacityExceeded);
+  static_assert(many_probe_invalid_overflow.total_ready() == 0u);
 
   ReactorManyGroup event_group{
       .group_id = 41u,

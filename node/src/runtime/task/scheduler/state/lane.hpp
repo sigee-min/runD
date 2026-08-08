@@ -78,11 +78,6 @@ MakeTimerDeadline(std::chrono::nanoseconds duration) const noexcept;
     ::rund::detail::task::StopIdentity stop = {},
     ::rund::net::ready::Set ready_set = {}) noexcept;
 [[nodiscard]] bool
-ProbeReactorManyReady(std::span<const ReactorManyRequest> requests,
-                      std::uint64_t task_id, std::uint64_t group_id,
-                      std::uint32_t limit, std::uint32_t *total_ready,
-                      ReasonCode *code) noexcept;
-[[nodiscard]] bool
 CopyReactorManyEvents(std::uint64_t group_id,
                       std::span<::rund::net::ready::Event> out,
                       std::uint32_t *copied) noexcept;

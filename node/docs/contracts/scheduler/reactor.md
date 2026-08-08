@@ -162,12 +162,18 @@ capacity check can abandon a committed prefix.
 - `reactor/many/probe/raw.cpp`: raw batch ReadyMany immediate probe owner; it
   converts request records to raw fd probe records, consumes the platform
   probe disposition directly without a boolean result mirror, records
-  observations and host events, and appends through the event-slot owner.
+  observations and host events, and appends through the event-slot owner. Its
+  immutable result carries one reason and the host-event-committed mapped
+  prefix count. `Success` carries the complete prefix, `IoFdInvalid` includes
+  the current invalid event, and `HostReplayEventMismatch` excludes the event
+  whose host-event commit failed; capacity, unavailable, and poll failures
+  carry zero. The output limit bounds stored and copied events, not this total,
+  so the total remains the sole budget-exhaustion authority.
 - `reactor/many/store.cpp`: canonical group-range lookup, `O(N log N)` sorted
   duplicate validation, one-time public-to-internal descriptor projection,
   consecutive wait-id lookup, and group-range erasure.
-- `reactor/many/probe/dispatch.cpp`: Scheduler-facing borrowed-request immediate probe
-  dispatch, output limit, direct event projection, and ready-event telemetry.
+- `reactor/many/probe/dispatch.cpp`: output-limit projection, direct event
+  copying, and ready-event telemetry; it does not mirror the raw probe result.
 - `reactor/many/drain.cpp`: ReadyMany wait and timeout wake routing through
   the single reactor cleanup owner.
 - `reactor/many/fairness.cpp`: ReadyMany primitive router only; it dispatches
@@ -176,8 +182,9 @@ capacity check can abandon a committed prefix.
   checks, output limit calculation, sorted duplicate validation, and
   stale-generation cleanup over a borrowed descriptor span before immediate
   probing.
-- `reactor/many/immediate.cpp`: immediate ReadyMany probe, deterministic
-  copied-event ordering, no-timeout result, and zero-timeout result.
+- `reactor/many/immediate.cpp`: direct consumption of the immutable immediate
+  probe result, deterministic copied-event ordering, no-timeout result, and
+  zero-timeout result.
 - `reactor/many/park.cpp`: ReadyMany park orchestration, record park state,
   observation records, one park-failure result projection, and published-group
   rollback through the reactor cleanup owner.
