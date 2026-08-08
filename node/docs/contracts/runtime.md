@@ -436,11 +436,14 @@ flatten or mirror those fields.
 ## Discovery And Parallel Provider
 
 Session configuration is the sole resource-discovery entry. Its private
-`resource::Resolve` transaction returns one typed code, backend kind, backend
-lifetime owner, and one `ResourceEnvelope`; Session never parses a diagnostic
-string back into a code. Verified capacity requires one non-zero milli-capacity
-entry per requested worker. Unknown topology remains unknown; Session does not
-manufacture evidence or expose a standalone discovery authority.
+`resource::Resolve` transaction returns one `ResourceEnvelope` whose embedded
+`Resources::code` is the only typed outcome, together with the admitted worker
+backend view. The separately retained Compute host owns that view's lifetime.
+No outer result code or requested-worker mirror can disagree with the embedded
+code; Session never parses a diagnostic string back into a code. Verified
+capacity requires one non-zero milli-capacity entry per requested worker.
+Unknown topology remains unknown; Session does not manufacture evidence or
+expose a standalone discovery authority.
 
 An active Session scope installs a scoped Kernel parallel provider. Kernel
 `par()` outside that scope fails with `parallel_runtime_missing`; an explicit

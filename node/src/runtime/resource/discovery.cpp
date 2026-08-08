@@ -20,29 +20,30 @@ Evidence(const kernel::WorkerTruthLevel truth) noexcept {
   return ::rund::EvidenceTruth::Unknown;
 }
 
-[[nodiscard]] Result Describe(BackendSelection selection) {
+[[nodiscard]] ResourceEnvelope Describe(BackendSelection selection) {
   if (!selection) {
-    return Result{.code = selection.code};
+    ResourceEnvelope resources{};
+    resources.observed.code = selection.code;
+    return resources;
   }
 
   const std::uint32_t width = selection.requested_worker_width;
   const kernel::WorkerBackendCapabilities capabilities =
       kernel::InspectWorkerBackend(selection.backend, width);
 
-  Result out{};
-  out.code = ReasonCode::Ok;
-  out.resources.observed.code = ReasonCode::Ok;
-  out.resources.observed.workers = width;
-  out.resources.worker_backend = selection.backend;
+  ResourceEnvelope out{};
+  out.observed.code = ReasonCode::Ok;
+  out.observed.workers = width;
+  out.worker_backend = selection.backend;
   if (capabilities.worker_capacity_milli != nullptr &&
       capabilities.worker_capacity_count != 0u) {
-    out.resources.observed.worker_capacity_milli.assign(
+    out.observed.worker_capacity_milli.assign(
         capabilities.worker_capacity_milli,
         capabilities.worker_capacity_milli +
             capabilities.worker_capacity_count);
   }
 
-  out.resources.observed.topology = ::rund::Topology{
+  out.observed.topology = ::rund::Topology{
       .numa = selection.verified_numa ? ::rund::EvidenceTruth::Verified
                                       : ::rund::EvidenceTruth::Unknown,
       .affinity = Evidence(capabilities.affinity_truth_level),
@@ -87,12 +88,12 @@ Evidence(const kernel::WorkerTruthLevel truth) noexcept {
 
 } // namespace
 
-Result Resolve(BackendSelection selection, const Request &request) {
-  Result result = Describe(std::move(selection));
-  if (result) {
-    result.code = Admit(result.resources, request);
+ResourceEnvelope Resolve(BackendSelection selection, const Request &request) {
+  ResourceEnvelope resources = Describe(std::move(selection));
+  if (resources.observed) {
+    resources.observed.code = Admit(resources, request);
   }
-  return result;
+  return resources;
 }
 
 } // namespace rund::node::runtime_detail::resource

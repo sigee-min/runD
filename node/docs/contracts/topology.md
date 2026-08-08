@@ -42,10 +42,15 @@ fail closed when truth is required.
 
 `resource::Resolve` is the one private describe-and-admit transaction used by
 Session configuration; the projection and admission helpers are TU-local
-details. There is no standalone discovery API or second backend owner. Runtime
-describes and admits the exact backend already owned by its configured
-Scheduler; it must not allocate a placeholder backend, describe it, and later
-replace it with the real backend.
+details. It returns the admitted `ResourceEnvelope` directly. The embedded
+`Resources::code` is the sole outcome authority; there is no outer result code
+that can diverge from the observed resource value. The selected backend's
+requested width is also the sole worker-width authority. The admission request
+adds only required evidence levels and does not mirror that width. There is no
+standalone discovery API or second backend owner. Runtime describes and admits
+the exact backend already owned by its configured Scheduler; it must not
+allocate a placeholder backend, describe it, and later replace it with the real
+backend.
 
 The public Session selects only a worker width. A Kernel worker backend is not
 a Session value, and the built-in Session worker pool is the sole product

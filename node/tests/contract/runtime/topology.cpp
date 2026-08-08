@@ -77,7 +77,7 @@ rund::kernel::WorkerBackend Backend(BackendEvidence &evidence) noexcept {
   };
 }
 
-[[nodiscard]] rund::node::runtime_detail::resource::Result
+[[nodiscard]] rund::node::ResourceEnvelope
 Admit(BackendEvidence &evidence,
       const rund::node::runtime_detail::resource::Request &request) {
   return rund::node::runtime_detail::resource::Resolve(
@@ -121,21 +121,40 @@ int RunRuntimeTopologyContract() {
   BackendEvidence unknown_capacity{};
   unknown_capacity.capacity = rund::kernel::WorkerTruthLevel::Unknown;
 
-  TEST_ASSERT(Admit(verified,
-                    {.workers = verified.width, .require_verified_numa = true})
-                  .code == rund::ReasonCode::VerifiedTopologyRequired);
-  TEST_ASSERT(Admit(hinted_affinity, {.workers = hinted_affinity.width,
-                                      .require_verified_affinity = true})
-                  .code == rund::ReasonCode::AffinityTruthUnavailable);
-  TEST_ASSERT(Admit(short_capacity, {.workers = short_capacity.width,
-                                     .require_verified_capacity = true})
-                  .code == rund::ReasonCode::WorkerCapacityTruthUnavailable);
-  TEST_ASSERT(Admit(zero_capacity, {.workers = zero_capacity.width,
-                                    .require_verified_capacity = true})
-                  .code == rund::ReasonCode::WorkerCapacityTruthUnavailable);
-  TEST_ASSERT(Admit(unknown_capacity, {.workers = unknown_capacity.width,
-                                       .require_verified_capacity = true})
-                  .code == rund::ReasonCode::WorkerCapacityTruthUnavailable);
+  const rund::node::ResourceEnvelope admitted = Admit(verified, {});
+  TEST_ASSERT(admitted.observed);
+  TEST_ASSERT(admitted.observed.workers == verified.width);
+  TEST_ASSERT(admitted.worker_backend);
+  const rund::node::ResourceEnvelope rejected =
+      Admit(verified, {.require_verified_numa = true});
+  TEST_ASSERT(rejected.observed.code ==
+              rund::ReasonCode::VerifiedTopologyRequired);
+  TEST_ASSERT(rejected.observed.workers == verified.width);
+  TEST_ASSERT(rejected.observed.topology.affinity ==
+              rund::EvidenceTruth::Verified);
+  TEST_ASSERT(rejected.observed.topology.worker_capacity ==
+              rund::EvidenceTruth::Verified);
+  TEST_ASSERT(rejected.observed.worker_capacity_milli ==
+              verified.capacity_milli);
+  TEST_ASSERT(rejected.worker_backend);
+  TEST_ASSERT(Admit(hinted_affinity, {.require_verified_affinity = true})
+                  .observed.code == rund::ReasonCode::AffinityTruthUnavailable);
+  TEST_ASSERT(Admit(short_capacity, {.require_verified_capacity = true})
+                  .observed.code ==
+              rund::ReasonCode::WorkerCapacityTruthUnavailable);
+  TEST_ASSERT(
+      Admit(zero_capacity, {.require_verified_capacity = true}).observed.code ==
+      rund::ReasonCode::WorkerCapacityTruthUnavailable);
+  TEST_ASSERT(Admit(unknown_capacity, {.require_verified_capacity = true})
+                  .observed.code ==
+              rund::ReasonCode::WorkerCapacityTruthUnavailable);
+  const rund::node::ResourceEnvelope invalid =
+      rund::node::runtime_detail::resource::Resolve(
+          rund::node::BackendSelection{
+              .code = rund::ReasonCode::BackendWidthRequired},
+          {});
+  TEST_ASSERT(invalid.observed.code == rund::ReasonCode::BackendWidthRequired);
+  TEST_ASSERT(!invalid.worker_backend);
   TEST_ASSERT(
       rund::node::select_backend(rund::kernel::WorkerBackend{}, 2u).code ==
       rund::ReasonCode::BackendInvalid);

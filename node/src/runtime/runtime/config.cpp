@@ -52,7 +52,6 @@ using runtime_detail::RuntimeActiveScope;
                          state_->lifecycle);
   }
   runtime_detail::resource::Request resource_request{};
-  resource_request.workers = options.workers;
   resource_request.require_verified_numa = options.require_verified_numa;
   resource_request.require_verified_affinity =
       options.require_verified_affinity;
@@ -60,7 +59,6 @@ using runtime_detail::RuntimeActiveScope;
       options.require_verified_worker_capacity;
 
   BackendSelection selection{};
-  runtime_detail::resource::Result discovery{};
   ResourceEnvelope resources{};
   ::rund::SchedulerConfig scheduler{};
   std::shared_ptr<runtime_detail::ComputeHostState> compute_host{};
@@ -86,12 +84,11 @@ using runtime_detail::RuntimeActiveScope;
     };
     compute_host->worker_backend = selection.backend;
 
-    discovery = runtime_detail::resource::Resolve(std::move(selection),
+    resources = runtime_detail::resource::Resolve(std::move(selection),
                                                   resource_request);
-    if (!discovery) {
-      return LifecycleFail(discovery.code, state_->lifecycle);
+    if (!resources.observed) {
+      return LifecycleFail(resources.observed.code, state_->lifecycle);
     }
-    resources = std::move(discovery.resources);
 
     trace.reserve(options.trace_capacity);
     constexpr std::uint32_t kWarmComputeTasks = 2u;
