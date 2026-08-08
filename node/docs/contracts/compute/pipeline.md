@@ -1839,9 +1839,14 @@ initial submit owner interprets `Pending` by submitting the prepared pass;
 after a ready callback, the advance owner returns `Pending` only after the next
 pass submission succeeds. Pipeline advance consumes that same value directly;
 it does not republish the status and completion state through a second result.
-The pass-local `Next`/`Repeat` decision and the standalone Job result that owns
-a completed `RunState` remain separate authorities because they carry
-different semantics and payloads.
+The standalone CPU Job boundary publishes a separate exclusive move-only
+value: `Failed` carries one non-success `Status`, `Pending` carries no failure
+or run payload, and `Complete` owns exactly one completed `RunState`. Only the
+`Complete` state can transfer that run to the runtime terminal owner. Moving
+the value or taking its run transfers the owner and normalizes the source to
+`Failed(RunInvalid)` with no retained run payload. The pass-local
+`Next`/`Repeat` decision remains a separate authority because it selects a
+different control transition and owns no terminal run.
 Private Map Jobs resolve and validate their immutable Buffer owners, base
 addresses, byte strides, and port counts once during Pipeline preparation.
 A warm tick reuses those frozen bindings and changes only the authored dynamic

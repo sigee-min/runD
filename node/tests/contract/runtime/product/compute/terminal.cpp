@@ -23,6 +23,8 @@ using ComputeTelemetryEmit = void (*)(void *, const rund::compute::Status &,
 static_assert(std::is_same_v<rund::node::runtime_detail::ComputeHostState::Emit,
                              ComputeTelemetryEmit>);
 
+using rund::compute::detail::CpuJobProgress;
+using rund::compute::detail::CpuJobProgressDisposition;
 using rund::compute::detail::CpuStepDisposition;
 using rund::compute::detail::CpuStepProgress;
 using rund::node::compute_detail::Advance;
@@ -92,6 +94,17 @@ static_assert(CpuStepProgress::failed(rund::compute::Status::success())
                   .status()
                   .reason() == rund::compute::Reason::CpuStepInvalid);
 
+static_assert(!std::is_default_constructible_v<CpuJobProgress>);
+static_assert(!std::is_aggregate_v<CpuJobProgress>);
+static_assert(!std::is_copy_constructible_v<CpuJobProgress>);
+static_assert(!std::is_copy_assignable_v<CpuJobProgress>);
+static_assert(std::is_nothrow_move_constructible_v<CpuJobProgress>);
+static_assert(!std::is_move_assignable_v<CpuJobProgress>);
+static_assert(
+    std::is_nothrow_move_constructible_v<rund::compute::detail::RunState>);
+static_assert(
+    std::is_nothrow_move_assignable_v<rund::compute::detail::RunState>);
+
 std::atomic<std::uint32_t> configured_abort_cancels{0u};
 std::atomic<std::uint32_t> configured_abort_retires{0u};
 
@@ -125,6 +138,48 @@ int RunRuntimeComputeTerminalContract() {
   using rund::node::compute_detail::TaskRetirementPhase;
   using rund::node::compute_detail::TaskState;
   using rund::node::compute_detail::TerminalPhase;
+
+  CpuJobProgress failed_cpu_job = CpuJobProgress::failed(
+      rund::compute::Status::fail(rund::compute::Reason::Cancelled));
+  TEST_ASSERT(failed_cpu_job.disposition() ==
+              CpuJobProgressDisposition::Failed);
+  TEST_ASSERT(failed_cpu_job.status().reason() ==
+              rund::compute::Reason::Cancelled);
+  CpuJobProgress normalized_cpu_job =
+      CpuJobProgress::failed(rund::compute::Status::success());
+  TEST_ASSERT(normalized_cpu_job.disposition() ==
+              CpuJobProgressDisposition::Failed);
+  TEST_ASSERT(normalized_cpu_job.status().reason() ==
+              rund::compute::Reason::RunInvalid);
+  CpuJobProgress pending_cpu_job = CpuJobProgress::pending();
+  TEST_ASSERT(pending_cpu_job.disposition() ==
+              CpuJobProgressDisposition::Pending);
+  TEST_ASSERT(pending_cpu_job.status());
+
+  auto run_owner = std::make_shared<rund::compute::detail::ProgramState>();
+  rund::compute::detail::RunState run_payload{};
+  run_payload.program = run_owner;
+  run_payload.semantic_failure_count = 37u;
+  CpuJobProgress complete_cpu_job =
+      CpuJobProgress::complete(std::move(run_payload));
+  TEST_ASSERT(run_payload.program == nullptr);
+  TEST_ASSERT(complete_cpu_job.disposition() ==
+              CpuJobProgressDisposition::Complete);
+  TEST_ASSERT(complete_cpu_job.status());
+  CpuJobProgress moved_cpu_job = std::move(complete_cpu_job);
+  TEST_ASSERT(complete_cpu_job.disposition() ==
+              CpuJobProgressDisposition::Failed);
+  TEST_ASSERT(complete_cpu_job.status().reason() ==
+              rund::compute::Reason::RunInvalid);
+  TEST_ASSERT(moved_cpu_job.disposition() ==
+              CpuJobProgressDisposition::Complete);
+  rund::compute::detail::RunState taken_run =
+      std::move(moved_cpu_job).take_run();
+  TEST_ASSERT(taken_run.program == run_owner);
+  TEST_ASSERT(taken_run.semantic_failure_count == 37u);
+  TEST_ASSERT(moved_cpu_job.disposition() == CpuJobProgressDisposition::Failed);
+  TEST_ASSERT(moved_cpu_job.status().reason() ==
+              rund::compute::Reason::RunInvalid);
 
   ComputeHostLifecycle host_lifecycle{};
   TEST_ASSERT(host_lifecycle.phase() == ComputeHostPhase::Constructing);

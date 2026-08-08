@@ -228,15 +228,16 @@ AdvanceJobCpu(const compute_detail::Operation &operation,
       compute::detail::advance_cpu_job_on(
           JobOwner(operation.owner), task.host->async_worker_backend,
           &task.cancel_requested, &task, CpuReady);
-  if (!progress) {
-    return compute_detail::Advance::failed(progress.status);
-  }
-  if (!progress.complete()) {
+  switch (progress.disposition()) {
+  case compute::detail::CpuJobProgressDisposition::Failed:
+    return compute_detail::Advance::failed(progress.status());
+  case compute::detail::CpuJobProgressDisposition::Pending:
     return compute_detail::Advance::pending();
+  case compute::detail::CpuJobProgressDisposition::Complete:
+    break;
   }
-  task.job_result.emplace(
-      compute::Result<compute::detail::RunState>::success(
-          std::move(*progress.run)));
+  task.job_result.emplace(compute::Result<compute::detail::RunState>::success(
+      std::move(progress).take_run()));
   return compute_detail::Advance::complete();
 }
 

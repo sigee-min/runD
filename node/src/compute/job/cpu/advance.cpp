@@ -61,9 +61,9 @@ CpuJobProgress advance_cpu_job_on(const std::shared_ptr<JobState> &state,
       advance_run(state, worker_backend, cancel, ready_context, ready);
   switch (advanced.disposition()) {
   case CpuStepDisposition::Failed:
-    return {.status = advanced.status()};
+    return CpuJobProgress::failed(advanced.status());
   case CpuStepDisposition::Pending:
-    return {};
+    return CpuJobProgress::pending();
   case CpuStepDisposition::Complete:
     break;
   }
@@ -71,9 +71,8 @@ CpuJobProgress advance_cpu_job_on(const std::shared_ptr<JobState> &state,
       state != nullptr && state->program != nullptr && state->program->empty()
           ? empty_job_run(state)
           : Result<RunState>::success(completed_state(*state));
-  return run ? CpuJobProgress{.status = Status::success(),
-                              .run = std::move(run).value()}
-             : CpuJobProgress{.status = Status::fail(run.reason())};
+  return run ? CpuJobProgress::complete(std::move(run).value())
+             : CpuJobProgress::failed(Status::fail(run.reason()));
 }
 
 CpuStepProgress

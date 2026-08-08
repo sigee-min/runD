@@ -112,16 +112,18 @@ bool CancelAt(Program &program, const std::span<const std::int32_t> input,
     const compute::detail::CpuJobProgress progress =
         compute::detail::advance_cpu_job_on(state, InlineBackend(), &cancel,
                                             &ready, Signal);
-    if (!progress) {
-      if (progress.status.error() != std::string_view{"compute_cancelled"}) {
+    switch (progress.disposition()) {
+    case compute::detail::CpuJobProgressDisposition::Failed:
+      if (progress.status().error() != std::string_view{"compute_cancelled"}) {
         std::fprintf(stderr, "epoch progress failed: %.*s ready=%u\n",
-                     static_cast<int>(progress.status.error().size()),
-                     progress.status.error().data(), ready.count);
+                     static_cast<int>(progress.status().error().size()),
+                     progress.status().error().data(), ready.count);
       }
-      return progress.status.error() == std::string_view{"compute_cancelled"};
-    }
-    if (progress.complete()) {
+      return progress.status().error() == std::string_view{"compute_cancelled"};
+    case compute::detail::CpuJobProgressDisposition::Complete:
       return false;
+    case compute::detail::CpuJobProgressDisposition::Pending:
+      break;
     }
   }
   return false;
