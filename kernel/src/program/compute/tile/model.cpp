@@ -220,11 +220,6 @@ ComputeTileRunStoragePlan ComputeTileRunPlan::storage_plan() const noexcept {
                };
 }
 
-ComputeTileRunMemoryPlan
-ComputeTileRunPlan::planned_run_memory() const noexcept {
-  return storage_plan().retained;
-}
-
 ComputeTileExecutor::ComputeTileExecutor() noexcept = default;
 
 ComputeTileExecutor::ComputeTileExecutor(
@@ -331,16 +326,6 @@ ComputeTileExecutor::retained_memory() const noexcept {
                                     storage_->worker_stats_tail_capacity_),
              })
       .memory;
-}
-
-ComputeTileRunStoragePlan
-ComputeTileExecutor::planned_run_storage() const noexcept {
-  return run_plan().storage_plan();
-}
-
-ComputeTileRunMemoryPlan
-ComputeTileExecutor::planned_run_memory() const noexcept {
-  return planned_run_storage().retained;
 }
 
 } // namespace rund::kernel

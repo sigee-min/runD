@@ -520,7 +520,7 @@ int test_bounded_bind_clamps_frozen_max_plan_without_allocation() {
 int test_retained_memory_is_exact_stable_and_allocation_free() {
   ComputeTileExecutor empty{};
   const ComputeTileRetainedMemory empty_memory = empty.retained_memory();
-  const auto empty_run_memory = empty.planned_run_memory();
+  const auto empty_run_memory = empty.run_plan().storage_plan().retained;
   TEST_ASSERT(empty_memory.state_bytes == 0u);
   TEST_ASSERT(empty_memory.workspace_bytes == 0u);
   TEST_ASSERT(empty_memory.failure_slot_bytes == 0u);
@@ -545,7 +545,7 @@ int test_retained_memory_is_exact_stable_and_allocation_free() {
   ComputeTileExecutor plan =
       MakeExecutor(kernel_contract_test::MakeFakeBackend(&pool), kWorkers);
   const ComputeTileRetainedMemory constructed = plan.retained_memory();
-  const auto unprepared_run_memory = plan.planned_run_memory();
+  const auto unprepared_run_memory = plan.run_plan().storage_plan().retained;
   TEST_ASSERT(constructed.state_bytes == 0u);
   TEST_ASSERT(constructed.total_bytes == TotalBytes(constructed));
   TEST_ASSERT(!unprepared_run_memory.ok);
@@ -562,8 +562,8 @@ int test_retained_memory_is_exact_stable_and_allocation_free() {
   TEST_ASSERT(planned.total_bytes == TotalBytes(planned));
 
   kernel_contract_test::memory_allocation::Reset();
-  const auto first_run_plan = plan.planned_run_memory();
-  const auto second_run_plan = plan.planned_run_memory();
+  const auto first_run_plan = plan.run_plan().storage_plan().retained;
+  const auto second_run_plan = plan.run_plan().storage_plan().retained;
   kernel_contract_test::memory_allocation::Stop();
   TEST_ASSERT(kernel_contract_test::memory_allocation::Count() == 0u);
   TEST_ASSERT(first_run_plan.ok);

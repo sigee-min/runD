@@ -233,7 +233,6 @@ public:
   [[nodiscard]] u32 count() const noexcept;
   [[nodiscard]] u32 tile_count() const noexcept;
   [[nodiscard]] ComputeTileRunStoragePlan storage_plan() const noexcept;
-  [[nodiscard]] ComputeTileRunMemoryPlan planned_run_memory() const noexcept;
   [[nodiscard]] ComputeTileExecutor
   bind(ComputeTileRunStorageView storage) const noexcept;
   [[nodiscard]] ComputeTileExecutor bind(ComputeTileRunStorageView storage,
@@ -283,8 +282,6 @@ public:
   [[nodiscard]] u32 count() const noexcept;
   [[nodiscard]] u32 tile_count() const noexcept;
   [[nodiscard]] ComputeTileRetainedMemory retained_memory() const noexcept;
-  [[nodiscard]] ComputeTileRunStoragePlan planned_run_storage() const noexcept;
-  [[nodiscard]] ComputeTileRunMemoryPlan planned_run_memory() const noexcept;
 
   [[nodiscard]] ComputeTileSubmitResult
   submit_with_erased(WorkerBackend worker_backend, const void *callback_context,

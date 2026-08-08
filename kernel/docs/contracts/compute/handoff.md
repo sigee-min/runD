@@ -166,7 +166,10 @@ loops use the active tile count, and result `count()`, `tile_count()`, completed
 tile count, worker tile count, and tail extent describe the active prefix.
 This bounded bind and its later sync or async execution allocate nothing.
 
-`planned_run_memory()` projects `storage_plan().retained` for compatibility.
+`ComputeTileRunPlan::storage_plan()` is the sole planned-storage authority;
+callers read its `retained` member for the checked run-memory view. An executor
+reaches the same immutable value through `run_plan().storage_plan()` and keeps
+no compatibility projection.
 `MeasureComputeTileRunStorage(view)` measures an actual view, so an envelope
 larger than one plan is reported at its full supplied capacities. Allocator
 metadata and the optional standalone wrapper's pointer bookkeeping are outside
