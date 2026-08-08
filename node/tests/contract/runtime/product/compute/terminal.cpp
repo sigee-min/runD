@@ -25,6 +25,8 @@ static_assert(std::is_same_v<rund::node::runtime_detail::ComputeHostState::Emit,
 
 using rund::compute::detail::CpuJobProgress;
 using rund::compute::detail::CpuJobProgressDisposition;
+using rund::compute::detail::CpuPassDisposition;
+using rund::compute::detail::CpuPassResult;
 using rund::compute::detail::CpuStepDisposition;
 using rund::compute::detail::CpuStepProgress;
 using rund::node::compute_detail::Advance;
@@ -93,6 +95,25 @@ static_assert(CompleteCpuStep.status());
 static_assert(CpuStepProgress::failed(rund::compute::Status::success())
                   .status()
                   .reason() == rund::compute::Reason::CpuStepInvalid);
+
+static_assert(!std::is_default_constructible_v<CpuPassResult>);
+static_assert(!std::is_aggregate_v<CpuPassResult>);
+static_assert(std::is_trivially_copyable_v<CpuPassResult>);
+
+constexpr CpuPassResult FailedCpuPass = CpuPassResult::failed(
+    rund::compute::Status::fail(rund::compute::Reason::Cancelled));
+constexpr CpuPassResult NextCpuPass = CpuPassResult::next();
+constexpr CpuPassResult RepeatCpuPass = CpuPassResult::repeat();
+static_assert(FailedCpuPass.disposition() == CpuPassDisposition::Failed);
+static_assert(FailedCpuPass.status().reason() ==
+              rund::compute::Reason::Cancelled);
+static_assert(NextCpuPass.disposition() == CpuPassDisposition::Next);
+static_assert(NextCpuPass.status());
+static_assert(RepeatCpuPass.disposition() == CpuPassDisposition::Repeat);
+static_assert(RepeatCpuPass.status());
+static_assert(
+    CpuPassResult::failed(rund::compute::Status::success()).status().reason() ==
+    rund::compute::Reason::CpuStepInvalid);
 
 static_assert(!std::is_default_constructible_v<CpuJobProgress>);
 static_assert(!std::is_aggregate_v<CpuJobProgress>);

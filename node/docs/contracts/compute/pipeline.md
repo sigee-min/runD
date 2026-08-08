@@ -1844,9 +1844,12 @@ value: `Failed` carries one non-success `Status`, `Pending` carries no failure
 or run payload, and `Complete` owns exactly one completed `RunState`. Only the
 `Complete` state can transfer that run to the runtime terminal owner. Moving
 the value or taking its run transfers the owner and normalizes the source to
-`Failed(RunInvalid)` with no retained run payload. The pass-local
-`Next`/`Repeat` decision remains a separate authority because it selects a
-different control transition and owns no terminal run.
+`Failed(RunInvalid)` with no retained run payload. The pass-local boundary is
+another exclusive value: `Failed` carries one non-success `Status`, `Next`
+advances preparation to the next logical CPU step, and `Repeat` submits the
+second pass of the current collective step. A success status and pass flow are
+not stored as parallel authorities. This pass result remains separate because
+it selects a different control transition and owns no terminal run.
 Private Map Jobs resolve and validate their immutable Buffer owners, base
 addresses, byte strides, and port counts once during Pipeline preparation.
 A warm tick reuses those frozen bindings and changes only the authored dynamic

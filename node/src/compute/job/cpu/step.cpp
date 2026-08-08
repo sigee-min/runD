@@ -328,12 +328,16 @@ CpuStepProgress start_cpu(JobState &job,
 CpuStepProgress finish_cpu(JobState &job,
                            const kernel::ComputeTileRunResult *const tiles,
                            const std::atomic_bool *const cancel) noexcept {
-  const PassResult finished = finish_graph_pass(job, tiles, cancel);
-  if (!finished) {
-    return CpuStepProgress::failed(finished.status);
+  const CpuPassResult finished = finish_graph_pass(job, tiles, cancel);
+  switch (finished.disposition()) {
+  case CpuPassDisposition::Failed:
+    return CpuStepProgress::failed(finished.status());
+  case CpuPassDisposition::Repeat:
+    return CpuStepProgress::pending();
+  case CpuPassDisposition::Next:
+    return next_cpu(job, cancel);
   }
-  return finished.flow == PassFlow::Repeat ? CpuStepProgress::pending()
-                                           : next_cpu(job, cancel);
+  return CpuStepProgress::failed(Status::fail(Reason::CpuStepInvalid));
 }
 
 } // namespace rund::compute::detail

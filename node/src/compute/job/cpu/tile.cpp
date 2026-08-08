@@ -243,34 +243,34 @@ kernel::ComputeTileRunResult run_graph_pass(JobState &job) {
   });
 }
 
-PassResult finish_graph_pass(JobState &job,
-                             const kernel::ComputeTileRunResult *const tiles,
-                             const std::atomic_bool *const cancel) noexcept {
+CpuPassResult finish_graph_pass(JobState &job,
+                                const kernel::ComputeTileRunResult *const tiles,
+                                const std::atomic_bool *const cancel) noexcept {
   CpuRun &run = *job.cpu;
   if (run.pass == CpuPass::Primitive) {
     run.primitive_ready = nullptr;
     run.primitive_ready_context = nullptr;
     if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
-      return {.status = Status::fail(Reason::Cancelled)};
+      return CpuPassResult::failed(Status::fail(Reason::Cancelled));
     }
     if (!run.primitive_status) {
-      return {.status = run.primitive_status};
+      return CpuPassResult::failed(run.primitive_status);
     }
     ::rund::detail::counter::Accumulate(run.stats.dispatches, 1u);
     ++run.step;
-    return {};
+    return CpuPassResult::next();
   }
   if (tiles == nullptr || !tiles->ok) {
-    return {.status = Status::fail(project_reason(
-                tiles == nullptr ? "compute_cpu_step_invalid" : tiles->reason,
-                Reason::TileBackendFailed))};
+    return CpuPassResult::failed(Status::fail(project_reason(
+        tiles == nullptr ? "compute_cpu_step_invalid" : tiles->reason,
+        Reason::TileBackendFailed)));
   }
   if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
-    return {.status = Status::fail(Reason::Cancelled)};
+    return CpuPassResult::failed(Status::fail(Reason::Cancelled));
   }
   const kernel::ComputeTileExecutor *const executor = active_tiles(job);
   if (executor == nullptr) {
-    return {.status = Status::fail(Reason::CpuStepInvalid)};
+    return CpuPassResult::failed(Status::fail(Reason::CpuStepInvalid));
   }
   const std::uint64_t dispatches =
       executor->count() == 0u ? 0u : tiles->backend_dispatch_count;
@@ -282,7 +282,7 @@ PassResult finish_graph_pass(JobState &job,
     ::rund::detail::counter::Accumulate(run.stats.vector_chunks, simd.vectors);
     ::rund::detail::counter::Accumulate(run.stats.tail_chunks, simd.tails);
     ++run.step;
-    return {};
+    return CpuPassResult::next();
   }
   if (run.pass == CpuPass::ScanLocal) {
     const char *reason = "compute_domain_unsupported";
@@ -303,13 +303,13 @@ PassResult finish_graph_pass(JobState &job,
       break;
     }
     if (std::string_view{reason} != "pass") {
-      return {.status = Status::fail(
-                  project_reason(reason, Reason::TileBackendFailed))};
+      return CpuPassResult::failed(
+          Status::fail(project_reason(reason, Reason::TileBackendFailed)));
     }
     run.pending_dispatches = dispatches;
     run.pass = CpuPass::ScanCorrect;
     run.tile.pass = CpuPass::ScanCorrect;
-    return {.flow = PassFlow::Repeat};
+    return CpuPassResult::repeat();
   }
   if (run.pass == CpuPass::ScanCorrect) {
     add_tiles(run.stats, *tiles, dispatches, tile_size);
@@ -317,10 +317,10 @@ PassResult finish_graph_pass(JobState &job,
                                         run.pending_dispatches);
     run.pending_dispatches = 0u;
     ++run.step;
-    return {};
+    return CpuPassResult::next();
   }
   if (run.pass != CpuPass::ReduceLocal) {
-    return {.status = Status::fail(Reason::CpuStepInvalid)};
+    return CpuPassResult::failed(Status::fail(Reason::CpuStepInvalid));
   }
   add_tiles(run.stats, *tiles, dispatches, tile_size);
   const char *reason = "compute_domain_unsupported";
@@ -345,11 +345,11 @@ PassResult finish_graph_pass(JobState &job,
     break;
   }
   if (std::string_view{reason} != "pass") {
-    return {.status = Status::fail(
-                project_reason(reason, Reason::TileBackendFailed))};
+    return CpuPassResult::failed(
+        Status::fail(project_reason(reason, Reason::TileBackendFailed)));
   }
   ++run.step;
-  return {};
+  return CpuPassResult::next();
 }
 
 } // namespace rund::compute::detail

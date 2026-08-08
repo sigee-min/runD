@@ -11,18 +11,48 @@ namespace rund::compute::detail {
 struct JobState;
 struct RunState;
 
-enum class PassFlow : std::uint8_t {
+enum class CpuPassDisposition : std::uint8_t {
+  Failed,
   Next,
   Repeat,
 };
 
-struct PassResult final {
-  Status status{Status::success()};
-  PassFlow flow{PassFlow::Next};
-
-  [[nodiscard]] explicit operator bool() const noexcept {
-    return static_cast<bool>(status);
+class CpuPassResult final {
+public:
+  [[nodiscard]] static constexpr CpuPassResult failed(Status failure) noexcept {
+    if (failure) {
+      failure = Status::fail(Reason::CpuStepInvalid);
+    }
+    return CpuPassResult{failure};
   }
+
+  [[nodiscard]] static constexpr CpuPassResult next() noexcept {
+    return CpuPassResult{CpuPassDisposition::Next};
+  }
+
+  [[nodiscard]] static constexpr CpuPassResult repeat() noexcept {
+    return CpuPassResult{CpuPassDisposition::Repeat};
+  }
+
+  [[nodiscard]] constexpr CpuPassDisposition disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr Status status() const noexcept {
+    return disposition_ == CpuPassDisposition::Failed ? failure_
+                                                      : Status::success();
+  }
+
+private:
+  explicit constexpr CpuPassResult(const Status failure) noexcept
+      : disposition_{CpuPassDisposition::Failed}, failure_{failure} {}
+
+  explicit constexpr CpuPassResult(
+      const CpuPassDisposition disposition) noexcept
+      : disposition_{disposition} {}
+
+  CpuPassDisposition disposition_ = CpuPassDisposition::Failed;
+  Status failure_ = Status::fail(Reason::CpuStepInvalid);
 };
 
 enum class CpuStepDisposition : std::uint8_t {
@@ -79,7 +109,7 @@ submit_graph_pass(JobState &job, kernel::WorkerBackend backend,
                   void *ready_context,
                   void (*ready)(void *context) noexcept) noexcept;
 [[nodiscard]] kernel::ComputeTileRunResult run_graph_pass(JobState &job);
-[[nodiscard]] PassResult
+[[nodiscard]] CpuPassResult
 finish_graph_pass(JobState &job, const kernel::ComputeTileRunResult *tiles,
                   const std::atomic_bool *cancel) noexcept;
 
