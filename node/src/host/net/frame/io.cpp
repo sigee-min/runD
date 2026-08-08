@@ -164,10 +164,10 @@ WriteResult write(ready::Ticket &&ticket,
 
     plan.remaining(batch, result.header_bytes, result.payload_bytes);
     const std::uint64_t admitted = batch.native.admitted_bytes;
-    const node::NativeVectoredResult native =
+    const node::NativeCallResult native =
         node::NativeSendVectored(operation.native(), batch.native);
     const SendResult sent = batch::detail::complete_send(
-        operation.id(), batch.view(), admitted, native.call);
+        operation.id(), batch.view(), admitted, native);
     if (!sent) {
       if (sent.code() == ::rund::ReasonCode::IoWouldBlock) {
         result.would_block = true;

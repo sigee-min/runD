@@ -168,6 +168,11 @@ Higher host, network, and scheduler boundaries retain their own ReasonCode and
 event-status projections; this platform value owns only the native call
 outcome and never owns retry or cleanup.
 
+Vectored native calls return that same `NativeCallResult` directly. The
+caller-owned prepared vectored batch is the sole descriptor count and admitted
+byte count authority and remains alive for the synchronous call. No platform
+result wrapper mirrors batch metadata.
+
 Portable host and scheduler sources depend only on
 `runtime/platform/io.hpp`, `runtime/platform/net.hpp`, and the narrow
 `runtime/reactor/readiness/{state,mask,handle}.hpp` or

@@ -594,9 +594,12 @@ boundary. A scalar operation presents the caller span directly to one native
 attempt. A vectored operation walks its bounded descriptors once before the
 lease, simultaneously validating lengths, summing admitted bytes, and writing
 the fixed native descriptor batch. The platform passes that prepared batch to
-the syscall without a second caller-descriptor traversal. After completion,
-the exact completed payload prefix is hashed in canonical slice order; this is
-a byte-identity pass, not a protocol search or gather copy.
+the syscall without a second caller-descriptor traversal. That prepared batch
+is the sole admitted-byte count authority and remains alive through the native
+call and host-event projection. The platform returns only the native call
+outcome; it does not mirror the admitted byte count in a result wrapper. After
+completion, the exact completed payload prefix is hashed in canonical slice
+order; this is a byte-identity pass, not a protocol search or gather copy.
 
 An admitted vectored operation whose aggregate byte count is zero still
 consumes its readiness ticket, validates the current socket generation, and

@@ -134,11 +134,6 @@ void AssertUnsupported(const rund::node::NativeAddressResult &result) {
   TEST_ASSERT(result.address.bytes().empty());
 }
 
-void AssertUnsupported(const rund::node::NativeVectoredResult &result) {
-  AssertUnsupported(result.call);
-  TEST_ASSERT(result.admitted_bytes == 1u);
-}
-
 void AssertPrepared(const rund::node::ReactorPlatformOpResult result) {
   TEST_ASSERT(result.disposition() ==
               rund::node::ReactorPlatformOpDisposition::Success);
@@ -221,6 +216,12 @@ void VerifyUnavailableNativeSurface() {
       bytes.size());
   TEST_ASSERT(recv_batch.valid);
   TEST_ASSERT(send_batch.valid);
+  static_assert(std::is_same_v<decltype(NativeRecvVectored(0, recv_batch)),
+                               NativeCallResult>);
+  static_assert(std::is_same_v<decltype(NativeSendVectored(0, send_batch)),
+                               NativeCallResult>);
+  TEST_ASSERT(recv_batch.admitted_bytes == 1u);
+  TEST_ASSERT(send_batch.admitted_bytes == 1u);
 
   TEST_ASSERT(!NativeFdValid(0));
   const NativeFdIdentity fd_identity = NativeDescribeFdIdentity(0);
@@ -254,6 +255,8 @@ void VerifyUnavailableNativeSurface() {
   AssertUnsupported(NativeSendTo(0, bytes, address));
   AssertUnsupported(NativeRecvVectored(0, recv_batch));
   AssertUnsupported(NativeSendVectored(0, send_batch));
+  TEST_ASSERT(recv_batch.admitted_bytes == 1u);
+  TEST_ASSERT(send_batch.admitted_bytes == 1u);
   AssertUnsupported(NativeAccept(0));
   AssertUnsupported(NativeConnect(0, address));
   AssertUnsupported(NativeGetSocketError(0, address));

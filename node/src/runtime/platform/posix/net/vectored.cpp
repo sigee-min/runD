@@ -11,7 +11,7 @@
 
 namespace rund::node {
 
-NativeVectoredResult
+NativeCallResult
 NativeRecvVectored(const int fd,
                    const nativeio::VectoredBatch &batch) noexcept {
   msghdr message{};
@@ -19,13 +19,10 @@ NativeRecvVectored(const int fd,
   message.msg_iovlen = static_cast<decltype(message.msg_iovlen)>(batch.count);
   errno = 0;
   const ssize_t value = ::recvmsg(fd, &message, posix_net::TryRecvFlags());
-  return NativeVectoredResult{
-      .call = PosixNetResult(value, value < 0 ? errno : 0),
-      .admitted_bytes = batch.admitted_bytes,
-  };
+  return PosixNetResult(value, value < 0 ? errno : 0);
 }
 
-NativeVectoredResult
+NativeCallResult
 NativeSendVectored(const int fd,
                    const nativeio::VectoredBatch &batch) noexcept {
   msghdr message{};
@@ -33,10 +30,7 @@ NativeSendVectored(const int fd,
   message.msg_iovlen = static_cast<decltype(message.msg_iovlen)>(batch.count);
   errno = 0;
   const ssize_t value = ::sendmsg(fd, &message, posix_net::TrySendFlags());
-  return NativeVectoredResult{
-      .call = PosixNetResult(value, value < 0 ? errno : 0),
-      .admitted_bytes = batch.admitted_bytes,
-  };
+  return PosixNetResult(value, value < 0 ? errno : 0);
 }
 
 } // namespace rund::node

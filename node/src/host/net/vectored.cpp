@@ -33,15 +33,11 @@ namespace {
   return result;
 }
 
-[[nodiscard]] node::NativeVectoredResult EmptyBatch() noexcept {
-  return node::NativeVectoredResult{
-      .call =
-          {
-              .value = 0,
-              .error = 0,
-              .state = node::NativeCallState::Complete,
-          },
-      .admitted_bytes = 0u,
+[[nodiscard]] node::NativeCallResult EmptyBatch() noexcept {
+  return node::NativeCallResult{
+      .value = 0,
+      .error = 0,
+      .state = node::NativeCallState::Complete,
   };
 }
 
@@ -115,7 +111,7 @@ ReceiveResult receive(ready::Ticket &&ticket,
   if (!batch.valid) {
     return FailRecv(::rund::ReasonCode::TaskInvalid);
   }
-  node::NativeVectoredResult native{};
+  node::NativeCallResult native{};
   std::uint64_t socket_id = 0u;
   {
     ready::detail::Operation operation = ready::detail::prepare(claim);
@@ -127,8 +123,8 @@ ReceiveResult receive(ready::Ticket &&ticket,
                  ? EmptyBatch()
                  : node::NativeRecvVectored(operation.native(), batch);
   }
-  return detail::complete_receive(socket_id, slices, native.admitted_bytes,
-                                  native.call);
+  return detail::complete_receive(socket_id, slices, batch.admitted_bytes,
+                                  native);
 }
 
 SendResult send(ready::Ticket &&ticket,
@@ -147,7 +143,7 @@ SendResult send(ready::Ticket &&ticket,
   if (!batch.valid) {
     return FailSend(::rund::ReasonCode::TaskInvalid);
   }
-  node::NativeVectoredResult native{};
+  node::NativeCallResult native{};
   std::uint64_t socket_id = 0u;
   {
     ready::detail::Operation operation = ready::detail::prepare(claim);
@@ -159,8 +155,7 @@ SendResult send(ready::Ticket &&ticket,
                  ? EmptyBatch()
                  : node::NativeSendVectored(operation.native(), batch);
   }
-  return detail::complete_send(socket_id, slices, native.admitted_bytes,
-                               native.call);
+  return detail::complete_send(socket_id, slices, batch.admitted_bytes, native);
 }
 
 } // namespace rund::net::batch

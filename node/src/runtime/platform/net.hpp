@@ -35,11 +35,6 @@ struct NativeAddressResult {
   ::rund::net::Address address{};
 };
 
-struct NativeVectoredResult {
-  NativeCallResult call{};
-  std::uint64_t admitted_bytes = 0u;
-};
-
 [[nodiscard]] NativeCallResult
 NativeSocket(::rund::net::Family family,
              ::rund::net::Transport transport) noexcept;
@@ -63,9 +58,9 @@ NativeRecvFrom(int fd, std::span<std::byte> buffer) noexcept;
 [[nodiscard]] NativeCallResult
 NativeSendTo(int fd, std::span<const std::byte> buffer,
              const ::rund::net::Address &address) noexcept;
-[[nodiscard]] NativeVectoredResult
+[[nodiscard]] NativeCallResult
 NativeRecvVectored(int fd, const nativeio::VectoredBatch &batch) noexcept;
-[[nodiscard]] NativeVectoredResult
+[[nodiscard]] NativeCallResult
 NativeSendVectored(int fd, const nativeio::VectoredBatch &batch) noexcept;
 [[nodiscard]] NativeAddressResult NativeAccept(int fd) noexcept;
 [[nodiscard]] NativeCallResult

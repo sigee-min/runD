@@ -93,20 +93,20 @@ NativeCallResult NativeSendTo(const int fd,
   return UnsupportedNet();
 }
 
-NativeVectoredResult
+NativeCallResult
 NativeRecvVectored(const int fd,
                    const nativeio::VectoredBatch &batch) noexcept {
   (void)fd;
-  return NativeVectoredResult{.call = UnsupportedNet(),
-                              .admitted_bytes = batch.admitted_bytes};
+  (void)batch;
+  return UnsupportedNet();
 }
 
-NativeVectoredResult
+NativeCallResult
 NativeSendVectored(const int fd,
                    const nativeio::VectoredBatch &batch) noexcept {
   (void)fd;
-  return NativeVectoredResult{.call = UnsupportedNet(),
-                              .admitted_bytes = batch.admitted_bytes};
+  (void)batch;
+  return UnsupportedNet();
 }
 
 NativeAddressResult NativeAccept(const int fd) noexcept {
