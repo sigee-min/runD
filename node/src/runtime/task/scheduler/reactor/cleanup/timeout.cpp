@@ -3,13 +3,23 @@
 
 namespace rund::node::reactor_cancel_cleanup {
 
-bool CancelTimeoutTimer(Scheduler& scheduler, const std::uint64_t wait_id,
-                        const bool require_timeout_timer_cancel) noexcept {
-  const bool timer_present =
-      TimerStoreContains(scheduler.state_->ready.timers,
-                         scheduler.state_->ready.timer_wait_id_index, wait_id);
-  const bool timer_canceled = scheduler.CancelReactorTimeoutTimer(wait_id);
-  return !((timer_present || require_timeout_timer_cancel) && !timer_canceled);
+bool CancelTimeoutTimer(Scheduler &scheduler, const std::uint64_t wait_id,
+                        const ReactorTimeoutCleanupPolicy policy) noexcept {
+  switch (policy) {
+  case ReactorTimeoutCleanupPolicy::None:
+    return true;
+  case ReactorTimeoutCleanupPolicy::IfPresent:
+    if (wait_id == 0u ||
+        !TimerStoreContains(scheduler.state_->ready.timers,
+                            scheduler.state_->ready.timer_wait_id_index,
+                            wait_id)) {
+      return true;
+    }
+    return scheduler.CancelReactorTimeoutTimer(wait_id);
+  case ReactorTimeoutCleanupPolicy::Required:
+    return wait_id != 0u && scheduler.CancelReactorTimeoutTimer(wait_id);
+  }
+  return false;
 }
 
 }  // namespace rund::node::reactor_cancel_cleanup

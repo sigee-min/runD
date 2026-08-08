@@ -85,13 +85,13 @@ task::Status Scheduler::RequestStop(
     const std::uint64_t group_id =
         record == nullptr ? 0u : record->wait_source_id;
     if (!ReactorCleanupWait(
-            *this, ReactorCleanupRequest{.wait_id = wait.wait_id,
-                                         .group_id = group_id,
-                                         .reason = ReasonCode::TaskCancelled,
-                                         .cancel_timeout_timer = true,
-                                         .require_timeout_timer_cancel = true,
-                                         .remove_ready_backlog = true,
-                                         .cleanup_siblings = true})) {
+            *this, ReactorCleanupRequest{
+                       .wait_id = wait.wait_id,
+                       .group_id = group_id,
+                       .reason = ReasonCode::TaskCancelled,
+                       .timeout_cleanup = ReactorTimeoutCleanupPolicy::Required,
+                       .remove_ready_backlog = true,
+                       .cleanup_siblings = true})) {
       cleanup_ok = false;
     }
   }

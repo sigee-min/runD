@@ -44,9 +44,8 @@ bool CleanupSingleWait(Scheduler &scheduler,
   if (!ReactorApplyAllowsLogicalProgress(applied)) {
     cleanup_ok = false;
   }
-  if (request.cancel_timeout_timer &&
-      !CancelTimeoutTimer(scheduler, removed.wait_id,
-                          request.require_timeout_timer_cancel)) {
+  if (!CancelTimeoutTimer(scheduler, removed.wait_id,
+                          request.timeout_cleanup)) {
     cleanup_ok = false;
   }
   if (request.reason == ReasonCode::TaskCancelled) {

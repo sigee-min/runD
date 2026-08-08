@@ -49,15 +49,16 @@ CleanupInvalid(Scheduler &scheduler, ReactorRuntime &reactor,
       continue;
     }
     if (!ReactorCleanupWait(
-            scheduler, ReactorCleanupRequest{
-                           .wait_id = wait.wait_id,
-                           .group_id = 0u,
-                           .reason = ReasonCode::IoFdInvalid,
-                           .cancel_timeout_timer = true,
-                           .remove_ready_backlog = true,
-                           .cleanup_siblings = true,
-                           .events = ReactorEventsForInterest(wait.interest),
-                           .store_event = true})) {
+            scheduler,
+            ReactorCleanupRequest{
+                .wait_id = wait.wait_id,
+                .group_id = 0u,
+                .reason = ReasonCode::IoFdInvalid,
+                .timeout_cleanup = ReactorTimeoutCleanupPolicy::IfPresent,
+                .remove_ready_backlog = true,
+                .cleanup_siblings = true,
+                .events = ReactorEventsForInterest(wait.interest),
+                .store_event = true})) {
       if (failure == ReasonCode::Ok) {
         failure = ReasonCode::IoPollFailed;
       }

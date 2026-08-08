@@ -11,12 +11,18 @@ namespace rund::node {
 
 class Scheduler;
 
+enum class ReactorTimeoutCleanupPolicy : std::uint8_t {
+  None,
+  IfPresent,
+  Required,
+};
+
 struct ReactorCleanupRequest {
   std::uint64_t wait_id = 0u;
   std::uint64_t group_id = 0u;
   ReasonCode reason = ReasonCode::Ok;
-  bool cancel_timeout_timer = false;
-  bool require_timeout_timer_cancel = false;
+  ReactorTimeoutCleanupPolicy timeout_cleanup =
+      ReactorTimeoutCleanupPolicy::None;
   bool remove_ready_backlog = false;
   bool cleanup_siblings = false;
   bool erase_group = false;
@@ -29,8 +35,8 @@ struct ReactorCleanupRequest {
 struct ReactorRemovedWaitCleanupRequest {
   ReactorWait wait{};
   ReasonCode reason = ReasonCode::Ok;
-  bool cancel_timeout_timer = false;
-  bool require_timeout_timer_cancel = false;
+  ReactorTimeoutCleanupPolicy timeout_cleanup =
+      ReactorTimeoutCleanupPolicy::None;
   bool remove_ready_backlog = false;
   bool cleanup_siblings = false;
   bool wake_owner = true;

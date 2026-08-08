@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -72,6 +73,22 @@ enum class ReadyManyPublicationFailure : std::uint8_t {
   Group,
 };
 
+int CheckTimeoutCleanupPolicy() {
+  using Policy = rund::node::ReactorTimeoutCleanupPolicy;
+  static_assert(std::is_enum_v<Policy>);
+  static_assert(!std::is_convertible_v<Policy, bool>);
+
+  const rund::node::ReactorCleanupRequest none{};
+  const rund::node::ReactorCleanupRequest if_present{.timeout_cleanup =
+                                                         Policy::IfPresent};
+  const rund::node::ReactorRemovedWaitCleanupRequest required{
+      .timeout_cleanup = Policy::Required};
+  TEST_ASSERT(none.timeout_cleanup == Policy::None);
+  TEST_ASSERT(if_present.timeout_cleanup == Policy::IfPresent);
+  TEST_ASSERT(required.timeout_cleanup == Policy::Required);
+  return 0;
+}
+
 int CheckReadyManyRollbackRequest() {
   constexpr std::uint64_t group_id = 37u;
   constexpr rund::ReasonCode reason =
@@ -81,8 +98,8 @@ int CheckReadyManyRollbackRequest() {
   TEST_ASSERT(request.wait_id == 0u);
   TEST_ASSERT(request.group_id == group_id);
   TEST_ASSERT(request.reason == reason);
-  TEST_ASSERT(!request.cancel_timeout_timer);
-  TEST_ASSERT(!request.require_timeout_timer_cancel);
+  TEST_ASSERT(request.timeout_cleanup ==
+              rund::node::ReactorTimeoutCleanupPolicy::None);
   TEST_ASSERT(request.remove_ready_backlog);
   TEST_ASSERT(request.cleanup_siblings);
   TEST_ASSERT(request.erase_group);
@@ -138,6 +155,7 @@ int CheckReadyManyPublicationRollback(
 } // namespace
 
 int RunRuntimeTaskReactorCleanupInvariantsContract() {
+  TEST_ASSERT(CheckTimeoutCleanupPolicy() == 0);
   TEST_ASSERT(CheckReadyManyRollbackRequest() == 0);
   TEST_ASSERT(CheckReadyManyPublicationRollback(
                   ReadyManyPublicationFailure::EventSlots) == 0);

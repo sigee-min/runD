@@ -94,15 +94,17 @@ bool Scheduler::DrainReactorReadyBatch(
       ready_code = ReasonCode::IoFdInvalid;
       observation_kind = task::ObservationKind::IoInvalid;
     }
-    if (!ReactorCleanupRemovedWait(*this, ReactorRemovedWaitCleanupRequest{
-                                              .wait = wait,
-                                              .reason = ready_code,
-                                              .cancel_timeout_timer = true,
-                                              .remove_ready_backlog = true,
-                                              .cleanup_siblings = true,
-                                              .wake_owner = false,
-                                              .events = ready.events,
-                                              .store_event = true})) {
+    if (!ReactorCleanupRemovedWait(
+            *this,
+            ReactorRemovedWaitCleanupRequest{
+                .wait = wait,
+                .reason = ready_code,
+                .timeout_cleanup = ReactorTimeoutCleanupPolicy::IfPresent,
+                .remove_ready_backlog = true,
+                .cleanup_siblings = true,
+                .wake_owner = false,
+                .events = ready.events,
+                .store_event = true})) {
       ready_code = ReasonCode::IoPollFailed;
       observation_kind = task::ObservationKind::IoPollFailed;
       RecordReactorTimeoutCleanupFailure(state_->evidence.metrics);
@@ -125,14 +127,15 @@ bool Scheduler::DrainReactorReadyBatch(
     const ReactorReady &ready = batch_ready[index];
     const ReactorWait &wait = batch_removed_waits[index];
     const ReasonCode ready_code = ready_codes[index];
-    if (ReactorCleanupRemovedWait(*this, ReactorRemovedWaitCleanupRequest{
-                                             .wait = wait,
-                                             .reason = ready_code,
-                                             .cancel_timeout_timer = false,
-                                             .remove_ready_backlog = false,
-                                             .cleanup_siblings = false,
-                                             .wake_owner = true,
-                                             .events = ready.events})) {
+    if (ReactorCleanupRemovedWait(
+            *this, ReactorRemovedWaitCleanupRequest{
+                       .wait = wait,
+                       .reason = ready_code,
+                       .timeout_cleanup = ReactorTimeoutCleanupPolicy::None,
+                       .remove_ready_backlog = false,
+                       .cleanup_siblings = false,
+                       .wake_owner = true,
+                       .events = ready.events})) {
       changed = true;
       continue;
     }

@@ -21,9 +21,7 @@ bool ReactorCleanupRemovedWait(
                        .wait_id = request.wait.wait_id,
                        .group_id = group_id,
                        .reason = request.reason,
-                       .cancel_timeout_timer = request.cancel_timeout_timer,
-                       .require_timeout_timer_cancel =
-                           request.require_timeout_timer_cancel,
+                       .timeout_cleanup = request.timeout_cleanup,
                        .remove_ready_backlog = request.remove_ready_backlog,
                        .cleanup_siblings = request.cleanup_siblings,
                        .erase_group = false,
@@ -34,10 +32,8 @@ bool ReactorCleanupRemovedWait(
   }
 
   bool cleanup_ok = true;
-  if (request.cancel_timeout_timer &&
-      !reactor_cancel_cleanup::CancelTimeoutTimer(
-          scheduler, request.wait.wait_id,
-          request.require_timeout_timer_cancel)) {
+  if (!reactor_cancel_cleanup::CancelTimeoutTimer(
+          scheduler, request.wait.wait_id, request.timeout_cleanup)) {
     cleanup_ok = false;
   }
   if (request.reason == ReasonCode::TaskCancelled) {

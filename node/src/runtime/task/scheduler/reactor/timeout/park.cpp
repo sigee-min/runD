@@ -75,10 +75,11 @@ bool Scheduler::ParkTimedReactorWait(
                     .fd = fd,
                     .interest = interest})) {
     (void)ReactorCleanupWait(
-        *this,
-        ReactorCleanupRequest{.wait_id = wait_id,
-                              .reason = ReasonCode::TimerCapacityExceeded,
-                              .remove_ready_backlog = true});
+        *this, ReactorCleanupRequest{
+                   .wait_id = wait_id,
+                   .reason = ReasonCode::TimerCapacityExceeded,
+                   .timeout_cleanup = ReactorTimeoutCleanupPolicy::None,
+                   .remove_ready_backlog = true});
     result = FailIo(ReasonCode::TimerCapacityExceeded);
     CompletePrimitiveCommit();
     return false;

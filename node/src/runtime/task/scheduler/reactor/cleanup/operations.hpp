@@ -14,9 +14,9 @@ void WakeTask(Scheduler& scheduler, TaskRecord& record, std::uint64_t wait_id,
                std::int64_t deadline_ns,
                ReasonCode reason, bool cleanup_ok) noexcept;
 
-[[nodiscard]] bool CancelTimeoutTimer(
-    Scheduler& scheduler, std::uint64_t wait_id,
-    bool require_timeout_timer_cancel) noexcept;
+[[nodiscard]] bool
+CancelTimeoutTimer(Scheduler &scheduler, std::uint64_t wait_id,
+                   ReactorTimeoutCleanupPolicy policy) noexcept;
 
 [[nodiscard]] bool CleanupGroup(Scheduler& scheduler,
                                 const ReactorCleanupRequest& request) noexcept;

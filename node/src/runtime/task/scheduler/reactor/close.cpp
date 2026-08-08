@@ -81,15 +81,16 @@ ReasonCode ReactorCloseInvalidateFd(Scheduler &scheduler,
     (void)scheduler.RecordReactorHostEvent(ReasonCode::IoFdInvalid,
                                            wait.task_id, wait.host_handle_id);
     if (!ReactorCleanupWait(
-            scheduler, ReactorCleanupRequest{
-                           .wait_id = wait.wait_id,
-                           .group_id = 0u,
-                           .reason = ReasonCode::IoFdInvalid,
-                           .cancel_timeout_timer = true,
-                           .remove_ready_backlog = true,
-                           .cleanup_siblings = true,
-                           .events = ReactorEventsForInterest(wait.interest),
-                           .store_event = true})) {
+            scheduler,
+            ReactorCleanupRequest{
+                .wait_id = wait.wait_id,
+                .group_id = 0u,
+                .reason = ReasonCode::IoFdInvalid,
+                .timeout_cleanup = ReactorTimeoutCleanupPolicy::IfPresent,
+                .remove_ready_backlog = true,
+                .cleanup_siblings = true,
+                .events = ReactorEventsForInterest(wait.interest),
+                .store_event = true})) {
       result = ReasonCode::IoPollFailed;
     }
   }

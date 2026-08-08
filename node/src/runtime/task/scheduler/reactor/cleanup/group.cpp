@@ -93,15 +93,14 @@ bool CleanupGroup(Scheduler &scheduler,
   }
 
   bool cleanup_ok = true;
-  if (request.cancel_timeout_timer) {
-    const bool timer_expected =
-        group->timer_wait_id != 0u || request.require_timeout_timer_cancel;
-    const bool timer_canceled =
-        group->timer_wait_id != 0u &&
-        scheduler.CancelReactorTimeoutTimer(group->timer_wait_id);
-    if (timer_expected && !timer_canceled) {
-      cleanup_ok = false;
-    }
+  ReactorTimeoutCleanupPolicy timeout_cleanup = request.timeout_cleanup;
+  if (timeout_cleanup == ReactorTimeoutCleanupPolicy::IfPresent) {
+    timeout_cleanup = group->timer_wait_id == 0u
+                          ? ReactorTimeoutCleanupPolicy::None
+                          : ReactorTimeoutCleanupPolicy::Required;
+  }
+  if (!CancelTimeoutTimer(scheduler, group->timer_wait_id, timeout_cleanup)) {
+    cleanup_ok = false;
   }
   if (request.cleanup_siblings &&
       !RemoveRegisteredManyWaits(scheduler.state_->reactor.reactor,

@@ -59,9 +59,8 @@ bool Scheduler::WakeReactorManyGroupFromWait(const ReactorWait &wait,
       *this, ReactorCleanupRequest{.wait_id = wait.wait_id,
                                    .group_id = group_id,
                                    .reason = code,
-                                   .cancel_timeout_timer = true,
-                                   .require_timeout_timer_cancel =
-                                       group->timer_wait_id != 0u,
+                                   .timeout_cleanup =
+                                       ReactorTimeoutCleanupPolicy::IfPresent,
                                    .remove_ready_backlog = true,
                                    .cleanup_siblings = true,
                                    .events = events,
@@ -79,7 +78,8 @@ bool Scheduler::WakeReactorManyTimeout(const TimerWait &wait) noexcept {
       *this, ReactorCleanupRequest{.wait_id = 0u,
                                    .group_id = group->group_id,
                                    .reason = ReasonCode::IoTimedOut,
-                                   .cancel_timeout_timer = false,
+                                   .timeout_cleanup =
+                                       ReactorTimeoutCleanupPolicy::None,
                                    .remove_ready_backlog = true,
                                    .cleanup_siblings = true,
                                    .deadline_ns = wait.deadline_ns});

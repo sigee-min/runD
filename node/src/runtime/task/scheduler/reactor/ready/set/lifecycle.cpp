@@ -28,14 +28,14 @@ bool Scheduler::CancelReadySetWaitGroups(const ::rund::net::ready::Set handle,
       continue;
     }
     if (!ReactorCleanupWait(
-            *this, ReactorCleanupRequest{.wait_id = 0u,
-                                         .group_id = group_id,
-                                         .reason = code,
-                                         .cancel_timeout_timer = true,
-                                         .require_timeout_timer_cancel =
-                                             group->timer_wait_id != 0u,
-                                         .remove_ready_backlog = true,
-                                         .cleanup_siblings = true})) {
+            *this,
+            ReactorCleanupRequest{.wait_id = 0u,
+                                  .group_id = group_id,
+                                  .reason = code,
+                                  .timeout_cleanup =
+                                      ReactorTimeoutCleanupPolicy::IfPresent,
+                                  .remove_ready_backlog = true,
+                                  .cleanup_siblings = true})) {
       cleanup_ok = false;
     }
   }

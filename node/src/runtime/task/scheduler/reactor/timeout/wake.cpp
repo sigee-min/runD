@@ -11,7 +11,8 @@ bool Scheduler::WakeReactorTimeout(const TimerWait &wait) noexcept {
       *this, ReactorCleanupRequest{.wait_id = wait.wait_id,
                                    .group_id = 0u,
                                    .reason = ReasonCode::IoTimedOut,
-                                   .cancel_timeout_timer = false,
+                                   .timeout_cleanup =
+                                       ReactorTimeoutCleanupPolicy::None,
                                    .remove_ready_backlog = true,
                                    .cleanup_siblings = true,
                                    .deadline_ns = wait.deadline_ns});

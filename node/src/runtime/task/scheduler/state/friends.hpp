@@ -18,7 +18,7 @@ friend void reactor_cancel_cleanup::WakeTask(
     std::int64_t deadline_ns, ReasonCode reason, bool cleanup_ok) noexcept;
 friend bool reactor_cancel_cleanup::CancelTimeoutTimer(
     Scheduler &scheduler, std::uint64_t wait_id,
-    bool require_timeout_timer_cancel) noexcept;
+    ReactorTimeoutCleanupPolicy policy) noexcept;
 friend bool reactor_cancel_cleanup::CleanupGroup(
     Scheduler &scheduler, const ReactorCleanupRequest &request) noexcept;
 friend bool reactor_cancel_cleanup::CleanupSingleWait(

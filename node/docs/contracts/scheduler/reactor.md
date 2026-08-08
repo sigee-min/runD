@@ -141,7 +141,8 @@ capacity check can abandon a committed prefix.
 - `reactor/cleanup/route.cpp`: cleanup entrypoint router for single wait,
   many-group, and removed-wait cleanup.
 - `reactor/cleanup/request.hpp`: cleanup request values and public cleanup
-  entrypoints shared by scheduler owners.
+  entrypoints shared by scheduler owners. One exclusive timeout-cleanup policy
+  replaces independent cancel/require booleans.
 - `reactor/cleanup/operations.hpp`: private declarations shared only by the
   focused reactor cleanup owners.
 - `reactor/cleanup/group.cpp`: ReadyMany group cleanup owner; it stores
@@ -154,7 +155,7 @@ capacity check can abandon a committed prefix.
   handles ready-backlog removal, group rerouting, timeout cleanup, cancellation
   stats, and owner wake dispatch after the registry wait is already gone.
 - `reactor/cleanup/timeout.cpp`: paired timeout timer cancellation check
-  shared by single-wait and removed-wait cleanup.
+  shared by single-wait, removed-wait, and group cleanup.
 - `reactor/cleanup/wake.cpp`: cleanup wake owner for record result state,
   lossless admitted-task ready insertion, and `IoWake` evidence. Ready drain
   and every cleanup route call this owner; none reconstructs the record
@@ -328,6 +329,17 @@ wait id. `timer.cpp` owns wall-clock deadline calculation and due-timer
 ordering, then delegates reactor-timeout cleanup to the reactor timeout owner.
 Exactly one side may complete the task. The losing reactor wait or timer entry
 is removed before the task resumes.
+
+Every cleanup request carries one timeout-timer policy. `None` leaves timer
+storage untouched, `IfPresent` cancels a paired timer when its authoritative
+owner declares one and accepts absence, and `Required` treats a missing or
+uncancelable timer as cleanup failure. Single waits resolve `IfPresent`
+against the timer store. ReadyMany cleanup resolves it only from the group's
+stored timer wait id, so callers never mirror group timer presence. A nonzero
+group timer wait id promotes `IfPresent` to `Required`, and a missing timer
+store entry is therefore a cleanup failure. Stop-token cancellation uses
+`Required` because the public stop-token readiness surfaces publish a timer
+before the cancellable wait becomes live.
 
 Timed and many-wait ingress receives one scheduler-qualified `StopIdentity`.
 Preflight validates that complete value against the active scheduler source

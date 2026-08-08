@@ -1,6 +1,7 @@
 struct ReactorInvariantSnapshot;
 struct ReactorCleanupRequest;
 struct ReactorRemovedWaitCleanupRequest;
+enum class ReactorTimeoutCleanupPolicy : std::uint8_t;
 [[nodiscard]] bool ReactorCleanupWait(Scheduler& scheduler,
                                       ReactorCleanupRequest request) noexcept;
 [[nodiscard]] bool ReactorCleanupRemovedWait(
@@ -12,9 +13,9 @@ void WakeTask(Scheduler& scheduler, TaskRecord& record, std::uint64_t wait_id,
                ReactorEvent events,
                std::int64_t deadline_ns,
                ReasonCode reason, bool cleanup_ok) noexcept;
-[[nodiscard]] bool CancelTimeoutTimer(
-    Scheduler& scheduler, std::uint64_t wait_id,
-    bool require_timeout_timer_cancel) noexcept;
+[[nodiscard]] bool
+CancelTimeoutTimer(Scheduler &scheduler, std::uint64_t wait_id,
+                   ReactorTimeoutCleanupPolicy policy) noexcept;
 [[nodiscard]] bool CleanupGroup(Scheduler& scheduler,
                                 const ReactorCleanupRequest& request) noexcept;
 [[nodiscard]] bool CleanupSingleWait(Scheduler& scheduler,
