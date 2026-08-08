@@ -8,12 +8,26 @@
 #include "local.hpp"
 #include <node/accel/context.hpp>
 
+#include "src/accel/graph/token/local.hpp"
+
 #include <kernel/program/compute/lowering/artifact/admission.hpp>
 #include <kernel/program/compute/plan.hpp>
+
+#include <memory>
+#include <type_traits>
 
 namespace node_accel_contract::kernel_case::compile {
 
 bool IdentityIsStable(const Fixture &fixture) {
+  using AdmitToken =
+      std::shared_ptr<rund::node::accel::detail::KernelToken> (*)(
+          const rund::AccelKernel &,
+          const rund::node::accel::detail::ContextAdmission &);
+  static_assert(
+      std::is_same_v<
+          decltype(&rund::node::accel::detail::AdmitKernelTokenWithContext),
+          AdmitToken>);
+
   const rund::AccelKernel &first = fixture.first;
   const rund::AccelKernel &second = fixture.second;
   if (!first.check.ok || !second.check.ok || first.kernel_id == 0u ||
@@ -25,6 +39,30 @@ bool IdentityIsStable(const Fixture &fixture) {
       first.node_count != fixture.graph.node_count || !first.frozen_caps.ok ||
       first.context_id != fixture.context.id || first.owner == nullptr ||
       rund::node::test::SameOwner(first.owner, fixture.context.owner)) {
+    return false;
+  }
+
+  const rund::node::accel::detail::ContextAdmission context_admission =
+      rund::node::accel::detail::AdmitContextForSupport(fixture.context);
+  const std::shared_ptr<rund::node::accel::detail::KernelToken> token =
+      rund::node::accel::detail::AdmitKernelTokenWithContext(first,
+                                                             context_admission);
+  const std::shared_ptr<void> token_owner =
+      std::static_pointer_cast<void>(token);
+  if (token == nullptr || token.get() != first.owner.get() ||
+      !rund::node::test::SameOwner(token_owner, first.owner) ||
+      token->kernel_id != first.kernel_id ||
+      token->context_id != first.context_id ||
+      token->graph_id_hi != first.graph_id_hi ||
+      token->graph_id_lo != first.graph_id_lo ||
+      token->node_count != first.node_count || token->api != first.api ||
+      token->scalar != first.scalar || token->domain != first.domain) {
+    return false;
+  }
+  rund::AccelKernel tampered = first;
+  ++tampered.node_count;
+  if (rund::node::accel::detail::AdmitKernelTokenWithContext(
+          tampered, context_admission) != nullptr) {
     return false;
   }
 

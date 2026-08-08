@@ -38,22 +38,14 @@ struct KernelToken {
   const char *fusion_reason = "compute_fusion_invalid";
 };
 
-struct KernelTokenAdmission {
-  KernelAdmission admission{};
-  std::shared_ptr<KernelToken> token{};
-};
-
 [[nodiscard]] std::shared_ptr<KernelToken>
 MakeKernelToken(KernelToken token) noexcept;
 [[nodiscard]] std::shared_ptr<KernelToken>
 LookupKernelToken(const std::shared_ptr<void> &owner,
                   std::uint64_t kernel_id) noexcept;
 [[nodiscard]] KernelAdmission RejectAdmission(const char *reason) noexcept;
-[[nodiscard]] KernelTokenAdmission
+[[nodiscard]] std::shared_ptr<KernelToken>
 AdmitKernelTokenWithContext(const rund::AccelKernel &kernel,
                             const ContextAdmission &context_admission);
-[[nodiscard]] KernelAdmission
-AdmitKernelWithContext(const rund::AccelKernel &kernel,
-                       const ContextAdmission &context_admission);
 
 } // namespace rund::node::accel::detail

@@ -12,9 +12,26 @@ namespace {
          api == rund::AccelApi::Vulkan;
 }
 
+[[nodiscard]] KernelAdmission
+ProjectValidatedKernelAdmission(const rund::AccelKernel &kernel) noexcept {
+  return KernelAdmission{
+      .check = rund::AccelKernelCheck{true, "ok"},
+      .kernel_id = kernel.kernel_id,
+      .context_id = kernel.context_id,
+      .graph_id_hi = kernel.graph_id_hi,
+      .graph_id_lo = kernel.graph_id_lo,
+      .node_count = kernel.node_count,
+      .api = kernel.api,
+      .scalar = kernel.scalar,
+      .domain = kernel.domain,
+      .frozen_caps = kernel.frozen_caps,
+      .owner = kernel.owner,
+  };
+}
+
 } // namespace
 
-KernelTokenAdmission
+std::shared_ptr<KernelToken>
 AdmitKernelTokenWithContext(const rund::AccelKernel &kernel,
                             const ContextAdmission &context_admission) {
   if (!kernel.check.ok || !SameReason(kernel.check.reason, "ok") ||
@@ -24,16 +41,14 @@ AdmitKernelTokenWithContext(const rund::AccelKernel &kernel,
       kernel.node_count == 0u || !ExecutableApi(kernel.api) ||
       !rund::kernel::ComputeScalarValid(kernel.scalar) ||
       !kernel.frozen_caps.ok) {
-    return KernelTokenAdmission{
-        .admission = RejectAdmission("accel_kernel_graph_invalid")};
+    return {};
   }
 
   const std::shared_ptr<KernelToken> token =
       LookupKernelToken(kernel.owner, kernel.kernel_id);
   if (token == nullptr || !SameObject(token, kernel.owner) ||
       !context_admission.check.ok) {
-    return KernelTokenAdmission{
-        .admission = RejectAdmission("accel_kernel_graph_invalid")};
+    return {};
   }
 
   if (kernel.context_id != context_admission.context_id ||
@@ -48,54 +63,33 @@ AdmitKernelTokenWithContext(const rund::AccelKernel &kernel,
       !SameObject(token->context_owner, context_admission.owner) ||
       !SameCaps(token->frozen_caps, context_admission.caps) ||
       !SameCaps(kernel.frozen_caps, context_admission.caps)) {
-    return KernelTokenAdmission{
-        .admission = RejectAdmission("accel_kernel_graph_invalid")};
+    return {};
   }
 
-  return KernelTokenAdmission{
-      .admission =
-          KernelAdmission{
-              .check = rund::AccelKernelCheck{true, "ok"},
-              .kernel_id = kernel.kernel_id,
-              .context_id = kernel.context_id,
-              .graph_id_hi = kernel.graph_id_hi,
-              .graph_id_lo = kernel.graph_id_lo,
-              .node_count = kernel.node_count,
-              .api = kernel.api,
-              .scalar = kernel.scalar,
-              .domain = kernel.domain,
-              .frozen_caps = kernel.frozen_caps,
-              .owner = kernel.owner,
-          },
-      .token = token,
-  };
-}
-
-KernelAdmission
-AdmitKernelWithContext(const rund::AccelKernel &kernel,
-                       const ContextAdmission &context_admission) {
-  return AdmitKernelTokenWithContext(kernel, context_admission).admission;
+  return token;
 }
 
 KernelAdmission AdmitKernelForSupport(const rund::AccelContext &context,
                                       const rund::AccelKernel &kernel) {
-  return AdmitKernelWithContext(kernel, AdmitContextForSupport(context));
+  const std::shared_ptr<KernelToken> token =
+      AdmitKernelTokenWithContext(kernel, AdmitContextForSupport(context));
+  return token == nullptr ? RejectAdmission("accel_kernel_graph_invalid")
+                          : ProjectValidatedKernelAdmission(kernel);
 }
 
 KernelExecution AdmitKernelForExecution(const rund::AccelContext &context,
                                         const rund::AccelKernel &kernel) {
   const ContextAdmission context_admission = AdmitContextForSupport(context);
-  KernelTokenAdmission admitted =
+  const std::shared_ptr<KernelToken> token =
       AdmitKernelTokenWithContext(kernel, context_admission);
-  const KernelAdmission &admission = admitted.admission;
-  if (!admission.check.ok) {
-    return KernelExecution{.admission = admission,
+  if (token == nullptr) {
+    return KernelExecution{.admission =
+                               RejectAdmission("accel_kernel_graph_invalid"),
                            .context_admission = context_admission};
   }
 
-  const std::shared_ptr<KernelToken> &token = admitted.token;
-  if (token == nullptr || token->kernel_id != admission.kernel_id ||
-      token->graph_roles.size() != token->graph_shapes.size() ||
+  const KernelAdmission admission = ProjectValidatedKernelAdmission(kernel);
+  if (token->graph_roles.size() != token->graph_shapes.size() ||
       token->graph_roles.size() != token->graph_visibilities.size() ||
       token->graph_roles.size() != token->graph_alias_representatives.size() ||
       token->required_barriers.size() != token->steps.size()) {

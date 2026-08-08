@@ -207,15 +207,20 @@ A successful `AccelKernel` records `check`, `graph_id_hi`, `graph_id_lo`,
 `node_count`, backend `api`, fixed `scalar`, frozen caps,
 `context_id`, a nonzero kernel id, and one private source-only owner token. A
 private deleter type seals that token's `shared_ptr` control block;
-`AdmitKernelForSupport(...)` recovers the typed token from the control-block
-capability in `O(1)` and checks its kernel id plus the public `AccelKernel`
-aggregate against the owning context token, graph id, backend API, scalar, node
-count, and frozen caps. There is no process-global capability table, mutex,
-weak entry, or owner-order scan. A forged control block lacks the private deleter;
-an alias stored pointer still fails the exact stored-pointer check. The token
-is an admission support fact, not a semantic authority; future execution must
-still validate kernel, context, and buffer ownership before dispatch. Compile
-and kernel admission fail-close with:
+`AdmitKernelTokenWithContext(...)` recovers the typed token from the
+control-block capability in `O(1)` and checks its kernel id plus the public
+`AccelKernel` aggregate against the owning context token, graph id, backend
+API, scalar, node count, and frozen caps. It returns that retained token
+directly: null is rejection and nonnull is a completed authenticity proof,
+with no parallel check or admission-token wrapper. A source-private projector
+then freezes the semantic admission snapshot from the validated public kernel;
+the token remains an admission support fact and the lifetime owner for private
+execution vectors, not a replacement semantic authority. There is no
+process-global capability table, mutex, weak entry, or owner-order scan. A
+forged control block lacks the private deleter; an alias stored pointer still
+fails the exact stored-pointer check. Future execution must still validate
+kernel, context, and buffer ownership before dispatch. Compile and kernel
+admission fail-close with:
 
 - `accel_kernel_graph_invalid` for invalid context admission, invalid graph
   shape or numeric metadata, mismatched scalar, or kernel graph validation
