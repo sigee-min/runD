@@ -19,7 +19,7 @@ Verification authority:
 
 The entry point is
 
-```cpp
+```cpp fragment
 PlanRangeAggregate(const RangeAggregateShape &,
                    const RangeAggregateCapabilities &) noexcept
 ```
