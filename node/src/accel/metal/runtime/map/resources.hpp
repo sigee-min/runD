@@ -27,6 +27,10 @@ struct MetalMapTemplateResources final {
   std::vector<InputWindowPlan> input_plans{};
   std::vector<std::uint64_t> input_strides{};
   std::vector<std::uint64_t> output_strides{};
+  // Bit i is one exactly when binding i was source-specialized to a uint
+  // pointee. Counts remain bounded by the canonical 64-binding Map envelope.
+  std::uint64_t input_word_mask{};
+  std::uint64_t output_word_mask{};
   std::vector<MetalMapCheck> checks{};
   std::shared_ptr<void> pipeline{};
   std::shared_ptr<void> control_pipeline{};

@@ -23,8 +23,8 @@ VulkanMapGroupsForTiles(const std::uint64_t tiles) noexcept {
                                  std::numeric_limits<std::uint32_t>::max())) {
     return 0u;
   }
-  return static_cast<std::uint32_t>(tiles / kVulkanMapWidth +
-                                    (tiles % kVulkanMapWidth == 0u ? 0u : 1u));
+  return static_cast<std::uint32_t>(
+      1u + (tiles - 1u) / static_cast<std::uint64_t>(kVulkanMapWidth));
 }
 
 } // namespace rund::kernel::compute_lowering_detail

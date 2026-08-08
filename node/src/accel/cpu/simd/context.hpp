@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace rund::node::accel::cpu_simd_detail {
@@ -42,14 +43,48 @@ CpuSimdExecutorSlotValid(const CpuSimdExecutorSlot slot) noexcept {
 
 struct PreparedInstruction final {
   rund::kernel::compute_lowering_detail::ParsedNode node{};
-  rund::kernel::u64 binding_slot = 0u;
+  // The low 32 bits carry the bounded binding slot. The next three bytes carry
+  // source fractional widths, keeping all operand-format evidence inline
+  // without growing the retained instruction record.
+  rund::kernel::u64 binding_and_operand_fractions = 0u;
   rund::kernel::u64 immediate = 0u;
   rund::kernel::u64 element_bytes = 0u;
   rund::kernel::u32 value_index = 0u;
   CpuSimdExecutorSlot full_executor_slot = kCpuSimdInvalidExecutorSlot;
   CpuSimdExecutorSlot tail_executor_slot = kCpuSimdInvalidExecutorSlot;
+
+  [[nodiscard]] constexpr rund::kernel::u32 binding_slot() const noexcept {
+    return static_cast<rund::kernel::u32>(binding_and_operand_fractions);
+  }
+
+  constexpr void set_binding_slot(const rund::kernel::u64 slot) noexcept {
+    binding_and_operand_fractions =
+        (binding_and_operand_fractions & 0xffffffff00000000ull) |
+        static_cast<rund::kernel::u32>(slot);
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u8
+  operand_fraction(const rund::kernel::u32 index) const noexcept {
+    return index < 3u ? static_cast<rund::kernel::u8>(
+                            binding_and_operand_fractions >> (32u + 8u * index))
+                      : 0u;
+  }
+
+  constexpr void set_operand_fraction(const rund::kernel::u32 index,
+                                      const rund::kernel::u8 value) noexcept {
+    if (index >= 3u) {
+      return;
+    }
+    const rund::kernel::u32 shift = 32u + 8u * index;
+    const rund::kernel::u64 mask = rund::kernel::u64{0xffu} << shift;
+    binding_and_operand_fractions =
+        (binding_and_operand_fractions & ~mask) |
+        (static_cast<rund::kernel::u64>(value) << shift);
+  }
 };
 
+static_assert(rund::kernel::kMaxComputeBindingCount <=
+              std::numeric_limits<rund::kernel::u32>::max());
 static_assert(sizeof(PreparedInstruction) == 56u,
               "prepared selector slots must preserve the compact ABI size");
 
@@ -88,7 +123,7 @@ struct CpuSimdInvocation final {
 
 struct PreparedRun {
   std::vector<PreparedInstruction> instructions;
-  std::vector<rund::kernel::ComputeFixedFormat> value_formats;
+  std::size_t value_slot_count = 0u;
   std::size_t once_count = 0u;
   rund::kernel::u32 read_count = 0u;
   rund::kernel::u32 write_count = 0u;
@@ -103,10 +138,8 @@ struct PreparedRun {
   // inline storage are counted by the enclosing CPU program.
   [[nodiscard]] rund::kernel::u64
   retained_dynamic_memory_bytes() const noexcept {
-    using rund::kernel::compute_retained_detail::Add;
     using rund::kernel::compute_retained_detail::VectorCapacityBytes;
-    return Add(VectorCapacityBytes(instructions),
-               VectorCapacityBytes(value_formats));
+    return VectorCapacityBytes(instructions);
   }
 };
 

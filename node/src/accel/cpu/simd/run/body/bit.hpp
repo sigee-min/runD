@@ -20,52 +20,58 @@ namespace {
 inline void ExecuteBitAnd(const Instruction &instruction, const PreparedRun &,
                           const CpuSimdBindingView &, u64, std::size_t,
                           Values &values) noexcept {
-  values[instruction.value_index] = SignedBits(
-      Bits(values[instruction.node.lhs]) & Bits(values[instruction.node.rhs]));
+  values.set_raw(instruction.value_index,
+                 SignedBits(Bits(values[instruction.node.lhs]) &
+                            Bits(values[instruction.node.rhs])));
 }
 
 inline void ExecuteBitOr(const Instruction &instruction, const PreparedRun &,
                          const CpuSimdBindingView &, u64, std::size_t,
                          Values &values) noexcept {
-  values[instruction.value_index] = SignedBits(
-      Bits(values[instruction.node.lhs]) | Bits(values[instruction.node.rhs]));
+  values.set_raw(instruction.value_index,
+                 SignedBits(Bits(values[instruction.node.lhs]) |
+                            Bits(values[instruction.node.rhs])));
 }
 
 inline void ExecuteBitXor(const Instruction &instruction, const PreparedRun &,
                           const CpuSimdBindingView &, u64, std::size_t,
                           Values &values) noexcept {
-  values[instruction.value_index] = SignedBits(
-      Bits(values[instruction.node.lhs]) ^ Bits(values[instruction.node.rhs]));
+  values.set_raw(instruction.value_index,
+                 SignedBits(Bits(values[instruction.node.lhs]) ^
+                            Bits(values[instruction.node.rhs])));
 }
 
 inline void ExecuteBitNot(const Instruction &instruction, const PreparedRun &,
                           const CpuSimdBindingView &, u64, std::size_t,
                           Values &values) noexcept {
-  values[instruction.value_index] =
-      SignedBits(~Bits(values[instruction.node.lhs]));
+  values.set_raw(instruction.value_index,
+                 SignedBits(~Bits(values[instruction.node.lhs])));
 }
 
 inline void ExecuteShlConst(const Instruction &instruction, const PreparedRun &,
                             const CpuSimdBindingView &, u64, std::size_t,
                             Values &values) noexcept {
-  values[instruction.value_index] =
-      SignedBits(Bits(values[instruction.node.lhs]) << instruction.node.aux);
+  values.set_raw(
+      instruction.value_index,
+      SignedBits(Bits(values[instruction.node.lhs]) << instruction.node.aux));
 }
 
 inline void ExecuteShrLogicalConst(const Instruction &instruction,
                                    const PreparedRun &,
                                    const CpuSimdBindingView &, u64, std::size_t,
                                    Values &values) noexcept {
-  values[instruction.value_index] =
-      SignedBits(Bits(values[instruction.node.lhs]) >> instruction.node.aux);
+  values.set_raw(
+      instruction.value_index,
+      SignedBits(Bits(values[instruction.node.lhs]) >> instruction.node.aux));
 }
 
 inline void ExecuteShrArithmeticConst(const Instruction &instruction,
                                       const PreparedRun &,
                                       const CpuSimdBindingView &, u64,
                                       std::size_t, Values &values) noexcept {
-  values[instruction.value_index] =
-      ShiftArithmeticRight(values[instruction.node.lhs], instruction.node.aux);
+  values.set_raw(
+      instruction.value_index,
+      ShiftArithmeticRight(values[instruction.node.lhs], instruction.node.aux));
 }
 
 } // namespace

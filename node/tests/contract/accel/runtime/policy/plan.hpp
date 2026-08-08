@@ -13,13 +13,6 @@ RuntimePolicyPlanFor(const rund::kernel::ComputeApi api) {
   const rund::kernel::TilePhaseDescription phase{
       .phase_id = 77u,
       .tile_count = 8u,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{.scratch_bytes_per_tile =
-                                                         0u,
-                                                     .scratch_alignment = 1u,
-                                                     .output_shards = 8u,
-                                                     .queue_slots = 8u,
-                                                     .task_slots = 8u},
   };
   const rund::kernel::ComputeMap map{
       .op_hash_hi = 0x1234u,

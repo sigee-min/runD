@@ -55,22 +55,20 @@ template <class T>
 [[nodiscard]] bool
 AddVulkanVectorStorage(std::uint64_t &target,
                        const std::vector<T> &values) noexcept {
-  return AddVulkanHostBytes(target,
-                            static_cast<std::uint64_t>(values.capacity()),
-                            sizeof(T));
+  return AddVulkanHostBytes(
+      target, static_cast<std::uint64_t>(values.capacity()), sizeof(T));
 }
 
-[[nodiscard]] bool ObserveVulkanMapTemplate(
-    const VulkanMapTemplateResources &prepared,
-    std::uint64_t &bytes) noexcept {
+[[nodiscard]] bool
+ObserveVulkanMapTemplate(const VulkanMapTemplateResources &prepared,
+                         std::uint64_t &bytes) noexcept {
   if (prepared.adapter == nullptr || prepared.pipeline == nullptr ||
       !prepared.plan.ok ||
       prepared.input_plans.size() != prepared.plan.input_buffer_count ||
       prepared.input_layouts.size() != prepared.plan.input_buffer_count ||
       prepared.output_layouts.size() != prepared.plan.output_buffer_count ||
       prepared.checks.size() > prepared.plan.input_buffer_count ||
-      !backend_template_plan::add(bytes,
-                                  sizeof(VulkanMapTemplateResources)) ||
+      !backend_template_plan::add(bytes, sizeof(VulkanMapTemplateResources)) ||
       !AddVulkanVectorStorage(bytes, prepared.input_plans) ||
       !AddVulkanVectorStorage(bytes, prepared.input_layouts) ||
       !AddVulkanVectorStorage(bytes, prepared.output_layouts) ||
@@ -80,9 +78,10 @@ AddVulkanVectorStorage(std::uint64_t &target,
   return true;
 }
 
-[[nodiscard]] bool ObserveVulkanMapDescriptorArena(
-    const VulkanMapDescriptorArena &arena, const std::uint64_t expected_sets,
-    std::uint64_t &bytes) noexcept {
+[[nodiscard]] bool
+ObserveVulkanMapDescriptorArena(const VulkanMapDescriptorArena &arena,
+                                const std::uint64_t expected_sets,
+                                std::uint64_t &bytes) noexcept {
   if (arena.adapter == nullptr || arena.pool == VK_NULL_HANDLE ||
       arena.sets.size() != expected_sets || arena.next > arena.sets.size() ||
       !backend_template_plan::add(bytes, sizeof(VulkanMapDescriptorArena)) ||
@@ -97,19 +96,17 @@ AddVulkanVectorStorage(std::uint64_t &target,
   return true;
 }
 
-[[nodiscard]] bool ObserveVulkanProgramTemplate(
-    const VulkanKernelProgramTemplate &program,
-    std::uint64_t &bytes) noexcept {
+[[nodiscard]] bool
+ObserveVulkanProgramTemplate(const VulkanKernelProgramTemplate &program,
+                             std::uint64_t &bytes) noexcept {
   if (program.kind != VulkanKernelTemplateKind::Program ||
       program.signature == nullptr || !program.route_demand.valid() ||
       program.signature->steps == nullptr ||
       program.steps.size() != program.signature->step_count ||
       program.steps.empty() ||
-      (program.reset_set_count != 0u) !=
-          (program.reset_pipeline != nullptr) ||
+      (program.reset_set_count != 0u) != (program.reset_pipeline != nullptr) ||
       (program.view_set_count != 0u) != (program.view_pipeline != nullptr) ||
-      !backend_template_plan::add(bytes,
-                                  sizeof(VulkanKernelProgramTemplate)) ||
+      !backend_template_plan::add(bytes, sizeof(VulkanKernelProgramTemplate)) ||
       !AddVulkanVectorStorage(bytes, program.steps) ||
       !AddVulkanVectorStorage(bytes, program.descriptor_dependencies)) {
     return false;
@@ -145,14 +142,14 @@ AddVulkanVectorStorage(std::uint64_t &target,
     if (pipelines == nullptr ||
         !pipelines->ready(program.signature->steps[index].step->kind(),
                           step.manifest) ||
-        !backend_template_plan::add(
-            bytes, sizeof(VulkanKernelImmutablePipelines))) {
+        !backend_template_plan::add(bytes,
+                                    sizeof(VulkanKernelImmutablePipelines))) {
       return false;
     }
   }
 
-  for (std::size_t index = 0u;
-       index < program.descriptor_dependencies.size(); ++index) {
+  for (std::size_t index = 0u; index < program.descriptor_dependencies.size();
+       ++index) {
     const VulkanKernelDescriptorDependency &dependency =
         program.descriptor_dependencies[index];
     std::uint64_t expected_capacity = 0u;
@@ -165,8 +162,7 @@ AddVulkanVectorStorage(std::uint64_t &target,
         expected_capacity != dependency.set_capacity) {
       return false;
     }
-    if (dependency.kind ==
-        VulkanKernelDescriptorDependencyKind::Collective) {
+    if (dependency.kind == VulkanKernelDescriptorDependencyKind::Collective) {
       if (dependency.map_arena != nullptr) {
         return false;
       }
@@ -194,16 +190,15 @@ AddVulkanVectorStorage(std::uint64_t &target,
   return true;
 }
 
-[[nodiscard]] bool ObserveVulkanRecurrenceTemplate(
-    const VulkanMapRecurrenceTemplate &recurrence,
-    std::uint64_t &bytes) noexcept {
+[[nodiscard]] bool
+ObserveVulkanRecurrenceTemplate(const VulkanMapRecurrenceTemplate &recurrence,
+                                std::uint64_t &bytes) noexcept {
   std::uint64_t expected_sets = 0u;
   if (recurrence.signature == nullptr) {
     return false;
   }
-  const MapRecurrencePreparationPlan preparation =
-      PlanMapRecurrencePreparation(*recurrence.signature, 1u,
-                                   recurrence.history ? 1u : 0u);
+  const MapRecurrencePreparationPlan preparation = PlanMapRecurrencePreparation(
+      *recurrence.signature, 1u, recurrence.history ? 1u : 0u);
   const MapRecurrenceSourcePlan &source = recurrence.history
                                               ? preparation.history_source
                                               : preparation.terminal_source;
@@ -212,8 +207,8 @@ AddVulkanVectorStorage(std::uint64_t &target,
       source.history != recurrence.history ||
       (recurrence.history ? preparation.history_group_count == 0u
                           : preparation.terminal_group_count() == 0u) ||
-      recurrence.group_capacity == 0u ||
-      recurrence.prepared == nullptr || recurrence.descriptors == nullptr ||
+      recurrence.group_capacity == 0u || recurrence.prepared == nullptr ||
+      recurrence.descriptors == nullptr ||
       recurrence.prepared->control_pipeline != nullptr ||
       recurrence.prepared->check_pipeline != nullptr ||
       !recurrence.prepared->checks.empty() ||
@@ -221,8 +216,7 @@ AddVulkanVectorStorage(std::uint64_t &target,
                                   recurrence.prepared->plan.dispatch_count,
                                   expected_sets) ||
       expected_sets != recurrence.descriptor_set_capacity ||
-      !backend_template_plan::add(bytes,
-                                  sizeof(VulkanMapRecurrenceTemplate)) ||
+      !backend_template_plan::add(bytes, sizeof(VulkanMapRecurrenceTemplate)) ||
       !ObserveVulkanMapTemplate(*recurrence.prepared, bytes) ||
       !ObserveVulkanMapDescriptorArena(*recurrence.descriptors, expected_sets,
                                        bytes)) {
@@ -752,8 +746,7 @@ VulkanBackendShape(const std::uint64_t alignment,
       (manifest.status_entry_count == 0u)) {
     return false;
   }
-  if (!mul(manifest.status_source_count, 2u,
-           manifest.status_command_count) ||
+  if (!mul(manifest.status_source_count, 2u, manifest.status_command_count) ||
       !mul(manifest.status_source_count,
            VulkanPipelineStatusSourceParameterBytes,
            manifest.status_parameter_bytes)) {
@@ -834,14 +827,17 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
       return manifest;
     }
     manifest.cold_source_transient_bytes = raw_source_transient;
-    if (controlled && !AddPreparedBackendCacheDependency(
-                          manifest, PreparedBackendCacheDependency{
-                                        .source_recipe = 0x76756c6b2e637472ull,
-                                        .source_upper_bytes =
-                                            VulkanMapControlSourceText().size(),
-                                        .pipeline_stage_count = 1u,
-                                    })) {
-      return manifest;
+    if (controlled) {
+      std::uint64_t control_source = 0u;
+      if (!VulkanMapControlSourceBytes(control_source) ||
+          !AddPreparedBackendCacheDependency(
+              manifest, PreparedBackendCacheDependency{
+                            .source_recipe = 0x76756c6b2e637472ull,
+                            .source_upper_bytes = control_source,
+                            .pipeline_stage_count = 1u,
+                        })) {
+        return manifest;
+      }
     }
     if (has_checks) {
       std::uint64_t check_source = 0u;
@@ -1295,9 +1291,9 @@ rund::AccelCheck PlanVulkanPipelineRecurrence(
   using backend_template_plan::add;
   using backend_template_plan::product;
   if (!plan.ok) {
-    return rund::AccelCheck{
-        false, plan.reason == nullptr ? "compute_pipeline_recurrence_invalid"
-                                      : plan.reason};
+    return rund::AccelCheck{false, plan.reason == nullptr
+                                       ? "compute_pipeline_recurrence_invalid"
+                                       : plan.reason};
   }
   if (plan.group_count == 0u) {
     return plan.history_group_count == 0u
@@ -1316,8 +1312,7 @@ rund::AccelCheck PlanVulkanPipelineRecurrence(
       plan.history_group_count > plan.group_count || template_count == 0u ||
       template_count > 2u || !plan.plan.ok ||
       plan.plan.api != rund::kernel::ComputeApi::Vulkan ||
-      plan.canonical_artifact->key.api !=
-          rund::kernel::ComputeApi::Vulkan ||
+      plan.canonical_artifact->key.api != rund::kernel::ComputeApi::Vulkan ||
       plan.canonical_artifact->key.variant !=
           rund::kernel::LoweringArtifactVariant::Canonical ||
       plan.canonical_artifact->kind !=
@@ -1361,14 +1356,14 @@ rund::AccelCheck PlanVulkanPipelineRecurrence(
   std::uint64_t window_bytes = 0u;
   std::uint64_t routes_host = 0u;
   std::uint64_t history_host = 0u;
-  std::uint64_t per_route_native = std::max<std::uint64_t>(4u,
-                                                           plan.plan.param_bytes);
+  std::uint64_t per_route_native =
+      std::max<std::uint64_t>(4u, plan.plan.param_bytes);
   if (!AddVulkanHostBytes(per_route_host, plan.input_count,
                           sizeof(VulkanResidentBufferResult)) ||
       !AddVulkanHostBytes(per_route_host, plan.output_count,
                           sizeof(VulkanResidentBufferResult)) ||
-      !product(plan.window_count,
-               sizeof(rund::kernel::ComputeDispatchWindow), window_bytes) ||
+      !product(plan.window_count, sizeof(rund::kernel::ComputeDispatchWindow),
+               window_bytes) ||
       !add(per_route_host, window_bytes) ||
       !product(per_route_host, plan.group_count, routes_host) ||
       !product(plan.history_group_count, sizeof(MapRecurrenceHistory),
@@ -1759,17 +1754,14 @@ ObserveVulkanPipelineTemplate(const void *const prepared) noexcept {
     }
   }
   if (!observed || bytes == 0u) {
-    constexpr std::uint64_t invalid =
-        std::numeric_limits<std::uint64_t>::max();
+    constexpr std::uint64_t invalid = std::numeric_limits<std::uint64_t>::max();
     return PreparedMemory{.current = invalid,
                           .peak = invalid,
                           .cumulative = invalid,
                           .budget = invalid};
   }
-  return PreparedMemory{.current = bytes,
-                        .peak = bytes,
-                        .cumulative = bytes,
-                        .budget = bytes};
+  return PreparedMemory{
+      .current = bytes, .peak = bytes, .cumulative = bytes, .budget = bytes};
 #else
   (void)prepared;
   return {};

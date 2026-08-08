@@ -228,12 +228,9 @@ compile failure instead of an undeclared package dependency.
 500 alternating Scan/Map pairs and freezes the issue-shaped sequence: an
 `N = 64` nested window group, a later consumer of its published result, an
 ordinary 64-iteration recurrence, an `N = 1` nested window group, and a final
-publish/commit. The reduced public reproducer has exactly 140 compact route
-templates and 4,413 authored commands. The issue reports 243/4,454 for its
-full consumer graph; the checked-in reduced harness exercises the named
-interactions but does not claim exact graph equivalence or invent work whose
-source and binding topology were not published. Its only `prepare()` call uses
-a budget one byte
+publish/commit. The public reproducer has exactly 140 compact route templates
+and 4,413 authored commands and exercises that complete frozen sequence. Its
+only `prepare()` call uses a budget one byte
 below `peak_bytes` and must fail with `PipelineMemoryBudget` without a device
 allocation; the mode never materializes a Pipeline. Its CSV reports all
 four disjoint preparation byte components, logical `peak_bytes`, exact CPU

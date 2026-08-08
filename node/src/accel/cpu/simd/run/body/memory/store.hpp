@@ -9,7 +9,7 @@ inline void StoreWrite(const Instruction &instruction,
                        const std::size_t live_lanes) noexcept {
   std::array<Scalar, kLaneCount> lanes;
   RUND_CPU_SIMD_STORE(lanes.data(), value);
-  const auto &binding = bindings.writes[instruction.binding_slot];
+  const auto &binding = bindings.writes[instruction.binding_slot()];
   auto *const write = binding.data;
   const auto stride = binding.stride;
   unsigned char *cursor = write + ByteOffset(base_tile, stride);
@@ -31,7 +31,7 @@ inline void StoreWrite(const Instruction &instruction,
 inline void StoreWriteFull(const Instruction &instruction,
                            const CpuSimdBindingView &bindings, const Vec value,
                            const u64 base_tile) noexcept {
-  const auto &binding = bindings.writes[instruction.binding_slot];
+  const auto &binding = bindings.writes[instruction.binding_slot()];
   auto *const write = binding.data;
   const auto stride = binding.stride;
   std::memcpy(write + ByteOffset(base_tile, stride), &value, sizeof(value));

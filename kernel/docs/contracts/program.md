@@ -67,14 +67,12 @@ tiling ran and the exact tile units, count, and assignment.
 ## Tile Phase Description
 
 `TilePhaseDescription` is the value contract used by Node graph compilation
-to describe phase identity, tile count, deterministic ascending order, and
-scratch/output/queue/task capacity requirements.
+to describe phase identity, tile count, and deterministic ascending order.
 
-`ValidateTilePhaseDescription`, `TilePhaseRequiredCapacity`,
-`AdmitTilePhase`, and `TilePhaseTileAt` are pure admission and indexing
-helpers. They reject invalid identifiers, zero tile counts, non-power-of-two
-alignment, arithmetic overflow, insufficient capacity, and out-of-range tile
-indices with stable reasons.
+`ValidateTilePhaseDescription` is the phase admission authority. It accepts a
+nonzero phase identifier, a nonzero tile count, and
+`TilePhaseOrder::TileIndexAscending`; each rejected invariant has a stable
+reason before Node graph compilation consumes the description.
 
 ## Execution
 

@@ -21,14 +21,6 @@ rund::kernel::TilePhaseDescription PhaseFor(const KernelExecution &execution,
   return rund::kernel::TilePhaseDescription{
       .phase_id = execution.admission.kernel_id + step_index,
       .tile_count = tile_count,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .scratch_bytes_per_tile = 0u,
-              .scratch_alignment = 1u,
-              .output_shards = tile_count,
-              .queue_slots = tile_count,
-              .task_slots = tile_count,
-          },
   };
 }
 

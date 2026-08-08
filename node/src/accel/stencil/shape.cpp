@@ -14,7 +14,8 @@ bool StencilShapeOk(const rund::kernel::StencilDesc &desc,
                                        rund::kernel::kResidentUsageRead) &&
          PrimitiveResidentExactShapeOk(bindings.output, plan.element_bytes,
                                        plan.element_count,
-                                       rund::kernel::kResidentUsageWrite);
+                                       rund::kernel::kResidentUsageWrite) &&
+         !ResidentOverlap(*bindings.input, *bindings.output);
 }
 
 } // namespace rund::node::accel::detail

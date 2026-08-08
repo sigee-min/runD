@@ -52,8 +52,9 @@ struct MetalMapTemplateResources;
     std::shared_ptr<const MetalMapTemplateResources> &prepared);
 
 // Consumes a one-shot recurrence artifact whose source string was initially
-// reserved to the final backend upper. Stride and Pipeline-private guard edits
-// stay inside that allocation, which is moved directly into the adapter cache.
+// reserved to the final backend upper. Base/stride, word-pointee, and
+// Pipeline-private guard edits stay inside that allocation, which is moved
+// directly into the adapter cache.
 [[nodiscard]] rund::AccelCheck PrepareMetalMapOwnedTemplate(
     const rund::AccelDevice &pick, const rund::kernel::ComputePlan &plan,
     rund::kernel::LoweringArtifact &&artifact,

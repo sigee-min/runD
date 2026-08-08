@@ -319,13 +319,6 @@ BuildMapDispatchCount(const rund::kernel::ExecutionMetadata &metadata,
   const rund::kernel::TilePhaseDescription phase{
       .phase_id = phase_id,
       .tile_count = element_count,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .scratch_alignment = 1u,
-              .output_shards = element_count,
-              .queue_slots = element_count,
-              .task_slots = element_count,
-          },
   };
   const rund::kernel::ComputeDispatchPlan dispatch =
       rund::kernel::PlanComputeDispatch(phase, map, caps, limit);

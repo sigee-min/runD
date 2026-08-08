@@ -146,11 +146,15 @@ same_layout(const KernelScratchLayout *const left,
 [[nodiscard]] inline bool
 same_map_binding_identity(const PreparedKernelProgramBindingIdentity &left,
                           const PreparedKernelProgramBindingIdentity &right,
-                          const std::uint64_t alignment) noexcept {
+                          const std::uint64_t alignment,
+                          const rund::kernel::ComputeApi api) noexcept {
   return alignment != 0u && left.element_bytes == right.element_bytes &&
          left.stride_bytes == right.stride_bytes && left.count == right.count &&
          left.usage == right.usage &&
-         left.offset_bytes % alignment == right.offset_bytes % alignment;
+         left.offset_bytes % alignment == right.offset_bytes % alignment &&
+         (api != rund::kernel::ComputeApi::Metal ||
+          MetalMapBindingWordClass(left.offset_bytes, left.stride_bytes) ==
+              MetalMapBindingWordClass(right.offset_bytes, right.stride_bytes));
 }
 
 [[nodiscard]] inline bool
@@ -176,8 +180,8 @@ same_program_map_specialization(const KernelExecution &execution,
       const std::uint64_t binding = step.graph_binding_indices[local];
       if (binding >= left.program_bindings.size() ||
           !same_map_binding_identity(left.program_bindings[binding],
-                                     right.program_bindings[binding],
-                                     alignment)) {
+                                     right.program_bindings[binding], alignment,
+                                     step.artifact.key.api)) {
         return false;
       }
     }
@@ -196,14 +200,20 @@ inline void mix_map_specialization(std::uint64_t &hash,
   hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
 }
 
-inline void mix_map_specialization(
-    MapSpecializationFingerprint &fingerprint,
-    const PreparedKernelProgramBindingIdentity &identity) noexcept {
+inline void
+mix_map_specialization(MapSpecializationFingerprint &fingerprint,
+                       const PreparedKernelProgramBindingIdentity &identity,
+                       const rund::kernel::ComputeApi api) noexcept {
   mix_map_specialization(fingerprint.hi, identity.offset_bytes);
   mix_map_specialization(fingerprint.lo, identity.element_bytes);
   mix_map_specialization(fingerprint.hi, identity.stride_bytes);
   mix_map_specialization(fingerprint.lo, identity.count);
   mix_map_specialization(fingerprint.hi, identity.usage);
+  if (api == rund::kernel::ComputeApi::Metal) {
+    mix_map_specialization(fingerprint.lo,
+                           static_cast<std::uint64_t>(MetalMapBindingWordClass(
+                               identity.offset_bytes, identity.stride_bytes)));
+  }
 }
 
 [[nodiscard]] inline MapSpecializationFingerprint
@@ -240,7 +250,8 @@ program_map_specialization_fingerprint(
         if (binding >= route.program_bindings.size()) {
           return fingerprint;
         }
-        mix_map_specialization(fingerprint, route.program_bindings[binding]);
+        mix_map_specialization(fingerprint, route.program_bindings[binding],
+                               step.artifact.key.api);
       }
     }
   }
@@ -285,7 +296,8 @@ runtime_map_specialization_fingerprint(const BackendRun &run) noexcept {
                                    .stride_bytes = ref->stride_bytes,
                                    .count = ref->count,
                                    .usage = ref->usage,
-                               });
+                               },
+                               step.planned->plan.api);
       }
     }
   }
@@ -322,7 +334,8 @@ same_program_template(const KernelExecution &execution,
 [[nodiscard]] inline bool
 same_ref_layout(const rund::kernel::ResidentBindingRange &left,
                 const rund::kernel::ResidentBindingRange &right,
-                const std::uint64_t alignment) noexcept {
+                const std::uint64_t alignment,
+                const rund::kernel::ComputeApi api) noexcept {
   if (alignment == 0u || left.count != right.count) {
     return false;
   }
@@ -332,7 +345,10 @@ same_ref_layout(const rund::kernel::ResidentBindingRange &left,
     if (a == nullptr || b == nullptr || a->element_bytes != b->element_bytes ||
         a->stride_bytes != b->stride_bytes || a->count != b->count ||
         a->usage != b->usage ||
-        a->offset_bytes % alignment != b->offset_bytes % alignment) {
+        a->offset_bytes % alignment != b->offset_bytes % alignment ||
+        (api == rund::kernel::ComputeApi::Metal &&
+         MetalMapBindingWordClass(a->offset_bytes, a->stride_bytes) !=
+             MetalMapBindingWordClass(b->offset_bytes, b->stride_bytes))) {
       return false;
     }
   }
@@ -341,13 +357,16 @@ same_ref_layout(const rund::kernel::ResidentBindingRange &left,
 
 [[nodiscard]] inline bool
 same_map_layout(const BoundStep &left, const BoundStep &right,
-                const std::uint64_t alignment) noexcept {
+                const std::uint64_t alignment,
+                const rund::kernel::ComputeApi api) noexcept {
   const rund::kernel::BindingSet a = MapBindingFor(left);
   const rund::kernel::BindingSet b = MapBindingFor(right);
   return a.ok && b.ok && a.input_buffer_count == b.input_buffer_count &&
          a.output_buffer_count == b.output_buffer_count &&
-         same_ref_layout(a.resident_inputs, b.resident_inputs, alignment) &&
-         same_ref_layout(a.resident_outputs, b.resident_outputs, alignment);
+         same_ref_layout(a.resident_inputs, b.resident_inputs, alignment,
+                         api) &&
+         same_ref_layout(a.resident_outputs, b.resident_outputs, alignment,
+                         api);
 }
 
 [[nodiscard]] inline bool
@@ -374,7 +393,7 @@ same_template(const BackendRun &left, const BackendRun &right,
       return false;
     }
     if (a.step->kind() == rund::kernel::NodeKind::Map &&
-        !same_map_layout(a, b, alignment)) {
+        !same_map_layout(a, b, alignment, a.planned->plan.api)) {
       return false;
     }
   }

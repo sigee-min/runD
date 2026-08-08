@@ -50,14 +50,6 @@ inline void FillInputs(Work &work) {
   return rund::kernel::TilePhaseDescription{
       .phase_id = 50u,
       .tile_count = kTileCount,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .scratch_bytes_per_tile = 0u,
-              .scratch_alignment = 1u,
-              .output_shards = kTileCount,
-              .queue_slots = kTileCount,
-              .task_slots = kTileCount,
-          },
   };
 }
 

@@ -35,7 +35,9 @@
 #include "src/accel/metal/numeric/source.hpp"
 #include "src/accel/metal/partition/local.hpp"
 #include "src/accel/metal/reduce/local.hpp"
+#include "src/accel/metal/runtime/map/api.hpp"
 #include "src/accel/metal/runtime/map/control.hpp"
+#include "src/accel/metal/runtime/map/resources.hpp"
 #include "src/accel/metal/scan/source.hpp"
 #include "src/accel/metal/scatter/local.hpp"
 #include "src/accel/metal/scatter/reduce/model.hpp"
@@ -2054,10 +2056,14 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   const rund::kernel::LoweringArtifact control =
       VulkanMapControlArtifact(prepared.plan);
   const rund::kernel::LoweringArtifact reset = VulkanResetArtifact();
-  return control.ok &&
-         control.source_text.size() == VulkanMapControlSourceText().size() &&
-         control.source_text_upper_bytes ==
-             VulkanMapControlSourceText().size() &&
+  std::uint64_t control_source_bytes = 0u;
+  return VulkanMapControlSourceBytes(control_source_bytes) && control.ok &&
+         control.source_text.size() == control_source_bytes &&
+         control.source_text_upper_bytes == control_source_bytes &&
+         control.source_text.find("dispatch_count == 0u") !=
+             std::string::npos &&
+         control.source_text.find("1u + (dispatch_count - 1u) / 256u;") !=
+             std::string::npos &&
          reset.ok && reset.source_text == VulkanResetSourceText() &&
          reset.source_text_upper_bytes == VulkanResetSourceText().size();
 #else
@@ -2065,10 +2071,198 @@ static_assert(PreparedControlPhaseCodesAreChecked());
 #endif
 }
 
+[[nodiscard]] bool MetalMapWordClassPartitionsProgramTemplates() {
+  using namespace rund::node::accel::detail;
+  using backend_template_plan::program_map_specialization_fingerprint;
+  using backend_template_plan::runtime_map_specialization_fingerprint;
+  using backend_template_plan::same_program_template;
+  using backend_template_plan::same_template;
+
+  KernelExecutionStep step{};
+  step.artifact.key.api = rund::kernel::ComputeApi::Metal;
+  step.artifact.metadata.binding_accesses = {
+      rund::kernel::ComputeBindingAccess::Read,
+      rund::kernel::ComputeBindingAccess::Write};
+  step.artifact.metadata.read_count = 1u;
+  step.artifact.metadata.write_count = 1u;
+  step.artifact.metadata.input_element_bytes = {4u};
+  step.artifact.metadata.output_element_bytes = {4u};
+  step.artifact.metadata.ok = true;
+  step.artifact.metadata.reason = "ok";
+  if (!step.graph_binding_indices.push_back(0u) ||
+      !step.graph_binding_indices.push_back(1u)) {
+    return false;
+  }
+  step.graph_binding_indices_ok = true;
+  const std::array roles{rund::kernel::BufferRole::Read,
+                         rund::kernel::BufferRole::Write};
+  const KernelExecution execution{
+      .graph_roles = roles,
+      .steps = std::span<const KernelExecutionStep>{&step, 1u},
+  };
+
+  const std::shared_ptr<void> kernel_owner = std::make_shared<int>(1);
+  const rund::AccelKernel kernel{
+      .kernel_id = 1u,
+      .graph_id_hi = 2u,
+      .graph_id_lo = 3u,
+      .node_count = 1u,
+      .api = rund::AccelApi::Metal,
+      .context_id = 4u,
+      .owner = kernel_owner,
+  };
+  const std::array aligned_bindings{
+      PreparedKernelProgramBindingIdentity{
+          .offset_bytes = 0u,
+          .element_bytes = 4u,
+          .stride_bytes = 4u,
+          .count = 8u,
+          .usage = rund::kernel::kResidentUsageRead,
+      },
+      PreparedKernelProgramBindingIdentity{
+          .offset_bytes = 0u,
+          .element_bytes = 4u,
+          .stride_bytes = 4u,
+          .count = 8u,
+          .usage = rund::kernel::kResidentUsageWrite,
+      },
+  };
+  auto aligned_peer_bindings = aligned_bindings;
+  aligned_peer_bindings[0u].offset_bytes = 4u;
+  aligned_peer_bindings[1u].offset_bytes = 8u;
+  auto bytewise_bindings = aligned_bindings;
+  bytewise_bindings[0u].offset_bytes = 1u;
+  const PreparedKernelProgramRoute aligned{
+      .kernel = &kernel,
+      .tile_count = 8u,
+      .program_bindings = aligned_bindings,
+  };
+  const PreparedKernelProgramRoute aligned_peer{
+      .kernel = &kernel,
+      .tile_count = 8u,
+      .program_bindings = aligned_peer_bindings,
+  };
+  const PreparedKernelProgramRoute bytewise{
+      .kernel = &kernel,
+      .tile_count = 8u,
+      .program_bindings = bytewise_bindings,
+  };
+  const std::array public_routes{aligned, aligned_peer, bytewise};
+  std::uint64_t public_template_count = 0u;
+  for (std::size_t index = 0u; index < public_routes.size(); ++index) {
+    bool seen = false;
+    for (std::size_t prior = 0u; prior < index; ++prior) {
+      if (same_program_template(execution, public_routes[index],
+                                public_routes[prior], 1u)) {
+        seen = true;
+        break;
+      }
+    }
+    public_template_count += seen ? 0u : 1u;
+  }
+  const auto aligned_fingerprint =
+      program_map_specialization_fingerprint(execution, aligned);
+  const auto bytewise_fingerprint =
+      program_map_specialization_fingerprint(execution, bytewise);
+  if (!same_program_template(execution, aligned, aligned_peer, 1u) ||
+      same_program_template(execution, aligned, bytewise, 1u) ||
+      public_template_count != 2u || !aligned_fingerprint.ok ||
+      !bytewise_fingerprint.ok ||
+      (aligned_fingerprint.hi == bytewise_fingerprint.hi &&
+       aligned_fingerprint.lo == bytewise_fingerprint.lo)) {
+    return false;
+  }
+
+  PlannedStep planned{};
+  planned.plan = rund::kernel::ComputePlan{
+      .tile_count = 8u,
+      .api = rund::kernel::ComputeApi::Metal,
+      .input_buffer_count = 1u,
+      .output_buffer_count = 1u,
+      .input_bytes_per_tile = 4u,
+      .output_bytes_per_tile = 4u,
+      .bytes_per_tile = 8u,
+      .dispatch_window_tiles = 8u,
+      .dispatch_count = 1u,
+      .ok = true,
+      .reason = "ok",
+  };
+  planned.artifact = &step.artifact;
+  rund::AccelDevice device{};
+  struct RuntimeRoute final {
+    RunBinds refs{};
+    StepBinds bindings{};
+    BoundStep bound{};
+    BackendRun run{};
+  };
+  const std::shared_ptr<void> resident = std::make_shared<int>(2);
+  const auto build_runtime_route = [&](RuntimeRoute &route,
+                                       const std::uint64_t input_offset) {
+    const bool input = route.refs.push(
+        rund::kernel::ResidentBufferRef{
+            .id = 1u,
+            .bytes = 64u,
+            .offset_bytes = input_offset,
+            .element_bytes = 4u,
+            .stride_bytes = 4u,
+            .count = 8u,
+            .usage = rund::kernel::kResidentUsageRead,
+        },
+        resident);
+    const bool output = route.refs.push(
+        rund::kernel::ResidentBufferRef{
+            .id = 2u,
+            .bytes = 64u,
+            .element_bytes = 4u,
+            .stride_bytes = 4u,
+            .count = 8u,
+            .usage = rund::kernel::kResidentUsageWrite,
+        },
+        resident);
+    route.bindings.inputs.bind(route.refs, 1u);
+    route.bindings.outputs.bind(route.refs, 1u);
+    const bool indices =
+        route.bindings.inputs.push(0u) && route.bindings.outputs.push(1u);
+    route.bound = BoundStep{
+        .step = &step,
+        .planned = &planned,
+        .bindings = route.bindings,
+    };
+    route.run = BackendRun{
+        .pick = &device,
+        .execution = &execution,
+        .steps = &route.bound,
+        .step_count = 1u,
+    };
+    return input && output && indices;
+  };
+  RuntimeRoute aligned_runtime{};
+  RuntimeRoute bytewise_runtime{};
+  if (!build_runtime_route(aligned_runtime, 0u) ||
+      !build_runtime_route(bytewise_runtime, 1u)) {
+    return false;
+  }
+  const auto aligned_runtime_fingerprint =
+      runtime_map_specialization_fingerprint(aligned_runtime.run);
+  const auto bytewise_runtime_fingerprint =
+      runtime_map_specialization_fingerprint(bytewise_runtime.run);
+  return !same_template(aligned_runtime.run, bytewise_runtime.run, 1u) &&
+         aligned_runtime_fingerprint.ok && bytewise_runtime_fingerprint.ok &&
+         (aligned_runtime_fingerprint.hi != bytewise_runtime_fingerprint.hi ||
+          aligned_runtime_fingerprint.lo != bytewise_runtime_fingerprint.lo);
+}
+
 [[nodiscard]] bool MapSourceSpecializationIsSingleOwnerAndExact() {
   using namespace rund::node::accel::detail;
   static_assert(MapSpecializationEditCapacity ==
-                2u * rund::kernel::kMaxComputeBindingCount);
+                3u * rund::kernel::kMaxComputeBindingCount);
+  static_assert(MetalMapWordBytes == 4u);
+  static_assert(MetalMapBindingWordAligned(
+      rund::kernel::ResidentBufferRef{.offset_bytes = 4u, .stride_bytes = 8u}));
+  static_assert(!MetalMapBindingWordAligned(
+      rund::kernel::ResidentBufferRef{.offset_bytes = 1u, .stride_bytes = 8u}));
+  static_assert(!MetalMapBindingWordAligned(
+      rund::kernel::ResidentBufferRef{.offset_bytes = 4u, .stride_bytes = 6u}));
 
   rund::kernel::LoweringArtifact artifact{};
   artifact.key.api = rund::kernel::ComputeApi::Metal;
@@ -2076,7 +2270,11 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   artifact.source_text = "constant uint RundStride_read_78 = 4u;\n"
                          "constant uint RundBase_read_78 = 0u;\n"
                          "constant uint RundStride_write_79 = 4u;\n"
-                         "constant uint RundBase_write_79 = 0u;\n";
+                         "constant uint RundBase_write_79 = 0u;\n"
+                         "kernel void rund_compute_map_test(\n"
+                         "    const device uchar* read_78 [[buffer(1)]],\n"
+                         "    device uchar* write_79 [[buffer(2)]],\n"
+                         "    uint gid [[thread_position_in_grid]]) {}\n";
   artifact.source_text_upper_bytes = artifact.source_text.size();
   artifact.metadata.input_element_bytes = {4u};
   artifact.metadata.output_element_bytes = {4u};
@@ -2154,10 +2352,15 @@ static_assert(PreparedControlPhaseCodesAreChecked());
                                              .storage_count = output.size(),
                                              .count = output.size()},
   };
-  const std::string expected = "constant uint RundStride_read_78 = 8u;\n"
-                               "constant uint RundBase_read_78 = 3u;\n"
-                               "constant uint RundStride_write_79 = 4u;\n"
-                               "constant uint RundBase_write_79 = 0u;\n";
+  const std::string expected =
+      "constant uint RundStride_read_78 = 8u;\n"
+      "constant uint RundBase_read_78 = 3u;\n"
+      "constant uint RundStride_write_79 = 4u;\n"
+      "constant uint RundBase_write_79 = 0u;\n"
+      "kernel void rund_compute_map_test(\n"
+      "    const device uchar* read_78 [[buffer(1)]],\n"
+      "    device uint* write_79 [[buffer(2)]],\n"
+      "    uint gid [[thread_position_in_grid]]) {}\n";
   const rund::kernel::LoweringArtifact specialized =
       SpecializeMap(artifact, plan, bindings, 16u);
   std::uint64_t specialized_storage_upper = 0u;
@@ -2170,6 +2373,82 @@ static_assert(PreparedControlPhaseCodesAreChecked());
           specialized.source_text, specialized_storage_upper)) {
     return false;
   }
+
+  const auto offset_unaligned = SpecializeMap(artifact, plan, bindings, 1u);
+  if (!offset_unaligned.ok ||
+      offset_unaligned.source_text.find("const device uchar* read_78") ==
+          std::string_view::npos ||
+      offset_unaligned.source_text.find("device uint* write_79") ==
+          std::string_view::npos ||
+      offset_unaligned.source_text.find("RundBase_read_78 = 0u") ==
+          std::string_view::npos) {
+    return false;
+  }
+
+  auto aligned_input = input;
+  aligned_input[0].offset_bytes = 4u;
+  const rund::kernel::BindingSet aligned_bindings{
+      .resident_inputs =
+          rund::kernel::ResidentBindingRange{.refs = aligned_input.data(),
+                                             .storage_count =
+                                                 aligned_input.size(),
+                                             .count = aligned_input.size()},
+      .resident_outputs = bindings.resident_outputs,
+  };
+  const auto aligned = SpecializeMap(artifact, plan, aligned_bindings, 1u);
+  if (!aligned.ok ||
+      aligned.source_text.find("const device uint* read_78") ==
+          std::string_view::npos ||
+      aligned.source_text.find("device uint* write_79") ==
+          std::string_view::npos) {
+    return false;
+  }
+
+  auto wrong_buffer_artifact = artifact;
+  constexpr std::string_view OutputBinding = "write_79 [[buffer(";
+  const std::size_t output_buffer =
+      wrong_buffer_artifact.source_text.find("write_79 [[buffer(2)]]");
+  if (output_buffer == std::string::npos) {
+    return false;
+  }
+  wrong_buffer_artifact.source_text[output_buffer + OutputBinding.size()] = '3';
+  if (SpecializeMap(wrong_buffer_artifact, plan, aligned_bindings, 1u).ok) {
+    return false;
+  }
+
+  auto stride_unaligned_input = aligned_input;
+  stride_unaligned_input[0].stride_bytes = 6u;
+  const rund::kernel::BindingSet stride_unaligned_bindings{
+      .resident_inputs =
+          rund::kernel::ResidentBindingRange{
+              .refs = stride_unaligned_input.data(),
+              .storage_count = stride_unaligned_input.size(),
+              .count = stride_unaligned_input.size()},
+      .resident_outputs = bindings.resident_outputs,
+  };
+  const auto stride_unaligned =
+      SpecializeMap(artifact, plan, stride_unaligned_bindings, 1u);
+  if (!stride_unaligned.ok ||
+      stride_unaligned.source_text.find("const device uchar* read_78") ==
+          std::string_view::npos ||
+      stride_unaligned.source_text.find("device uint* write_79") ==
+          std::string_view::npos) {
+    return false;
+  }
+
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+  MetalAdapter adapter{};
+  MetalMapTemplateResources prepared{};
+  prepared.adapter = &adapter;
+  prepared.plan = plan;
+  prepared.input_strides = {8u};
+  prepared.output_strides = {4u};
+  prepared.output_word_mask = 1u;
+  if (!MetalMapTemplateMatches(prepared, adapter, plan, bindings) ||
+      MetalMapTemplateMatches(prepared, adapter, plan, aligned_bindings)) {
+    return false;
+  }
+#endif
 
   rund::kernel::ComputePlan oversized = plan;
   oversized.input_buffer_count = rund::kernel::kMaxComputeBindingCount + 1u;
@@ -2913,6 +3192,7 @@ bool AuthorityContract() {
          PreparedBackendControlManifestIsDimensionallyClosed() &&
          BackendSourceRecipeIsCheckedAndCanonical() &&
          VulkanMapAndResetSourceRecipesAreExact() &&
+         MetalMapWordClassPartitionsProgramTemplates() &&
          MapSourceSpecializationIsSingleOwnerAndExact() &&
          MetalSourceRecipesAreExactAndSemantic() &&
          MetalMapCheckSourceHasOneGuardAuthority() &&

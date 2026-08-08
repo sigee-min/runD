@@ -31,6 +31,7 @@ RecurrenceHistoryPitches(const MapRecurrence &recurrence) noexcept {
 
 struct MetalRecurrenceTemplateProbe final {
   const MapRecurrencePreparationPlan *plan{};
+  const rund::kernel::BindingSet *bindings{};
   MetalAdapter *adapter{};
   bool history{};
 };
@@ -49,12 +50,15 @@ MatchMetalRecurrenceTemplate(const void *const prepared,
       static_cast<const MetalRecurrenceTemplateProbe *>(raw_probe);
   if (cached->signature == nullptr || cached->prepared == nullptr ||
       cached->prepared->adapter != probe->adapter || probe->plan == nullptr ||
-      probe->adapter == nullptr || cached->history != probe->history) {
+      probe->bindings == nullptr || probe->adapter == nullptr ||
+      cached->history != probe->history) {
     return false;
   }
   const MapRecurrencePreparationPlan cached_plan = PlanMapRecurrencePreparation(
       *cached->signature, 1u, cached->history ? 1u : 0u);
-  return SameMapRecurrenceTemplate(cached_plan, *probe->plan, probe->history);
+  return SameMapRecurrenceTemplate(cached_plan, *probe->plan, probe->history) &&
+         MetalMapTemplateMatches(*cached->prepared, *probe->adapter,
+                                 probe->plan->plan, *probe->bindings);
 }
 
 inline constexpr std::uint64_t MetalRecurrenceVariantHi = 0x6d6574616c2e7265ull;
@@ -93,6 +97,7 @@ inline constexpr std::uint64_t MetalHistoryRecurrenceVariantLo =
                                            : MetalTerminalRecurrenceVariantLo;
   const MetalRecurrenceTemplateProbe probe{
       .plan = &normalized,
+      .bindings = &recurrence.bindings,
       .adapter = &adapter,
       .history = history,
   };

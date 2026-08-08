@@ -27,14 +27,12 @@ void DestroyVulkanStencilEncodeResources(void *const raw) {
 }
 #endif
 
-rund::AccelCheck PrepareVulkanStencil(const rund::AccelDevice &pick,
-                                      const rund::kernel::StencilDesc &desc,
-                                      const rund::kernel::StencilPlan &plan,
-                                      const rund::kernel::ComputeDomain domain,
-                                      const StencilBinds &bindings,
-                                      std::shared_ptr<void> &resources,
-                                      const VulkanKernelImmutablePipelines
-                                          *const pipelines) {
+rund::AccelCheck PrepareVulkanStencil(
+    const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
+    const rund::kernel::StencilPlan &plan,
+    const rund::kernel::ComputeDomain domain, const StencilBinds &bindings,
+    std::shared_ptr<void> &resources,
+    const VulkanKernelImmutablePipelines *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   auto *const adapter = CheckedVulkanAdapter(pick);
@@ -45,6 +43,11 @@ rund::AccelCheck PrepareVulkanStencil(const rund::AccelDevice &pick,
   if (!StencilShapeOk(desc, plan, bindings)) {
     SetVulkanLastError(*adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
+  }
+  if (!StencilVulkanDispatchFits(plan.element_count,
+                                 adapter->max_dispatch_groups)) {
+    SetVulkanLastError(*adapter, "compute_dispatch_overflow");
+    return rund::AccelCheck{false, "compute_dispatch_overflow"};
   }
   const StencilBufferLookup lookup = LookupStencilBuffers(pick, bindings);
   if (!StencilLookupOk(lookup)) {
@@ -63,11 +66,10 @@ rund::AccelCheck PrepareVulkanStencil(const rund::AccelDevice &pick,
       VulkanStorageBindingFor(lookup.input.device_buffer, lookup.input.ref);
   raw->output_binding =
       VulkanStorageBindingFor(lookup.output.device_buffer, lookup.output.ref);
-  raw->pipeline =
-      pipelines == nullptr
-          ? AcquireStencilPipeline(*adapter, desc, domain)
-          : pipelines->borrow(rund::kernel::NodeKind::Stencil, 1u, 0u,
-                              kStencilDescriptorCount, 1u);
+  raw->pipeline = pipelines == nullptr
+                      ? AcquireStencilPipeline(*adapter, desc, domain)
+                      : pipelines->borrow(rund::kernel::NodeKind::Stencil, 1u,
+                                          0u, kStencilDescriptorCount, 1u);
   const StencilParams params_value{plan.element_count, plan.radius};
   if (raw->input_binding.buffer == nullptr ||
       raw->output_binding.buffer == nullptr || raw->pipeline == nullptr ||

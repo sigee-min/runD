@@ -21,13 +21,6 @@ namespace node_accel_contract::vulkan {
   return rund::kernel::TilePhaseDescription{
       .phase_id = 46u,
       .tile_count = 4u,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{.scratch_bytes_per_tile =
-                                                         0u,
-                                                     .scratch_alignment = 1u,
-                                                     .output_shards = 4u,
-                                                     .queue_slots = 4u,
-                                                     .task_slots = 4u},
   };
 }
 
@@ -35,31 +28,6 @@ namespace node_accel_contract::vulkan {
   return rund::kernel::TilePhaseDescription{
       .phase_id = 47u,
       .tile_count = kStagedTileCount,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .scratch_bytes_per_tile = 0u,
-              .scratch_alignment = 1u,
-              .output_shards = kStagedTileCount,
-              .queue_slots = kStagedTileCount,
-              .task_slots = kStagedTileCount},
-  };
-}
-
-[[nodiscard]] inline rund::kernel::TilePhasePreparedCapacity Capacity() {
-  return rund::kernel::TilePhasePreparedCapacity{
-      .scratch_bytes = 0u,
-      .output_shards = 4u,
-      .queue_slots = 4u,
-      .task_slots = 4u,
-  };
-}
-
-[[nodiscard]] inline rund::kernel::TilePhasePreparedCapacity StagedCapacity() {
-  return rund::kernel::TilePhasePreparedCapacity{
-      .scratch_bytes = 0u,
-      .output_shards = kStagedTileCount,
-      .queue_slots = kStagedTileCount,
-      .task_slots = kStagedTileCount,
   };
 }
 

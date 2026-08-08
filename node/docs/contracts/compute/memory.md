@@ -965,9 +965,11 @@ manifest and frozen capacity law.
 
 Map source specialization has no heap scratch owner. Admission bounds the
 binding count by `kMaxComputeBindingCount`; specialization stores at most two
-decimal-literal edits per binding in one fixed stack array, canonicalizes that
-active span in place, counts the final recipe exactly, and allocates only the
-retained source string. A canonical Map therefore contributes zero
+decimal-literal edits plus one Metal `uchar`-to-`uint` pointee edit per binding
+in one fixed stack array, canonicalizes that active span in place, counts the
+final recipe exactly, and allocates only the retained source string. The
+pointee edit shrinks the source by one byte and therefore adds no upper-bound
+growth. A canonical Map therefore contributes zero
 source-string scratch. A recurrence miss copies only the canonical Map metadata
 needed to validate and specialize its minimal one-shot artifact; that
 separately frozen metadata envelope is its only `source_transient_bytes`
@@ -992,8 +994,13 @@ materialization, so they retain the zero-transient law above.
 Metal template-registry telemetry walks each published type-erased owner once.
 The leading template discriminator selects either the Program wrapper or the
 Map-recurrence wrapper; observation then counts the wrapper and every runD-owned
-vector by its actual capacity, including Program steps, Map window/stride/check
-plans. A recurrence wrapper retains only its immutable Program signature,
+vector by its actual capacity. The Map wrapper size includes its two fixed
+word-class masks; capacity accounting includes Program steps and Map
+window/stride/check plans. The same allocation-free word-class projection
+partitions public and private Program templates and recurrence variants, so an
+aligned/unaligned pair contributes two template reservations before either
+owner can be published. A recurrence wrapper retains only its immutable
+Program signature,
 terminal/history discriminator, and native Map owner; binding layout, source
 recipe, and history pitch identity are reconstructed by the common normalized
 plan during cold lookup and have no second retained Metal copy. Fixed primitive
@@ -1248,14 +1255,12 @@ report the exact retained capacity.
 Let `V(x) = capacity(x) * sizeof(x::value_type)` for a vector. These are logical
 retained element extents: allocator size classes, padding, and bookkeeping are
 excluded. All products and sums saturate at `uint64_t` maximum. For one live
-compact CPU Map,
-with prepared instruction vector `I`, fixed-format vector `F`, and tile-executor
-oracle `E`, the exact contribution is:
+compact CPU Map, with prepared instruction vector `I` and tile-executor oracle
+`E`, the exact contribution is:
 
 ```text
 Host(Map) = sizeof(CpuProgram)
           + V(I)
-          + V(F)
           + E.state_bytes
           + E.async_context_bytes
 
@@ -1266,35 +1271,55 @@ Tile(Map) = E.workspace_bytes
 
 `ComputeMap`, the dispatch function pointers, `PreparedRun` scalar counts and
 flags, `scratch_words`, `workers`, and `tile_size` are inline in
-`sizeof(CpuProgram)`. `V(I) + V(F)` is the complete dynamic `PreparedRun`
-extent. No binding-count-dependent vector is hidden below that owner: read and
-write counts are scalars, while each instruction carries its resolved binding
-slot or immediate. Graph identity and tile count are read from their canonical
-graph and plan owners.
+`sizeof(CpuProgram)`. `V(I)` is the complete dynamic `PreparedRun` extent.
+Each prepared instruction carries its three source fractional widths beside its
+resolved binding slot or immediate, while read and write counts are scalars.
+Thus `V(I) = capacity(I) * sizeof(PreparedInstruction)` is the complete dynamic
+plan extent. Graph identity and tile count are read from their canonical graph
+and plan owners.
 
 ### Exact CPU worker-scratch formula
 
-Let `N = I.size()`, `M = N + 1`, `L` be the selected SIMD lane count, and
-`A = sizeof(std::max_align_t)`. Before allocation, the compact runner requests:
+Let `N = I.size()`, `P <= N` be the exact commit-demand peak of the fixed,
+non-DCE stable-once then repeated execution order, `L` be the selected SIMD lane
+count, and `A = sizeof(std::max_align_t)`. Demand counts the values that must
+remain available before an instruction and adds one result slot exactly when no
+unpinned operand dies at that commit. Stable values consumed by the repeated
+suffix remain pinned. Source fractional widths are instruction-owned, so
+physical slots are format-independent, and a result commit may reuse a dying
+operand slot. Write owns no value slot. Before allocation, a Fixed runner
+requests:
 
 ```text
-Scratch_raw = M * sizeof(uint8_t)
-            + M * sizeof(ValueVec)
-            + M * L * sizeof(WideScalar)
-            + alignof(ValueVec)
-            + alignof(WideScalar)
-            + alignof(uint8_t)
+Scratch_raw = P * sizeof(uint8_t)
+            + P * sizeof(ValueVec)
+            + P * L * sizeof(WideScalar)
+            + alignof(ValueVec) - 1
 
 Scratch_words = ceil(Scratch_raw / A)
 Scratch_requested_per_worker = Scratch_words * A
 ```
 
+A non-Fixed runner has no wide-materialization consumer and requests:
+
+```text
+Scratch_raw_integer = P * sizeof(ValueVec)
+                    + alignof(ValueVec) - 1
+```
+
+`sizeof(ValueVec)` is a multiple of `alignof(WideScalar)`, so aligning the
+first plane also aligns the Fixed wide plane; the byte-validity plane needs no
+additional padding.
+
 Worker SIMD scratch uses an aligned overwrite buffer whose capacity equals the
 requested word count, so telemetry reports exactly
 `workers * Scratch_requested_per_worker`. Preparation does not value-initialize
-those bytes: every admitted SIMD instruction invalidates its destination and
-writes it before any dependent read. Instruction-plan
-construction is one `O(N)` Program-preparation operation. A physical tile
+those bytes: every admitted value-producing SIMD instruction evaluates its
+operands before committing its assigned destination. Instruction-plan lifetime
+analysis and deterministic allocation are `O(N)`. Since the allocator grows
+only when the schedule's current commit demand has no reusable slot, its `P`
+slots equal the independent commit-demand lower bound for that admitted
+schedule. This is not a dead-code-elimination optimality claim. A physical tile
 executes that prepared schedule, while each run performs an
 `O(binding_count)` fixed-view binding update. These are structural bounds, not
 a measured wall-clock claim.

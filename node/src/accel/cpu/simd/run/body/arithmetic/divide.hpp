@@ -21,7 +21,7 @@ inline void ExecuteDivSigned(const Instruction &instruction,
     }
     output[lane] = static_cast<Scalar>(left[lane] / right[lane]);
   }
-  values[instruction.value_index] = std::bit_cast<Vec>(output);
+  values.set_raw(instruction.value_index, std::bit_cast<Vec>(output));
 }
 inline void ExecuteDivUnsigned(const Instruction &instruction,
                                const PreparedRun &, const CpuSimdBindingView &,
@@ -39,5 +39,6 @@ inline void ExecuteDivUnsigned(const Instruction &instruction,
     }
     output[lane] = static_cast<BitsScalar>(left[lane] / right[lane]);
   }
-  values[instruction.value_index] = SignedBits(std::bit_cast<BitsVec>(output));
+  values.set_raw(instruction.value_index,
+                 SignedBits(std::bit_cast<BitsVec>(output)));
 }

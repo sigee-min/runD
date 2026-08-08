@@ -45,9 +45,22 @@ KindFor(const ComputeApi api) noexcept {
   return std::string_view{left} == std::string_view{right};
 }
 
+[[nodiscard]] bool
+SameResourceSummary(const ComputeResourceSummary &left,
+                    const ComputeResourceSummary &right) noexcept {
+  return left.analysis_version == right.analysis_version &&
+         left.peak_live_words == right.peak_live_words &&
+         left.direct_read_count == right.direct_read_count &&
+         left.uniform_read_count == right.uniform_read_count &&
+         left.indexed_read_count == right.indexed_read_count &&
+         left.write_count == right.write_count && left.ok == right.ok &&
+         SameReason(left.reason, right.reason);
+}
+
 [[nodiscard]] bool SameMetadata(const ExecutionMetadata &left,
                                 const ExecutionMetadata &right) noexcept {
   return SameMap(left.map, right.map) &&
+         SameResourceSummary(left.resource_summary, right.resource_summary) &&
          left.param_storage == right.param_storage &&
          left.input_element_bytes == right.input_element_bytes &&
          left.output_element_bytes == right.output_element_bytes &&

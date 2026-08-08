@@ -18,8 +18,26 @@ struct ReadRoute final {
   operator==(const ReadRoute &) const noexcept = default;
 };
 
+inline constexpr u32 kComputeResourceAnalysisVersion = 1u;
+
+// A deterministic property of admitted canonical IR. These are structural
+// 32-bit value words, not physical registers or backend occupancy evidence.
+struct ComputeResourceSummary final {
+  u32 analysis_version = 0u;
+  u32 peak_live_words = 0u;
+  u32 direct_read_count = 0u;
+  u32 uniform_read_count = 0u;
+  u32 indexed_read_count = 0u;
+  u32 write_count = 0u;
+  bool ok = false;
+  const char *reason = "compute_resource_summary_invalid";
+
+  [[nodiscard]] explicit operator bool() const noexcept { return ok; }
+};
+
 struct ExecutionMetadata {
   ComputeMap map{};
+  ComputeResourceSummary resource_summary{};
   std::vector<u8> param_storage{};
   std::vector<u64> input_element_bytes{};
   std::vector<u64> output_element_bytes{};
@@ -61,5 +79,8 @@ struct ExecutionMetadata {
 
 [[nodiscard]] ExecutionMetadata BuildExecutionMetadata(const ComputeIR &ir,
                                                        ComputeApi api);
+
+[[nodiscard]] ComputeResourceSummary
+BuildComputeResourceSummary(const ComputeIR &ir, ComputeApi api);
 
 } // namespace rund::kernel

@@ -28,15 +28,6 @@ struct VulkanMapControlPush final {
 
 static_assert(sizeof(VulkanMapControlPush) == 64u);
 
-[[nodiscard]] inline std::string VulkanMapControlSource() {
-  const auto recipe = []<typename Sink>(Sink &sink) noexcept(
-                          noexcept(sink.append(std::string_view{}))) {
-    return sink.append(VulkanMapControlSourceText());
-  };
-  return backend_source_recipe::materialize(
-      recipe, VulkanMapControlSourceText().size());
-}
-
 [[nodiscard]] inline std::pair<std::uint64_t, std::uint64_t>
 VulkanMapCheckHash(const VulkanMapTemplateResources &prepared) noexcept {
   std::uint64_t hi = prepared.plan.op_hash_hi ^ 0x6d61702e63686563ull;
@@ -167,10 +158,20 @@ VulkanMapControlArtifact(const rund::kernel::ComputePlan &plan) {
   artifact.key.domain = plan.domain;
   artifact.key.fixed_format = plan.fixed_format;
   artifact.kind = rund::kernel::LoweringArtifactKind::VulkanSource;
-  artifact.source_text = VulkanMapControlSource();
-  artifact.source_text_upper_bytes = VulkanMapControlSourceText().size();
-  artifact.ok = !artifact.source_text.empty();
-  artifact.reason = artifact.ok ? "ok" : "compute_pipeline_capacity";
+  std::uint64_t source_bytes = 0u;
+  if (!VulkanMapControlSourceBytes(source_bytes)) {
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  }
+  artifact.source_text = backend_source_recipe::materialize(
+      VulkanMapControlSourceRecipe{}, source_bytes);
+  artifact.source_text_upper_bytes = source_bytes;
+  if (artifact.source_text.empty()) {
+    artifact.reason = "compute_pipeline_capacity";
+    return artifact;
+  }
+  artifact.ok = artifact.source_text.size() == source_bytes;
+  artifact.reason = artifact.ok ? "ok" : "compute_artifact_mismatch";
   return artifact;
 }
 

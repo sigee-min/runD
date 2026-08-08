@@ -70,12 +70,6 @@ int test_compute_fixed_scalar_ops_build_deterministic_ir() {
   const rund::kernel::TilePhaseDescription phase{
       .phase_id = 93u,
       .tile_count = 4u,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .output_shards = 4u,
-              .queue_slots = 4u,
-              .task_slots = 4u,
-          },
   };
   const rund::kernel::ComputeCaps caps{
       .api = rund::kernel::ComputeApi::Metal,

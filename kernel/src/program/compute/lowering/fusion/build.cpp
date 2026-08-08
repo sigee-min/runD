@@ -4,6 +4,7 @@
 #include <kernel/program/compute/lowering/fusion/graph.hpp>
 #include <kernel/program/compute/lowering/fusion/result.hpp>
 #include <kernel/program/compute/lowering/metadata.hpp>
+#include <kernel/program/compute/lowering/resource.hpp>
 #include <kernel/program/compute/lowering/serialize.hpp>
 
 #include <algorithm>
@@ -98,22 +99,23 @@ BuildFusedBindingMap(const std::vector<FusedSource> &sources,
   return map;
 }
 
-inline void RemapFusedValueNode(
-    ParsedNode &node, const IrOp op,
-    const std::array<u32, kMaxComputeNodeCount + 1u> &node_map) {
-  if (op == IrOp::Constant) {
-    return;
+[[nodiscard]] inline bool RemapFusedValueNode(
+    ParsedNode &node,
+    const std::array<u32, kMaxComputeNodeCount + 1u> &node_map) noexcept {
+  const ParsedNodeResources resources = ParsedNodeResourcesFor(node);
+  if (!resources.ok || !resources.produces_value) {
+    return false;
   }
-  if (UnaryValueOp(op) || ConstShiftOp(op)) {
-    node.lhs = node_map[node.lhs];
-  } else if (BinaryValueOp(op)) {
-    node.lhs = node_map[node.lhs];
-    node.rhs = node_map[node.rhs];
-  } else if (TernaryValueOp(op)) {
-    node.lhs = node_map[node.lhs];
-    node.rhs = node_map[node.rhs];
-    node.aux = node_map[node.aux];
+  std::array<u32 *, 3u> operands{&node.lhs, &node.rhs, &node.aux};
+  for (u32 index = 0u; index < resources.ref_count; ++index) {
+    const u32 source = resources.refs[index];
+    if (source == 0u || source >= node_map.size() ||
+        *operands[index] != source || node_map[source] == 0u) {
+      return false;
+    }
+    *operands[index] = node_map[source];
   }
+  return true;
 }
 
 struct FusedNodeMap final {
@@ -153,8 +155,7 @@ BuildFusedNodeMap(const std::vector<FusedSource> &sources,
         }
         continue;
       }
-      if (op == IrOp::Param || op == IrOp::Read ||
-          op == IrOp::ReadUniform) {
+      if (op == IrOp::Param || op == IrOp::Read || op == IrOp::ReadUniform) {
         node.aux =
             bindings.indices[BindingMapIndex(bindings, source_index, node.aux)];
       } else if (op == IrOp::ReadAt) {
@@ -169,7 +170,9 @@ BuildFusedNodeMap(const std::vector<FusedSource> &sources,
         node.aux =
             bindings.indices[BindingMapIndex(bindings, source_index, node.aux)];
       } else {
-        RemapFusedValueNode(node, op, node_map);
+        if (!RemapFusedValueNode(node, node_map)) {
+          return out;
+        }
       }
       out.nodes.push_back(node);
       node_map[current] = static_cast<u32>(out.nodes.size());

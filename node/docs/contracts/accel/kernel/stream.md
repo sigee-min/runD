@@ -179,6 +179,42 @@ reduces the Vulkan workgroup count from `N` to `ceil(N / 256)` while preserving
 one independent invocation for every original `gid`. No padding buffer, copy,
 fallback pipeline, or alternate result order exists.
 
+Metal Map binding specialization also freezes one four-byte word-access class
+per binding. For authored offset `o` and stride `s`, the class is enabled
+exactly when
+
+```text
+o mod 4 = 0 and s mod 4 = 0.
+```
+
+Every access selects an integer logical index `k`: direct access uses
+`k = b + gid` for exact window begin `b`, uniform access uses `k = 0`, and
+indexed access uses its checked runtime index. The byte address `o + k*s`
+remains divisible by four under that predicate. Direct windows bind native
+offset `o + b*s` and add `gid*s` in the shader; the other access modes preserve
+the same general address law. Metal Map passes alignment `1` to source
+specialization, so the shader base remains zero. This satisfies Metal's
+[`device` buffer-offset rule](https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/setbuffer%28_%3Aoffset%3Aindex%3A%29),
+which requires alignment to the argument data type's size. The specialized
+kernel parameter is therefore `device uint*`,
+and overload selection performs one word load/store for a 32-bit lane or two
+ordered low/high word accesses for a 64-bit lane, replacing respectively four
+or eight scalar `uchar` accesses in the byte helper. It never requires an
+eight-byte-aligned pointer. If either congruence fails, the parameter stays
+`device uchar*` and the canonical bytewise helper preserves the arbitrary
+public View exactly. These are exact source-operation counts, not claims about
+a device's final memory-transaction count.
+
+The exact specialized source, including every pointee token, remains the
+native pipeline-cache identity. One allocation-free `(offset, stride)`
+projection owns the per-binding `Bytewise`/`Word32` class. Public Program
+template equivalence, private `BackendRun` equivalence, the Metal registry
+matcher, recurrence terminal/history equivalence, and the Pipeline
+specialization fingerprint all consume that projection. Recurrence capacity
+and template-count deduplication therefore reserve distinct immutable owners
+for aligned and unaligned routes before publication; changing only the class
+cannot select or under-reserve a typed pipeline prepared for another route.
+
 Prepared invocation resets consume the single overflow-free `Range` value and
 projection proof owned by
 [Compute Memory Ownership](../../compute/memory.md). Metal and Vulkan retain

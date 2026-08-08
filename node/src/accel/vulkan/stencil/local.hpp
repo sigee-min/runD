@@ -2,6 +2,7 @@
 
 #include "../../stencil.hpp"
 #include "../../stencil/model.hpp"
+#include "../../stencil/shape.hpp"
 #include "../adapter/api.hpp"
 #include "../barrier.hpp"
 #include "../collective/pipeline.hpp"
@@ -16,7 +17,6 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-inline constexpr rund::kernel::u32 kStencilBlockSize = 256u;
 inline constexpr std::uint32_t kStencilDescriptorCount = 3u;
 
 struct VulkanStencilEncodeResources {

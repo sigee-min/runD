@@ -344,8 +344,8 @@ int CheckRecords(const rund::compute::Backend backend) {
     const auto &cpu_map = *state->cpu_graph->maps.front();
     const auto &prepared = cpu_map.dispatch.prepared;
     if (cpu_map.map.output_buffer_count != 1u ||
-        prepared.instructions.empty() ||
-        prepared.value_formats.size() != prepared.instructions.size() + 1u ||
+        prepared.instructions.empty() || prepared.value_slot_count == 0u ||
+        prepared.value_slot_count > prepared.instructions.size() ||
         prepared.once_count > prepared.instructions.size()) {
       return 13;
     }

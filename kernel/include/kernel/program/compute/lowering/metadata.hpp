@@ -1,6 +1,7 @@
 #pragma once
 
 #include <kernel/program/compute/lowering/names.hpp>
+#include <kernel/program/compute/lowering/resource.hpp>
 #include <kernel/program/compute/metadata.hpp>
 
 #include <algorithm>
@@ -24,6 +25,12 @@ inline void AppendParamStorage(std::vector<u8> &storage,
 MetadataFromParsed(const ComputeIR &ir, const ComputeApi api,
                    const ParsedIR &parsed) {
   ExecutionMetadata metadata{};
+  metadata.resource_summary =
+      AnalyzeComputeResources(parsed, ir.scalar, ir.domain);
+  if (!metadata.resource_summary.ok) {
+    metadata.reason = metadata.resource_summary.reason;
+    return metadata;
+  }
   metadata.map = ComputeMap{
       .op_hash_hi = ir.op_hash_hi,
       .op_hash_lo = ir.op_hash_lo,

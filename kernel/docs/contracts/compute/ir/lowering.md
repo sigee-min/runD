@@ -827,12 +827,16 @@ Kernel-owned runtime contracts:
   256-lane workgroup shape and one eight-byte `{tile_count, iterations}` push
   constant. Canonical execution publishes `iterations = 1`; a semantically
   proved element-local recurrence publishes its authored positive bound. For a
-  window of `N` tiles, node emits `ceil(N / 256)` workgroups and the shader
-  rejects lanes `gid >= N` before any buffer access. Every admitted local index
-  `i < N` has the unique lane `(floor(i / 256), i mod 256)`, so physical
-  grouping cannot duplicate, omit, or reorder a map result. Kernel emits source
-  text and stable artifact identity only; node owns SPIR-V compilation, shader
-  module creation, push publication, and Vulkan/MoltenVK dispatch.
+  window of `N` tiles, the kernel shape owner computes the workgroup count as
+  the overflow-safe `N == 0 ? 0 : 1 + (N - 1) / 256`. Canonical direct dispatch
+  consumes that helper. Controlled indirect dispatch emits the same formula
+  from one node source recipe and consumes `kVulkanMapWidth` directly. The
+  shader rejects lanes
+  `gid >= N` before any buffer access. Every admitted local index `i < N` has
+  the unique lane `(floor(i / 256), i mod 256)`, so physical grouping cannot
+  duplicate, omit, or reorder a map result. Kernel emits source text and stable
+  artifact identity only; node owns SPIR-V compilation, shader module creation,
+  push publication, and Vulkan/MoltenVK dispatch.
 - Resident binding descriptors are opaque SDK-free binding facts. They carry
   buffer identity, byte extent, element bytes, stride, count, and usage so a
   backend can validate Compute-resident storage without
@@ -915,6 +919,17 @@ parse guard and returns `compute_ir_capacity`; it cannot terminate the process
 or escape as a C++ exception.
 
 Metal lowering emits stable source text for the admitted fixed IR subset.
+Every device load/store helper has a canonical byte-addressed `uchar*`
+overload and a four-byte word-addressed `uint*` overload. Canonical kernel
+arguments remain `uchar*`; this keeps arbitrary public byte offsets and strides
+executable before any physical backend is selected. The 64-bit word overload
+assembles or splits exactly two adjacent `uint` words and never declares an
+eight-byte-aligned device pointer. These are ordinary Metal Shading Language
+[function overloads](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf);
+no pointer cast or reinterpretation path is emitted. Node may select the word
+overload only by specializing an exact kernel-parameter pointee token after it
+proves the corresponding physical binding alignment. That physical selection
+is outside canonical IR, operation hash, and numeric identity.
 Vulkan lowering for supported fixed maps emits stable checked source text with
 the same identity discipline: scalar width, operation hash, canonical IR hash,
 binding layout, helper bodies, and entry point are part of the identity.
@@ -1155,6 +1170,37 @@ element is addressable for a nonempty dispatch. Indexed routes are then folded
 into that lower bound by maximum, so one deterministic `RequiredInputCount`
 owner covers mixed-use bindings without manufacturing an expanded scalar
 buffer.
+
+`ComputeResourceSummary` is the versioned structural-analysis projection of
+that same admitted `ParsedIR`. Analysis version `1` records operation-instance
+counts for direct `Read`, uniform `ReadUniform`, indexed `ReadAt`, and `Write`,
+plus an exact canonical last-use peak in 32-bit value words.
+`ParsedNodeResourcesFor(...)` is the generic canonical value-edge classifier
+consumed by IR validation, structural analysis, fusion remapping, and CPU
+scratch planning; binding ordinals, immediate fields, and write modes remain
+with their operation-specific validators. For value node
+`v`, let `d(v)` be its one-based definition ordinal and let `u(v)` be the
+greatest ordinal of an admitted value edge that consumes it, or `d(v)` when it
+has no consumer. At node ordinal `i`, the structural live set is
+
+`L_i = { v | d(v) <= i <= u(v) }`,
+
+and the recorded peak is `max_i sum_{v in L_i} words(v)`. Non-fixed Lane32 and
+Lane64 values use respectively one and two words. Fixed values use four words
+because canonical fixed lowering represents each value as the checked 128-bit
+wide pair before the explicit storage quantization boundary. A `Write` consumes
+its value but does not define another value. Repeated reads and writes are
+counted as IR operation instances, not as unique bindings or routes.
+
+This summary is deterministic compiler structure, not a measured or promised
+hardware register count, register-file allocation, cache footprint, occupancy,
+spill count, or shared-memory allocation. `BuildComputeResourceSummary(...)`
+and `BuildExecutionMetadata(...)` both enter through `AdmitComputeInput`; an
+unadmitted or unclassifiable graph returns an invalid version-zero summary and
+cannot become valid execution metadata. Public artifact admission regenerates
+and compares every summary field and its reason together with the rest of
+`ExecutionMetadata`. Adding this projection does not change `ArtifactKey`, the
+canonical IR hash, semantic graph signatures, or source identity.
 
 Read and parameter bindings always use the IR scalar width. A write binding
 normally uses that same width. The only mixed-width write admitted by policy

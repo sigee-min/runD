@@ -229,6 +229,52 @@ int test_compute_metal_lowering_emits_narrow_mask_store() {
   return 0;
 }
 
+int test_compute_metal_lowering_emits_byte_and_word_io_overloads() {
+  const auto op32 = BuildFixedLane32Op(7);
+  const auto op64 = BuildFixedLane64Op(7);
+  const auto lane32 =
+      rund::kernel::LowerComputeIR(op32.ir(), rund::kernel::ComputeApi::Metal);
+  const auto lane64 =
+      rund::kernel::LowerComputeIR(op64.ir(), rund::kernel::ComputeApi::Metal);
+
+  TEST_ASSERT(lane32.ok);
+  TEST_ASSERT(lane64.ok);
+  TEST_ASSERT(
+      lane32.source_text.find("inline int LoadI32(const device uchar* base") !=
+      std::string_view::npos);
+  TEST_ASSERT(
+      lane32.source_text.find("inline int LoadI32(const device uint* base") !=
+      std::string_view::npos);
+  TEST_ASSERT(
+      lane32.source_text.find("inline void StoreI32(device uchar* base") !=
+      std::string_view::npos);
+  TEST_ASSERT(
+      lane32.source_text.find("inline void StoreI32(device uint* base") !=
+      std::string_view::npos);
+  TEST_ASSERT(lane32.source_text.find("const device uchar* read_") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane32.source_text.find("device uchar* write_") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane32.source_text.find("uint(base[byte_offset + 3u]) << 24u") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane32.source_text.find(
+                  "base[byte_offset + 3u] = uchar((packed >> 24u)") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane64.source_text.find(
+                  "const ulong packed = ulong(base[word_offset]) |") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane64.source_text.find("base[word_offset + 1u]") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane64.source_text.find("ulong(base[byte_offset + 7u]) << 56u") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane64.source_text.find(
+                  "base[byte_offset + 7u] = uchar((packed >> 56u)") !=
+              std::string_view::npos);
+  TEST_ASSERT(lane64.source_text.find("device ulong* base") ==
+              std::string_view::npos);
+  return 0;
+}
+
 } // namespace
 
 int RunComputeBackendLoweringMetalContract() {
@@ -254,7 +300,10 @@ int RunComputeBackendLoweringMetalContract() {
   if (test_compute_metal_lowering_emits_base_only_uniform_read() != 0) {
     return 1;
   }
-  return test_compute_metal_lowering_emits_narrow_mask_store();
+  if (test_compute_metal_lowering_emits_narrow_mask_store() != 0) {
+    return 1;
+  }
+  return test_compute_metal_lowering_emits_byte_and_word_io_overloads();
 }
 
 } // namespace program_compute_contract

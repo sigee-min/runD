@@ -14,7 +14,7 @@ namespace {
                            const u64 base_tile,
                            const std::size_t live_lanes) noexcept {
   std::array<Scalar, kLaneCount> lanes{};
-  const auto &binding = bindings.reads[instruction.binding_slot];
+  const auto &binding = bindings.reads[instruction.binding_slot()];
   const auto *const read = binding.data;
   const auto stride = binding.stride;
   const unsigned char *cursor = read + ByteOffset(base_tile, stride);
@@ -28,7 +28,7 @@ namespace {
 [[nodiscard]] Vec LoadReadUniform(const Instruction &instruction,
                                   const CpuSimdBindingView &bindings) noexcept {
   Scalar value{};
-  const auto &binding = bindings.reads[instruction.binding_slot];
+  const auto &binding = bindings.reads[instruction.binding_slot()];
   std::memcpy(&value, binding.data, sizeof(value));
   return RUND_CPU_SIMD_SPLAT(value);
 }
@@ -38,7 +38,7 @@ namespace {
                              const u64 base_tile,
                              const std::size_t live_lanes) noexcept {
   std::array<Scalar, kLaneCount> lanes{};
-  const auto &source = bindings.reads[instruction.binding_slot];
+  const auto &source = bindings.reads[instruction.binding_slot()];
   const auto &indices = bindings.reads[instruction.immediate];
   for (std::size_t lane = 0u; lane < live_lanes; ++lane) {
     u32 index = 0u;
@@ -58,7 +58,7 @@ namespace {
                                       const CpuSimdBindingView &bindings,
                                       const u64 base_tile) noexcept {
   std::array<Scalar, kLaneCount> lanes;
-  const auto &binding = bindings.reads[instruction.binding_slot];
+  const auto &binding = bindings.reads[instruction.binding_slot()];
   const auto *const read = binding.data;
   const auto stride = binding.stride;
   const unsigned char *cursor = read + ByteOffset(base_tile, stride);
@@ -72,7 +72,7 @@ namespace {
 [[nodiscard]] Vec LoadReadFull(const Instruction &instruction,
                                const CpuSimdBindingView &bindings,
                                const u64 base_tile) noexcept {
-  const auto &binding = bindings.reads[instruction.binding_slot];
+  const auto &binding = bindings.reads[instruction.binding_slot()];
   const auto *const read = binding.data;
   const auto stride = binding.stride;
   Vec value{};

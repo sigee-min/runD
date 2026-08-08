@@ -26,9 +26,13 @@ struct VulkanStencilEncodeState {
     SetVulkanLastError(adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
+  if (!StencilVulkanDispatchFits(state.stencil->plan.element_count,
+                                 adapter.max_dispatch_groups)) {
+    SetVulkanLastError(adapter, "compute_dispatch_overflow");
+    return rund::AccelCheck{false, "compute_dispatch_overflow"};
+  }
   state.workgroups = static_cast<std::uint32_t>(
-      (state.stencil->plan.element_count + kStencilBlockSize - 1u) /
-      kStencilBlockSize);
+      StencilPhysicalGroupCount(state.stencil->plan.element_count));
   return rund::AccelCheck{true, "ok"};
 }
 

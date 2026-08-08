@@ -24,19 +24,35 @@ namespace {
     const MetalMapTemplateResources &prepared,
     const rund::kernel::BindingSet &bindings) noexcept {
   if (prepared.input_strides.size() != bindings.resident_inputs.count ||
-      prepared.output_strides.size() != bindings.resident_outputs.count) {
+      prepared.output_strides.size() != bindings.resident_outputs.count ||
+      prepared.input_strides.size() > 64u ||
+      prepared.output_strides.size() > 64u) {
+    return false;
+  }
+  const auto mask_fits = [](const std::uint64_t mask,
+                            const std::size_t count) noexcept {
+    return count == 64u || (mask >> count) == 0u;
+  };
+  if (!mask_fits(prepared.input_word_mask, prepared.input_strides.size()) ||
+      !mask_fits(prepared.output_word_mask, prepared.output_strides.size())) {
     return false;
   }
   for (std::size_t index = 0u; index < prepared.input_strides.size(); ++index) {
     const auto *const ref = bindings.resident_inputs.ref(index);
-    if (ref == nullptr || ref->stride_bytes != prepared.input_strides[index]) {
+    const bool word =
+        (prepared.input_word_mask & (std::uint64_t{1u} << index)) != 0u;
+    if (ref == nullptr || ref->stride_bytes != prepared.input_strides[index] ||
+        MetalMapBindingWordAligned(*ref) != word) {
       return false;
     }
   }
   for (std::size_t index = 0u; index < prepared.output_strides.size();
        ++index) {
     const auto *const ref = bindings.resident_outputs.ref(index);
-    if (ref == nullptr || ref->stride_bytes != prepared.output_strides[index]) {
+    const bool word =
+        (prepared.output_word_mask & (std::uint64_t{1u} << index)) != 0u;
+    if (ref == nullptr || ref->stride_bytes != prepared.output_strides[index] ||
+        MetalMapBindingWordAligned(*ref) != word) {
       return false;
     }
   }
@@ -149,10 +165,13 @@ bool MetalMapTemplateMatches(
   for (std::uint64_t index = 0u; index < bindings.resident_inputs.count;
        ++index) {
     const auto *const ref = bindings.resident_inputs.ref(index);
-    if (ref == nullptr) {
+    if (ref == nullptr || index >= 64u) {
       return rund::AccelCheck{false, "compute_binding_mismatch"};
     }
     raw->input_strides.push_back(ref->stride_bytes);
+    if (MetalMapBindingWordAligned(*ref)) {
+      raw->input_word_mask |= std::uint64_t{1u} << index;
+    }
   }
   raw->output_strides.reserve(
       static_cast<std::size_t>(bindings.resident_outputs.count));
@@ -162,10 +181,13 @@ bool MetalMapTemplateMatches(
   for (std::uint64_t index = 0u; index < bindings.resident_outputs.count;
        ++index) {
     const auto *const ref = bindings.resident_outputs.ref(index);
-    if (ref == nullptr) {
+    if (ref == nullptr || index >= 64u) {
       return rund::AccelCheck{false, "compute_binding_mismatch"};
     }
     raw->output_strides.push_back(ref->stride_bytes);
+    if (MetalMapBindingWordAligned(*ref)) {
+      raw->output_word_mask |= std::uint64_t{1u} << index;
+    }
   }
   const std::uint64_t check_count = MetalMapUniqueCheckCount(artifact);
   if (check_count > std::numeric_limits<std::size_t>::max()) {

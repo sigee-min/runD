@@ -110,14 +110,13 @@ int CheckCpuProgramOwnerDeltas() {
 
   const auto prepared_bytes = [](const auto &prepared) {
     return static_cast<std::uint64_t>(prepared.instructions.capacity()) *
-               sizeof(rund::node::accel::cpu_simd_detail::PreparedInstruction) +
-           static_cast<std::uint64_t>(prepared.value_formats.capacity()) *
-               sizeof(rund::kernel::ComputeFixedFormat);
+           sizeof(rund::node::accel::cpu_simd_detail::PreparedInstruction);
   };
   const auto compact_prepared = [&](const detail::CpuProgram &map) {
     const auto &prepared = map.dispatch.prepared;
     return prepared.ok && !prepared.instructions.empty() &&
-           prepared.value_formats.size() == prepared.instructions.size() + 1u &&
+           prepared.value_slot_count != 0u &&
+           prepared.value_slot_count <= prepared.instructions.size() &&
            prepared.once_count <= prepared.instructions.size() &&
            prepared.retained_dynamic_memory_bytes() == prepared_bytes(prepared);
   };
@@ -166,8 +165,7 @@ int CheckCpuProgramOwnerDeltas() {
       simple_map->map.op_hash_lo != name_map->map.op_hash_lo ||
       simple_prepared.instructions.size() !=
           name_prepared.instructions.size() ||
-      simple_prepared.value_formats.size() !=
-          name_prepared.value_formats.size() ||
+      simple_prepared.value_slot_count != name_prepared.value_slot_count ||
       simple_prepared.once_count != name_prepared.once_count ||
       simple_prepared.retained_dynamic_memory_bytes() !=
           name_prepared.retained_dynamic_memory_bytes()) {
@@ -175,7 +173,8 @@ int CheckCpuProgramOwnerDeltas() {
   }
 
   // The topology and binding counts remain equal here; only the expression IR
-  // grows. Its retained delta belongs to the prepared instruction/format owner.
+  // grows. Its retained delta belongs to the prepared instruction owner; source
+  // formats are packed into each PreparedInstruction.
   const auto &plan_prepared = plan_map->dispatch.prepared;
   if (simple_state->graph_info.nodes.size() !=
           plan_state->graph_info.nodes.size() ||
@@ -184,8 +183,6 @@ int CheckCpuProgramOwnerDeltas() {
       simple_prepared.write_count != plan_prepared.write_count ||
       plan_prepared.instructions.size() <=
           simple_prepared.instructions.size() ||
-      plan_prepared.value_formats.size() <=
-          simple_prepared.value_formats.size() ||
       plan_prepared.retained_dynamic_memory_bytes() <=
           simple_prepared.retained_dynamic_memory_bytes() ||
       plan_memory.host.current <= simple_memory.host.current) {

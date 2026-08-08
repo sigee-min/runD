@@ -1,8 +1,11 @@
 #pragma once
 
+#include "../../kernel/backend/source_recipe.hpp"
+
 #include <kernel/core/checked.hpp>
 #include <kernel/program/compute/artifact.hpp>
 #include <kernel/program/compute/backend.hpp>
+#include <kernel/program/compute/lowering/vulkan/shape.hpp>
 
 #include <cstdint>
 #include <limits>
@@ -58,9 +61,9 @@ VulkanControlledMapSourceUpperBytes(const rund::kernel::ComputePlan &plan,
   return rund::kernel::checked::add(specialized, growth, upper);
 }
 
-[[nodiscard]] inline constexpr std::string_view
-VulkanMapControlSourceText() noexcept {
-  return R"glsl(#version 450
+namespace vulkan_map_control_source_detail {
+
+inline constexpr std::string_view Prefix = R"glsl(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0, std430) readonly buffer CountSource { uint count_words[]; };
@@ -105,12 +108,32 @@ void main() {
     status[0] = overflow ? 1u : 0u;
   }
   uint base = control.row3.x * 4u;
-  args[base + 0u] = (dispatch_count + 63u) / 64u;
+  args[base + 0u] = dispatch_count == 0u
+                        ? 0u
+                        : 1u + (dispatch_count - 1u) / )glsl";
+inline constexpr std::string_view Suffix = R"glsl(u;
   args[base + 1u] = 1u;
   args[base + 2u] = 1u;
   args[base + 3u] = dispatch_count;
 }
 )glsl";
+
+} // namespace vulkan_map_control_source_detail
+
+struct VulkanMapControlSourceRecipe final {
+  template <typename Sink>
+  [[nodiscard]] bool operator()(Sink &sink) const
+      noexcept(noexcept(sink.append(std::string_view{}))) {
+    return sink.append(vulkan_map_control_source_detail::Prefix) &&
+           backend_source_recipe::append_decimal(
+               sink, rund::kernel::compute_lowering_detail::kVulkanMapWidth) &&
+           sink.append(vulkan_map_control_source_detail::Suffix);
+  }
+};
+
+[[nodiscard]] inline bool
+VulkanMapControlSourceBytes(std::uint64_t &bytes) noexcept {
+  return backend_source_recipe::bytes(VulkanMapControlSourceRecipe{}, bytes);
 }
 
 namespace vulkan_map_source_detail {

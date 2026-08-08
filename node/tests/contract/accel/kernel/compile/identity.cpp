@@ -89,13 +89,6 @@ bool IdentityIsStable(const Fixture &fixture) {
       rund::kernel::TilePhaseDescription{
           .phase_id = first.kernel_id,
           .tile_count = step.element_count,
-          .capacity =
-              rund::kernel::TilePhaseCapacityRequirement{
-                  .scratch_alignment = 1u,
-                  .output_shards = step.element_count,
-                  .queue_slots = step.element_count,
-                  .task_slots = step.element_count,
-              },
       },
       step.artifact.metadata.map, first.frozen_caps,
       rund::kernel::ComputeLimit{

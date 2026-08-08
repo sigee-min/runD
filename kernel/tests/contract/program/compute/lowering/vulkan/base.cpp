@@ -3,6 +3,8 @@
 
 #include <kernel/program/compute/lowering/vulkan/shape.hpp>
 
+#include <limits>
+
 namespace program_compute_contract {
 
 using namespace lowering_support;
@@ -53,11 +55,17 @@ int VulkanLoweringBase() {
   TEST_ASSERT(first.source_text.find("gid >= rund_dispatch.tile_count") !=
               std::string_view::npos);
   TEST_ASSERT(
+      rund::kernel::compute_lowering_detail::VulkanMapGroupsForTiles(0u) == 0u);
+  TEST_ASSERT(
       rund::kernel::compute_lowering_detail::VulkanMapGroupsForTiles(1u) == 1u);
+  TEST_ASSERT(rund::kernel::compute_lowering_detail::VulkanMapGroupsForTiles(
+                  255u) == 1u);
   TEST_ASSERT(rund::kernel::compute_lowering_detail::VulkanMapGroupsForTiles(
                   256u) == 1u);
   TEST_ASSERT(rund::kernel::compute_lowering_detail::VulkanMapGroupsForTiles(
                   257u) == 2u);
+  TEST_ASSERT(rund::kernel::compute_lowering_detail::VulkanMapGroupsForTiles(
+                  std::numeric_limits<std::uint32_t>::max()) == 16777216u);
   TEST_ASSERT(first.source_text.find("layout(set = 0, binding = 0, std430) "
                                      "readonly buffer RundParams") !=
               std::string_view::npos);
@@ -107,12 +115,10 @@ int VulkanLoweringBase() {
   TEST_ASSERT(uniform.metadata.uniform_read_mask == 0x1u);
   TEST_ASSERT(uniform.source_text.find("].op=read_uniform") !=
               std::string_view::npos);
-  TEST_ASSERT(uniform.source_text.find(
-                  "LoadI32_read_756e69666f726d("
-                  "RundBase_read_756e69666f726d)") !=
+  TEST_ASSERT(uniform.source_text.find("LoadI32_read_756e69666f726d("
+                                       "RundBase_read_756e69666f726d)") !=
               std::string_view::npos);
-  TEST_ASSERT(uniform.source_text.find(
-                  "RundBase_read_756e69666f726d + gid") ==
+  TEST_ASSERT(uniform.source_text.find("RundBase_read_756e69666f726d + gid") ==
               std::string_view::npos);
 
   const auto mask = rund::kernel::LowerComputeIR(

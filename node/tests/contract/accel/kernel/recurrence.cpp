@@ -992,6 +992,28 @@ struct Fixture final {
   if (!SameMapRecurrenceTemplate(terminal_plan, terminal_peer, false)) {
     return false;
   }
+  MapRecurrencePreparationPlan bytewise = terminal_plan;
+  bytewise.inputs[0u].offset_bytes = 1u;
+  MapRecurrencePreparationPlan bytewise_peer = bytewise;
+  bytewise_peer.inputs[0u].offset_bytes = 5u;
+  const std::array recurrence_routes{terminal_plan, bytewise, bytewise_peer};
+  std::uint64_t recurrence_template_count = 0u;
+  for (std::size_t index = 0u; index < recurrence_routes.size(); ++index) {
+    bool seen = false;
+    for (std::size_t prior = 0u; prior < index; ++prior) {
+      if (SameMapRecurrenceTemplate(recurrence_routes[index],
+                                    recurrence_routes[prior], false)) {
+        seen = true;
+        break;
+      }
+    }
+    recurrence_template_count += seen ? 0u : 1u;
+  }
+  if (SameMapRecurrenceTemplate(terminal_plan, bytewise, false) ||
+      !SameMapRecurrenceTemplate(bytewise, bytewise_peer, false) ||
+      recurrence_template_count != 2u) {
+    return false;
+  }
   terminal_peer.outputs[0u].stride_bytes += 4u;
   if (SameMapRecurrenceTemplate(terminal_plan, terminal_peer, false)) {
     return false;
@@ -1099,6 +1121,17 @@ struct Fixture final {
                left.template_native_allocation_count ==
                    right.template_native_allocation_count;
       };
+  MapRecurrencePreparationPlan bytewise_terminal = terminal_seven;
+  bytewise_terminal.inputs[0u].offset_bytes = 1u;
+  PreparedMapRecurrenceReservation bytewise_reservation{};
+  if (SameMapRecurrenceTemplate(terminal_seven, bytewise_terminal, false) ||
+      !PlanMetalPipelineRecurrence(bytewise_terminal, bytewise_reservation)
+           .ok ||
+      bytewise_reservation.template_count != 1u ||
+      terminal.template_count + bytewise_reservation.template_count != 2u ||
+      !same_template_budget(terminal, bytewise_reservation)) {
+    return false;
+  }
   if (terminal.group_count != 7u || terminal.history_group_count != 0u ||
       terminal.terminal_template_group_capacity != 7u ||
       terminal.history_template_group_capacity != 0u ||

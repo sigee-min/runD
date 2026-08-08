@@ -452,8 +452,8 @@ through 65,536 and freezes each native `allocatedSize`. Cold preparation owns
 one globally ordered guarded stream split into 65,536-command full chunks and
 the smallest power-of-two tail chunk. Pipeline-private kernels reserve Buffer
 index 30, unowned controls bind zero, recurrence-owned payloads bind the
-device-private owner stop word, and formerly indirect primitives use checked
-maximum grids with their resident logical guards. A warm attempt creates the
+device-private owner stop word, and private primitives use checked maximum
+grids with their resident logical guards. A warm attempt creates the
 required outer command buffer, declares the frozen resource array with one bulk
 call, walks only `ceil(D / 65,536)` compact 16-byte chunk records, executes
 their ranges, and commits once. It visits no frozen command, binding,

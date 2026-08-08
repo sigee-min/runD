@@ -165,14 +165,14 @@ CPU SIMD admission validates caps and delegates the one canonical parse and
 under `cpu/simd/prepare/` validate lane caps and bindings, build a temporary
 binding plan, and lower it into one compact `PreparedRun`. The
 temporary parse and binding plan die when preparation returns. The retained
-owner contains only ordered `PreparedInstruction` records, one fixed format per
-SSA value, the once-prefix size, read/write counts, domain, strategy, and the
-index-use flag. Each instruction freezes its node, value index, binding slot or
-immediate, element width, and bounded one-byte full/tail executor selectors. It
-does not retain a raw function pointer, an execution-mode mirror, canonical
-bytes, parsed names/bindings/nodes, metadata, or a textual CPU artifact. Field
-ordering keeps the complete instruction record at exactly 56 bytes on the
-supported 64-bit ABI; a compile-time assertion owns that retained-memory bound.
+owner contains only ordered `PreparedInstruction` records, the once-prefix
+size, read/write counts, domain, strategy, and the index-use flag. Each
+instruction freezes its node, value index, immediate, element width, and
+bounded one-byte full/tail executor selectors. One 64-bit field packs the
+bounded binding slot in its low 32 bits and the three source fractional widths
+in its next three bytes. Field ordering therefore keeps the complete
+instruction record at exactly 56 bytes on the supported 64-bit ABI;
+compile-time layout and round-trip assertions own that retained-memory bound.
 
 The internal Compute Program calls
 `PrepareCpuSimdDispatch(ir, caps, bindings)`. That route performs one admission
@@ -209,36 +209,71 @@ arithmetic, predicates, bitwise and fixed-point math, the fixed opcode executor
 table, and tile traversal. The wrappers provide scalar width, vector carrier,
 constant decoding, and direct math bindings through `32/config.hpp` and
 `64/config.hpp`; shared cleanup in `run/clear.hpp` keeps the two widths under
-one traversal law. Stable `Param`, `Constant`, and pure dependent instructions
-occupy the prepared prefix and execute once. Read-, Index-, Quantize-, and
-Write-dependent instructions occupy the loop suffix. A `CpuSimdBindingView` is
-bound once per Map run, so tile callbacks change only `begin` and `count`; they
-do not rebuild or copy an instruction plan.
+one traversal law. Stable `Param`, `Constant`, `ReadUniform`, and pure dependent
+instructions, including pure `Quantize` and constant shifts, occupy the
+prepared prefix and execute once. `Read`, `ReadAt`, `Index`, `Write`, and their
+dependents occupy the loop suffix. A `CpuSimdBindingView` is bound once per Map
+run, so tile callbacks change only `begin` and `count`; they do not rebuild or
+copy an instruction plan.
 
 Read and write admission proves final addressability before preparation. Full
 contiguous and full strided reads use their specialized loaders, tails zero-pad
 only inactive lanes, and writes store only live lanes. This specialization is
 based on frozen IR and stride evidence, never workload-size timing. Strategy
 selection is a fixed `ComputeScalar -> RunFixed*` table before traversal;
-preparation maps the 61 canonical opcodes plus the three specialized full-chunk
-read/write paths into one bounded 64-entry executor table. The tile loop performs
-one direct table lookup from the frozen selector. It does not switch on binding
-mode or rebuild function dispatch per vector chunk. Tail selectors always name
-the canonical opcode path, so zero-padding and live-lane stores remain the sole
-tail law.
+preparation maps every admitted value in `[0, IrOp::ReadUniform]` plus the three
+specialized full-chunk read/write paths into one bounded executor table.
+Compile-time assertions bind its exact extent to
+`IrOp::ReadUniform + 1 + 3`. The tile loop performs one direct table lookup from
+the frozen selector. It does not switch on binding mode or rebuild function
+dispatch per vector chunk. Tail selectors always name the canonical opcode
+path, so zero-padding and live-lane stores remain the sole tail law.
 
-For `N` instructions, `M = N + 1` values, and `L` SIMD lanes, the raw scratch
-request is exactly
-`M*sizeof(uint8_t) + M*sizeof(ValueVec) + M*L*sizeof(WideScalar) +
-alignof(ValueVec) + alignof(WideScalar) + alignof(uint8_t)`. The allocation is
-rounded up to `sizeof(std::max_align_t)` words. Execution preflights this
-declared byte requirement before laying out typed regions, so the exact rounded
-allocation succeeds and an allocation one `std::max_align_t` word shorter
-rejects as `cpu_simd_scratch_invalid` before any output write. Instruction
-arrays and plan-stability flags are compile-owned, not worker scratch.
-Preparation is `O(N)` once per compiled program; each tile reuses that frozen
-plan. This is an algorithmic bound; wall-clock claims still require
-measurement.
+Preparation walks the stable-once prefix followed by the per-vector suffix,
+computes every value's final use in that actual execution order, and assigns
+one reusable physical scratch slot. `ParsedNodeResourcesFor` is the only value
+edge classifier: `ReadAt` binding ordinals, write modes, and constant-shift
+immediates are never SSA references. A pure Quantize or constant shift is in
+the stable prefix when its real operands are stable. A stable value referenced
+by the repeated suffix is pinned through the whole run; dynamic values have no
+loop-carried edge.
+
+Each prepared instruction freezes the three source fractional widths before
+SSA identities are remapped, so physical slots are independent of fixed
+format. An executor first evaluates all operands, then commits through
+`set_raw` or `set_wide`. A result may therefore reuse one unpinned operand slot
+whose final use is that instruction, including across format boundaries;
+duplicate operands are retired once. Write has no destination slot.
+
+For the fixed admitted instruction schedule, before any dead-code elimination,
+let `P` be its commit-demand peak. Immediately before instruction `i`, demand is
+the number of values whose contents must remain available, plus one exactly
+when `i` produces a value and no unpinned operand dies at `i`. A dying operand
+may carry the completed result because every executor evaluates operands before
+commit; otherwise the commit requires a free slot. The deterministic allocator
+chooses that dying operand, then a free slot, and grows only when neither
+exists. It therefore uses exactly `P <= N` slots, and fewer slots cannot execute
+that same non-DCE schedule without overwriting a still-required value or its
+current result commit. This does not claim that the admitted schedule itself is
+globally minimal under dead-code elimination.
+
+For `L` SIMD lanes, Fixed execution requests exactly
+`P*sizeof(uint8_t) + P*sizeof(ValueVec) + P*L*sizeof(WideScalar) +
+alignof(ValueVec) - 1`. `ValueVec` size is a multiple of `WideScalar`
+alignment, so the first aligned plane also aligns every following plane.
+Non-Fixed
+execution has neither a 128-bit materialization plane nor its validity plane
+and requests exactly `P*sizeof(ValueVec) + alignof(ValueVec) - 1`. The
+allocation is rounded up to
+`sizeof(std::max_align_t)` words. Execution preflights the declared byte
+requirement before laying out typed regions, so the exact rounded allocation
+succeeds and an allocation one word shorter rejects as
+`cpu_simd_scratch_invalid` before any output write. Instruction arrays and
+plan-stability state are compile-owned, not worker scratch. Every stable-prefix
+executor is a commit barrier: its first failure terminates the prefix before a
+later executor can observe or publish an uncommitted result. Preparation is
+`O(N)` and each tile reuses the frozen plan. These are algorithmic and storage
+bounds; wall-clock claims still require measurement.
 
 ## CPU Backend Admission
 

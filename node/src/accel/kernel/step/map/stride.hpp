@@ -23,9 +23,11 @@ namespace rund::node::accel::detail {
 
 // The canonical Map emitter freezes its own exact-IR source upper. Binding
 // specialization can replace one base and one stride decimal literal per
-// binding. A U64 replacement can grow a one-digit canonical literal by at
-// most 19 bytes; this allocation-free owner is shared by public planning and
-// the runtime mutator below.
+// binding. Metal may additionally shrink one kernel-parameter pointee token
+// from uchar to uint when the complete binding is four-byte aligned. A U64
+// decimal replacement can grow a one-digit canonical literal by at most 19
+// bytes; this allocation-free owner is shared by public planning and the
+// runtime mutator below.
 [[nodiscard]] inline bool MapSpecializedSourceUpperBytes(
     const std::uint64_t source_bytes, const std::uint64_t source_upper_bytes,
     const rund::kernel::ComputePlan &plan, std::uint64_t &upper) noexcept {
@@ -51,7 +53,29 @@ MapSpecializedSourceUpperBytes(const rund::kernel::LoweringArtifact &source,
 }
 
 inline constexpr std::size_t MapSpecializationEditCapacity =
-    2u * static_cast<std::size_t>(rund::kernel::kMaxComputeBindingCount);
+    3u * static_cast<std::size_t>(rund::kernel::kMaxComputeBindingCount);
+
+inline constexpr std::uint64_t MetalMapWordBytes = sizeof(std::uint32_t);
+
+enum class MetalMapWordClass : std::uint8_t {
+  Bytewise,
+  Word32,
+};
+
+[[nodiscard]] inline constexpr MetalMapWordClass
+MetalMapBindingWordClass(const std::uint64_t offset_bytes,
+                         const std::uint64_t stride_bytes) noexcept {
+  return offset_bytes % MetalMapWordBytes == 0u &&
+                 stride_bytes % MetalMapWordBytes == 0u
+             ? MetalMapWordClass::Word32
+             : MetalMapWordClass::Bytewise;
+}
+
+[[nodiscard]] inline constexpr bool MetalMapBindingWordAligned(
+    const rund::kernel::ResidentBufferRef &ref) noexcept {
+  return MetalMapBindingWordClass(ref.offset_bytes, ref.stride_bytes) ==
+         MetalMapWordClass::Word32;
+}
 
 struct MapSourceEdit final {
   std::size_t begin{};
@@ -162,6 +186,73 @@ ConsumeMapSafeIdentifier(const std::string_view source, std::size_t &cursor,
   return true;
 }
 
+[[nodiscard]] inline bool
+FindMetalMapPointeeToken(const std::string_view source, const bool is_read,
+                         const std::string_view binding_name,
+                         const std::uint64_t binding_buffer, std::size_t &begin,
+                         std::size_t &end) noexcept {
+  const std::string_view qualifier = is_read
+                                         ? std::string_view{"    const device "}
+                                         : std::string_view{"    device "};
+  const std::string_view access =
+      is_read ? std::string_view{"read_"} : std::string_view{"write_"};
+  begin = std::string_view::npos;
+  end = std::string_view::npos;
+  std::array<char, 20u> binding_buffer_storage{};
+  const std::string_view binding_buffer_text =
+      backend_source_recipe::decimal_characters(binding_buffer,
+                                                binding_buffer_storage);
+  if (binding_buffer_text.empty()) {
+    return false;
+  }
+  std::size_t search = 0u;
+  while (search < source.size()) {
+    const std::size_t at = source.find(qualifier, search);
+    if (at == std::string_view::npos) {
+      break;
+    }
+    std::size_t cursor = at;
+    const bool prefix = ConsumeMapSourceFragment(source, cursor, qualifier);
+    const std::size_t token_begin = cursor;
+    if ((at == 0u || source[at - 1u] == '\n') && prefix &&
+        ConsumeMapSourceFragment(source, cursor, "uchar* ") &&
+        ConsumeMapSourceFragment(source, cursor, access) &&
+        ConsumeMapSafeIdentifier(source, cursor, binding_name) &&
+        ConsumeMapSourceFragment(source, cursor, " [[buffer(") &&
+        ConsumeMapSourceFragment(source, cursor, binding_buffer_text) &&
+        ConsumeMapSourceFragment(source, cursor, ")]],\n")) {
+      if (begin != std::string_view::npos) {
+        return false;
+      }
+      begin = token_begin;
+      end = token_begin + std::string_view{"uchar"}.size();
+    }
+    search = at + 1u;
+  }
+  return begin != std::string_view::npos;
+}
+
+[[nodiscard]] inline bool
+PlanMetalMapWordPointee(const std::span<MapSourceEdit> edits,
+                        std::size_t &edit_count, const std::string_view source,
+                        const bool is_read, const std::string_view binding_name,
+                        const std::uint64_t binding_buffer) noexcept {
+  if (edit_count == edits.size()) {
+    return false;
+  }
+  MapSourceEdit candidate{};
+  if (!FindMetalMapPointeeToken(source, is_read, binding_name, binding_buffer,
+                                candidate.begin, candidate.end)) {
+    return false;
+  }
+  constexpr std::string_view replacement = "uint";
+  std::copy(replacement.begin(), replacement.end(),
+            candidate.replacement.begin());
+  candidate.replacement_size = static_cast<std::uint8_t>(replacement.size());
+  edits[edit_count++] = candidate;
+  return true;
+}
+
 struct MapSourceSpecialization final {
   std::array<MapSourceEdit, MapSpecializationEditCapacity> edits{};
   std::size_t edit_count{};
@@ -245,11 +336,21 @@ PlanMapSourceSpecialization(const rund::kernel::LoweringArtifact &source,
     const std::uint64_t element_bytes =
         is_read ? metadata.input_element_bytes[read]
                 : metadata.output_element_bytes[write];
+    const std::uint64_t binding_buffer =
+        is_read ? read + 1u : plan.input_buffer_count + write + 1u;
     read += is_read ? 1u : 0u;
     write += is_write ? 1u : 0u;
     if (ref == nullptr || ref->element_bytes != element_bytes ||
         ref->stride_bytes < element_bytes) {
       result.reason = "compute_resident_stride_invalid";
+      return result;
+    }
+    if (source.key.api == rund::kernel::ComputeApi::Metal &&
+        MetalMapBindingWordAligned(*ref) &&
+        !PlanMetalMapWordPointee(std::span<MapSourceEdit>{result.edits},
+                                 result.edit_count, source.source_text, is_read,
+                                 metadata.binding_names[index],
+                                 binding_buffer)) {
       return result;
     }
     const std::string_view qualifier =

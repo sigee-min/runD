@@ -17,10 +17,9 @@ inline void EncodeMetalStencilDispatch(const MetalStencilCommandState &state,
          offset:static_cast<NSUInteger>(state.stencil->output.ref.offset_bytes)
         atIndex:1u];
   [state.encoder setBytes:&params length:sizeof(params) atIndex:2u];
-  [state.encoder dispatchThreads:MTLSizeMake(static_cast<NSUInteger>(
-                                                 params.element_count),
-                                             1u, 1u)
-           threadsPerThreadgroup:MTLSizeMake(kStencilThreadgroupSize, 1u, 1u)];
+  [state.encoder
+       dispatchThreadgroups:MTLSizeMake(state.workgroups, 1u, 1u)
+      threadsPerThreadgroup:MTLSizeMake(kStencilPhysicalGroupWidth, 1u, 1u)];
 }
 #endif
 

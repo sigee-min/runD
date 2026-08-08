@@ -14,12 +14,6 @@ ComputePhase() noexcept {
   return rund::kernel::TilePhaseDescription{
       .phase_id = 91u,
       .tile_count = 10u,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .output_shards = 10u,
-              .queue_slots = 10u,
-              .task_slots = 4u,
-          },
   };
 }
 

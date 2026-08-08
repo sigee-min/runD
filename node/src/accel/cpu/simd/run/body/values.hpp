@@ -19,25 +19,34 @@ public:
   explicit Values(ValueVec *const data, WideScalar *const wide,
                   std::uint8_t *const wide_valid) noexcept
       : data_(data), wide_(wide), wide_valid_(wide_valid) {}
-  [[nodiscard]] ValueVec &operator[](const std::size_t index) noexcept {
-    return data_[index];
-  }
-
   [[nodiscard]] const ValueVec &
   operator[](const std::size_t index) const noexcept {
     return data_[index];
   }
 
-  void invalidate(const std::size_t index) noexcept { wide_valid_[index] = 0u; }
+  void set_raw(const std::size_t index, const ValueVec value) noexcept {
+    data_[index] = value;
+    if (wide_valid_ != nullptr) {
+      wide_valid_[index] = 0u;
+    }
+  }
 
   [[nodiscard]] WideScalar wide(const std::size_t index,
                                 const std::size_t lane) noexcept {
+    if (wide_ == nullptr || wide_valid_ == nullptr) {
+      fail("cpu_simd_wide_scratch_invalid");
+      return 0;
+    }
     materialize(index);
     return wide_[index * kValueLaneCount + lane];
   }
 
   void set_wide(const std::size_t index,
                 const std::array<WideScalar, kValueLaneCount> &lanes) noexcept {
+    if (wide_ == nullptr || wide_valid_ == nullptr) {
+      fail("cpu_simd_wide_scratch_invalid");
+      return;
+    }
     std::array<StoredScalar, kValueLaneCount> stored{};
     for (std::size_t lane = 0u; lane < kValueLaneCount; ++lane) {
       wide_[index * kValueLaneCount + lane] = lanes[lane];

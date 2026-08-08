@@ -2,6 +2,7 @@
 
 #include <accel/check.hpp>
 
+#include "../../../stencil/shape.hpp"
 #include "state.hpp"
 
 namespace rund::node::accel::detail {
@@ -15,6 +16,11 @@ namespace rund::node::accel::detail {
     SetMetalLastError(adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
+  if (!StencilPhysicalGroupsFit(state.stencil->plan.element_count,
+                                std::numeric_limits<std::uint32_t>::max())) {
+    SetMetalLastError(adapter, "compute_dispatch_overflow");
+    return rund::AccelCheck{false, "compute_dispatch_overflow"};
+  }
   state.encoder = (__bridge id<MTLComputeCommandEncoder>)command_encoder;
   state.pipeline =
       (__bridge id<MTLComputePipelineState>)state.stencil->pipeline.get();
@@ -27,6 +33,8 @@ namespace rund::node::accel::detail {
     SetMetalLastError(adapter, "accel_metal_command_unavailable");
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
+  state.workgroups = static_cast<std::uint32_t>(
+      StencilPhysicalGroupCount(state.stencil->plan.element_count));
   return rund::AccelCheck{true, "ok"};
 }
 #endif

@@ -7,11 +7,11 @@
 
 #include "../../stencil/shape.hpp"
 #include "../command/run.hpp"
+#include "../pipeline/template.hpp"
 #include "encode/dispatch.hpp"
 #include "local.hpp"
 #include "pipeline/store.hpp"
 #include "resources/pipeline.hpp"
-#include "../pipeline/template.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -51,14 +51,12 @@ bool CompileMetalStencilPipeline(MetalAdapter &adapter,
 #endif
 }
 
-rund::AccelCheck PrepareMetalStencil(const rund::AccelDevice &pick,
-                                     const rund::kernel::StencilDesc &desc,
-                                     const rund::kernel::StencilPlan &plan,
-                                     const rund::kernel::ComputeDomain domain,
-                                     const StencilBinds &bindings,
-                                     std::shared_ptr<void> &resources,
-                                     const MetalKernelImmutablePipelines *const
-                                         pipelines) {
+rund::AccelCheck PrepareMetalStencil(
+    const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
+    const rund::kernel::StencilPlan &plan,
+    const rund::kernel::ComputeDomain domain, const StencilBinds &bindings,
+    std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -72,6 +70,11 @@ rund::AccelCheck PrepareMetalStencil(const rund::AccelDevice &pick,
   if (!StencilShapeOk(desc, plan, bindings)) {
     SetMetalLastError(*adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
+  }
+  if (!StencilPhysicalGroupsFit(plan.element_count,
+                                std::numeric_limits<std::uint32_t>::max())) {
+    SetMetalLastError(*adapter, "compute_dispatch_overflow");
+    return rund::AccelCheck{false, "compute_dispatch_overflow"};
   }
 
   auto *const raw = new MetalStencilEncodeResources{};

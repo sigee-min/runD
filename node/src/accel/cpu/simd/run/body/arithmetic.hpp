@@ -90,19 +90,22 @@ inline void ExecuteAdd(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = RUND_CPU_SIMD_ADD_WRAP(
-        values[instruction.node.lhs], values[instruction.node.rhs]);
+    values.set_raw(instruction.value_index,
+                   RUND_CPU_SIMD_ADD_WRAP(values[instruction.node.lhs],
+                                          values[instruction.node.rhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
-  const auto lhs_format = ValueFormat(prepared, instruction.node.lhs);
-  const auto rhs_format = ValueFormat(prepared, instruction.node.rhs);
+  const unsigned lhs_fraction =
+      ValueFractionBits(instruction, instruction.node.lhs);
+  const unsigned rhs_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
     const auto lhs = AlignWideFraction(values.wide(instruction.node.lhs, lane),
-                                       lhs_format.fraction_bits, fraction);
+                                       lhs_fraction, fraction);
     const auto rhs = AlignWideFraction(values.wide(instruction.node.rhs, lane),
-                                       rhs_format.fraction_bits, fraction);
+                                       rhs_fraction, fraction);
     result[lane] = lhs + rhs;
   }
   values.set_wide(instruction.value_index, result);
@@ -112,19 +115,22 @@ inline void ExecuteSub(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = RUND_CPU_SIMD_SUB_WRAP(
-        values[instruction.node.lhs], values[instruction.node.rhs]);
+    values.set_raw(instruction.value_index,
+                   RUND_CPU_SIMD_SUB_WRAP(values[instruction.node.lhs],
+                                          values[instruction.node.rhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
-  const auto lhs_format = ValueFormat(prepared, instruction.node.lhs);
-  const auto rhs_format = ValueFormat(prepared, instruction.node.rhs);
+  const unsigned lhs_fraction =
+      ValueFractionBits(instruction, instruction.node.lhs);
+  const unsigned rhs_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
     const auto lhs = AlignWideFraction(values.wide(instruction.node.lhs, lane),
-                                       lhs_format.fraction_bits, fraction);
+                                       lhs_fraction, fraction);
     const auto rhs = AlignWideFraction(values.wide(instruction.node.rhs, lane),
-                                       rhs_format.fraction_bits, fraction);
+                                       rhs_fraction, fraction);
     result[lane] = lhs - rhs;
   }
   values.set_wide(instruction.value_index, result);
@@ -134,8 +140,9 @@ inline void ExecuteMul(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = RUND_CPU_SIMD_MUL_LOW(
-        values[instruction.node.lhs], values[instruction.node.rhs]);
+    values.set_raw(instruction.value_index,
+                   RUND_CPU_SIMD_MUL_LOW(values[instruction.node.lhs],
+                                         values[instruction.node.rhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
@@ -149,17 +156,18 @@ inline void ExecuteMul(const Instruction &instruction,
 inline void ExecuteMulWrap(const Instruction &instruction, const PreparedRun &,
                            const CpuSimdBindingView &, u64, std::size_t,
                            Values &values) noexcept {
-  values[instruction.value_index] = RUND_CPU_SIMD_MUL_LOW(
-      values[instruction.node.lhs], values[instruction.node.rhs]);
-  values.invalidate(instruction.value_index);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_MUL_LOW(values[instruction.node.lhs],
+                                       values[instruction.node.rhs]));
 }
 
-inline void ExecuteQuantize(const Instruction &instruction,
-                            const PreparedRun &prepared,
+inline void ExecuteQuantize(const Instruction &instruction, const PreparedRun &,
                             const CpuSimdBindingView &, u64, std::size_t,
                             Values &values) noexcept {
   std::array<WideScalar, kLaneCount> result{};
-  const auto source = ValueFormat(prepared, instruction.node.lhs);
+  const rund::kernel::ComputeFixedFormat source{
+      .fraction_bits = ValueFractionBits(instruction, instruction.node.lhs),
+  };
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
     result[lane] = QuantizeWide(values.wide(instruction.node.lhs, lane), source,
                                 instruction.node.fixed_format);
@@ -173,19 +181,22 @@ inline void ExecuteMin(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = ValueMin(
-        prepared, values[instruction.node.lhs], values[instruction.node.rhs]);
+    values.set_raw(instruction.value_index,
+                   ValueMin(prepared, values[instruction.node.lhs],
+                            values[instruction.node.rhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
-  const auto lhs_format = ValueFormat(prepared, instruction.node.lhs);
-  const auto rhs_format = ValueFormat(prepared, instruction.node.rhs);
+  const unsigned lhs_fraction =
+      ValueFractionBits(instruction, instruction.node.lhs);
+  const unsigned rhs_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
     const auto lhs = AlignWideFraction(values.wide(instruction.node.lhs, lane),
-                                       lhs_format.fraction_bits, fraction);
+                                       lhs_fraction, fraction);
     const auto rhs = AlignWideFraction(values.wide(instruction.node.rhs, lane),
-                                       rhs_format.fraction_bits, fraction);
+                                       rhs_fraction, fraction);
     result[lane] = lhs < rhs ? lhs : rhs;
   }
   values.set_wide(instruction.value_index, result);
@@ -195,19 +206,22 @@ inline void ExecuteMax(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = ValueMax(
-        prepared, values[instruction.node.lhs], values[instruction.node.rhs]);
+    values.set_raw(instruction.value_index,
+                   ValueMax(prepared, values[instruction.node.lhs],
+                            values[instruction.node.rhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
-  const auto lhs_format = ValueFormat(prepared, instruction.node.lhs);
-  const auto rhs_format = ValueFormat(prepared, instruction.node.rhs);
+  const unsigned lhs_fraction =
+      ValueFractionBits(instruction, instruction.node.lhs);
+  const unsigned rhs_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
     const auto lhs = AlignWideFraction(values.wide(instruction.node.lhs, lane),
-                                       lhs_format.fraction_bits, fraction);
+                                       lhs_fraction, fraction);
     const auto rhs = AlignWideFraction(values.wide(instruction.node.rhs, lane),
-                                       rhs_format.fraction_bits, fraction);
+                                       rhs_fraction, fraction);
     result[lane] = lhs > rhs ? lhs : rhs;
   }
   values.set_wide(instruction.value_index, result);
@@ -218,8 +232,9 @@ inline void ExecuteMinUnsigned(const Instruction &instruction,
                                u64, std::size_t, Values &values) noexcept {
   const Vec lhs = values[instruction.node.lhs];
   const Vec rhs = values[instruction.node.rhs];
-  values[instruction.value_index] =
-      RUND_CPU_SIMD_VALUE_SELECT(RUND_CPU_SIMD_LT_UNSIGNED(lhs, rhs), lhs, rhs);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_VALUE_SELECT(RUND_CPU_SIMD_LT_UNSIGNED(lhs, rhs),
+                                            lhs, rhs));
 }
 
 inline void ExecuteMaxUnsigned(const Instruction &instruction,
@@ -227,8 +242,9 @@ inline void ExecuteMaxUnsigned(const Instruction &instruction,
                                u64, std::size_t, Values &values) noexcept {
   const Vec lhs = values[instruction.node.lhs];
   const Vec rhs = values[instruction.node.rhs];
-  values[instruction.value_index] =
-      RUND_CPU_SIMD_VALUE_SELECT(RUND_CPU_SIMD_GT_UNSIGNED(lhs, rhs), lhs, rhs);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_VALUE_SELECT(RUND_CPU_SIMD_GT_UNSIGNED(lhs, rhs),
+                                            lhs, rhs));
 }
 
 inline void ExecuteClamp(const Instruction &instruction,
@@ -238,23 +254,25 @@ inline void ExecuteClamp(const Instruction &instruction,
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
     const Vec lower = ValueMax(prepared, values[instruction.node.lhs],
                                values[instruction.node.rhs]);
-    values[instruction.value_index] =
-        ValueMin(prepared, lower, values[instruction.node.aux]);
+    values.set_raw(instruction.value_index,
+                   ValueMin(prepared, lower, values[instruction.node.aux]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
-  const auto lhs_format = ValueFormat(prepared, instruction.node.lhs);
-  const auto rhs_format = ValueFormat(prepared, instruction.node.rhs);
-  const auto aux_format = ValueFormat(prepared, instruction.node.aux);
+  const unsigned lhs_fraction =
+      ValueFractionBits(instruction, instruction.node.lhs);
+  const unsigned rhs_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
+  const unsigned aux_fraction =
+      ValueFractionBits(instruction, instruction.node.aux);
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
-    const auto value =
-        AlignWideFraction(values.wide(instruction.node.lhs, lane),
-                          lhs_format.fraction_bits, fraction);
+    const auto value = AlignWideFraction(
+        values.wide(instruction.node.lhs, lane), lhs_fraction, fraction);
     const auto low = AlignWideFraction(values.wide(instruction.node.rhs, lane),
-                                       rhs_format.fraction_bits, fraction);
+                                       rhs_fraction, fraction);
     const auto high = AlignWideFraction(values.wide(instruction.node.aux, lane),
-                                        aux_format.fraction_bits, fraction);
+                                        aux_fraction, fraction);
     result[lane] = value < low ? low : value > high ? high : value;
   }
   values.set_wide(instruction.value_index, result);
@@ -269,8 +287,9 @@ inline void ExecuteClampUnsigned(const Instruction &instruction,
   const Vec high = values[instruction.node.aux];
   const Vec lower = RUND_CPU_SIMD_VALUE_SELECT(
       RUND_CPU_SIMD_GT_UNSIGNED(value, low), value, low);
-  values[instruction.value_index] = RUND_CPU_SIMD_VALUE_SELECT(
-      RUND_CPU_SIMD_LT_UNSIGNED(lower, high), lower, high);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_VALUE_SELECT(
+                     RUND_CPU_SIMD_LT_UNSIGNED(lower, high), lower, high));
 }
 
 inline void ExecuteSelect(const Instruction &instruction,
@@ -278,22 +297,24 @@ inline void ExecuteSelect(const Instruction &instruction,
                           const CpuSimdBindingView &, u64, std::size_t,
                           Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = RUND_CPU_SIMD_VALUE_SELECT(
-        Truthy(values[instruction.node.lhs]), values[instruction.node.rhs],
-        values[instruction.node.aux]);
+    values.set_raw(
+        instruction.value_index,
+        RUND_CPU_SIMD_VALUE_SELECT(Truthy(values[instruction.node.lhs]),
+                                   values[instruction.node.rhs],
+                                   values[instruction.node.aux]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
-  const auto true_format = ValueFormat(prepared, instruction.node.rhs);
-  const auto false_format = ValueFormat(prepared, instruction.node.aux);
+  const unsigned true_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
+  const unsigned false_fraction =
+      ValueFractionBits(instruction, instruction.node.aux);
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
-    const auto when_true =
-        AlignWideFraction(values.wide(instruction.node.rhs, lane),
-                          true_format.fraction_bits, fraction);
-    const auto when_false =
-        AlignWideFraction(values.wide(instruction.node.aux, lane),
-                          false_format.fraction_bits, fraction);
+    const auto when_true = AlignWideFraction(
+        values.wide(instruction.node.rhs, lane), true_fraction, fraction);
+    const auto when_false = AlignWideFraction(
+        values.wide(instruction.node.aux, lane), false_fraction, fraction);
     result[lane] =
         values.wide(instruction.node.lhs, lane) != 0 ? when_true : when_false;
   }
@@ -304,8 +325,9 @@ inline void ExecuteNeg(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] = RUND_CPU_SIMD_SUB_WRAP(
-        RUND_CPU_SIMD_SPLAT(0), values[instruction.node.lhs]);
+    values.set_raw(instruction.value_index,
+                   RUND_CPU_SIMD_SUB_WRAP(RUND_CPU_SIMD_SPLAT(0),
+                                          values[instruction.node.lhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
@@ -319,8 +341,8 @@ inline void ExecuteAbs(const Instruction &instruction,
                        const PreparedRun &prepared, const CpuSimdBindingView &,
                        u64, std::size_t, Values &values) noexcept {
   if (prepared.domain != rund::kernel::ComputeDomain::Fixed) {
-    values[instruction.value_index] =
-        RUND_CPU_SIMD_ABS(values[instruction.node.lhs]);
+    values.set_raw(instruction.value_index,
+                   RUND_CPU_SIMD_ABS(values[instruction.node.lhs]));
     return;
   }
   std::array<WideScalar, kLaneCount> result{};
@@ -344,8 +366,9 @@ inline void ExecuteAbsMagnitude(const Instruction &instruction,
     values.set_wide(instruction.value_index, result);
     return;
   }
-  values[instruction.value_index] =
-      SignedBits(RUND_CPU_SIMD_ABS_MAGNITUDE(values[instruction.node.lhs]));
+  values.set_raw(
+      instruction.value_index,
+      SignedBits(RUND_CPU_SIMD_ABS_MAGNITUDE(values[instruction.node.lhs])));
 }
 
 inline void ExecuteSign(const Instruction &instruction,
@@ -362,8 +385,8 @@ inline void ExecuteSign(const Instruction &instruction,
     values.set_wide(instruction.value_index, result);
     return;
   }
-  values[instruction.value_index] =
-      RUND_CPU_SIMD_SIGN(values[instruction.node.lhs]);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_SIGN(values[instruction.node.lhs]));
 }
 
 } // namespace

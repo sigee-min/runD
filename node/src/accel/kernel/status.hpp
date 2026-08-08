@@ -119,18 +119,6 @@ struct PreparedPipelineBackendEvidence final {
   bool control_observed{};
 };
 
-struct PreparedPipelineFailureKey final {
-  std::uint32_t status_ordinal{PreparedPipelineNoStep};
-  std::uint32_t reason_priority{PreparedPipelineNoStep};
-};
-
-// Heterogeneous primitive status values require an explicit descriptor. Raw
-// backend enum values must never be reinterpreted as canonical Reason values.
-struct PreparedStatusReasonMapping final {
-  std::uint32_t raw{};
-  std::uint32_t reason{};
-};
-
 namespace status_detail {
 
 struct CanonicalReason final {
@@ -157,11 +145,6 @@ CanonicalReasonStatus(const std::uint32_t raw) noexcept {
          rund::compute::detail::valid(reason);
 }
 
-[[nodiscard]] constexpr std::uint32_t
-NextPreparedPipelineGeneration(const std::uint32_t generation) noexcept {
-  return generation + std::uint32_t{1u};
-}
-
 [[nodiscard]] constexpr bool PreparedPipelineGenerationMatches(
     const PreparedPipelineControl &control,
     const std::uint64_t public_generation) noexcept {
@@ -183,21 +166,6 @@ CanonicalReasonText(const std::uint32_t raw) noexcept {
   return "compute_reason_invalid";
 }
 
-[[nodiscard]] constexpr std::uint32_t
-CanonicalReasonFromText(const std::string_view text,
-                        const rund::compute::Reason fallback =
-                            rund::compute::Reason::BackendFailed) noexcept {
-  for (const status_detail::CanonicalReason &entry :
-       status_detail::CanonicalReasons) {
-    if (entry.text == text) {
-      return static_cast<std::uint32_t>(entry.reason);
-    }
-  }
-  return static_cast<std::uint32_t>(rund::compute::detail::valid(fallback)
-                                        ? fallback
-                                        : rund::compute::Reason::BackendFailed);
-}
-
 // Priority is generated from the canonical table order and therefore does not
 // depend on the numeric public error code assigned to a Reason.
 [[nodiscard]] constexpr std::uint32_t
@@ -210,55 +178,6 @@ CanonicalReasonPriority(const std::uint32_t raw) noexcept {
     if (static_cast<std::uint32_t>(
             status_detail::CanonicalReasons[index].reason) == raw) {
       return static_cast<std::uint32_t>(index + 1u);
-    }
-  }
-  return PreparedPipelineNoStep;
-}
-
-[[nodiscard]] constexpr PreparedPipelineFailureKey
-CanonicalPipelineFailureKey(const std::uint32_t status_ordinal,
-                            const std::uint32_t raw_reason) noexcept {
-  return PreparedPipelineFailureKey{
-      .status_ordinal = status_ordinal,
-      .reason_priority = CanonicalReasonPriority(raw_reason),
-  };
-}
-
-[[nodiscard]] constexpr std::uint64_t
-CanonicalPipelineFailureKeyValue(const std::uint32_t status_ordinal,
-                                 const std::uint32_t raw_reason) noexcept {
-  const PreparedPipelineFailureKey key =
-      CanonicalPipelineFailureKey(status_ordinal, raw_reason);
-  return (static_cast<std::uint64_t>(key.status_ordinal) << 32u) |
-         key.reason_priority;
-}
-
-[[nodiscard]] constexpr bool ValidPreparedStatusReasonMappings(
-    const std::span<const PreparedStatusReasonMapping> mappings) noexcept {
-  for (std::size_t index = 0u; index < mappings.size(); ++index) {
-    if (mappings[index].raw == 0u || mappings[index].reason == 0u ||
-        !CanonicalReasonStatus(mappings[index].reason)) {
-      return false;
-    }
-    for (std::size_t previous = 0u; previous < index; ++previous) {
-      if (mappings[previous].raw == mappings[index].raw) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-[[nodiscard]] constexpr std::uint32_t CanonicalReasonFromBackendStatus(
-    const std::uint32_t raw,
-    const std::span<const PreparedStatusReasonMapping> mappings) noexcept {
-  if (raw == 0u) {
-    return static_cast<std::uint32_t>(rund::compute::Reason::Ok);
-  }
-  for (const PreparedStatusReasonMapping mapping : mappings) {
-    if (mapping.raw == raw && CanonicalReasonStatus(mapping.reason) &&
-        mapping.reason != 0u) {
-      return mapping.reason;
     }
   }
   return PreparedPipelineNoStep;

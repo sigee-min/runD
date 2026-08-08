@@ -2,6 +2,7 @@
 
 #include "../../stencil.hpp"
 #include "../../stencil/model.hpp"
+#include "../../stencil/shape.hpp"
 #include "../adapter.hpp"
 #include "../object.hpp"
 #include "../pipeline/cache.hpp"
@@ -11,8 +12,6 @@
 #include <string>
 
 namespace rund::node::accel::detail {
-
-inline constexpr rund::kernel::u32 kStencilThreadgroupSize = 256u;
 
 struct MetalStencilEncodeResources {
   MetalAdapter *adapter = nullptr;

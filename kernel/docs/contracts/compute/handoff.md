@@ -246,12 +246,11 @@ different trust boundary: it retains canonical bytes and source long enough to
 perform full authentication and does not enter the private retained path.
 
 Node's compact CPU SIMD `PreparedRun` follows the same enclosing-owner rule. If
-`I` is its instruction vector and `F` its fixed-format vector, its complete
-dynamic extent is
-`capacity(I) * sizeof(PreparedInstruction) + capacity(F) *
-sizeof(ComputeFixedFormat)`, with saturating products and addition. Parsed IR,
+`I` is its instruction vector, its complete dynamic extent is
+`capacity(I) * sizeof(PreparedInstruction)`. Source fractional widths are
+frozen beside the resolved binding evidence in each instruction. Parsed IR,
 binding-plan vectors, canonical IR, execution metadata, and textual CPU
-artifacts are absent from that retained owner.
+artifacts are outside that retained owner.
 
 String external storage has one observation rule in the retained oracle:
 `std::less<const void*>` orders the data pointer against the string object

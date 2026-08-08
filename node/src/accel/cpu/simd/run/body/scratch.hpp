@@ -34,21 +34,27 @@ private:
 
 [[nodiscard]] std::size_t
 RequiredScratchBytes(const PreparedRun &prepared) noexcept {
-  const std::size_t nodes = prepared.instructions.size();
-  const std::size_t values = nodes + 1u;
-  constexpr std::size_t padding =
-      alignof(ValueVec) + alignof(WideScalar) + alignof(std::uint8_t);
-  return values * sizeof(std::uint8_t) + values * sizeof(ValueVec) +
-         values * kLaneCount * sizeof(WideScalar) + padding;
+  static_assert(alignof(WideScalar) <= alignof(ValueVec));
+  static_assert(sizeof(ValueVec) % alignof(WideScalar) == 0u);
+  const std::size_t values = prepared.value_slot_count;
+  const bool fixed = prepared.domain == rund::kernel::ComputeDomain::Fixed;
+  const std::size_t padding = alignof(ValueVec) - 1u;
+  return values * sizeof(ValueVec) +
+         (fixed ? values * kLaneCount * sizeof(WideScalar) +
+                      values * sizeof(std::uint8_t)
+                : 0u) +
+         padding;
 }
 
 struct RunScratch final {
   ValueVec *values = nullptr;
   WideScalar *wide = nullptr;
   std::uint8_t *wide_valid = nullptr;
+  bool wide_required = false;
 
   [[nodiscard]] explicit operator bool() const noexcept {
-    return values != nullptr && wide != nullptr && wide_valid != nullptr;
+    return values != nullptr &&
+           (!wide_required || (wide != nullptr && wide_valid != nullptr));
   }
 };
 
@@ -58,12 +64,14 @@ PrepareRunScratch(const PreparedRun &prepared,
   if (scratch.bytes < RequiredScratchBytes(prepared)) {
     return {};
   }
-  const std::size_t count = prepared.instructions.size();
+  const std::size_t count = prepared.value_slot_count;
+  const bool fixed = prepared.domain == rund::kernel::ComputeDomain::Fixed;
   ScratchLayout layout(scratch);
   return RunScratch{
-      .values = layout.take<ValueVec>(count + 1u),
-      .wide = layout.take<WideScalar>((count + 1u) * kLaneCount),
-      .wide_valid = layout.take<std::uint8_t>(count + 1u),
+      .values = layout.take<ValueVec>(count),
+      .wide = fixed ? layout.take<WideScalar>(count * kLaneCount) : nullptr,
+      .wide_valid = fixed ? layout.take<std::uint8_t>(count) : nullptr,
+      .wide_required = fixed,
   };
 }
 

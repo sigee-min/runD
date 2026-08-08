@@ -309,7 +309,10 @@ bool SameMapRecurrenceTemplate(const MapRecurrencePreparationPlan &left,
                                const bool compare_pitch) noexcept {
     if (a.stride_bytes != b.stride_bytes ||
         a.offset_bytes % left.binding_alignment !=
-            b.offset_bytes % right.binding_alignment) {
+            b.offset_bytes % right.binding_alignment ||
+        (left.plan.api == rund::kernel::ComputeApi::Metal &&
+         MetalMapBindingWordClass(a.offset_bytes, a.stride_bytes) !=
+             MetalMapBindingWordClass(b.offset_bytes, b.stride_bytes))) {
       return false;
     }
     if (!compare_pitch) {

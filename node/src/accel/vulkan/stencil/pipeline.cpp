@@ -12,7 +12,11 @@ namespace {
 PseudoStencilPlan(const rund::kernel::StencilDesc &desc,
                   const rund::kernel::ComputeDomain domain,
                   const rund::kernel::ComputeApi api) noexcept {
-  const rund::kernel::StencilHash hash = rund::kernel::HashStencil(desc);
+  rund::kernel::StencilDesc source_identity = desc;
+  source_identity.element_count = 0u;
+  source_identity.radius = 0u;
+  const rund::kernel::StencilHash hash =
+      rund::kernel::HashStencil(source_identity);
   const bool wide = desc.element == rund::kernel::StencilElement::U64;
   const bool signed_extrema =
       desc.op != rund::kernel::StencilOp::Sum && IsSignedDomain(domain);
@@ -28,9 +32,9 @@ PseudoStencilPlan(const rund::kernel::StencilDesc &desc,
       .scalar = desc.element == rund::kernel::StencilElement::U64
                     ? rund::kernel::ComputeScalar::Lane64
                     : rund::kernel::ComputeScalar::Lane32,
-      // The complete source has only signed-extrema and lane-width branches.
-      // Normalize domains that compile to identical text so exact full-source
-      // reuse remains visible in the complete ArtifactKey tuple.
+      // Count and radius are runtime params. The complete source has only
+      // operation, signed-extrema, and lane-width branches, so its pseudo
+      // identity normalizes every non-source field before cache admission.
       .domain = executable_domain,
       .ok = true,
       .reason = "ok",
@@ -43,6 +47,21 @@ VulkanCollectivePipeline *
 AcquireStencilPipeline(VulkanAdapter &adapter,
                        const rund::kernel::StencilDesc &desc,
                        const rund::kernel::ComputeDomain domain) {
+  if (!StencilVulkanDispatchFits(desc.element_count,
+                                 adapter.max_dispatch_groups)) {
+    SetVulkanLastError(adapter, "compute_dispatch_overflow");
+    return nullptr;
+  }
+  VkPhysicalDeviceProperties properties{};
+  vkGetPhysicalDeviceProperties(adapter.physical_device, &properties);
+  if (properties.limits.maxComputeWorkGroupInvocations <
+          kStencilPhysicalGroupWidth ||
+      properties.limits.maxComputeWorkGroupSize[0] <
+          kStencilPhysicalGroupWidth ||
+      properties.limits.maxComputeSharedMemorySize < kStencilSharedBytesMax) {
+    SetVulkanLastError(adapter, "accel_vulkan_pipeline_unavailable");
+    return nullptr;
+  }
   const rund::kernel::ComputePlan pseudo =
       PseudoStencilPlan(desc, domain, rund::kernel::ComputeApi::Vulkan);
   std::string source = VulkanStencilSource(desc.op, desc.element, domain);

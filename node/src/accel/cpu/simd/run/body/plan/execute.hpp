@@ -8,9 +8,11 @@ inline void ExecuteOnce(const PreparedRun &prepared,
                         Values &values) noexcept {
   for (std::size_t index = 0u; index < prepared.once_count; ++index) {
     const Instruction &instruction = prepared.instructions[index];
-    values.invalidate(instruction.value_index);
     const ExecuteFn executor = ExecutorFor(instruction.full_executor_slot);
     executor(instruction, prepared, bindings, 0u, kLaneCount, values);
+    if (!values) {
+      return;
+    }
   }
 }
 
@@ -32,7 +34,6 @@ struct LoopCount final {
     for (std::size_t index = prepared.once_count;
          index < prepared.instructions.size(); ++index) {
       const Instruction &instruction = prepared.instructions[index];
-      values.invalidate(instruction.value_index);
       const ExecuteFn executor = ExecutorFor(instruction.full_executor_slot);
       executor(instruction, prepared, bindings, base, kLaneCount, values);
       if (!values) {
@@ -50,7 +51,6 @@ struct LoopCount final {
   for (std::size_t index = prepared.once_count;
        index < prepared.instructions.size(); ++index) {
     const Instruction &instruction = prepared.instructions[index];
-    values.invalidate(instruction.value_index);
     const ExecuteFn executor = ExecutorFor(instruction.tail_executor_slot);
     executor(instruction, prepared, bindings, begin + full, tail, values);
     if (!values) {

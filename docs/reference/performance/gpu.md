@@ -41,6 +41,63 @@ bytes per element while performing only a few integer operations. Its element
 count can be high while its arithmetic intensity remains low, so memory
 traffic and fixed launch costs can dominate.
 
+## Structural Lower Bounds
+
+Several GPU paths admit exact source- and dispatch-shape proofs independent of
+wall time. The owning backend contracts remain the authority; this page states
+only the performance interpretation.
+
+For canonical Vulkan Map width `W = 256`, an active domain of `N` elements
+publishes exactly
+
+```text
+G_map(N) = N == 0 ? 0 : 1 + floor((N - 1) / 256)
+```
+
+workgroups. Every element is owned by one invocation and a workgroup exposes at
+most 256 invocations, so `ceil(N / 256)` is the minimum legal group count for
+that fixed shader width. Both control and body source recipes consume
+`kVulkanMapWidth` directly.
+
+Metal Map classifies a binding as word-addressable exactly when
+
+```text
+A(offset, stride) := offset mod 4 == 0 and stride mod 4 == 0.
+```
+
+Every Map access has an integer logical index `k`: direct access uses `b + g`
+for exact window begin `b` and lane `g`, uniform access uses zero, and indexed
+access uses its checked runtime index. Its byte address is
+`offset + k*stride`, which is four-byte aligned whenever `A` holds. The
+specialized source therefore replaces four byte accesses with one `uint`
+access for a 32-bit value and eight byte accesses with two adjacent `uint`
+accesses for a 64-bit value. Misaligned bindings retain the bytewise source.
+These are generated-source memory-operation counts, not claims about device
+transactions, cache lines, or measured latency.
+
+For Stencil's admitted shared-halo radius `1 <= r <= 8`, let a physical group
+cover `A` active outputs beginning at `B` in a domain of `N` elements and end at
+`E = B + A`. The direct loop reads
+
+```text
+D = A(2r + 1)
+```
+
+input elements, while the shared path reads exactly the distinct expanded
+input union
+
+```text
+H = A + min(r, B) + min(r, N - E)
+  = |[max(0, B-r), min(N, E+r))|.
+```
+
+Any correct single-group evaluation needs every element in that union, so `H`
+is the global-input-read lower bound for the group. The boundary loader reaches
+it by fanning already-loaded endpoint registers into clamped halo slots. For
+all admitted `r <= 8`, `H < D`, so the shader selects the shared path directly
+without calculating or comparing those costs at runtime. Radius values above
+eight use the semantic direct fallback and carry no asymptotic-optimality claim.
+
 ## Vulkan Executable Construction
 
 Vulkan executable acquisition compiles each cache miss synchronously under the

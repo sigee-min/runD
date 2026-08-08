@@ -15,8 +15,20 @@ namespace rund::node::accel::detail {
   id<MTLDevice> device = (__bridge id<MTLDevice>)adapter.device.get();
   id<MTLLibrary> library = (__bridge id<MTLLibrary>)library_owner.get();
   const std::string function_name = StencilFunctionName(op, element, domain);
-  return library != nil &&
-         MakeNamedMetalPipeline(device, library, function_name.c_str(), out);
+  if (library == nil ||
+      !MakeNamedMetalPipeline(device, library, function_name.c_str(), out)) {
+    return false;
+  }
+  id<MTLComputePipelineState> pipeline =
+      (__bridge id<MTLComputePipelineState>)out.get();
+  if (pipeline == nil ||
+      pipeline.maxTotalThreadsPerThreadgroup < kStencilPhysicalGroupWidth ||
+      pipeline.staticThreadgroupMemoryLength >
+          device.maxThreadgroupMemoryLength) {
+    out.reset();
+    return false;
+  }
+  return true;
 }
 #endif
 

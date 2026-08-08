@@ -26,14 +26,6 @@ struct Resources {
   return rund::kernel::TilePhaseDescription{
       .phase_id = 26u,
       .tile_count = kTileCount,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .scratch_bytes_per_tile = 0u,
-              .scratch_alignment = 1u,
-              .output_shards = kTileCount,
-              .queue_slots = kTileCount,
-              .task_slots = kTileCount,
-          },
   };
 }
 

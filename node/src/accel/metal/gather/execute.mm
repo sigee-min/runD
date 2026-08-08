@@ -7,11 +7,11 @@
 
 #include "../../gather/shape.hpp"
 #include "../command/run.hpp"
+#include "../pipeline/template.hpp"
 #include "encode/dispatch.hpp"
 #include "local.hpp"
-#include "pipeline/store.hpp"
+#include "pipeline/compile.hpp"
 #include "resources/pipeline.hpp"
-#include "../pipeline/template.hpp"
 
 #include <utility>
 
@@ -61,13 +61,11 @@ bool CompileMetalGatherPipelines(MetalAdapter &adapter,
 #endif
 }
 
-rund::AccelCheck PrepareMetalGather(const rund::AccelDevice &pick,
-                                    const rund::kernel::GatherDesc &desc,
-                                    const rund::kernel::GatherPlan &plan,
-                                    const GatherBinds &bindings,
-                                    std::shared_ptr<void> &resources,
-                                    const MetalKernelImmutablePipelines *const
-                                        pipelines) {
+rund::AccelCheck PrepareMetalGather(
+    const rund::AccelDevice &pick, const rund::kernel::GatherDesc &desc,
+    const rund::kernel::GatherPlan &plan, const GatherBinds &bindings,
+    std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {

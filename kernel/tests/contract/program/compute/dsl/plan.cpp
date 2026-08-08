@@ -11,12 +11,6 @@ int test_compute_dsl_map_feeds_plan_compute() {
   const rund::kernel::TilePhaseDescription phase{
       .phase_id = 92u,
       .tile_count = 4u,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .output_shards = 4u,
-              .queue_slots = 4u,
-              .task_slots = 4u,
-          },
   };
   const rund::kernel::ComputeCaps caps{
       .api = rund::kernel::ComputeApi::Metal,

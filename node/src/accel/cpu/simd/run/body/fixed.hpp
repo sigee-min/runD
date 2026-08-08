@@ -198,31 +198,35 @@ FixedCanonicalUnit(const WideScalar value,
 inline void ExecuteAddSat(const Instruction &instruction, const PreparedRun &,
                           const CpuSimdBindingView &, u64, std::size_t,
                           Values &values) noexcept {
-  values[instruction.value_index] = RUND_CPU_SIMD_ADD_SAT(
-      values[instruction.node.lhs], values[instruction.node.rhs]);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_ADD_SAT(values[instruction.node.lhs],
+                                       values[instruction.node.rhs]));
 }
 
 inline void ExecuteAddSatUnsigned(const Instruction &instruction,
                                   const PreparedRun &,
                                   const CpuSimdBindingView &, u64, std::size_t,
                                   Values &values) noexcept {
-  values[instruction.value_index] = SignedBits(RUND_CPU_SIMD_ADD_SAT_UNSIGNED(
-      Bits(values[instruction.node.lhs]), Bits(values[instruction.node.rhs])));
+  values.set_raw(instruction.value_index,
+                 SignedBits(RUND_CPU_SIMD_ADD_SAT_UNSIGNED(
+                     Bits(values[instruction.node.lhs]),
+                     Bits(values[instruction.node.rhs]))));
 }
 
 inline void ExecuteSubSat(const Instruction &instruction, const PreparedRun &,
                           const CpuSimdBindingView &, u64, std::size_t,
                           Values &values) noexcept {
-  values[instruction.value_index] = RUND_CPU_SIMD_SUB_SAT(
-      values[instruction.node.lhs], values[instruction.node.rhs]);
+  values.set_raw(instruction.value_index,
+                 RUND_CPU_SIMD_SUB_SAT(values[instruction.node.lhs],
+                                       values[instruction.node.rhs]));
 }
 
 inline void ExecuteNegPositiveFixed(const Instruction &instruction,
                                     const PreparedRun &,
                                     const CpuSimdBindingView &, u64,
                                     std::size_t, Values &values) noexcept {
-  values[instruction.value_index] =
-      RUND_CPU_SIMD_NEG_POSITIVE_FIXED(values[instruction.node.lhs]);
+  values.set_raw(instruction.value_index, RUND_CPU_SIMD_NEG_POSITIVE_FIXED(
+                                              values[instruction.node.lhs]));
 }
 
 inline void ExecuteMulFixed(const Instruction &instruction, const PreparedRun &,
@@ -272,25 +276,25 @@ inline void ExecuteMulUnsignedFixed(const Instruction &instruction,
 }
 
 inline void ExecuteMulAddFixed(const Instruction &instruction,
-                               const PreparedRun &prepared,
-                               const CpuSimdBindingView &, u64, std::size_t,
-                               Values &values) noexcept {
+                               const PreparedRun &, const CpuSimdBindingView &,
+                               u64, std::size_t, Values &values) noexcept {
   std::array<WideScalar, kLaneCount> result{};
-  const auto lhs_format = ValueFormat(prepared, instruction.node.lhs);
-  const auto rhs_format = ValueFormat(prepared, instruction.node.rhs);
-  const auto addend_format = ValueFormat(prepared, instruction.node.aux);
+  const unsigned lhs_fraction =
+      ValueFractionBits(instruction, instruction.node.lhs);
+  const unsigned rhs_fraction =
+      ValueFractionBits(instruction, instruction.node.rhs);
+  const unsigned addend_fraction =
+      ValueFractionBits(instruction, instruction.node.aux);
   const unsigned product_fraction =
-      static_cast<unsigned>(lhs_format.fraction_bits) +
-      rhs_format.fraction_bits;
+      static_cast<unsigned>(lhs_fraction) + rhs_fraction;
   const unsigned fraction = instruction.node.fixed_format.fraction_bits;
   for (std::size_t lane = 0u; lane < kLaneCount; ++lane) {
     const WideScalar product = values.wide(instruction.node.lhs, lane) *
                                values.wide(instruction.node.rhs, lane);
     const WideScalar aligned_product =
         AlignWideFraction(product, product_fraction, fraction);
-    const WideScalar aligned_addend =
-        AlignWideFraction(values.wide(instruction.node.aux, lane),
-                          addend_format.fraction_bits, fraction);
+    const WideScalar aligned_addend = AlignWideFraction(
+        values.wide(instruction.node.aux, lane), addend_fraction, fraction);
     result[lane] = aligned_product + aligned_addend;
   }
   values.set_wide(instruction.value_index, result);

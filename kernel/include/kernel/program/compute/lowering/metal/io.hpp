@@ -46,6 +46,28 @@ inline void AppendMetalLoadBody(std::string &out, const ComputeScalar scalar,
   out += "}\n";
 }
 
+// A word-addressed overload is selected only when Node specializes the
+// matching kernel argument from device uchar* to device uint*.  Lane64 stays
+// four-byte aligned by assembling two adjacent words; it never requires an
+// eight-byte pointer or vector load.
+inline void AppendMetalWordLoadBody(std::string &out,
+                                    const ComputeScalar scalar) {
+  out += "inline ";
+  out += MetalType(scalar);
+  out += " ";
+  out += MetalLoadFunction(scalar);
+  out += "(const device uint* base, uint byte_offset) {\n";
+  out += "  const uint word_offset = byte_offset >> 2u;\n";
+  if (scalar == ComputeScalar::Lane32) {
+    out += "  return int(base[word_offset]);\n";
+  } else {
+    out += "  const ulong packed = ulong(base[word_offset]) |\n"
+           "      (ulong(base[word_offset + 1u]) << 32u);\n"
+           "  return long(packed);\n";
+  }
+  out += "}\n";
+}
+
 inline void AppendMetalStoreBody(std::string &out, const ComputeScalar scalar) {
   const u32 scalar_bytes = ScalarBytes(scalar);
   const char *const unsigned_type = MetalUnsignedType(scalar);
@@ -75,14 +97,34 @@ inline void AppendMetalStoreBody(std::string &out, const ComputeScalar scalar) {
   out += "}\n";
 }
 
+inline void AppendMetalWordStoreBody(std::string &out,
+                                     const ComputeScalar scalar) {
+  out += "inline void ";
+  out += MetalStoreFunction(scalar);
+  out += "(device uint* base, uint byte_offset, ";
+  out += MetalType(scalar);
+  out += " value) {\n";
+  out += "  const uint word_offset = byte_offset >> 2u;\n";
+  if (scalar == ComputeScalar::Lane32) {
+    out += "  base[word_offset] = uint(value);\n";
+  } else {
+    out += "  const ulong packed = ulong(value);\n"
+           "  base[word_offset] = uint(packed);\n"
+           "  base[word_offset + 1u] = uint(packed >> 32u);\n";
+  }
+  out += "}\n";
+}
+
 inline void AppendMetalHelpers(std::string &out, const ParsedIR &parsed,
                                const ArtifactKey &key) {
   AppendMetalLoadBody(out, key.scalar, "device", MetalLoadFunction(key.scalar));
+  AppendMetalWordLoadBody(out, key.scalar);
   if (key.scalar == ComputeScalar::Lane64) {
     for (const ParsedBinding &binding : parsed.bindings) {
       if (binding.kind == 2u && binding.element_bytes == sizeof(u32)) {
         AppendMetalLoadBody(out, ComputeScalar::Lane32, "device",
                             MetalLoadFunction(ComputeScalar::Lane32));
+        AppendMetalWordLoadBody(out, ComputeScalar::Lane32);
         break;
       }
     }
@@ -90,9 +132,13 @@ inline void AppendMetalHelpers(std::string &out, const ParsedIR &parsed,
   AppendMetalLoadBody(out, key.scalar, "constant",
                       MetalParamLoadFunction(key.scalar));
   AppendMetalStoreBody(out, key.scalar);
+  AppendMetalWordStoreBody(out, key.scalar);
   AppendMetalStoreBody(out, key.scalar == ComputeScalar::Lane64
                                 ? ComputeScalar::Lane32
                                 : ComputeScalar::Lane64);
+  AppendMetalWordStoreBody(out, key.scalar == ComputeScalar::Lane64
+                                    ? ComputeScalar::Lane32
+                                    : ComputeScalar::Lane64);
   AppendMetalFixedOpHelpers(out, parsed, key);
 }
 

@@ -101,9 +101,10 @@ struct MapRecurrencePreparationPlan final {
   std::uint64_t terminal_template_group_capacity{};
   std::uint64_t history_template_group_capacity{};
   // Backend template binding specialization observes byte stride and the
-  // offset residue at this alignment. Metal uses one, Vulkan uses the frozen
-  // storage alignment. Keeping the normalization in the common plan lets
-  // public planning and runtime cache matching share one equivalence law.
+  // offset residue at this alignment. Metal uses one plus the canonical
+  // four-byte word class, while Vulkan uses the frozen storage alignment.
+  // Keeping the normalization in the common plan lets public planning and
+  // runtime cache matching share one equivalence law.
   std::uint64_t binding_alignment{};
   std::uint32_t input_count{};
   std::uint32_t output_count{};

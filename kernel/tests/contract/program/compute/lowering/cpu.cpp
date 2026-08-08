@@ -54,12 +54,6 @@ AdmissionPlan(const Op &op, const rund::kernel::ComputeApi api) {
       rund::kernel::TilePhaseDescription{
           .phase_id = 71u,
           .tile_count = 4u,
-          .capacity =
-              rund::kernel::TilePhaseCapacityRequirement{
-                  .output_shards = 4u,
-                  .queue_slots = 4u,
-                  .task_slots = 4u,
-              },
       },
       map,
       rund::kernel::ComputeCaps{
@@ -215,6 +209,13 @@ template <typename Op> void CheckArtifactAdmissionParity(const Op &op) {
     TEST_ASSERT(!metadata_rejected.ok);
     TEST_ASSERT(metadata_rejected.parse_count() == 1u);
     TEST_ASSERT(metadata_rejected.emission_count == 1u);
+
+    rund::kernel::LoweringArtifact resource_forged = artifact;
+    ++resource_forged.metadata.resource_summary.peak_live_words;
+    const auto resource_rejected = AdmitArtifact(plan, resource_forged);
+    TEST_ASSERT(!resource_rejected.ok);
+    TEST_ASSERT(resource_rejected.parse_count() == 1u);
+    TEST_ASSERT(resource_rejected.emission_count == 1u);
 
     rund::kernel::LoweringArtifact null_reason_forged = artifact;
     null_reason_forged.metadata.reason = nullptr;

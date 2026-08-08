@@ -25,9 +25,18 @@ using ExecuteFn = void (*)(const Instruction &instruction,
                            const CpuSimdBindingView &bindings, u64 base_tile,
                            std::size_t live_lanes, Values &values) noexcept;
 
-[[nodiscard]] inline rund::kernel::ComputeFixedFormat
-ValueFormat(const PreparedRun &prepared, const u32 value) noexcept {
-  return prepared.value_formats[value];
+[[nodiscard]] inline rund::kernel::u8
+ValueFractionBits(const Instruction &instruction, const u32 value) noexcept {
+  if (instruction.node.lhs == value) {
+    return instruction.operand_fraction(0u);
+  }
+  if (instruction.node.rhs == value) {
+    return instruction.operand_fraction(1u);
+  }
+  if (instruction.node.aux == value) {
+    return instruction.operand_fraction(2u);
+  }
+  return 0u;
 }
 
 } // namespace

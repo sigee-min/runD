@@ -281,27 +281,46 @@ source transformation consumes that proof, and final assembly alone publishes
 the immutable recurrence. None of those leaves owns another eligibility path.
 The backend template registry is shared by primary and transactional-alternate
 streams. A collision-safe semantic match reuses one immutable recurrence
-template for every equal group; terminal and history-writing source variants
-are the only distinct templates, so template cardinality is at most two and is
-independent of authored occurrence, outer-window, and inner-window counts.
-The common normalized recurrence plan is the sole equivalence law: Program
-authority, canonical artifact, complete compute plan, source recipe, binding
-stride/offset residue, and exact history pitch are compared there. Metal keeps
-no parallel source-plan, binding, or history-pitch identity copy in its
-registry wrapper.
-For one normalized terminal or history variant class `E`, the immutable
-template group capacity is
+template for every equal group. Let `W(r)` be the ordered Metal
+`Bytewise`/`Word32` class vector of all Map inputs and outputs in route `r`, and
+let `v` be `terminal` or `history`. Define `E_v(r)` as the complete normalized
+identity containing `v`, `W(r)`, Program authority, canonical artifact, compute
+plan, source recipe, binding stride/offset residue, and exact history pitch.
+For `R` routes the exact template count and structural bound are
 
-`C(E) = sum(route_copies(r) * group_count(r), r in E)`.
+```text
+K = |{E_v(r) : group_v(r) > 0}| <= 2R.
+```
+
+One route contributes at most its terminal and history identities, while
+authored occurrence, outer-window, and inner-window counts contribute none.
+For `B <= kMaxComputeBindingCount` bindings the word-class component `W` alone
+has at most `2^B` projections and `(v,W)` has at most `2^(B + 1)`; neither is an
+upper bound on `K`, because two routes with the same `(v,W)` may still differ in
+stride, source, plan, or pitch.
+The common normalized recurrence comparison consumes the canonical
+`(offset,stride) -> word class` projection for both public planning and private
+materialization. The retained Metal Map owner also freezes its compiled
+per-binding masks and checks them at registry lookup; those masks enforce the
+typed-source invariant but do not define a second deduplication or capacity
+law.
+For one complete normalized variant class `E`, the immutable template group
+capacity is
+
+```text
+C(E) = sum(route_copies(r) * group_v(r),
+           r where E_v(r) = E and group_v(r) > 0).
+```
 
 At materialization `route_copies` is the frozen generation stride: one for a
 single stream and two for transactional primary/alternate streams. Each
 route's public `group_count` describes exactly one authored stream; it is not a
 template count. Metal allocates one fixed retained group table of `C(E)`
-entries for the shared variant. Vulkan allocates the same group table and
-exactly `C(E) * dispatch_window_count` descriptor sets. Descriptor sets belong
-to that immutable template capacity and therefore are never multiplied again
-by route count, authored occurrence count, or outer/inner iteration count.
+entries for the shared variant. Vulkan applies its storage-alignment
+equivalence instead and allocates the analogous `C(E)` group table plus exactly
+`C(E) * dispatch_window_count` descriptor sets. Descriptor sets belong to that
+immutable template capacity and therefore are never multiplied again by route
+count, authored occurrence count, or outer/inner iteration count.
 Route resources alone scale with the actual proved recurrence-group count.
 The valid Pipeline materialization entry requires the frozen public registry
 reservation and matching fingerprint. There is no planless backend fallback:
@@ -3070,9 +3089,11 @@ Map lowering owns its source upper at emission time: while the admitted parsed
 IR is available it freezes the maximum canonical decimal-literal width beside
 the artifact. Cold Pipeline planning consumes that scalar, adds only the
 backend specialization envelope, and neither reparses nor regenerates source.
-Map binding edits use a fixed stack array of at most two entries per admitted
-binding, so their source-transient charge is exactly zero and the sole heap
-materialization is the retained final source. Retained unique cache sources
+Map binding edits use a fixed stack array of at most three entries per admitted
+binding: one base literal, one stride literal, and, for a four-byte-aligned
+Metal binding, one shrinking pointee token. Their source-transient charge is
+exactly zero and the sole heap materialization is the retained final source.
+Retained unique cache sources
 are additive; any other serialized source-producing transform is one maximum
 high-water charge across shared primary/alternate streams. Backend
 cold-finalizer host workspace is a second explicit high-water field and is
@@ -3783,8 +3804,8 @@ can claim the Pipeline contract:
 29. Metal Pipeline preparation records every control and payload command in
     one globally ordered stream partitioned into exact 65,536-command/full and
     next-power-of-two/tail ICB size classes, resets recurrence selectors
-    on-device, and preserves the logical/failure guards of every formerly
-    indirect private primitive. Warm execution walks only the 16-byte retained
+    on-device, and preserves every private primitive's logical/failure guards.
+    Warm execution walks only the 16-byte retained
     chunk records, with no command, binding, indirect-grid, or recurrence-state
     traversal. Pure contracts cover zero, class-boundary, multi-full, tail, and
     overflow decomposition on every platform; Metal-native contracts require

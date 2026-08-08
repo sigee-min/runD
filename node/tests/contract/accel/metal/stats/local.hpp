@@ -13,14 +13,6 @@ struct NodeComputeOp {
   return rund::kernel::TilePhaseDescription{
       .phase_id = 44u,
       .tile_count = 4u,
-      .capacity =
-          rund::kernel::TilePhaseCapacityRequirement{
-              .scratch_bytes_per_tile = 0u,
-              .scratch_alignment = 1u,
-              .output_shards = 4u,
-              .queue_slots = 4u,
-              .task_slots = 4u,
-          },
   };
 }
 

@@ -1079,8 +1079,10 @@ For a Map template, lowering freezes `source_text_upper_bytes` while its
 admitted parsed IR is still available. It is the canonical decimal-literal
 upper for that exact IR; Pipeline planning starts retained-source and
 backend-envelope accounting from this scalar and never reparses or regenerates
-shader text. Map binding specialization freezes at most two edits per admitted
-binding in a fixed stack array, then allocates only the retained final string;
+shader text. Map binding specialization freezes at most three edits per
+admitted binding in a fixed stack array: base and stride literals plus one
+optional shrinking Metal pointee edit. It then allocates only the retained
+final string;
 its `source_transient_bytes` contribution is therefore zero. A source
 transient required by another serialized transform is still charged once as a
 high-water owner even when primary and alternate streams share the template.
@@ -1462,14 +1464,15 @@ barriers, inputs, and outputs. A CPU Program adds one `CpuGraphProgram`, its
 uniquely owned `CpuRuntimeGraph` and nested route vectors, every live `CpuProgram` or
 `CpuCollective`, and each compact prepared plan plus Kernel tile executor. If
 `V(x) = capacity(x) * sizeof(x::value_type)`, `I` is the prepared instruction
-vector, `F` is its fixed-format vector, and `E` is the executor byte oracle, one
-Map contributes exactly
-`sizeof(CpuProgram) + V(I) + V(F) + E.state_bytes +
-E.async_context_bytes` to Host/Metadata and
+vector and `E` is the executor byte oracle, one Map contributes exactly
+`sizeof(CpuProgram) + V(I) + E.state_bytes + E.async_context_bytes` to
+Host/Metadata and
 `E.workspace_bytes + E.failure_slot_bytes + E.worker_tile_bytes` to
 Tile/Scratch. The descriptor, dispatch pointers, counts, flags, and scratch/tile
 scalars are inline in `sizeof(CpuProgram)`. Dynamic Map ownership is exactly
-`V(I) + V(F)` plus the executor extents above. For runtime graph `G`, its exact
+`V(I)` plus the executor extents above. Each instruction owns its source
+fractional widths beside its resolved binding evidence. For runtime graph
+`G`, its exact
 logical owner extent is
 `sizeof(G) + V(G.values) + V(G.steps)`, plus `V(inputs) + V(outputs)` for every
 live Map and `V(inputs)` for every live Primitive step; the one active Primitive
@@ -1481,14 +1484,20 @@ inside the string object and otherwise contributes `capacity + 1` logical
 character slots including the terminator. Allocator rounding and bookkeeping
 are excluded. Every multiplication and addition saturates at `2^64 - 1`.
 
-For `N = I.size()`, `M = N + 1`, SIMD lane count `L`, the raw per-worker Map
-scratch request is
-`M*sizeof(uint8_t) + M*sizeof(ValueVec) + M*L*sizeof(WideScalar) +
-alignof(ValueVec) + alignof(WideScalar) + alignof(uint8_t)`, rounded up to
-`sizeof(std::max_align_t)` words. Instruction planning is one `O(N)` Program
-preparation operation; a run binds its fixed views in `O(binding_count)` and
-physical tiles consume the prepared schedule. The exact owner and scratch
-derivations are recorded in the
+For `N = I.size()`, let `P <= N` be the exact commit-demand peak of the fixed,
+non-DCE prepared stable-prefix/suffix schedule and `L` the SIMD lane count.
+Demand includes a result commit when no dying operand can carry it. Fixed Map
+scratch is `P*sizeof(uint8_t) + P*sizeof(ValueVec) +
+P*L*sizeof(WideScalar) + alignof(ValueVec) - 1`. `ValueVec` size preserves
+wide-plane alignment. Non-Fixed Map scratch is
+`P*sizeof(ValueVec) + alignof(ValueVec) - 1`.
+Both requests are rounded up to `sizeof(std::max_align_t)` words. The linear
+allocator reuses a dying operand at its final use, so its `P` slots equal the
+commit-demand lower bound for that admitted schedule; `Write` owns no
+destination. This is not a dead-code-elimination optimality claim. Instruction
+planning is one `O(N)` Program preparation operation; a run binds its fixed views in
+`O(binding_count)` and physical tiles consume the prepared schedule. The exact
+owner and scratch derivations are recorded in the
 [Node Compute memory contract](../../node/docs/contracts/compute/memory.md).
 These are structural bounds, not wall-clock benchmark claims.
 
