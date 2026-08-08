@@ -257,9 +257,9 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.4` is the current
-artifact identity; a major-only version range is not a supported consumption
-contract.
+The CMake version file uses exact-version matching. `1.0.5` is the current
+checked-in package identity; a major-only version range is not a supported
+consumption contract.
 
 The `1.0.1` Alpha extends by-value Compute reports and the inline `Run` receipt
 for nested Pipeline evidence. It deliberately uses a new exact SDK identity
@@ -292,6 +292,14 @@ Metal and Vulkan use one frozen native-materialization manifest each. These
 declarations, object layouts, and linked implementations must come from one
 matched `1.0.4` artifact; a `1.0.3` header or library may not be mixed into the
 tuple.
+
+The `1.0.5` Alpha is a new exact identity. It compacts task telemetry to 223
+physical counters with a one-to-one public getter mapping, yielding a
+1,784-byte `task::Stats` and a 176-byte `task::ReactorStats` on the checked
+64-bit ABI. Network `would_block` telemetry now counts only mapped Network
+operations. These object layouts and executable telemetry semantics must come
+from one matched `1.0.5` artifact; a `1.0.4` header or library may not be mixed
+into the tuple.
 
 ## Compute Contract
 
@@ -556,7 +564,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.4 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.5 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

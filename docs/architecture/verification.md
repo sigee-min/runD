@@ -472,7 +472,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.4 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.5 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

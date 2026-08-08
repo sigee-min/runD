@@ -1,5 +1,5 @@
 # Root-owned package install and export targets.
-set(RUND_PACKAGE_VERSION "1.0.4")
+set(RUND_PACKAGE_VERSION "1.0.5")
 
 # CMake resolves the active Apple SDK even when CMAKE_OSX_SYSROOT is left
 # empty. Preserve that resolved path for install-time compiler probes instead

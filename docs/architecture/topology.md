@@ -60,7 +60,7 @@ An embedding engine or simulation may be a white-box domain framework above
 runD, but it consumes runD as a black-box release artifact. The normative SDK
 consumer boundary is
 [`/package/docs/consumption.md`](../../package/docs/consumption.md).
-Consumers use `find_package(runD 1.0.4 EXACT CONFIG REQUIRED)` and the exported
+Consumers use `find_package(runD 1.0.5 EXACT CONFIG REQUIRED)` and the exported
 runD target. They must not vendor, submodule, or `add_subdirectory` the runD
 source tree, and their public headers must not expose runD types or include
 runD headers.
