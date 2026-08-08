@@ -139,8 +139,14 @@ prepare_cpu_map(const std::shared_ptr<DeviceState> &device,
     }
     const std::size_t scratch_bytes =
         cpu.dispatch.scratch_bytes(cpu.dispatch.prepared);
-    cpu.scratch_words = (scratch_bytes + sizeof(std::max_align_t) - 1u) /
-                        sizeof(std::max_align_t);
+    if (scratch_bytes > std::numeric_limits<std::size_t>::max() -
+                            (kCpuWorkerWriteIsolationBytes - 1u)) {
+      return Result<std::unique_ptr<CpuProgram>>::fail(Reason::ProgramCapacity);
+    }
+    const std::size_t scratch_stride_bytes =
+        (scratch_bytes + kCpuWorkerWriteIsolationBytes - 1u) &
+        ~(kCpuWorkerWriteIsolationBytes - 1u);
+    cpu.scratch_words = scratch_stride_bytes / sizeof(std::max_align_t);
     cpu.workers = tiles.worker_count;
     cpu.tile_size = tiles.tile_units;
     return Result<std::unique_ptr<CpuProgram>>::success(std::move(prepared));

@@ -35,6 +35,16 @@ struct CpuBufferState;
 struct CpuDeviceState;
 class CpuPreparedArena;
 
+// The checked M4 Pro performance profile reports a 128-byte coherence line.
+// Map SIMD scratch and Map SIMD counters use this one alignment/stride
+// authority. Cache-line isolation on another profile requires a recorded
+// power-of-two line width that divides this envelope.
+inline constexpr std::size_t kCpuWorkerWriteIsolationBytes = 128u;
+static_assert((kCpuWorkerWriteIsolationBytes &
+               (kCpuWorkerWriteIsolationBytes - 1u)) == 0u);
+static_assert(kCpuWorkerWriteIsolationBytes % alignof(std::max_align_t) == 0u);
+static_assert(kCpuWorkerWriteIsolationBytes % sizeof(std::max_align_t) == 0u);
+
 // Value-lifetime owner with pointer ergonomics. It is used only when the
 // pointee cannot outlive its containing state; unlike unique_ptr it creates no
 // allocator or control-block authority.
@@ -79,10 +89,11 @@ private:
   std::optional<T> value_{};
 };
 
-struct alignas(64) CpuSimdCount final {
+struct alignas(kCpuWorkerWriteIsolationBytes) CpuSimdCount final {
   std::uint64_t vectors{};
   std::uint64_t tails{};
 };
+static_assert(sizeof(CpuSimdCount) == kCpuWorkerWriteIsolationBytes);
 
 struct CpuProgram final {
   kernel::ComputeMap map;

@@ -264,16 +264,27 @@ alignment, so the first aligned plane also aligns every following plane.
 Non-Fixed
 execution has neither a 128-bit materialization plane nor its validity plane
 and requests exactly `P*sizeof(ValueVec) + alignof(ValueVec) - 1`. The
-allocation is rounded up to
-`sizeof(std::max_align_t)` words. Execution preflights the declared byte
-requirement before laying out typed regions, so the exact rounded allocation
-succeeds and an allocation one word shorter rejects as
+direct-runner allocation is rounded up to `sizeof(std::max_align_t)` words.
+Execution preflights the declared byte requirement before laying out typed
+regions, so the exact rounded allocation succeeds and an allocation one word
+shorter rejects as
 `cpu_simd_scratch_invalid` before any output write. Instruction arrays and
 plan-stability state are compile-owned, not worker scratch. Every stable-prefix
 executor is a commit barrier: its first failure terminates the prefix before a
 later executor can observe or publish an uncommitted result. Preparation is
 `O(N)` and each tile reuses the frozen plan. These are algorithmic and storage
 bounds; wall-clock claims still require measurement.
+
+The product Map owner adds one concurrency boundary outside this runner
+minimum. Let `Q` be the direct-runner rounded byte request and `C = 128` the
+CPU worker-write isolation envelope. Its worker stride is
+`S = ceil(Q / C) * C`, the arena scratch base is `C`-aligned, and worker `w`
+receives `[base + w*S, base + (w+1)*S)`. Therefore worker scratch line sets are
+pairwise disjoint on the checked `m4pro` profile, whose recorded coherence-line
+width equals `C`, with `0 <= S-Q < C`. Per-worker SIMD counters use the same `C`
+alignment and extent. This product padding is retained execution capacity, not
+an additional runner value slot or heap owner; the exact accounting and the
+cross-profile proof precondition live in the Compute memory contract.
 
 ## CPU Backend Admission
 

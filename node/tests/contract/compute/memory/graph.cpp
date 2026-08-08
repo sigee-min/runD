@@ -11,6 +11,7 @@
 #include "../../../../src/compute/program/state.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
@@ -97,6 +98,16 @@ namespace {
   const CpuRunRoutePlan &route_plan = *first_route;
   const CpuStorageBytes execution_payload =
       cpu_execution_storage_payload(storage_plan.execution);
+  CpuExecutionStoragePlan without_worker_map_storage = storage_plan.execution;
+  without_worker_map_storage.map_scratch_count = 0u;
+  without_worker_map_storage.simd_count = 0u;
+  const CpuStorageBytes without_worker_map_payload =
+      cpu_execution_storage_payload(without_worker_map_storage);
+  const std::uint64_t expected_worker_map_tile =
+      static_cast<std::uint64_t>(storage_plan.execution.map_scratch_count) *
+          sizeof(std::max_align_t) +
+      static_cast<std::uint64_t>(storage_plan.execution.simd_count) *
+          kCpuWorkerWriteIsolationBytes;
   if (storage_plan.program != program->cpu_graph.get() ||
       storage_plan.runtime != program->cpu_graph->runtime.get() ||
       storage_plan.private_total.host == 0u ||
@@ -106,13 +117,17 @@ namespace {
       (expect_collective && (storage_plan.collective_count == 0u ||
                              storage_plan.collectives.host == 0u ||
                              storage_plan.collectives.tile != 0u)) ||
-      (expect_primitive && (storage_plan.scratch_count == 0u ||
-                            storage_plan.execution
-                                    .primitive_object_payload_bytes == 0u ||
-                            execution_payload.host == 0u)) ||
+      (expect_primitive &&
+       (storage_plan.scratch_count == 0u ||
+        storage_plan.execution.primitive_object_payload_bytes == 0u ||
+        execution_payload.host == 0u)) ||
       ((expect_map || expect_collective || expect_primitive) &&
        (!cpu_execution_storage_required(storage_plan.execution) ||
         execution_payload.tile == 0u)) ||
+      (expect_map &&
+       (execution_payload.tile < without_worker_map_payload.tile ||
+        execution_payload.tile - without_worker_map_payload.tile !=
+            expected_worker_map_tile)) ||
       route_plan.program != storage_plan.program ||
       route_plan.runtime != storage_plan.runtime ||
       route_plan.step_count != storage_plan.step_count ||
@@ -144,6 +159,19 @@ namespace {
       !seal_cpu_prepared_arena_plan(arena_plan,
                                     program->device->host_page_bytes)) {
     return 18;
+  }
+  if (expect_map &&
+      (arena_plan.map_scratch.alignment != kCpuWorkerWriteIsolationBytes ||
+       arena_plan.map_scratch.size_bytes !=
+           static_cast<std::uint64_t>(
+               storage_plan.execution.map_scratch_count) *
+               sizeof(std::max_align_t) ||
+       arena_plan.simd.alignment != kCpuWorkerWriteIsolationBytes ||
+       arena_plan.simd.element_bytes != kCpuWorkerWriteIsolationBytes ||
+       arena_plan.simd.size_bytes !=
+           static_cast<std::uint64_t>(storage_plan.execution.simd_count) *
+               kCpuWorkerWriteIsolationBytes)) {
+    return 22;
   }
   auto arena = make_cpu_prepared_arena(arena_plan);
   if (!arena) {
@@ -200,6 +228,43 @@ namespace {
           run->simd.size() != workers ||
           run->scratch.size() != workers * map->scratch_words) {
         return 9;
+      }
+      if ((map->scratch_words != 0u &&
+           (map->scratch_words > std::numeric_limits<std::size_t>::max() /
+                                     sizeof(std::max_align_t) ||
+            map->scratch_words * sizeof(std::max_align_t) %
+                    kCpuWorkerWriteIsolationBytes !=
+                0u ||
+            reinterpret_cast<std::uintptr_t>(run->scratch.data()) %
+                    kCpuWorkerWriteIsolationBytes !=
+                0u)) ||
+          (!run->simd.empty() &&
+           reinterpret_cast<std::uintptr_t>(run->simd.data()) %
+                   kCpuWorkerWriteIsolationBytes !=
+               0u)) {
+        return 20;
+      }
+      if (workers < 2u || run->simd.size() < 2u ||
+          reinterpret_cast<const std::byte *>(&run->simd[1u]) -
+                  reinterpret_cast<const std::byte *>(&run->simd[0u]) !=
+              static_cast<std::ptrdiff_t>(kCpuWorkerWriteIsolationBytes) ||
+          (map->scratch_words != 0u &&
+           reinterpret_cast<const std::byte *>(run->scratch.data() +
+                                               map->scratch_words) -
+                   reinterpret_cast<const std::byte *>(run->scratch.data()) !=
+               static_cast<std::ptrdiff_t>(map->scratch_words *
+                                           sizeof(std::max_align_t)))) {
+        return 23;
+      }
+      for (std::size_t worker = 0u;
+           map->scratch_words != 0u && worker < workers; ++worker) {
+        const std::max_align_t *const worker_scratch =
+            run->scratch.data() + worker * map->scratch_words;
+        if (reinterpret_cast<std::uintptr_t>(worker_scratch) %
+                kCpuWorkerWriteIsolationBytes !=
+            0u) {
+          return 21;
+        }
       }
     }
     const CpuCollective *const collective =
@@ -271,7 +336,7 @@ int CheckCpuGraphStorageFormula() {
   constexpr std::uint64_t total_physical =
       cached_run + concurrent_jobs * per_job;
 
-  auto device = open(Target::cpu(1u));
+  auto device = open(Target::cpu(2u));
   if (!device) {
     return 1;
   }

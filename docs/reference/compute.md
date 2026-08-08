@@ -1491,7 +1491,16 @@ scratch is `P*sizeof(uint8_t) + P*sizeof(ValueVec) +
 P*L*sizeof(WideScalar) + alignof(ValueVec) - 1`. `ValueVec` size preserves
 wide-plane alignment. Non-Fixed Map scratch is
 `P*sizeof(ValueVec) + alignof(ValueVec) - 1`.
-Both requests are rounded up to `sizeof(std::max_align_t)` words. The linear
+Both direct-runner requests are rounded up to `sizeof(std::max_align_t)` words.
+For product execution, let that rounded byte request be `Q` and let `C = 128`
+be the CPU worker-write isolation envelope. The retained worker stride is
+`S = ceil(Q/C)*C`; the arena base is `C`-aligned, so worker `w` starts at
+`base + w*S`. On the checked M4 Pro profile, `hw.cachelinesize = C`, so no two
+worker scratch regions share a coherence line. The extra capacity is bounded
+by `0 <= S-Q < C` per worker. The SIMD counter array uses the same alignment
+with `sizeof(CpuSimdCount) = C`, giving one isolated counter block per worker
+on that profile. Other profiles require the line-width divisibility evidence
+owned by the Compute memory contract. The linear
 allocator reuses a dying operand at its final use, so its `P` slots equal the
 commit-demand lower bound for that admitted schedule; `Write` owns no
 destination. This is not a dead-code-elimination optimality claim. Instruction

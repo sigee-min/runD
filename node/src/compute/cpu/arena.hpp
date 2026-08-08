@@ -117,15 +117,20 @@ public:
 private:
   template <class T>
   [[nodiscard]] bool contains(const CpuArenaSegment &segment) const noexcept {
+    const bool compatible_alignment =
+        segment.alignment >= alignof(T) &&
+        segment.alignment % alignof(T) == 0u &&
+        (segment.alignment & (segment.alignment - 1u)) == 0u;
     if (segment.count == 0u) {
       return segment.size_bytes == 0u && segment.element_bytes == sizeof(T) &&
-             segment.alignment == alignof(T);
+             compatible_alignment;
     }
     if (data_ == nullptr || segment.element_bytes != sizeof(T) ||
-        segment.alignment != alignof(T) ||
-        segment.offset_bytes % alignof(T) != 0u ||
-        segment.offset_bytes > extent_bytes_ ||
+        !compatible_alignment || segment.offset_bytes > extent_bytes_ ||
         segment.size_bytes > extent_bytes_ - segment.offset_bytes ||
+        reinterpret_cast<std::uintptr_t>(data_ + segment.offset_bytes) %
+                segment.alignment !=
+            0u ||
         segment.count > std::numeric_limits<std::uint64_t>::max() / sizeof(T)) {
       return false;
     }

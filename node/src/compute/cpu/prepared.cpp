@@ -170,8 +170,9 @@ bool seal_cpu_prepared_arena_plan(CpuPreparedArenaPlan &plan,
       !append_cpu_arena_segment<kernel::u64>(plan.layout,
                                              execution.tiles.worker_capacity,
                                              plan.worker_stats_tail_wait_ns) ||
-      !append_cpu_arena_segment<std::max_align_t>(
-          plan.layout, execution.map_scratch_count, plan.map_scratch) ||
+      !append_cpu_arena_segment(
+          plan.layout, execution.map_scratch_count, sizeof(std::max_align_t),
+          kCpuWorkerWriteIsolationBytes, plan.map_scratch) ||
       !append_cpu_arena_segment<CpuSimdCount>(plan.layout, execution.simd_count,
                                               plan.simd) ||
       !append_cpu_arena_segment<CpuCollectiveWide>(

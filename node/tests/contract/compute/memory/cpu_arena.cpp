@@ -75,6 +75,30 @@ int CheckCpuSealedArena() {
     return 8;
   }
 
+  CpuArenaLayout over_aligned{};
+  CpuArenaSegment over_aligned_words{};
+  if (!append_cpu_arena_segment(over_aligned, 2u, sizeof(std::uint64_t),
+                                kCpuWorkerWriteIsolationBytes,
+                                over_aligned_words) ||
+      over_aligned_words.alignment != kCpuWorkerWriteIsolationBytes ||
+      !seal_cpu_arena_layout(over_aligned, 4096u)) {
+    return 19;
+  }
+  CpuArenaMapping over_aligned_mapping{};
+  if (!over_aligned_mapping.allocate(over_aligned)) {
+    return 20;
+  }
+  const std::span<std::uint64_t> over_aligned_values =
+      over_aligned_mapping.construct<std::uint64_t>(over_aligned_words);
+  if (over_aligned_values.size() != 2u ||
+      reinterpret_cast<std::uintptr_t>(over_aligned_values.data()) %
+              kCpuWorkerWriteIsolationBytes !=
+          0u) {
+    return 21;
+  }
+  over_aligned_mapping.destroy(over_aligned_values);
+  over_aligned_mapping.release();
+
   using ::rund::node::detail::PreparedArray;
   std::array<std::uint32_t, 2u> prepared_storage{};
   PreparedArray<std::uint32_t> prepared;

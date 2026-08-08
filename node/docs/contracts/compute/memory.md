@@ -823,12 +823,21 @@ cannot be presented as a duplicated Program graph, worker scratch, collective
 state, or primitive payload owner.
 
 Within one `CpuMapRun`, the simultaneously live worker scratch is one
-contiguous `workers * scratch_words` slab. The worker ordinal selects its
-checked fixed-stride slice; there is no heap owner or pointer lookup per
-worker. Preflight and materialization consume the same overflow-checked
-product, and retained-memory observation counts that slab once. This preserves
-worker disjointness while removing `workers - 1` cold allocations per Map
-without changing tile order, SIMD counters, or warm execution storage.
+contiguous `workers * scratch_words` slab. The arena scratch base and every
+worker stride are aligned to the single 128-byte CPU worker-write isolation
+envelope. The worker ordinal selects its checked fixed-stride slice; there is
+no heap owner or pointer lookup per worker. The separately written per-worker
+SIMD counters use the same 128-byte alignment and extent. The checked `m4pro`
+profile records `hw.cachelinesize = 128`, so neither scratch nor counters for
+adjacent workers can occupy the same coherence line on that profile. Preflight
+and materialization consume the same overflow-checked products, and
+retained-memory observation counts both slabs once. This preserves worker
+write-domain disjointness while removing `workers - 1` cold allocations per
+Map without changing tile order or adding warm execution storage owners. On a
+different performance profile, address regions remain disjoint but a
+cache-line-isolation claim additionally requires a recorded power-of-two line
+width `L` with `L <= 128` and `128 mod L = 0`; otherwise the profile must raise
+or replace this one envelope and its direct alignment/stride contract.
 
 The Program-owned `CpuGraphStorage` retains compact Map and collective run
 wrappers in two exactly reserved dense arrays. Their mutable worker, tile,
@@ -1287,7 +1296,8 @@ and plan owners.
 
 Let `N = I.size()`, `P <= N` be the exact commit-demand peak of the fixed,
 non-DCE stable-once then repeated execution order, `L` be the selected SIMD lane
-count, and `A = sizeof(std::max_align_t)`. Demand counts the values that must
+count, `A = sizeof(std::max_align_t)`, and `C = 128` be the CPU worker-write
+isolation envelope. Demand counts the values that must
 remain available before an instruction and adds one result slot exactly when no
 unpinned operand dies at that commit. Stable values consumed by the repeated
 suffix remain pinned. Source fractional widths are instruction-owned, so
@@ -1301,8 +1311,10 @@ Scratch_raw = P * sizeof(uint8_t)
             + P * L * sizeof(WideScalar)
             + alignof(ValueVec) - 1
 
-Scratch_words = ceil(Scratch_raw / A)
-Scratch_requested_per_worker = Scratch_words * A
+Runner_words = ceil(Scratch_raw / A)
+Runner_requested = Runner_words * A
+Product_worker_stride = ceil(Runner_requested / C) * C
+Product_scratch_words = Product_worker_stride / A
 ```
 
 A non-Fixed runner has no wide-materialization consumer and requests:
@@ -1316,11 +1328,22 @@ Scratch_raw_integer = P * sizeof(ValueVec)
 first plane also aligns the Fixed wide plane; the byte-validity plane needs no
 additional padding.
 
-Worker SIMD scratch uses an aligned overwrite buffer whose capacity equals the
-requested word count, so telemetry reports exactly
-`workers * Scratch_requested_per_worker`. Preparation does not value-initialize
-those bytes: every admitted value-producing SIMD instruction evaluates its
-operands before committing its assigned destination. Instruction-plan lifetime
+The direct SIMD runner uses the exact `Runner_requested` overwrite buffer. A
+product Map uses the overflow-checked `Product_worker_stride`, and the arena
+aligns the slab base to `C`, so worker `w` starts at
+`base + w * Product_worker_stride` with both terms divisible by `C`. Its live
+request is contained within that stride. On the checked `m4pro` profile where
+the coherence-line width equals `C`, distinct workers therefore touch disjoint
+coherence-line sets. The isolation overhead satisfies
+`0 <= Product_worker_stride - Runner_requested < C`, hence total Map scratch
+padding is less than `workers * C`. Telemetry reports exactly
+`workers * Product_worker_stride`. The per-worker `CpuSimdCount` slab is also
+`C`-aligned with `sizeof(CpuSimdCount) = C`, so its exact Tile contribution is
+`workers * C` and each counter occupies a distinct isolation block.
+
+Preparation does not value-initialize scratch bytes: every admitted
+value-producing SIMD instruction evaluates its operands before committing its
+assigned destination. Instruction-plan lifetime
 analysis and deterministic allocation are `O(N)`. Since the allocator grows
 only when the schedule's current commit demand has no reusable slot, its `P`
 slots equal the independent commit-demand lower bound for that admitted
