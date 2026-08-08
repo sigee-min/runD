@@ -9,24 +9,51 @@
 
 namespace rund::node {
 
-struct ReactorLeaseSource final {
-  enum class Kind : std::uint8_t {
-    Invalid,
-    HostFd,
-    Socket,
-  };
+enum class ReactorLeaseSourceDisposition : std::uint8_t {
+  Invalid,
+  HostFd,
+  Socket,
+};
 
-  [[nodiscard]] static constexpr ReactorLeaseSource host() noexcept {
-    return ReactorLeaseSource{.kind = Kind::HostFd};
+class ReactorLeaseSource final {
+public:
+  [[nodiscard]] static constexpr ReactorLeaseSource invalid() noexcept {
+    return ReactorLeaseSource{ReactorLeaseSourceDisposition::Invalid};
+  }
+
+  [[nodiscard]] static constexpr ReactorLeaseSource host_fd() noexcept {
+    return ReactorLeaseSource{ReactorLeaseSourceDisposition::HostFd};
   }
 
   [[nodiscard]] static constexpr ReactorLeaseSource
   socket(const ::rund::net::SocketView value) noexcept {
-    return ReactorLeaseSource{.socket_view = value, .kind = Kind::Socket};
+    return value ? ReactorLeaseSource{value} : invalid();
   }
 
-  ::rund::net::SocketView socket_view{};
-  Kind kind = Kind::Invalid;
+  [[nodiscard]] constexpr ReactorLeaseSourceDisposition
+  disposition() const noexcept {
+    return disposition_;
+  }
+
+  [[nodiscard]] constexpr ::rund::net::SocketView socket_view() const noexcept {
+    return disposition_ == ReactorLeaseSourceDisposition::Socket
+               ? socket_view_
+               : ::rund::net::SocketView{};
+  }
+
+private:
+  explicit constexpr ReactorLeaseSource(
+      const ReactorLeaseSourceDisposition disposition) noexcept
+      : disposition_{disposition} {}
+
+  explicit constexpr ReactorLeaseSource(
+      const ::rund::net::SocketView socket_view) noexcept
+      : socket_view_{socket_view},
+        disposition_{ReactorLeaseSourceDisposition::Socket} {}
+
+  ::rund::net::SocketView socket_view_{};
+  ReactorLeaseSourceDisposition disposition_ =
+      ReactorLeaseSourceDisposition::Invalid;
 };
 
 class ReactorLeaseScope final {
@@ -49,16 +76,17 @@ public:
     }
     for (const auto &value : values) {
       const ReactorLeaseSource source = source_of(value);
-      if (source.kind == ReactorLeaseSource::Kind::HostFd) {
-        continue;
-      }
-      if (source.kind != ReactorLeaseSource::Kind::Socket ||
-          !source.socket_view) {
+      switch (source.disposition()) {
+      case ReactorLeaseSourceDisposition::Invalid:
         storage_.clear();
         return false;
+      case ReactorLeaseSourceDisposition::HostFd:
+        continue;
+      case ReactorLeaseSourceDisposition::Socket:
+        break;
       }
       ::rund::net::SocketLease lease =
-          ::rund::net::LeaseSocket(source.socket_view);
+          ::rund::net::LeaseSocket(source.socket_view());
       if (!lease) {
         storage_.clear();
         return false;

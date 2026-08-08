@@ -1,6 +1,7 @@
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/backend.hpp"
+#include "../../../../../src/runtime/task/scheduler/reactor/lease.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/many/events.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/many/probe/raw.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/model.hpp"
@@ -25,10 +26,55 @@ int RunRuntimeTaskReactorResultContract() {
   static_assert(std::is_trivially_copyable_v<ReactorApplyResult>);
   static_assert(!std::is_aggregate_v<ReactorInvalidChangeToken>);
   static_assert(std::is_trivially_copyable_v<ReactorInvalidChangeToken>);
+  static_assert(!std::is_default_constructible_v<ReactorLeaseSource>);
+  static_assert(!std::is_aggregate_v<ReactorLeaseSource>);
+  static_assert(std::is_trivially_copyable_v<ReactorLeaseSource>);
   static_assert(!std::is_aggregate_v<ReactorManyEventSlot>);
   static_assert(!std::is_aggregate_v<ReactorManyProbeResult>);
   static_assert(!std::is_default_constructible_v<ReactorManyProbeResult>);
   static_assert(std::is_trivially_copyable_v<ReactorManyProbeResult>);
+
+  constexpr ReactorLeaseSource invalid_lease_source =
+      ReactorLeaseSource::invalid();
+  static_assert(invalid_lease_source.disposition() ==
+                ReactorLeaseSourceDisposition::Invalid);
+  static_assert(!invalid_lease_source.socket_view());
+  constexpr ReactorLeaseSource host_lease_source =
+      ReactorLeaseSource::host_fd();
+  static_assert(host_lease_source.disposition() ==
+                ReactorLeaseSourceDisposition::HostFd);
+  static_assert(!host_lease_source.socket_view());
+  constexpr ReactorLeaseSource empty_socket_lease_source =
+      ReactorLeaseSource::socket({});
+  static_assert(empty_socket_lease_source.disposition() ==
+                ReactorLeaseSourceDisposition::Invalid);
+  static_assert(!empty_socket_lease_source.socket_view());
+
+  const std::array lease_inputs{1u};
+  std::vector<::rund::net::SocketLease> lease_storage{};
+  lease_storage.reserve(lease_inputs.size());
+  {
+    ReactorLeaseScope host_leases{lease_storage};
+    TEST_ASSERT(host_leases.acquire(lease_inputs, [](const auto) noexcept {
+      return ReactorLeaseSource::host_fd();
+    }));
+    TEST_ASSERT(host_leases.values().empty());
+  }
+  {
+    ReactorLeaseScope invalid_leases{lease_storage};
+    TEST_ASSERT(!invalid_leases.acquire(lease_inputs, [](const auto) noexcept {
+      return ReactorLeaseSource::invalid();
+    }));
+    TEST_ASSERT(invalid_leases.values().empty());
+  }
+  {
+    ReactorLeaseScope empty_socket_leases{lease_storage};
+    TEST_ASSERT(
+        !empty_socket_leases.acquire(lease_inputs, [](const auto) noexcept {
+          return ReactorLeaseSource::socket({});
+        }));
+    TEST_ASSERT(empty_socket_leases.values().empty());
+  }
 
   constexpr ReactorManyProbeResult many_probe_success =
       ReactorManyProbeResult::success(3u);

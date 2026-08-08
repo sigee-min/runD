@@ -122,8 +122,13 @@ capacity check can abandon a committed prefix.
 - `reactor/lease.hpp`: the single ready-drain lifetime scope. Every network
   wait must acquire its nonempty current-generation socket lease; a typed host
   fd wait is explicitly classified and instead retains the reactor-owned fd
-  identity guard. Missing waits, empty network views, and stale nonempty views
-  fail the same scope rather than bypassing lifetime validation.
+  identity guard. The source classification is exactly one of `Invalid`,
+  payload-free `HostFd`, or `Socket` with one nonempty `SocketView`; an empty
+  socket source normalizes to `Invalid`, and no host-fd state can carry a
+  socket payload. Missing waits, empty network views, and stale nonempty views
+  fail the same scope rather than bypassing lifetime validation. A failure
+  while classifying a batch clears every socket lease already acquired in that
+  pass.
 - `reactor/scratch.cpp`: reusable reactor scratch vectors for platform-ready
   observations, ordered ready events, drain batches, and host-event batches.
 - `reactor/apply/policy.cpp`: scoped scheduler-side registration apply

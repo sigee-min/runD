@@ -30,10 +30,10 @@ bool Scheduler::DrainReactorReadyBatch(
         const ReactorWait *const wait =
             ReactorRegistryFindWait(reactor, ready.wait_id);
         if (wait == nullptr) {
-          return ReactorLeaseSource{};
+          return ReactorLeaseSource::invalid();
         }
         if (!wait->socket && wait->fd_generation == 0u) {
-          return ReactorLeaseSource::host();
+          return ReactorLeaseSource::host_fd();
         }
         return ReactorLeaseSource::socket(wait->socket);
       })) {
