@@ -90,7 +90,7 @@ struct CpuMapRunPlan final {
 [[nodiscard]] Result<CpuMapRunPlan>
 plan_map_run(const CpuProgram &program) noexcept {
   const kernel::ComputeTileRunStoragePlan tiles =
-      program.tile_plan.planned_run_storage();
+      program.tile_plan.run_plan().storage_plan();
   if (!tiles) {
     return Result<CpuMapRunPlan>::fail(Reason::TileRunCapacity);
   }
@@ -121,7 +121,7 @@ struct CpuCollectiveRunPlan final {
 [[nodiscard]] Result<CpuCollectiveRunPlan>
 plan_collective_run(const CpuCollective &program) noexcept {
   const kernel::ComputeTileRunStoragePlan tiles =
-      program.tile_plan.planned_run_storage();
+      program.tile_plan.run_plan().storage_plan();
   if (!tiles) {
     return Result<CpuCollectiveRunPlan>::fail(Reason::TileRunCapacity);
   }
