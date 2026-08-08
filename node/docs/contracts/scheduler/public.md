@@ -461,11 +461,10 @@ worker or per batch.
 network host-event activity, and scheduler resources. The live reactor slots
 are mutated only by scheduler reactor owners. The live network slots are
 incremented from scheduler host-event admission for successful network
-lifecycle and byte/connection events. For compatibility, `would_block()`
-currently counts every admitted host event whose status is `WouldBlock`,
-including non-network host I/O; restricting it to Network event kinds would be
-a public telemetry meaning change and remains unresolved. The source-private
-network recorder owns the one `EventKind -> call/lifecycle slot` projection.
+lifecycle and byte/connection events. `would_block()` counts only admitted
+Network host events whose mapped operation status is `WouldBlock`. The
+source-private network recorder owns the one
+`EventKind -> call/lifecycle slot` projection.
 Every additive Network slot uses `counter::Accumulate`, so call, lifecycle,
 would-block,
 admission-rejection, and byte evidence all saturate at `UINT64_MAX`.

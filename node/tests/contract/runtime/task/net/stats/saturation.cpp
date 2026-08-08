@@ -115,19 +115,39 @@ int NetStatsSaturatingCounters() {
         NetworkSlotsMatch(stats, entry.call, maximum, entry.bytes, maximum));
   }
 
-  for (const EventKind kind : {EventKind::NetRecv, EventKind::IoRead}) {
-    StatStorage stats{};
-    Stat(stats, StatSlot::NetworkWouldBlock) = maximum - 1u;
-    const ::rund::host::Event event{
-        .kind = kind,
-        .status = ::rund::host::Status::WouldBlock,
-        .completed_bytes = maximum,
-    };
-    ::rund::node::record_detail::RecordNetworkStats(stats, event);
-    ::rund::node::record_detail::RecordNetworkStats(stats, event);
-    TEST_ASSERT(NetworkSlotsMatch(stats, StatSlot::Count, 0u, StatSlot::Count,
-                                  0u, maximum));
+  for (const NetworkCounterCase entry : kNetworkCounterCases) {
+    StatStorage blocked{};
+    ::rund::node::record_detail::RecordNetworkStats(
+        blocked, ::rund::host::Event{
+                     .kind = entry.kind,
+                     .status = ::rund::host::Status::WouldBlock,
+                     .completed_bytes = maximum,
+                 });
+    TEST_ASSERT(NetworkSlotsMatch(blocked, StatSlot::Count, 0u, StatSlot::Count,
+                                  0u, 1u));
   }
+
+  StatStorage would_block{};
+  Stat(would_block, StatSlot::NetworkWouldBlock) = maximum - 1u;
+  const ::rund::host::Event blocked_network{
+      .kind = EventKind::NetRecv,
+      .status = ::rund::host::Status::WouldBlock,
+      .completed_bytes = maximum,
+  };
+  ::rund::node::record_detail::RecordNetworkStats(would_block, blocked_network);
+  ::rund::node::record_detail::RecordNetworkStats(would_block, blocked_network);
+  TEST_ASSERT(NetworkSlotsMatch(would_block, StatSlot::Count, 0u,
+                                StatSlot::Count, 0u, maximum));
+
+  StatStorage unrelated_would_block{};
+  const ::rund::host::Event blocked_io{
+      .kind = EventKind::IoRead,
+      .status = ::rund::host::Status::WouldBlock,
+      .completed_bytes = maximum,
+  };
+  ::rund::node::record_detail::RecordNetworkStats(unrelated_would_block,
+                                                  blocked_io);
+  TEST_ASSERT(NetworkSlotsMatch(unrelated_would_block));
 
   StatStorage failed{};
   ::rund::node::record_detail::RecordNetworkStats(

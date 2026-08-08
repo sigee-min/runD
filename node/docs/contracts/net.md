@@ -700,11 +700,8 @@ the repository `counter::Accumulate` law, so `UINT64_MAX` is absorbing for call,
 lifecycle, would-block, admission-rejection, and byte evidence; no field wraps
 to zero. Successful stream, datagram, and vectored events alone add their
 completed bytes, and lifecycle events never add bytes.
-Despite its category and spelling, the current compatibility meaning of
-`would_block()` counts every admitted host event with `Status::WouldBlock`,
-including non-network host I/O. Restricting that field to Network event kinds
-requires an explicit public telemetry decision; the recorder and contract test
-preserve the existing behavior until then.
+`would_block()` counts admitted Network host events whose mapped operation
+status is `WouldBlock`. Non-network host I/O does not enter Network telemetry.
 
 Ticket rejection is observable through its typed result, not counted as a
 native call. In the focused lifecycle contract, one accepted send and one

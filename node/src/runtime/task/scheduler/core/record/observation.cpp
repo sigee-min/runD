@@ -36,15 +36,6 @@ SameStableHostEventFields(const ::rund::host::Event &expected,
 void record_detail::RecordNetworkStats(
     ::rund::detail::task::StatStorage &stats,
     const ::rund::host::Event &event) noexcept {
-  if (event.status == ::rund::host::Status::WouldBlock) {
-    ::rund::detail::counter::Accumulate(
-        ::rund::detail::task::Stat(
-            stats, ::rund::detail::task::StatSlot::NetworkWouldBlock),
-        1u);
-  }
-  if (event.status != ::rund::host::Status::Ok) {
-    return;
-  }
   ::rund::detail::task::StatSlot call_slot =
       ::rund::detail::task::StatSlot::Count;
   ::rund::detail::task::StatSlot byte_slot =
@@ -104,10 +95,21 @@ void record_detail::RecordNetworkStats(
   default:
     break;
   }
-  if (call_slot != ::rund::detail::task::StatSlot::Count) {
-    ::rund::detail::counter::Accumulate(
-        ::rund::detail::task::Stat(stats, call_slot), 1u);
+  if (call_slot == ::rund::detail::task::StatSlot::Count) {
+    return;
   }
+  if (event.status == ::rund::host::Status::WouldBlock) {
+    ::rund::detail::counter::Accumulate(
+        ::rund::detail::task::Stat(
+            stats, ::rund::detail::task::StatSlot::NetworkWouldBlock),
+        1u);
+    return;
+  }
+  if (event.status != ::rund::host::Status::Ok) {
+    return;
+  }
+  ::rund::detail::counter::Accumulate(
+      ::rund::detail::task::Stat(stats, call_slot), 1u);
   if (byte_slot != ::rund::detail::task::StatSlot::Count) {
     ::rund::detail::counter::Accumulate(
         ::rund::detail::task::Stat(stats, byte_slot), event.completed_bytes);
