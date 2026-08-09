@@ -111,9 +111,10 @@ FixedFormat(const rund::kernel::ComputeOverflow overflow) noexcept {
                                             .tile_count = kOutputCount,
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.backend != pick.api ||
-      evidence.dispatch_count <= 1u || evidence.original_dispatch_count <= 1u ||
-      evidence.final_dispatch_count <= 1u) {
+  if (!evidence.outcome.ok || evidence.identity.backend != pick.api ||
+      evidence.run.work.dispatch_count <= 1u ||
+      evidence.run.work.original_dispatch_count <= 1u ||
+      evidence.run.work.final_dispatch_count <= 1u) {
     return false;
   }
   std::array<rund::kernel::u32, kOutputCount> downloaded{};
@@ -199,9 +200,10 @@ RunsPaddedDirectWindow(const rund::AccelDevice &pick,
                                             .tile_count = expected.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.backend != pick.api ||
-      evidence.dispatch_count != 1u || evidence.original_dispatch_count != 1u ||
-      evidence.final_dispatch_count != 1u) {
+  if (!evidence.outcome.ok || evidence.identity.backend != pick.api ||
+      evidence.run.work.dispatch_count != 1u ||
+      evidence.run.work.original_dispatch_count != 1u ||
+      evidence.run.work.final_dispatch_count != 1u) {
     return false;
   }
   std::array<rund::kernel::i32, 2u> downloaded{};
@@ -301,9 +303,10 @@ template <typename T>
                                             .tile_count = expected.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.backend != pick.api ||
-      evidence.dispatch_count != 2u || evidence.original_dispatch_count != 2u ||
-      evidence.final_dispatch_count != 2u) {
+  if (!evidence.outcome.ok || evidence.identity.backend != pick.api ||
+      evidence.run.work.dispatch_count != 2u ||
+      evidence.run.work.original_dispatch_count != 2u ||
+      evidence.run.work.final_dispatch_count != 2u) {
     return false;
   }
   std::array<T, kOutputCount> downloaded{};

@@ -2,8 +2,8 @@
 
 #include <accel/runtime.hpp>
 
-#include <rund/counter.hpp>
 #include "../adapter/api.hpp"
+#include <rund/counter.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -113,9 +113,9 @@ CollectVulkanTimestampSpan(VulkanAdapter &adapter, const std::size_t slot,
   ::rund::detail::counter::Accumulate(adapter.accel_timestamp_count, 1u);
   adapter.accel_timestamp_source = "vulkan_timestamp_query";
   if (local != nullptr) {
-    local->accel_kernel_ns = ns;
-    local->accel_timestamp_count = 1u;
-    local->accel_timestamp_source = "vulkan_timestamp_query";
+    local->run.time.accel_kernel_ns = ns;
+    local->run.time.accel_timestamp_count = 1u;
+    local->run.time.accel_timestamp_source = "vulkan_timestamp_query";
   }
   return true;
 }

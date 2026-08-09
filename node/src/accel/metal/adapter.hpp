@@ -50,5 +50,7 @@ void RecordMetalCommandSubmitWaitNs(MetalAdapter &adapter,
 [[nodiscard]] std::uint64_t
 RecordMetalComputeKernelSeconds(MetalAdapter &adapter, double start_seconds,
                                 double end_seconds);
+void RecordMetalDispatchTrace(MetalAdapter &adapter, std::uint64_t elapsed_ns,
+                              std::uint64_t sample_count);
 
 } // namespace rund::node::accel::detail

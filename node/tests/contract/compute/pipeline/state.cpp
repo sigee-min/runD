@@ -98,7 +98,9 @@ namespace rund_node_test_pipeline {
            (backend != Backend::Cpu ||
             node_compute_allocation::Count() == 0u) &&
            restored_stats.uploaded_bytes == expected_restore_bytes &&
-           restored_stats.command_submits == expected_restore_submits &&
+           restored_stats.command_submits == 0u &&
+           restored_stats.transfer_submissions.host_to_device ==
+               expected_restore_submits &&
            restored_stats.publication.restore_byte_count ==
                sizeof(initial) * 2u &&
            restored->generation() == generation && restored->run() &&
@@ -275,7 +277,10 @@ namespace rund_node_test_pipeline {
       after_paired_snapshot.downloaded_bytes !=
           before_paired_snapshot.downloaded_bytes + expected_downloaded_bytes ||
       after_paired_snapshot.command_submits !=
-          before_paired_snapshot.command_submits + expected_snapshot_submits) {
+          before_paired_snapshot.command_submits ||
+      after_paired_snapshot.transfer_submissions.device_to_host !=
+          before_paired_snapshot.transfer_submissions.device_to_host +
+              expected_snapshot_submits) {
     return 11;
   }
 

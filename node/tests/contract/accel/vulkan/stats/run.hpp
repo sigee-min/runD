@@ -1,8 +1,8 @@
 #pragma once
 
 #include <accel/device.hpp>
-#include <kernel/program/compute/plan.hpp>
 #include <accel/runtime.hpp>
+#include <kernel/program/compute/plan.hpp>
 
 #include <node/accel/pick.hpp>
 
@@ -63,20 +63,21 @@ namespace node_accel_contract {
   }
   const rund::RuntimeStats first_stats =
       rund::node::accel::ReadRuntimeStats(pick);
-  if (first_values != work.expected || !first_stats.ok ||
-      first_stats.pipeline_compile_count == 0u ||
-      first_stats.descriptor_pool_create_count == 0u ||
-      first_stats.descriptor_set_allocate_count == 0u) {
+  if (first_values != work.expected || !first_stats.outcome.ok ||
+      first_stats.run.allocations.pipeline_compile_count == 0u ||
+      first_stats.run.allocations.descriptor_pool_create_count == 0u ||
+      first_stats.run.allocations.descriptor_set_allocate_count == 0u) {
     std::fprintf(
         stderr,
         "vulkan stats first mismatch values=%d stats_ok=%d compile=%llu "
         "pool=%llu set=%llu actual0=%u expected0=%u\n",
-        first_values == work.expected ? 1 : 0, first_stats.ok ? 1 : 0,
-        static_cast<unsigned long long>(first_stats.pipeline_compile_count),
+        first_values == work.expected ? 1 : 0, first_stats.outcome.ok ? 1 : 0,
         static_cast<unsigned long long>(
-            first_stats.descriptor_pool_create_count),
+            first_stats.run.allocations.pipeline_compile_count),
         static_cast<unsigned long long>(
-            first_stats.descriptor_set_allocate_count),
+            first_stats.run.allocations.descriptor_pool_create_count),
+        static_cast<unsigned long long>(
+            first_stats.run.allocations.descriptor_set_allocate_count),
         first_values[0], work.expected[0]);
     return false;
   }
@@ -96,37 +97,46 @@ namespace node_accel_contract {
   }
   const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(pick);
   const bool ok =
-      second_values == work.expected && stats.ok &&
-      stats.dispatch_count != 0u && stats.pipeline_compile_count == 0u &&
-      stats.pipeline_cache_hit_count >= 1u &&
-      stats.descriptor_pool_create_count == 0u &&
-      stats.descriptor_set_allocate_count == 0u &&
-      stats.descriptor_reuse_hit_count >= 1u &&
-      stats.host_to_device_bytes ==
+      second_values == work.expected && stats.outcome.ok &&
+      stats.run.work.dispatch_count != 0u &&
+      stats.run.allocations.pipeline_compile_count == 0u &&
+      stats.run.allocations.pipeline_cache_hit_count >= 1u &&
+      stats.run.allocations.descriptor_pool_create_count == 0u &&
+      stats.run.allocations.descriptor_set_allocate_count == 0u &&
+      stats.run.allocations.descriptor_reuse_hit_count >= 1u &&
+      stats.run.transfer.host_to_device_bytes ==
           plan.param_bytes + plan.input_bytes_per_tile * plan.tile_count &&
-      stats.device_to_host_bytes ==
+      stats.run.transfer.device_to_host_bytes ==
           plan.output_bytes_per_tile * plan.tile_count &&
-      stats.buffer_reuse_hit_count != 0u;
+      stats.run.allocations.buffer_reuse_hit_count != 0u;
   if (!ok) {
     std::fprintf(
         stderr,
         "vulkan stats second mismatch values=%d stats=%d dispatch=%llu "
         "compile=%llu cache=%llu pool=%llu alloc=%llu reuse=%llu h2d=%llu/%llu "
         "d2h=%llu/%llu buffer=%llu\n",
-        second_values == work.expected ? 1 : 0, stats.ok ? 1 : 0,
-        static_cast<unsigned long long>(stats.dispatch_count),
-        static_cast<unsigned long long>(stats.pipeline_compile_count),
-        static_cast<unsigned long long>(stats.pipeline_cache_hit_count),
-        static_cast<unsigned long long>(stats.descriptor_pool_create_count),
-        static_cast<unsigned long long>(stats.descriptor_set_allocate_count),
-        static_cast<unsigned long long>(stats.descriptor_reuse_hit_count),
-        static_cast<unsigned long long>(stats.host_to_device_bytes),
+        second_values == work.expected ? 1 : 0, stats.outcome.ok ? 1 : 0,
+        static_cast<unsigned long long>(stats.run.work.dispatch_count),
+        static_cast<unsigned long long>(
+            stats.run.allocations.pipeline_compile_count),
+        static_cast<unsigned long long>(
+            stats.run.allocations.pipeline_cache_hit_count),
+        static_cast<unsigned long long>(
+            stats.run.allocations.descriptor_pool_create_count),
+        static_cast<unsigned long long>(
+            stats.run.allocations.descriptor_set_allocate_count),
+        static_cast<unsigned long long>(
+            stats.run.allocations.descriptor_reuse_hit_count),
+        static_cast<unsigned long long>(
+            stats.run.transfer.host_to_device_bytes),
         static_cast<unsigned long long>(
             plan.param_bytes + plan.input_bytes_per_tile * plan.tile_count),
-        static_cast<unsigned long long>(stats.device_to_host_bytes),
+        static_cast<unsigned long long>(
+            stats.run.transfer.device_to_host_bytes),
         static_cast<unsigned long long>(plan.output_bytes_per_tile *
                                         plan.tile_count),
-        static_cast<unsigned long long>(stats.buffer_reuse_hit_count));
+        static_cast<unsigned long long>(
+            stats.run.allocations.buffer_reuse_hit_count));
   }
   return ok;
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../compute/terminal.hpp"
+
 #include <rund/compute/status.hpp>
 
 #include <atomic>
@@ -29,15 +31,17 @@ enum class CancelClaim : std::uint8_t {
   Invalid,
 };
 
-[[nodiscard]] FinishClaim ClaimFinish(
-    std::atomic<TerminalPhase>& phase) noexcept;
-[[nodiscard]] CancelClaim RequestCancel(
-    std::atomic<TerminalPhase>& phase) noexcept;
-void MarkComplete(std::atomic<TerminalPhase>& phase) noexcept;
+[[nodiscard]] FinishClaim
+ClaimFinish(std::atomic<TerminalPhase> &phase) noexcept;
+[[nodiscard]] CancelClaim
+RequestCancel(std::atomic<TerminalPhase> &phase) noexcept;
+void MarkComplete(std::atomic<TerminalPhase> &phase) noexcept;
 
-[[nodiscard]] compute::Status FinishCpu(TaskState &task) noexcept;
-[[nodiscard]] compute::Status FinishAccel(TaskState &task) noexcept;
-[[nodiscard]] compute::Status FinishFailure(TaskState &task,
-                                            compute::Status status) noexcept;
+[[nodiscard]] compute::detail::TerminalObservation
+FinishCpu(TaskState &task) noexcept;
+[[nodiscard]] compute::detail::TerminalObservation
+FinishAccel(TaskState &task) noexcept;
+[[nodiscard]] compute::detail::TerminalObservation
+FinishFailure(TaskState &task, compute::Status status) noexcept;
 
 } // namespace rund::node::compute_detail

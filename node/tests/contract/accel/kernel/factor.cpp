@@ -4,8 +4,8 @@
 #include <accel/context/value.hpp>
 #include <accel/device.hpp>
 #include <accel/graph/buffer/ref.hpp>
-#include <accel/graph/value.hpp>
 #include <accel/graph/node.hpp>
+#include <accel/graph/value.hpp>
 #include <accel/kernel/run.hpp>
 #include <accel/kernel/run/binding.hpp>
 
@@ -85,11 +85,11 @@ FactorReferenceMatches(const rund::AccelContext &context,
   std::array<rund::kernel::u32, Batches> status{};
   const rund::kernel::FactorResult reference = [&] {
     if constexpr (sizeof(Value) == sizeof(rund::kernel::i64)) {
-      return rund::kernel::ReferenceFactorI64(
-          input.data(), expected.data(), aux.data(), status.data(), plan);
+      return rund::kernel::ReferenceFactorI64(input.data(), expected.data(),
+                                              aux.data(), status.data(), plan);
     } else {
-      return rund::kernel::ReferenceFactorI32(
-          input.data(), expected.data(), aux.data(), status.data(), plan);
+      return rund::kernel::ReferenceFactorI32(input.data(), expected.data(),
+                                              aux.data(), status.data(), plan);
     }
   }();
   if (!rund::node::accel::DownloadAccelBuffer(context, factor, out.data(),
@@ -100,7 +100,7 @@ FactorReferenceMatches(const rund::AccelContext &context,
   }
   for (std::size_t index = 0u; index < out.size(); ++index) {
     if (out[index] != expected[index]) {
-        return false;
+      return false;
     }
   }
   return true;
@@ -154,7 +154,8 @@ template <typename Value>
       .op = op,
       .layout = rund::kernel::MatrixLayout::RowMajor,
       .output = rund::kernel::FactorOutput::Packed,
-      .pivot = (op == rund::kernel::FactorOp::QR || op == rund::kernel::FactorOp::Cholesky)
+      .pivot = (op == rund::kernel::FactorOp::QR ||
+                op == rund::kernel::FactorOp::Cholesky)
                    ? rund::kernel::PivotOp::None
                    : rund::kernel::PivotOp::Partial,
       .rows = 2u,
@@ -169,13 +170,13 @@ template <typename Value>
                         desc),
   };
   const auto kernel = rund::node::accel::CompileAccelKernel(
-      context,
-      rund::AccelGraph{.nodes = nodes.data(),
-                       .node_count = nodes.size(),
-                       .scalar = scalar,
-                       .domain = rund::kernel::ComputeDomain::Fixed,
-                       .fixed_format = test::FixedFormatForLane(scalar),
-});
+      context, rund::AccelGraph{
+                   .nodes = nodes.data(),
+                   .node_count = nodes.size(),
+                   .scalar = scalar,
+                   .domain = rund::kernel::ComputeDomain::Fixed,
+                   .fixed_format = test::FixedFormatForLane(scalar),
+               });
   if (!kernel.check.ok) {
     return false;
   }
@@ -199,17 +200,18 @@ template <typename Value>
   };
   const auto evidence = rund::node::accel::RunAccelKernel(
       context, kernel,
-      rund::AccelRun{.bindings =
-                         lu ? lu_bindings.data() : no_aux_bindings.data(),
-                     .binding_count = lu ? 4u : 3u,
-                     .tile_count = input.size(),
-                     .fresh_evidence = true,
-});
+      rund::AccelRun{
+          .bindings = lu ? lu_bindings.data() : no_aux_bindings.data(),
+          .binding_count = lu ? 4u : 3u,
+          .tile_count = input.size(),
+          .fresh_evidence = true,
+      });
   std::array<rund::kernel::u32, 1u> status_out{};
   constexpr std::uint64_t expected_dispatches = 1u;
-  if (!evidence.ok || evidence.dispatch_count != expected_dispatches ||
-      evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u ||
+  if (!evidence.outcome.ok ||
+      evidence.run.work.dispatch_count != expected_dispatches ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u ||
       !rund::node::accel::DownloadAccelBuffer(
            context, status, status_out.data(), sizeof(rund::kernel::u32))
            .ok) {
@@ -217,8 +219,8 @@ template <typename Value>
   }
   const bool failed = expected_status != rund::kernel::FactorStatus::Ok;
   if (status_out[0] != static_cast<rund::kernel::u32>(expected_status) ||
-      evidence.failed_batches != (failed ? 1u : 0u) ||
-      (failed && evidence.first_status != status_out[0])) {
+      evidence.outcome.failed_batches != (failed ? 1u : 0u) ||
+      (failed && evidence.outcome.first_status != status_out[0])) {
     return false;
   }
   if (!failed && !FactorOutputMatches(context, factor, op, input)) {
@@ -293,7 +295,8 @@ template <typename Value, std::size_t Rows>
       .op = op,
       .layout = rund::kernel::MatrixLayout::RowMajor,
       .output = rund::kernel::FactorOutput::Packed,
-      .pivot = (op == rund::kernel::FactorOp::QR || op == rund::kernel::FactorOp::Cholesky)
+      .pivot = (op == rund::kernel::FactorOp::QR ||
+                op == rund::kernel::FactorOp::Cholesky)
                    ? rund::kernel::PivotOp::None
                    : rund::kernel::PivotOp::Partial,
       .rows = Rows,
@@ -308,13 +311,13 @@ template <typename Value, std::size_t Rows>
                         desc),
   };
   const auto kernel = rund::node::accel::CompileAccelKernel(
-      context,
-      rund::AccelGraph{.nodes = nodes.data(),
-                       .node_count = nodes.size(),
-                       .scalar = scalar,
-                       .domain = rund::kernel::ComputeDomain::Fixed,
-                       .fixed_format = test::FixedFormatForLane(scalar),
-});
+      context, rund::AccelGraph{
+                   .nodes = nodes.data(),
+                   .node_count = nodes.size(),
+                   .scalar = scalar,
+                   .domain = rund::kernel::ComputeDomain::Fixed,
+                   .fixed_format = test::FixedFormatForLane(scalar),
+               });
   if (!kernel.check.ok) {
     return false;
   }
@@ -338,12 +341,12 @@ template <typename Value, std::size_t Rows>
   };
   const auto evidence = rund::node::accel::RunAccelKernel(
       context, kernel,
-      rund::AccelRun{.bindings =
-                         lu ? lu_bindings.data() : no_aux_bindings.data(),
-                     .binding_count = lu ? 4u : 3u,
-                     .tile_count = Rows,
-                     .fresh_evidence = true,
-});
+      rund::AccelRun{
+          .bindings = lu ? lu_bindings.data() : no_aux_bindings.data(),
+          .binding_count = lu ? 4u : 3u,
+          .tile_count = Rows,
+          .fresh_evidence = true,
+      });
   std::array<rund::kernel::u32, batches> status_out{};
   constexpr std::uint64_t expected_dispatches = 1u;
   const rund::kernel::FactorPlan plan = rund::kernel::PlanFactor(desc);
@@ -352,16 +355,16 @@ template <typename Value, std::size_t Rows>
                          status_out.size() * sizeof(rund::kernel::u32))
                          .ok;
   for (const rund::kernel::u32 value : status_out) {
-    statuses_ok = statuses_ok &&
-                  value == static_cast<rund::kernel::u32>(
-                               rund::kernel::FactorStatus::Ok);
+    statuses_ok = statuses_ok && value == static_cast<rund::kernel::u32>(
+                                              rund::kernel::FactorStatus::Ok);
   }
-  return evidence.ok && evidence.dispatch_count == expected_dispatches &&
-         evidence.host_to_device_bytes == 0u &&
-         evidence.device_to_host_bytes == 0u && evidence.failed_batches == 0u &&
-         statuses_ok && plan.ok &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == expected_dispatches &&
+         evidence.run.transfer.host_to_device_bytes == 0u &&
+         evidence.run.transfer.device_to_host_bytes == 0u &&
+         evidence.outcome.failed_batches == 0u && statuses_ok && plan.ok &&
          FactorReferenceMatches<Value, Rows, batches>(context, factor, input,
-                                                       plan);
+                                                      plan);
 }
 
 } // namespace
@@ -373,39 +376,43 @@ NumericAlgebraRejectsOversizeShape(const rund::AccelDevice &pick) {
     return false;
   }
   const std::array<rund::AccelGraphNode, 1u> factor{
-      rund::AccelFactor(nullptr, 0u,
-                        rund::kernel::FactorDesc{.op = rund::kernel::FactorOp::QR,
-                                         .pivot = rund::kernel::PivotOp::None,
-                                         .rows = 17u,
-                                         .cols = 17u}),
+      rund::AccelFactor(
+          nullptr, 0u,
+          rund::kernel::FactorDesc{.op = rund::kernel::FactorOp::QR,
+                                   .pivot = rund::kernel::PivotOp::None,
+                                   .rows = 17u,
+                                   .cols = 17u}),
   };
   const std::array<rund::AccelGraphNode, 1u> solve{
-      rund::AccelSolve(nullptr, 0u,
-                       rund::kernel::SolveDesc{.op = rund::kernel::SolveOp::Linear,
-                                       .input = rund::kernel::SolveInput::Matrix,
-                                       .factor = rund::kernel::FactorOp::LU,
-                                       .rows = 17u,
-                                       .rhs_cols = 1u}),
+      rund::AccelSolve(
+          nullptr, 0u,
+          rund::kernel::SolveDesc{.op = rund::kernel::SolveOp::Linear,
+                                  .input = rund::kernel::SolveInput::Matrix,
+                                  .factor = rund::kernel::FactorOp::LU,
+                                  .rows = 17u,
+                                  .rhs_cols = 1u}),
   };
   const std::array<rund::AccelGraphNode, 1u> spectrum{
       rund::AccelSpectrum(
           nullptr, 0u,
-          rund::kernel::SpectrumDesc{.op = rund::kernel::SpectrumOp::Eigen,
-                             .domain = rund::kernel::SpectrumDomain::SymmetricReal,
-                             .vectors = rund::kernel::SpectrumVectors::ValuesOnly,
-                             .rows = 17u,
-                             .cols = 17u,
-                             .max_iterations = 32u}),
+          rund::kernel::SpectrumDesc{
+              .op = rund::kernel::SpectrumOp::Eigen,
+              .domain = rund::kernel::SpectrumDomain::SymmetricReal,
+              .vectors = rund::kernel::SpectrumVectors::ValuesOnly,
+              .rows = 17u,
+              .cols = 17u,
+              .max_iterations = 32u}),
   };
   const auto rejects = [&](const auto &nodes) {
     const auto kernel = rund::node::accel::CompileAccelKernel(
-        context, rund::AccelGraph{.nodes = nodes.data(),
-                                  .node_count = nodes.size(),
-                                  .scalar = rund::kernel::ComputeScalar::Lane32,
-                                  .domain = rund::kernel::ComputeDomain::Fixed,
-                                  .fixed_format = test::FixedFormatForLane(
-                                      rund::kernel::ComputeScalar::Lane32),
-});
+        context, rund::AccelGraph{
+                     .nodes = nodes.data(),
+                     .node_count = nodes.size(),
+                     .scalar = rund::kernel::ComputeScalar::Lane32,
+                     .domain = rund::kernel::ComputeDomain::Fixed,
+                     .fixed_format = test::FixedFormatForLane(
+                         rund::kernel::ComputeScalar::Lane32),
+                 });
     return !kernel.check.ok && std::string_view{kernel.check.reason} ==
                                    "accel_kernel_graph_invalid";
   };
@@ -419,8 +426,10 @@ NumericAlgebraRejectsOversizeShape(const rund::AccelDevice &pick) {
          RunFactor(pick, rund::kernel::FactorOp::QR,
                    std::array<rund::kernel::i32, 4u>{kOne, 0, 0, kOne},
                    rund::kernel::FactorStatus::Ok) &&
-         RunFactorDense<rund::kernel::i32, 9u>(pick, rund::kernel::FactorOp::LU) &&
-         RunFactorDense<rund::kernel::i32, 9u>(pick, rund::kernel::FactorOp::QR) &&
+         RunFactorDense<rund::kernel::i32, 9u>(pick,
+                                               rund::kernel::FactorOp::LU) &&
+         RunFactorDense<rund::kernel::i32, 9u>(pick,
+                                               rund::kernel::FactorOp::QR) &&
          RunFactorDense<rund::kernel::i32, 9u>(
              pick, rund::kernel::FactorOp::Cholesky) &&
          RunFactor(pick, rund::kernel::FactorOp::Cholesky,
@@ -435,8 +444,10 @@ NumericAlgebraRejectsOversizeShape(const rund::AccelDevice &pick) {
          RunFactor(pick, rund::kernel::FactorOp::QR,
                    std::array<rund::kernel::i64, 4u>{kWideOne, 0, 0, kWideOne},
                    rund::kernel::FactorStatus::Ok) &&
-         RunFactorDense<rund::kernel::i64, 9u>(pick, rund::kernel::FactorOp::LU) &&
-         RunFactorDense<rund::kernel::i64, 9u>(pick, rund::kernel::FactorOp::QR) &&
+         RunFactorDense<rund::kernel::i64, 9u>(pick,
+                                               rund::kernel::FactorOp::LU) &&
+         RunFactorDense<rund::kernel::i64, 9u>(pick,
+                                               rund::kernel::FactorOp::QR) &&
          RunFactorDense<rund::kernel::i64, 9u>(
              pick, rund::kernel::FactorOp::Cholesky) &&
          RunFactor(pick, rund::kernel::FactorOp::Cholesky,

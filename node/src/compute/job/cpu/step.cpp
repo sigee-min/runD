@@ -183,8 +183,7 @@ Status prepare_graph_step(JobState &job,
       if (!count) {
         return count;
       }
-    } else if (input_view.count >
-               std::numeric_limits<kernel::u32>::max()) {
+    } else if (input_view.count > std::numeric_limits<kernel::u32>::max()) {
       return Status::fail(Reason::TileRunCapacity);
     } else {
       logical = static_cast<kernel::u32>(input_view.count);
@@ -272,7 +271,8 @@ Status prepare_graph_step(JobState &job,
   return Status::success();
 }
 
-Status initialize_cpu_run(JobState &job) noexcept {
+Status initialize_cpu_run(JobState &job,
+                          const bool trace_kernel_dispatches) noexcept {
   if (job.program == nullptr || job.program->cpu_graph == nullptr ||
       job.program->cpu_graph->runtime == nullptr || job.cpu == nullptr ||
       job.cpu->graph == nullptr || job.inputs.empty() || job.outputs.empty()) {
@@ -287,6 +287,9 @@ Status initialize_cpu_run(JobState &job) noexcept {
   job.cpu->step = 0u;
   job.cpu->reset = 0u;
   job.cpu->pass = CpuPass::None;
+  job.cpu->trace_dispatch_started_ns = 0u;
+  job.cpu->trace_dispatch_active = false;
+  job.cpu->trace_kernel_dispatches = trace_kernel_dispatches;
   job.cpu->pending_dispatches = 0u;
   job.cpu->controlled_count = 0u;
   job.cpu->controlled_count_valid = false;
@@ -318,9 +321,9 @@ next_cpu(JobState &job, const std::atomic_bool *const cancel) noexcept {
 
 } // namespace
 
-CpuStepProgress start_cpu(JobState &job,
-                          const std::atomic_bool *const cancel) noexcept {
-  const Status initialized = initialize_cpu_run(job);
+CpuStepProgress start_cpu(JobState &job, const std::atomic_bool *const cancel,
+                          const bool trace_kernel_dispatches) noexcept {
+  const Status initialized = initialize_cpu_run(job, trace_kernel_dispatches);
   return initialized ? next_cpu(job, cancel)
                      : CpuStepProgress::failed(initialized);
 }

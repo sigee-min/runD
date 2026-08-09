@@ -1,12 +1,12 @@
 #pragma once
 
-#include "../../array.hpp"
 #include "../../accel/kernel/memory.hpp"
+#include "../../array.hpp"
 #include "../device/state.hpp"
 
 #include <kernel/program/compute/retention.hpp>
-#include <rund/counter.hpp>
 #include <rund/compute/stats.hpp>
+#include <rund/counter.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -15,6 +15,12 @@
 #include <vector>
 
 namespace rund::compute::detail {
+
+struct JobState;
+
+// Caller holds JobState::gate. The memory owner performs the projection while
+// the Profile owner decides the observation epoch and public result.
+[[nodiscard]] MemoryStats job_memory_locked(const JobState &state) noexcept;
 
 [[nodiscard]] inline MemoryCounter
 fixed_memory(const std::uint64_t bytes,
@@ -27,13 +33,20 @@ fixed_memory(const std::uint64_t bytes,
 }
 
 [[nodiscard]] inline MemoryCounter
-meter_memory(const MemoryMeter &meter) noexcept {
+allocation_meter_memory(const AllocationMeter &meter) noexcept {
   return MemoryCounter{
-      .current = meter.current.load(std::memory_order_relaxed),
-      .peak = meter.peak.load(std::memory_order_relaxed),
-      .cumulative = meter.cumulative.load(std::memory_order_relaxed),
-      .reused = meter.reused.load(std::memory_order_relaxed),
-      .budget = meter.budget.load(std::memory_order_relaxed),
+      .current = meter.current,
+      .peak = meter.peak,
+      .cumulative = meter.cumulative,
+      .reused = meter.reused,
+  };
+}
+
+[[nodiscard]] inline MemoryCounter
+traffic_meter_memory(const TrafficMeter &meter) noexcept {
+  return MemoryCounter{
+      .peak = meter.peak,
+      .cumulative = meter.cumulative,
   };
 }
 
@@ -67,8 +80,8 @@ vector_memory(const std::vector<T> &values) noexcept {
 }
 
 template <class T>
-[[nodiscard]] inline std::uint64_t vector_memory(
-    const ::rund::node::detail::PreparedArray<T> &values) noexcept {
+[[nodiscard]] inline std::uint64_t
+vector_memory(const ::rund::node::detail::PreparedArray<T> &values) noexcept {
   return values.owned_bytes();
 }
 
@@ -120,13 +133,6 @@ measure_buffers(const Ranges &...ranges) noexcept {
 [[nodiscard]] inline Backend
 memory_backend(const DeviceState &device) noexcept {
   return device.backend;
-}
-
-[[nodiscard]] inline std::uint64_t
-device_budget(const std::shared_ptr<DeviceState> &device) noexcept {
-  const AccelDeviceState *const accel =
-      device == nullptr ? nullptr : accel_device(*device);
-  return accel == nullptr ? 0u : accel->pick.caps.device_bytes;
 }
 
 inline void set_physical(MemoryStats &stats, const std::uint64_t bytes,

@@ -44,7 +44,7 @@ rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
                              rund::RuntimeStats *const stats) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   if (stats != nullptr) {
-    *stats = rund::RuntimeStats{.ok = true, .reason = "ok"};
+    *stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
   }
   id<MTLCommandBuffer> command = (__bridge id<MTLCommandBuffer>)command_buffer;
   if (command == nil) {
@@ -59,8 +59,8 @@ rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
   const std::uint64_t submit_wait_ns = MonotonicNanoseconds() - submit_begin;
   RecordMetalCommandSubmitWaitNs(adapter, submit_wait_ns);
   if (stats != nullptr) {
-    stats->command_submit_count = 1u;
-    stats->command_submit_wait_ns = submit_wait_ns;
+    stats->run.work.command_submit_count = 1u;
+    stats->run.time.command_submit_wait_ns = submit_wait_ns;
   }
   if (force_device_lost) {
     SetMetalLastError(adapter, "compute_device_lost");
@@ -75,9 +75,10 @@ rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
   const std::uint64_t kernel_ns = RecordMetalComputeKernelSeconds(
       adapter, [command GPUStartTime], [command GPUEndTime]);
   if (stats != nullptr && kernel_ns != 0u) {
-    stats->accel_kernel_ns = kernel_ns;
-    stats->accel_timestamp_count = 1u;
-    stats->accel_timestamp_source = "metal_command_buffer_compute_time";
+    stats->run.time.accel_kernel_ns = kernel_ns;
+    stats->run.time.accel_timestamp_count = 1u;
+    stats->run.time.accel_timestamp_source =
+        "metal_command_buffer_compute_time";
   }
   return rund::AccelCheck{true, "ok"};
 #else
@@ -90,7 +91,8 @@ rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
 
 rund::AccelCheck QueueCommand(MetalAdapter &adapter, void *const command_buffer,
                               const KernelCompletion completion,
-                              void *const user) noexcept {
+                              void *const user,
+                              const bool collect_timestamp) noexcept {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   id<MTLCommandBuffer> command = (__bridge id<MTLCommandBuffer>)command_buffer;
   if (command == nil || completion == nullptr) {
@@ -100,15 +102,21 @@ rund::AccelCheck QueueCommand(MetalAdapter &adapter, void *const command_buffer,
   MetalAdapter *const target = &adapter;
   const bool force_device_lost =
       adapter.fault_device_lost_once.exchange(false, std::memory_order_relaxed);
-  const std::uint64_t submit_begin = MonotonicNanoseconds();
+  const std::uint64_t submit_begin =
+      collect_timestamp ? MonotonicNanoseconds() : 0u;
   [command addCompletedHandler:^(id<MTLCommandBuffer> finished) {
-    const std::uint64_t submit_wait_ns = MonotonicNanoseconds() - submit_begin;
-    RecordMetalCommandSubmitWaitNs(*target, submit_wait_ns);
+    const std::uint64_t submit_wait_ns =
+        collect_timestamp ? MonotonicNanoseconds() - submit_begin : 0u;
+    if (collect_timestamp) {
+      RecordMetalCommandSubmitWaitNs(*target, submit_wait_ns);
+    }
     rund::RuntimeStats stats{
-        .command_submit_count = 1u,
-        .command_submit_wait_ns = submit_wait_ns,
-        .ok = true,
-        .reason = "ok",
+        .run =
+            {
+                .work = {.command_submit_count = 1u},
+                .time = {.command_submit_wait_ns = submit_wait_ns},
+            },
+        .outcome = {.ok = true, .reason = "ok"},
     };
     if (force_device_lost) {
       SetMetalLastError(*target, "compute_device_lost");
@@ -129,11 +137,14 @@ rund::AccelCheck QueueCommand(MetalAdapter &adapter, void *const command_buffer,
                        });
       return;
     }
-    stats.accel_kernel_ns = RecordMetalComputeKernelSeconds(
-        *target, [finished GPUStartTime], [finished GPUEndTime]);
-    if (stats.accel_kernel_ns != 0u) {
-      stats.accel_timestamp_count = 1u;
-      stats.accel_timestamp_source = "metal_command_buffer_compute_time";
+    if (collect_timestamp) {
+      stats.run.time.accel_kernel_ns = RecordMetalComputeKernelSeconds(
+          *target, [finished GPUStartTime], [finished GPUEndTime]);
+      if (stats.run.time.accel_kernel_ns != 0u) {
+        stats.run.time.accel_timestamp_count = 1u;
+        stats.run.time.accel_timestamp_source =
+            "metal_command_buffer_compute_time";
+      }
     }
     completion(user, KernelResult{
                          .check = rund::AccelCheck{true, "ok"},
@@ -147,6 +158,7 @@ rund::AccelCheck QueueCommand(MetalAdapter &adapter, void *const command_buffer,
   (void)command_buffer;
   (void)completion;
   (void)user;
+  (void)collect_timestamp;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
 }

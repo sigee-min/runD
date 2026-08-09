@@ -25,9 +25,7 @@ void TaskRetirement::publish() noexcept {
   phase_ = TaskRetirementPhase::Retired;
 }
 
-void TaskRetirement::reset() noexcept {
-  phase_ = TaskRetirementPhase::Live;
-}
+void TaskRetirement::reset() noexcept { phase_ = TaskRetirementPhase::Live; }
 
 } // namespace rund::node::compute_detail
 
@@ -53,23 +51,22 @@ struct BackendAwaiter final {
 [[nodiscard]] runtime_detail::ComputeHostState *
 BeginCoordinator(compute_detail::TaskState *const task) noexcept {
   if (task->cancel_requested.load(std::memory_order_acquire)) {
-    const compute::Status status = FinishOperation(
-        *task, compute::Status::fail(compute::Reason::Cancelled));
-    Complete(task, status, OperationEvidence(task->operation));
+    Complete(task, FinishOperation(*task, compute::Status::fail(
+                                              compute::Reason::Cancelled)));
     return nullptr;
   }
   runtime_detail::ComputeHostState *const host = task->host;
   if (host == nullptr) {
-    const compute::Status status = FinishOperation(
-        *task, compute::Status::fail(compute::Reason::RuntimeMissing));
-    Complete(task, status, OperationEvidence(task->operation));
+    Complete(task,
+             FinishOperation(*task, compute::Status::fail(
+                                        compute::Reason::RuntimeMissing)));
     return nullptr;
   }
   Signal(host, ::rund::TraceEvent::ComputeDispatchStarted);
   if (!host->scheduler.CurrentHandle()) {
-    const compute::Status failure = FinishOperation(
-        *task, compute::Status::fail(compute::Reason::CompletionInvalid));
-    Complete(task, failure, OperationEvidence(task->operation));
+    Complete(task,
+             FinishOperation(*task, compute::Status::fail(
+                                        compute::Reason::CompletionInvalid)));
     return nullptr;
   }
   return host;
@@ -84,9 +81,7 @@ task::Task<void> RunCpuCoordinator(compute_detail::TaskState *const task) {
       task->operation.table->submit_cpu(task->operation, *task);
   switch (submitted.disposition()) {
   case compute_detail::DispatchDisposition::Failed: {
-    const compute::Status status =
-        compute_detail::FinishFailure(*task, submitted.status());
-    Complete(task, status, OperationEvidence(task->operation));
+    Complete(task, compute_detail::FinishFailure(*task, submitted.status()));
     co_return;
   }
   case compute_detail::DispatchDisposition::AcceptedNoBackend:
@@ -104,9 +99,7 @@ task::Task<void> RunCpuCoordinator(compute_detail::TaskState *const task) {
         task->operation.table->advance_cpu(task->operation, *task);
     switch (progress.disposition()) {
     case compute_detail::AdvanceDisposition::Failed: {
-      const compute::Status status =
-          compute_detail::FinishFailure(*task, progress.status());
-      Complete(task, status, OperationEvidence(task->operation));
+      Complete(task, compute_detail::FinishFailure(*task, progress.status()));
       co_return;
     }
     case compute_detail::AdvanceDisposition::Pending:
@@ -119,8 +112,7 @@ task::Task<void> RunCpuCoordinator(compute_detail::TaskState *const task) {
     case compute_detail::AdvanceDisposition::Complete:
       break;
     }
-    const compute::Status status = compute_detail::FinishCpu(*task);
-    Complete(task, status, OperationEvidence(task->operation));
+    Complete(task, compute_detail::FinishCpu(*task));
     co_return;
   }
 }
@@ -134,9 +126,7 @@ task::Task<void> RunAccelCoordinator(compute_detail::TaskState *const task) {
       task->operation.table->submit_accel(task->operation, *task);
   switch (submitted.disposition()) {
   case compute_detail::DispatchDisposition::Failed: {
-    const compute::Status status =
-        compute_detail::FinishFailure(*task, submitted.status());
-    Complete(task, status, OperationEvidence(task->operation));
+    Complete(task, compute_detail::FinishFailure(*task, submitted.status()));
     co_return;
   }
   case compute_detail::DispatchDisposition::AcceptedNoBackend:
@@ -148,8 +138,7 @@ task::Task<void> RunAccelCoordinator(compute_detail::TaskState *const task) {
     break;
   }
   co_await BackendAwaiter{task};
-  const compute::Status status = compute_detail::FinishAccel(*task);
-  Complete(task, status, OperationEvidence(task->operation));
+  Complete(task, compute_detail::FinishAccel(*task));
   co_return;
 }
 
@@ -212,8 +201,7 @@ void Retire(const std::shared_ptr<runtime_detail::ComputeHostState> &host,
       return;
     }
     if (claim == compute_detail::TaskRetirementClaim::Wait) {
-      task->retired_cv.wait(lock,
-                            [&] { return task->retirement.retired(); });
+      task->retired_cv.wait(lock, [&] { return task->retirement.retired(); });
       return;
     }
   }

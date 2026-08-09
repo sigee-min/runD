@@ -6,6 +6,7 @@
 #include "../type.hpp"
 #include "claim.hpp"
 #include "state.hpp"
+#include "transfer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -137,22 +138,7 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
       const DownloadResult transfer = state->device->ops->download(
           *state->device, *observed_buffer, data, bytes);
       result = transfer.status;
-      state->read_staging_bytes = ::rund::detail::counter::SaturatingAdd(
-          state->read_staging_bytes, transfer.staging_bytes);
-      state->read_staging_reused = ::rund::detail::counter::SaturatingAdd(
-          state->read_staging_reused, transfer.staging_reused_bytes);
-      state->read_staging_peak =
-          std::max(state->read_staging_peak, transfer.staging_peak_bytes);
-      state->read_staging_budget =
-          std::max(state->read_staging_budget, transfer.staging_budget);
-      ::rund::detail::counter::Accumulate(state->stats.buffer_allocations,
-                                          transfer.buffer_allocations);
-      ::rund::detail::counter::Accumulate(state->stats.buffer_reuses,
-                                          transfer.buffer_reuses);
-      ::rund::detail::counter::Accumulate(state->stats.command_submits,
-                                          transfer.command_submits);
-      ::rund::detail::counter::Accumulate(state->stats.readback_ns,
-                                          transfer.readback_ns);
+      record_pipeline_download(*state, bytes, transfer);
       if (result && !transfer.payload_hash_valid) {
         result = Status::fail(Reason::TransferInvalid);
       }
@@ -162,6 +148,9 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
     }
   }
   if (result) {
+    if (bytes != 0u && state->samples != PipelineState::SampleState::Inactive) {
+      state->samples = PipelineState::SampleState::Dirty;
+    }
     output.hash = leaf_hash;
     bool completed = false;
     // A successful run opens one canonical observation epoch by setting the
@@ -174,13 +163,13 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
       completed = --state->unobserved_outputs == 0u;
     }
     if (bytes != 0u) {
-      ::rund::detail::counter::Accumulate(state->stats.download_events, 1u);
-      ::rund::detail::counter::Accumulate(state->stats.downloaded_bytes, bytes);
-      state->read_transfer_bytes = ::rund::detail::counter::SaturatingAdd(
-          state->read_transfer_bytes, bytes);
-      state->read_transfer_peak =
-          std::max<std::uint64_t>(state->read_transfer_peak, bytes);
-      record_transfer(*state->device, bytes);
+      if (state->device->backend == Backend::Cpu) {
+        ::rund::detail::counter::Accumulate(state->stats.download_events, 1u);
+        ::rund::detail::counter::Accumulate(state->stats.downloaded_bytes,
+                                            bytes);
+        record_pipeline_transfer(*state, bytes);
+        record_transfer(*state->device, bytes);
+      }
     }
     if (completed) {
       std::uint64_t hash = ::rund::node::hash_detail::kFnvOffset;

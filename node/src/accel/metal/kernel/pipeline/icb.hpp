@@ -2,6 +2,8 @@
 
 #include <accel/check.hpp>
 
+#include "../trace.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -231,6 +233,49 @@ EncodeMetalPipelineIcbChunks(id<MTLComputeCommandEncoder> const encoder,
   }
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   return rund::AccelCheck{true, "ok"};
+}
+
+[[nodiscard]] inline rund::AccelCheck
+EncodeMetalPipelineIcbTrace(id<MTLComputeCommandEncoder> const encoder,
+                            const MetalIcbChunk *const chunks,
+                            const NSUInteger chunk_count,
+                            const std::span<const std::uint64_t> trace_commands,
+                            MetalDispatchTrace &trace) noexcept {
+  if (encoder == nil || chunks == nullptr || chunk_count == 0u ||
+      trace_commands.empty() || !trace.available()) {
+    return rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
+  }
+  std::uint64_t global_command = 0u;
+  std::size_t trace_index = 0u;
+  for (NSUInteger chunk_index = 0u; chunk_index < chunk_count; ++chunk_index) {
+    const MetalIcbChunk &chunk = chunks[chunk_index];
+    if (!chunk.valid() || (chunk_index == 0u && chunk.barrier_before())) {
+      trace.failed = true;
+      return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
+    }
+    if (chunk.barrier_before()) {
+      [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    }
+    for (NSUInteger command = 0u; command < chunk.command_count; ++command) {
+      const bool sampled = trace_index < trace_commands.size() &&
+                           trace_commands[trace_index] == global_command;
+      if (sampled) {
+        SampleMetalDispatchTrace(encoder, trace);
+      }
+      [encoder executeCommandsInBuffer:chunk.commands
+                             withRange:NSMakeRange(command, 1u)];
+      if (sampled) {
+        SampleMetalDispatchTrace(encoder, trace);
+        ++trace_index;
+      }
+      ++global_command;
+    }
+  }
+  [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+  return trace.failed || trace.cursor != trace.sample_count ||
+                 trace_index != trace_commands.size()
+             ? rund::AccelCheck{false, "compute_telemetry_trace_unavailable"}
+             : rund::AccelCheck{true, "ok"};
 }
 
 #endif

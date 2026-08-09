@@ -1,5 +1,7 @@
 #pragma once
 
+#include <rund/counter.hpp>
+
 #include <sys/resource.h>
 
 #if defined(__APPLE__)
@@ -99,11 +101,10 @@ static_assert(WithinAdditionalResidentBytes(100u, 110u, 200u, 200u, 10u));
 static_assert(WithinAdditionalResidentBytes(100u, 105u, 110u, 120u, 20u));
 static_assert(!WithinAdditionalResidentBytes(100u, 121u, 110u, 120u, 20u));
 static_assert(!WithinAdditionalResidentBytes(100u, 105u, 110u, 121u, 20u));
-
-[[nodiscard]] constexpr std::uint64_t
-NonnegativeDelta(const std::uint64_t after,
-                 const std::uint64_t before) noexcept {
-  return after >= before ? after - before : 0u;
-}
+static_assert(::rund::detail::counter::Delta(7u, 7u) == 0u);
+static_assert(
+    ::rund::detail::counter::Delta(std::numeric_limits<std::uint64_t>::max(),
+                                   std::numeric_limits<std::uint64_t>::max()) ==
+    std::numeric_limits<std::uint64_t>::max());
 
 } // namespace rund::measure::compute

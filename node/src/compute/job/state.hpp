@@ -18,6 +18,7 @@
 
 namespace rund::compute::detail {
 
+class TerminalObservation;
 struct JobState;
 using JobCompletion = void (*)(void *, Result<RunState>) noexcept;
 
@@ -239,16 +240,27 @@ run_job_accel(const std::shared_ptr<JobState> &state);
 [[nodiscard]] Result<RunState>
 finish_job_accel(const std::shared_ptr<JobState> &state,
                  const rund::AccelEvidence &evidence);
-[[nodiscard]] Status submit_job_accel(const std::shared_ptr<JobState> &state,
-                                      std::shared_ptr<void> lifetime,
-                                      JobCompletion completion,
-                                      void *user) noexcept;
+[[nodiscard]] Status
+submit_job_accel(const std::shared_ptr<JobState> &state,
+                 std::shared_ptr<void> lifetime, JobCompletion completion,
+                 void *user, node::accel::detail::KernelTiming timing) noexcept;
 [[nodiscard]] Status finish_job(const std::shared_ptr<JobState> &state,
                                 Result<RunState> result);
+[[nodiscard]] TerminalObservation
+finish_job_terminal(const std::shared_ptr<JobState> &state,
+                    Result<RunState> result, std::uint64_t frame_bytes,
+                    bool capture_profile);
 [[nodiscard]] Status queue_job(const std::shared_ptr<JobState> &state);
 [[nodiscard]] Status cancel_job(const std::shared_ptr<JobState> &state);
+[[nodiscard]] TerminalObservation
+cancel_job_terminal(const std::shared_ptr<JobState> &state,
+                    std::uint64_t frame_bytes, bool capture_profile) noexcept;
 [[nodiscard]] Status fail_job(const std::shared_ptr<JobState> &state,
                               Status failure);
+[[nodiscard]] TerminalObservation
+fail_job_terminal(const std::shared_ptr<JobState> &state, Status failure,
+                  std::uint64_t frame_bytes, bool capture_profile);
+[[nodiscard]] Stats job_stats_locked(const JobState &state) noexcept;
 void record_job_frame(const std::shared_ptr<JobState> &state,
                       std::uint64_t bytes, bool reused,
                       std::uint64_t budget) noexcept;

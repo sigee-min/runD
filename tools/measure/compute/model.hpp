@@ -63,6 +63,7 @@ struct WarmCounters final {
   std::uint64_t descriptor_pool_creations = 0u;
   std::uint64_t descriptor_set_allocations = 0u;
   std::uint64_t uploaded_bytes = 0u;
+  std::uint64_t host_write_bytes = 0u;
   std::uint64_t download_events = 0u;
   std::uint64_t downloaded_bytes = 0u;
   std::uint64_t internal_roundtrip_bytes = 0u;
@@ -79,6 +80,7 @@ struct WarmCounters final {
                     stats.descriptor_pool_creations;
                     stats.descriptor_set_allocations;
                     stats.downloaded_bytes;
+                    stats.host_write_bytes;
                     stats.internal_roundtrip_bytes;
                     stats.external_roundtrip_bytes;
                   }) {
@@ -88,6 +90,8 @@ struct WarmCounters final {
                                           stats.descriptor_set_allocations);
       ::rund::detail::counter::Accumulate(downloaded_bytes,
                                           stats.downloaded_bytes);
+      ::rund::detail::counter::Accumulate(host_write_bytes,
+                                          stats.host_write_bytes);
       ::rund::detail::counter::Accumulate(internal_roundtrip_bytes,
                                           stats.internal_roundtrip_bytes);
       ::rund::detail::counter::Accumulate(external_roundtrip_bytes,
@@ -99,7 +103,8 @@ struct WarmCounters final {
     return pipeline_compiles == 0u && buffer_allocations == 0u &&
            descriptor_pool_creations == 0u &&
            descriptor_set_allocations == 0u && uploaded_bytes == 0u &&
-           download_events == 0u && downloaded_bytes == 0u;
+           host_write_bytes == 0u && download_events == 0u &&
+           downloaded_bytes == 0u;
   }
 };
 

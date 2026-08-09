@@ -1,5 +1,7 @@
 #include "state.hpp"
 
+#include "prepare/record.hpp"
+
 #include "../../command/resources.hpp"
 
 namespace rund::node::accel::detail {
@@ -15,10 +17,12 @@ VulkanPipeline::~VulkanPipeline() {
     (void)vkWaitForFences(adapter->device, 1u, &command.fence, VK_TRUE,
                           UINT64_MAX);
   }
-  if (profile != nullptr && profile->timestamps != VK_NULL_HANDLE) {
-    vkDestroyQueryPool(adapter->device, profile->timestamps, nullptr);
-    profile->timestamps = VK_NULL_HANDLE;
+  if (trace.queries != VK_NULL_HANDLE) {
+    vkDestroyQueryPool(adapter->device, trace.queries, nullptr);
+    trace.queries = VK_NULL_HANDLE;
   }
+  DestroyCommand(adapter->device, trace.command);
+  record.reset();
   recurrence.reset();
   transducers.clear();
   DestroyVulkanWindow(window);
@@ -32,12 +36,13 @@ rund::AccelCheck FailVulkanPipeline(std::shared_ptr<VulkanPipeline> &pipeline,
   DestroyVulkanWindow(pipeline->window);
   DestroyVulkanPipelinePublish(pipeline->publish);
   DestroyVulkanPipelineControl(pipeline->control);
-  if (pipeline->profile != nullptr &&
-      pipeline->profile->timestamps != VK_NULL_HANDLE) {
-    vkDestroyQueryPool(pipeline->adapter->device, pipeline->profile->timestamps,
+  if (pipeline->trace.queries != VK_NULL_HANDLE) {
+    vkDestroyQueryPool(pipeline->adapter->device, pipeline->trace.queries,
                        nullptr);
-    pipeline->profile->timestamps = VK_NULL_HANDLE;
+    pipeline->trace.queries = VK_NULL_HANDLE;
   }
+  DestroyCommand(pipeline->adapter->device, pipeline->trace.command);
+  pipeline->record.reset();
   DestroyCommand(pipeline->adapter->device, pipeline->command);
   pipeline->adapter = nullptr;
   pipeline.reset();

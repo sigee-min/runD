@@ -12,6 +12,8 @@
 #include "src/compute/pipeline/state.hpp"
 #include "src/compute/status.hpp"
 
+#include <rund/counter.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <limits>
@@ -163,7 +165,10 @@ namespace rund_node_test_pipeline {
         prepared_memory.tile.current != plan->prepared_tile_bytes ||
         prepared_memory.host.current + prepared_memory.tile.current >
             plan->peak_bytes)) ||
-      prepared_memory.resident.current > plan->peak_bytes) {
+      prepared_memory.resident.current > plan->peak_bytes ||
+      prepared_memory.transfer.current != 0u ||
+      prepared_memory.transfer.reused != 0u ||
+      prepared_memory.transfer.budget != 0u) {
     std::fprintf(
         stderr,
         "prepared memory backend=%u resident=%llu/%llu host=%llu/%llu "
@@ -178,6 +183,28 @@ namespace rund_node_test_pipeline {
         static_cast<unsigned long long>(plan->prepared_native_bytes),
         static_cast<unsigned long long>(plan->peak_bytes));
     return 19;
+  }
+  constexpr std::array<std::int32_t, 4u> rewritten_first{1, 2, 3, 4};
+  WriteStats pipeline_writes{};
+  const MemoryStats before_write = prepared->memory();
+  const Status pipeline_write = detail::write_pipeline_raw(
+      state, detail::BufferAccess::state(*first_source),
+      detail::HostView{rewritten_first.data(), rewritten_first.size(),
+                       detail::type<std::int32_t>()},
+      pipeline_writes);
+  const MemoryStats after_write = prepared->memory();
+  constexpr std::uint64_t pipeline_write_bytes =
+      rewritten_first.size() * sizeof(std::int32_t);
+  if (!pipeline_write || pipeline_writes.bytes != pipeline_write_bytes ||
+      after_write.transfer.current != 0u ||
+      after_write.transfer.peak !=
+          std::max(before_write.transfer.peak, pipeline_write_bytes) ||
+      after_write.transfer.cumulative !=
+          ::rund::detail::counter::SaturatingAdd(
+              before_write.transfer.cumulative, pipeline_write_bytes) ||
+      after_write.transfer.reused != 0u || after_write.transfer.budget != 0u ||
+      after_write.resident.current != before_write.resident.current) {
+    return 29;
   }
   const auto &first_arena = state->steps[0u].job->workspace->arena;
   const auto &second_arena = state->steps[1u].job->workspace->arena;
@@ -237,6 +264,33 @@ namespace rund_node_test_pipeline {
       first_observed != std::array<std::int32_t, 4u>{3, 10, 23, 44} ||
       second_observed != std::array<std::int32_t, 4u>{6, 18, 38, 68}) {
     return 5;
+  }
+  const MemoryStats observed_memory = prepared->memory();
+  std::array<MemoryEntry, 32u> observed_entries{};
+  const MemorySnapshot observed_snapshot =
+      prepared->memory_snapshot(observed_entries);
+  std::size_t traffic_rows = 0u;
+  bool traffic_exact = true;
+  for (std::size_t index = 0u; index < observed_snapshot.written; ++index) {
+    const MemoryEntry &entry = observed_entries[index];
+    if (entry.category != MemoryCategory::Transfer ||
+        entry.use != MemoryUse::Traffic) {
+      continue;
+    }
+    ++traffic_rows;
+    traffic_exact =
+        traffic_exact && entry.bytes.current == 0u &&
+        entry.bytes.peak == observed_memory.transfer.peak &&
+        entry.bytes.cumulative == observed_memory.transfer.cumulative &&
+        entry.bytes.reused == 0u && entry.bytes.budget == 0u;
+  }
+  const bool has_traffic = observed_memory.transfer.peak != 0u ||
+                           observed_memory.transfer.cumulative != 0u;
+  if (observed_snapshot.truncated() || observed_memory.transfer.current != 0u ||
+      observed_memory.transfer.reused != 0u ||
+      observed_memory.transfer.budget != 0u || !traffic_exact ||
+      traffic_rows != (has_traffic ? 1u : 0u)) {
+    return 28;
   }
 
   // Scatter is a partial writer, so its internal exact-capacity result owns an
@@ -348,7 +402,7 @@ namespace rund_node_test_pipeline {
         sizeof(detail::CpuPreparedArena) + cpu_arena->payload_host_bytes();
     for (const std::shared_ptr<detail::CpuGraphStorage> &storage :
          reset_state->cpu_storage) {
-      const detail::CpuRetainedMemory memory =
+      const detail::CpuStorageBytes memory =
           detail::cpu_graph_storage_private_memory(storage.get());
       if (memory.host >
           std::numeric_limits<std::uint64_t>::max() - shared_cpu_host) {

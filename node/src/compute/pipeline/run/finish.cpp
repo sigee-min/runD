@@ -25,6 +25,8 @@ namespace {
 void reset_pipeline_stats(PipelineState &state) noexcept {
   const std::uint64_t conflicts = state.stats.pipeline.claim_conflict_count;
   const std::uint64_t barriers = state.stats.pipeline.barrier_count;
+  const std::uint32_t sampled_runs = state.stats.pipeline.sampled_runs;
+  const std::uint32_t clean_runs = state.stats.pipeline.clean_runs;
   const PublicationStats publication = state.stats.publication;
   state.stats = Stats{.backend = state.device->backend,
                       .graph_hash = state.publication->fingerprint.lo};
@@ -38,10 +40,8 @@ void reset_pipeline_stats(PipelineState &state) noexcept {
       .status_entry_count = state.status_entry_count,
       .prepared_template_count = state.plan.prepared_template_count,
       .prepared_command_count = state.plan.prepared_command_count,
-      // Binding owners and descriptors are sealed by prepare(). There is no
-      // warm mutation operation to count; contract tests compare their exact
-      // identities across runs instead of scanning them here.
-      .rebinding_count = 0u,
+      .sampled_runs = sampled_runs,
+      .clean_runs = clean_runs,
   };
   state.stats.publication = publication;
 }
@@ -80,9 +80,15 @@ PipelineOutcome finish_accel_pipeline(
   }
   result.submitted = evidence.submitted || state.backend_submitted ||
                      stats.command_submits != 0u;
-  if (result.submitted && stats.command_submits != 1u) {
+  const std::uint64_t expected_submits =
+      state.dispatch_timing && state.device->backend == Backend::Metal ? 2u
+                                                                       : 1u;
+  const bool submit_count_valid =
+      result.status ? stats.command_submits == expected_submits
+                    : stats.command_submits != 0u &&
+                          stats.command_submits <= expected_submits;
+  if (result.submitted && !submit_count_valid) {
     result.status = Status::fail(Reason::CompletionInvalid);
-    stats.command_submits = 1u;
   } else if (!result.submitted && stats.command_submits != 0u) {
     result.status = Status::fail(Reason::CompletionInvalid);
   }

@@ -71,13 +71,22 @@ in `B` rather than being hidden by an allowance.
 
 Each Compute Product row measures one public `Flow` compiled into one prepared
 `Pipeline`. A cold row starts before authoring and ends after the first terminal
-result read. A warm row records sixty consecutive `Pipeline::run()` samples
+result read. The read-completion timestamp precedes the terminal Profile
+projection, so evidence validation cannot inflate first-result latency. A warm
+row records sixty consecutive `Pipeline::run()` samples
 after one fixed sixty-run conditioning block and performs one terminal read
 after the samples. The conditioning block is untimed and occurs once per warm
 shape or bounded-count phase; it is never inserted between recorded samples.
 No sample is retried or filtered. Bounded rows repeat the same prepared
 capacity at the declared active counts; each phase observes its terminal once
 while atomically publishing the next count and poisoned-tail input.
+
+The implementation owner is `tools/measure/compute/suite/product.cpp`, with
+single-purpose `product/model.hpp`, `oracle.hpp`, `report.hpp`, `exact.hpp`,
+and `bounded.hpp` seams. The entry owns scenario order and CSV column order;
+the seams own only their named model, oracle, reporting, exact-shape, and
+bounded-shape work. Together these six owners form the complete installed
+Product measurement implementation.
 
 For a new Release source, `tools/measure/admit/run` creates an independent
 three-packet set for each route. Every input must have a passed workload, the
@@ -384,13 +393,28 @@ steady resident evidence from the cold first-result boundary without timing
 or filtering that block. `active_elements_per_s` is derived from p50 and never
 acts as a second timing authority.
 
-Every warm run must report zero pipeline compiles, Buffer allocations,
-descriptor-pool creations, descriptor-set allocations, uploads, download
-events, downloaded bytes, and retained-binding mutations. CPU records zero
-execution submissions; each GPU records one. Each phase performs exactly one
-terminal read after its samples. Metal's unified-memory read needs no separate
-submission, while Vulkan's read owns one transfer submission; this physical
-difference is exact semantic evidence rather than a timing adjustment.
+After conditioning, the route calls `Pipeline::begin_samples()`, times sixty
+`run()` calls without a Profile capture or read, and calls `end_samples()`.
+The single terminal read is followed by the cohort's only Profile capture.
+The existing `PipelineStats` owns two saturating `uint32_t` witnesses:
+
+```text
+R = sat32(sum accepted terminals)
+C = sat32(sum clean accepted terminals)
+```
+
+A terminal contributes to `C` exactly when it succeeds and that sample epoch
+has observed no Pipeline compile, Buffer allocation or reuse, descriptor-pool
+or set allocation or reuse, upload, host write, download, cache lookup or
+eviction, command-capacity rejection, shader or pipeline construction, or
+transfer submission. A read or write while the sample epoch is active makes
+the cohort non-clean. The row is admissible only for exact, non-saturated
+`R = C = 60`; therefore a dirty middle execution cannot be hidden by the last
+execution's Stats snapshot. CPU records zero
+execution submissions and each GPU records one per run. Metal's terminal
+unified-memory read needs no separate transfer submission, while Vulkan's
+terminal read owns one. That physical difference is exact semantic evidence,
+not a timing adjustment.
 
 Dispatches, submissions, readbacks, logical and physical transfer bytes, peak
 retained and resident bytes, logical and backing scratch bytes, cache evidence,
@@ -496,8 +520,8 @@ or a Compact-plus-consumer fusion.
 The nested row is admissible only with 571 retained route templates, 33,264
 authored Seed/Action/Fold occurrences, 504 executed outer windows, 32,256 executed inner
 iterations, one nested submission, no failed coordinate, exact serial/nested
-result parity, and zero warm compile, allocation, upload, download,
-binding-mutation, and fallback evidence. The common tile-transducer proof is
+result parity, and zero warm compile, allocation, upload, download, and
+fallback evidence. The common tile-transducer proof is
 mandatory. Vulkan and a Metal stream that is ineligible for the narrower
 complete-aggregate proof use the `K * 3` physical
 Seed/transducer/Fold Program-occurrence shape. This exact Metal workload must
@@ -507,12 +531,9 @@ parity, and no canonical occurrence-stream fallback. The matching contract
 test must also prove that its two `K`-word partial ranges are non-overlapping
 plan-owned Seed workspace and that no native aggregate scratch Buffer is
 allocated or double-counted. In either shape the authored count does not
-expand the native stream. The CSV
-`*_warm_binding_mutation_count` columns are the public
-`PipelineStats::rebinding_count`: they count post-prepare retained-binding
-mutations, not cold native capture or emission of frozen descriptors. Their
-zero is interpreted with the `compute.window` owner/View identity snapshot and
-is not standalone no-rebinding proof. Program-internal normalization traffic
+expand the native stream. The `compute.window` contract proves warm retained
+identity by comparing the complete frozen owner/View snapshot across
+executions. Program-internal normalization traffic
 remains visible through the round-trip counters. The measured dispatch count
 is reported independently because Seed, Action, and Fold Programs may each
 lower to more than one native dispatch. The wall ratio therefore measures
@@ -536,9 +557,9 @@ The exact aggregate stream instead contains one `K`-threadgroup tile dispatch,
 one ICB Buffer barrier, and one ordered finalize dispatch in a two-command
 size-class chunk; it has no inactive guard commands but still pays
 fixed-capacity tile work and the same host envelope with `C = 1`. One nested
-submit and zero binding mutation must therefore be interpreted with both the
-selected structural path and the measured wall result, not as literally zero
-host or inactive-device cost.
+submit and the unchanged frozen owner/View snapshot must therefore be
+interpreted with both the selected structural path and the measured wall
+result, not as literally zero host or inactive-device cost.
 
 The explicit native chunk-boundary contract is
 `tools/measure/compute/run --metal-icb-boundary`. It is Apple-only,
@@ -565,8 +586,9 @@ exactly `R` successful ordinary `run()` calls and advance that Pipeline's
 generation by exactly `R`; the immutable per-run stats shape then makes its
 reported submit and dispatch totals exactly `R` times the single-run counts.
 Diagnostic stats reads remain outside the timed interval. All four routes must
-report zero warm compilation, allocation, upload, download, binding mutation,
-and fallback evidence. The untimed pre/post validation sweeps inspect all `R`
+report zero warm compilation, allocation, upload, download, and fallback
+evidence, while the frozen owner/View snapshot must remain identical. The
+untimed pre/post validation sweeps inspect all `R`
 ordinary repeated-run stats individually; timed intervals inspect the final
 immutable per-run shape after the clock stops. Each ratio uses only the medians
 from its own AB/BA pair. The benchmark's caller-owned inputs are frozen for the

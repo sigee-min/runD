@@ -3,8 +3,12 @@
 
 #include "../../kernel/backend/source_recipe.hpp"
 #include "../../source/hash.hpp"
-#include "source/body.hpp"
+#include "source/algebra.hpp"
+#include "source/block.hpp"
 #include "source/control.hpp"
+#include "source/direct.hpp"
+#include "source/prefix.hpp"
+#include "source/shared.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -42,8 +46,7 @@ EmitVulkanRangeSource(Sink &sink, const RangeExec &execution) noexcept(
   const bool wide = execution.wide_elements();
   const bool signed_values = execution.signed_values();
   const RangeExec &shape = execution;
-  const char *const scalar =
-      signed_values ? (wide ? "int64_t" : "int") : (wide ? "uint64_t" : "uint");
+  const char *const scalar = VulkanRangeScalar(wide, signed_values);
   if (!sink.append(R"glsl(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = )glsl") ||
@@ -103,25 +106,7 @@ layout(set = 0, binding = 4, std430) buffer Scratch1 {
        !sink.append("];\n"))) {
     return false;
   }
-  if (execution.saturating_sum() &&
-      !sink.append(
-          R"glsl(int rund_range_add_sat(const int left, const int right) {
-  if (right > 0 && left > 2147483647 - right) { return 2147483647; }
-  if (right < 0 && left < (-2147483647 - 1) - right) {
-    return (-2147483647 - 1);
-  }
-  return left + right;
-}
-
-int64_t rund_range_add_sat(const int64_t left, const int64_t right) {
-  const int64_t maximum = int64_t(0x7fffffffffffffffUL);
-  const int64_t minimum = -maximum - int64_t(1);
-  if (right > int64_t(0) && left > maximum - right) { return maximum; }
-  if (right < int64_t(0) && left < minimum - right) { return minimum; }
-  return left + right;
-}
-
-)glsl")) {
+  if (execution.saturating_sum() && !EmitVulkanRangeSaturatingAlgebra(sink)) {
     return false;
   }
   if (candidate == RangePath::PrefixDifference) {
@@ -135,9 +120,13 @@ int64_t rund_range_add_sat(const int64_t left, const int64_t right) {
                                            execution.plan().shape().boundary(),
                                            wide, signed_values, shape);
   }
-  return EmitVulkanRangeBody(sink, op, wide, signed_values,
-                             execution.saturating_sum(),
-                             execution.plan().shape().boundary(), shape);
+  if (shape.uses_shared_halo()) {
+    return EmitVulkanRangeSharedBody(sink, op, wide, signed_values,
+                                     execution.saturating_sum(), shape);
+  }
+  return EmitVulkanRangeDirectBody(sink, op, wide, signed_values,
+                                   execution.saturating_sum(),
+                                   execution.plan().shape().boundary(), shape);
 }
 
 } // namespace

@@ -95,9 +95,8 @@ namespace rund::node::test_contract::window {
            alias_pipeline->read(*aliased_terminal, alias_terminal_actual) &&
            alias_actual[0] == expected_state && alias_terminal_actual[0] == 7u;
   };
-  // Only the selected final bank must be distinct from the publication
-  // target. Reusing the seed Buffer as the target is valid for both an early
-  // stop and full completion because that seed bank is no longer selected.
+  // The selected final bank is distinct from the publication target. The seed
+  // Buffer is therefore a valid target for both early and full completion.
   if (!check_seed_target_alias(true) || !check_seed_target_alias(false)) {
     return 5;
   }

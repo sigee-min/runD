@@ -26,9 +26,9 @@ RejectsAliasForgery(const rund::AccelDevice &pick, const rund::Buffer &buffer,
       !CheckReason(rund::node::accel::UploadBuffer(alias_owner_pick, buffer,
                                                    data.data(), sizeof(data)),
                    "accel_buffer_backend_unavailable") ||
-      rund::node::accel::ReadRuntimeStats(alias_owner_pick).ok ||
-      std::string_view{
-          rund::node::accel::ReadRuntimeStats(alias_owner_pick).reason} !=
+      rund::node::accel::ReadRuntimeStats(alias_owner_pick).outcome.ok ||
+      std::string_view{rund::node::accel::ReadRuntimeStats(alias_owner_pick)
+                           .outcome.reason} !=
           "accel_buffer_backend_unavailable") {
     return false;
   }

@@ -106,10 +106,10 @@ namespace node_accel_contract::fusion {
                                             .tile_count = inputs.host.size(),
                                             .fresh_evidence = true,
                                         });
-  RUND_FUSION_CHECK(evidence.ok);
-  RUND_FUSION_CHECK(evidence.original_operation_count == 2u);
-  RUND_FUSION_CHECK(evidence.fused_operation_count == 1u);
-  RUND_FUSION_CHECK(evidence.final_dispatch_count == 1u);
+  RUND_FUSION_CHECK(evidence.outcome.ok);
+  RUND_FUSION_CHECK(evidence.run.work.original_operation_count == 2u);
+  RUND_FUSION_CHECK(evidence.run.work.fused_operation_count == 1u);
+  RUND_FUSION_CHECK(evidence.run.work.final_dispatch_count == 1u);
   std::array<rund::kernel::i32, 8u> download{};
   RUND_FUSION_CHECK(rund::node::accel::DownloadAccelBuffer(
                         context, output, download.data(), sizeof(download))

@@ -2,6 +2,7 @@
 
 #include "../../compute/host.hpp"
 #include "../../compute/pipeline/local.hpp"
+#include "../../compute/terminal.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -116,23 +117,19 @@ struct OperationTable final {
       const std::shared_ptr<void> &) noexcept = nullptr;
   kernel::u32 (*workers)(const std::shared_ptr<void> &) noexcept = nullptr;
   compute::Status (*reserve)(const std::shared_ptr<void> &) noexcept = nullptr;
-  Dispatch (*submit_cpu)(const Operation &, TaskState &) noexcept =
-      nullptr;
+  Dispatch (*submit_cpu)(const Operation &, TaskState &) noexcept = nullptr;
   Advance (*advance_cpu)(const Operation &, TaskState &) noexcept = nullptr;
-  compute::Status (*result_cpu)(const Operation &, TaskState &) noexcept =
-      nullptr;
-  Dispatch (*submit_accel)(const Operation &, TaskState &) noexcept =
-      nullptr;
-  compute::Status (*result_accel)(const Operation &, TaskState &) noexcept =
-      nullptr;
-  compute::Status (*fail)(const std::shared_ptr<void> &,
-                          compute::Status) noexcept = nullptr;
-  compute::Status (*cancel)(const std::shared_ptr<void> &) noexcept = nullptr;
-  compute::Stats (*evidence)(const std::shared_ptr<void> &) noexcept = nullptr;
+  compute::detail::TerminalObservation (*result_cpu)(
+      const Operation &, TaskState &) noexcept = nullptr;
+  Dispatch (*submit_accel)(const Operation &, TaskState &) noexcept = nullptr;
+  compute::detail::TerminalObservation (*result_accel)(
+      const Operation &, TaskState &) noexcept = nullptr;
+  compute::detail::TerminalObservation (*fail)(
+      const Operation &, TaskState &, compute::Status) noexcept = nullptr;
+  compute::detail::TerminalObservation (*cancel)(
+      const Operation &, TaskState &) noexcept = nullptr;
   void (*record_frame)(const std::shared_ptr<void> &, std::uint64_t, bool,
                        std::uint64_t) noexcept = nullptr;
-  void (*release_frame)(const std::shared_ptr<void> &,
-                        std::uint64_t) noexcept = nullptr;
   void (*release)(std::shared_ptr<void> &) noexcept = nullptr;
 };
 

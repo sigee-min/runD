@@ -1,5 +1,14 @@
 list(APPEND NODE_SOURCES
-  src/accel/vulkan/kernel/run.cpp
+  src/accel/vulkan/kernel/run/execute.cpp
+  src/accel/vulkan/kernel/run/identity.cpp
+  src/accel/vulkan/kernel/run/manifest/capture.cpp
+  src/accel/vulkan/kernel/run/manifest/step.cpp
+  src/accel/vulkan/kernel/run/memory.cpp
+  src/accel/vulkan/kernel/run/prepare.cpp
+  src/accel/vulkan/kernel/run/recurrence.cpp
+  src/accel/vulkan/kernel/run/structure/pipeline.cpp
+  src/accel/vulkan/kernel/run/structure/route.cpp
+  src/accel/vulkan/kernel/run/submit.cpp
   src/accel/vulkan/ops.cpp
   src/accel/vulkan/adapter/access.cpp
   src/accel/vulkan/buffer/access.cpp
@@ -78,21 +87,30 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/partition/pipeline.cpp
   src/accel/vulkan/partition/source.cpp
   src/accel/vulkan/kernel/context.cpp
-  src/accel/vulkan/kernel/control.cpp
+  src/accel/vulkan/kernel/control/encode.cpp
+  src/accel/vulkan/kernel/control/prepare.cpp
+  src/accel/vulkan/kernel/control/profile.cpp
+  src/accel/vulkan/kernel/control/publication.cpp
+  src/accel/vulkan/kernel/control/source.cpp
   src/accel/vulkan/kernel/command.cpp
   src/accel/vulkan/kernel/batch.cpp
   src/accel/vulkan/kernel/pipeline/evidence.cpp
   src/accel/vulkan/kernel/pipeline/prepare.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record.cpp
   src/accel/vulkan/kernel/pipeline/recurrence.cpp
   src/accel/vulkan/kernel/pipeline/run.cpp
   src/accel/vulkan/kernel/pipeline/source.cpp
   src/accel/vulkan/kernel/pipeline/state.cpp
   src/accel/vulkan/kernel/pipeline/stub.cpp
   src/accel/vulkan/kernel/pipeline/telemetry.cpp
+  src/accel/vulkan/kernel/pipeline/trace/fold.cpp
+  src/accel/vulkan/kernel/pipeline/trace/record.cpp
   src/accel/vulkan/kernel/publish.cpp
   src/accel/vulkan/kernel/copy.cpp
   src/accel/vulkan/kernel/window.cpp
   src/accel/vulkan/kernel/prepared.cpp
+  src/accel/vulkan/kernel/trace/fold.cpp
+  src/accel/vulkan/kernel/trace/record.cpp
   src/accel/vulkan/scratch.cpp
   src/accel/vulkan/kernel/finish.cpp
   src/accel/vulkan/kernel/prepare.cpp

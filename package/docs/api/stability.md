@@ -257,7 +257,7 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.5` is the current
+The CMake version file uses exact-version matching. `1.0.6` is the current
 checked-in package identity; a major-only version range is not a supported
 consumption contract.
 
@@ -301,6 +301,16 @@ operations. These object layouts and executable telemetry semantics must come
 from one matched `1.0.5` artifact; a `1.0.4` header or library may not be mixed
 into the tuple.
 
+The `1.0.6` Alpha is a new exact identity. Compute execution evidence now
+projects one 664-byte `Stats`, Pipeline sample-cohort counters remain inside
+its 184-byte `PipelineStats`, and one 968-byte `compute::telemetry::Profile`
+binds that execution snapshot to the 288-byte `MemoryStats` snapshot from the
+same observation epoch. The 304-byte telemetry `Event` is a projection of that
+Profile. Directional transfer submissions, host-write evidence, and public
+sample boundaries are part of this by-value and executable contract. Headers
+and libraries must therefore come from one matched `1.0.6` artifact; a `1.0.5`
+header or library may not be mixed into the tuple.
+
 ## Compute Contract
 
 `<rund/compute.hpp>` owns the basic `Flow`, `Target`, `Backend` observations,
@@ -333,6 +343,9 @@ and the bounded profile vocabulary `PipelineProfile`, `StepClock`,
 `<rund/compute.hpp>` entry deliberately excludes it, while `<rund/rund.hpp>`
 composes it. The fluent builder binds compiled Programs and resident Buffers
 but does not add a graph language.
+`Pipeline::{begin_samples,end_samples}` delimits a prepared-run cohort, and
+`PipelineStats::{sampled_runs,clean_runs,samples_clean}` exposes its fixed-size
+evidence through the existing by-value Stats ABI.
 `<rund/compute/session.hpp>` alone owns the `Session::compute(Job&)` and
 `Session::compute(Pipeline&)` templates,
 `Request`, `Submission`, `Poll`, `Completion`, and the nested
@@ -432,10 +445,10 @@ Preparation retains `O(ceil(Max / Tile) + N)` compact routes rather than the
 outer-times-inner product. It never duplicates the three Program graphs,
 Jobs, workspace/View/scratch envelope, or banks per outer/inner pair.
 CPU executes one Pipeline semantic order, and Metal/Vulkan retain one
-submission with no warm allocation, binding-identity mutation, count readback,
-or fallback. `rebinding_count` names post-prepare mutations; cold encoding of
-frozen descriptors is not a mutation, and the contract fixture independently
-compares all retained owner and View identities across warm executions.
+submission with stable owner/View identity and zero warm allocation, count
+readback, or fallback. The contract fixture compares every retained owner and
+View identity across warm executions; cold encoding publishes that immutable
+set.
 Metal cold preparation records the admitted command graph in one reusable ICB.
 Warm execution creates the API-required single-use outer command buffer, makes
 one bulk resource-residency declaration, executes the full ICB range, commits,
@@ -564,7 +577,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.5 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.6 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

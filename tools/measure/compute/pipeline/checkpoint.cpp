@@ -88,20 +88,20 @@ void PrintObservation(const Backend backend, const char *const path,
       static_cast<unsigned long long>(observed.stats.uploaded_bytes),
       static_cast<unsigned long long>(observed.stats.download_events),
       static_cast<unsigned long long>(observed.stats.downloaded_bytes),
-      static_cast<unsigned long long>(
-          NonnegativeDelta(observed.memory_after.staging.cumulative,
-                           observed.memory_before.staging.cumulative)),
+      static_cast<unsigned long long>(::rund::detail::counter::Delta(
+          observed.memory_before.staging.cumulative,
+          observed.memory_after.staging.cumulative)),
       static_cast<unsigned long long>(observed.memory_after.staging.peak),
       static_cast<unsigned long long>(
-          NonnegativeDelta(observed.memory_after.staging.reused,
-                           observed.memory_before.staging.reused)),
+          ::rund::detail::counter::Delta(observed.memory_before.staging.reused,
+                                         observed.memory_after.staging.reused)),
       static_cast<unsigned long long>(observed.stats.buffer_allocations),
       static_cast<unsigned long long>(observed.stats.buffer_reuses),
       static_cast<unsigned long long>(observed.stats.command_submits),
       static_cast<unsigned long long>(observed.rss_before),
       static_cast<unsigned long long>(observed.rss_after),
-      static_cast<unsigned long long>(
-          NonnegativeDelta(observed.rss_after, observed.rss_before)));
+      static_cast<unsigned long long>(::rund::detail::counter::Delta(
+          observed.rss_before, observed.rss_after)));
 }
 
 } // namespace
@@ -277,16 +277,16 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
   reusable_observation.stats = reusable_pipeline->stats();
   const CheckpointStats reusable_after = reusable_pipeline->checkpoint_stats();
   reusable_observation.checkpoint = CheckpointStats{
-      .reusable_snapshot_count =
-          NonnegativeDelta(reusable_after.reusable_snapshot_count,
-                           reusable_before.reusable_snapshot_count),
-      .reusable_snapshot_byte_count =
-          NonnegativeDelta(reusable_after.reusable_snapshot_byte_count,
-                           reusable_before.reusable_snapshot_byte_count),
+      .reusable_snapshot_count = ::rund::detail::counter::Delta(
+          reusable_before.reusable_snapshot_count,
+          reusable_after.reusable_snapshot_count),
+      .reusable_snapshot_byte_count = ::rund::detail::counter::Delta(
+          reusable_before.reusable_snapshot_byte_count,
+          reusable_after.reusable_snapshot_byte_count),
       .reusable_snapshot_hash = reusable_after.reusable_snapshot_hash,
-      .reusable_snapshot_transfer_count =
-          NonnegativeDelta(reusable_after.reusable_snapshot_transfer_count,
-                           reusable_before.reusable_snapshot_transfer_count),
+      .reusable_snapshot_transfer_count = ::rund::detail::counter::Delta(
+          reusable_before.reusable_snapshot_transfer_count,
+          reusable_after.reusable_snapshot_transfer_count),
   };
   reusable_observation.fingerprint = storage.fingerprint();
   reusable_observation.generation = storage.generation();
@@ -364,9 +364,10 @@ bool MeasureCheckpoints(const Backend backend, const std::size_t count,
       retained.size() == samples &&
       immutable_observation.generation == samples + 1u &&
       immutable_observation.hash != 0u &&
-      NonnegativeDelta(
-          immutable_observation.stats.publication.snapshot_byte_count,
-          immutable_snapshot_bytes_before) == payload_bytes * samples &&
+      ::rund::detail::counter::Delta(
+          immutable_snapshot_bytes_before,
+          immutable_observation.stats.publication.snapshot_byte_count) ==
+          payload_bytes * samples &&
       immutable_observation.stats.uploaded_bytes == 0u &&
       immutable_observation.stats.downloaded_bytes ==
           (backend == Backend::Cpu ? 0u : payload_bytes) &&

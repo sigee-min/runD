@@ -4,6 +4,7 @@
 #include "../../../kernel/telemetry.hpp"
 #include "../../command.hpp"
 #include "telemetry.hpp"
+#include "trace.hpp"
 
 #include <rund/counter.hpp>
 
@@ -26,8 +27,13 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
   VulkanPipeline *const pipeline = claim.owner;
   if (pipeline->dispatch_count != 0u) {
     std::lock_guard lock{pipeline->adapter->mutex};
+    const bool trace_active = pipeline->trace_active;
+    pipeline->trace_active = false;
     result.pipeline.submitted = true;
     result.pipeline.control_command_count = pipeline->control.command_count;
+    if (result.check.ok && trace_active) {
+      result.check = FoldVulkanPipelineDispatchTrace(*pipeline, result.stats);
+    }
     if (result.check.ok) {
       const auto control_start = std::chrono::steady_clock::now();
       result.pipeline.control_observed =
@@ -48,13 +54,18 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
       }
     }
   }
-  result.stats.dispatch_count = result.check.ok ? pipeline->dispatch_count : 0u;
+  result.stats.run.work.dispatch_count =
+      result.check.ok ? pipeline->dispatch_count : 0u;
   SetResetStats(result.stats, result.check.ok, pipeline->reset_count,
                 pipeline->reset_bytes);
-  result.stats.command_submit_count =
-      pipeline->dispatch_count == 0u ? 0u : result.stats.command_submit_count;
-  result.stats.command_capacity = pipeline->dispatch_count == 0u ? 0u : 1u;
-  result.stats.command_inflight_peak = pipeline->dispatch_count == 0u ? 0u : 1u;
+  result.stats.run.work.command_submit_count =
+      pipeline->dispatch_count == 0u
+          ? 0u
+          : result.stats.run.work.command_submit_count;
+  result.stats.run.work.command_capacity =
+      pipeline->dispatch_count == 0u ? 0u : 1u;
+  result.stats.run.work.command_inflight_peak =
+      pipeline->dispatch_count == 0u ? 0u : 1u;
   claim.completion(claim.user, result);
 }
 
@@ -62,7 +73,7 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
 VulkanPipelineResult(VulkanPipeline *const pipeline = nullptr) noexcept {
   KernelResult result{
       .check = rund::AccelCheck{true, "ok"},
-      .stats = rund::RuntimeStats{.ok = true, .reason = "ok"},
+      .stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}},
   };
   if (pipeline != nullptr && pipeline->profile != nullptr) {
     VulkanPipelineProfile &profile = *pipeline->profile;
@@ -101,10 +112,9 @@ SeedPreparedVulkanPipelineGeneration(const std::shared_ptr<void> &prepared,
              : rund::AccelCheck{false, "accel_vulkan_memory_unavailable"};
 }
 
-rund::AccelCheck
-SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
-                             const KernelCompletion completion_fn,
-                             void *const user) noexcept {
+rund::AccelCheck SubmitPreparedVulkanPipeline(
+    const std::shared_ptr<void> &prepared, const KernelCompletion completion_fn,
+    void *const user, const KernelTiming timing) noexcept {
   auto *const pipeline = static_cast<VulkanPipeline *>(prepared.get());
   if (!ValidVulkanPipeline(pipeline) || completion_fn == nullptr ||
       user == nullptr) {
@@ -120,10 +130,39 @@ SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
     std::lock_guard lock{pipeline->adapter->mutex};
     if (pipeline->dispatch_count == 0u) {
       submitted = true;
+    } else if (timing == KernelTiming::Dispatch) {
+      const rund::AccelCheck traced =
+          EnsureVulkanPipelineDispatchTrace(*pipeline);
+      rund::AccelCheck encoded = traced;
+      bool command_open = false;
+      if (encoded.ok) {
+        command_open = EnsureVulkanCommandResources(*pipeline->adapter) &&
+                       BeginVulkanCommand(*pipeline->adapter);
+      }
+      if (encoded.ok && !command_open) {
+        encoded = rund::AccelCheck{false, VulkanLastError(pipeline->adapter)};
+      }
+      if (encoded.ok) {
+        encoded = EncodeVulkanPipelineDispatchTrace(*pipeline);
+      }
+      if (!encoded.ok) {
+        if (command_open) {
+          CancelVulkanCommand(*pipeline->adapter);
+        }
+        failure_reason = encoded.reason;
+      } else {
+        pipeline->trace_active = true;
+        submitted = SubmitVulkanCommand(*pipeline->adapter,
+                                        CompleteVulkanPipeline, &state, false);
+        if (!submitted) {
+          pipeline->trace_active = false;
+          failure_reason = VulkanLastError(pipeline->adapter);
+        }
+      }
     } else {
       submitted = SubmitVulkanExternal(
           *pipeline->adapter, pipeline->command.buffer, pipeline->command.fence,
-          CompleteVulkanPipeline, &state);
+          CompleteVulkanPipeline, &state, timing == KernelTiming::Submission);
       if (!submitted) {
         failure_reason = VulkanLastError(pipeline->adapter);
       }

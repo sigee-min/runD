@@ -63,7 +63,8 @@ template <typename T>
 [[nodiscard]] inline bool
 EvidenceReason(const rund::AccelEvidence &evidence,
                const std::string_view reason) noexcept {
-  return !evidence.ok && std::string_view{evidence.reason} == reason;
+  return !evidence.outcome.ok &&
+         std::string_view{evidence.outcome.reason} == reason;
 }
 
 [[nodiscard]] inline bool KernelReason(const rund::AccelKernel &kernel,

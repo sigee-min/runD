@@ -19,9 +19,9 @@
 
 namespace node_accel_contract::fusion {
 
-[[nodiscard]] bool RunLongChainCase(
-    const rund::AccelContext &context,
-    const rund::compute_dsl::ComputeOp &op, const Inputs &inputs) {
+[[nodiscard]] bool RunLongChainCase(const rund::AccelContext &context,
+                                    const rund::compute_dsl::ComputeOp &op,
+                                    const Inputs &inputs) {
   const rund::AccelBuffer input =
       MakeBuffer(context, rund::BufferUsage::ReadOnly);
   const rund::AccelBuffer mid_a =
@@ -32,8 +32,8 @@ namespace node_accel_contract::fusion {
       MakeBuffer(context, rund::BufferUsage::WriteOnly);
   if (!input.check.ok || !mid_a.check.ok || !mid_b.check.ok ||
       !output.check.ok ||
-      !rund::node::accel::UploadAccelBuffer(
-           context, input, inputs.host.data(), sizeof(inputs.host))
+      !rund::node::accel::UploadAccelBuffer(context, input, inputs.host.data(),
+                                            sizeof(inputs.host))
            .ok) {
     return false;
   }
@@ -71,8 +71,7 @@ namespace node_accel_contract::fusion {
   }
   const rund::node::accel::detail::KernelExecution execution =
       rund::node::accel::detail::AdmitKernelForExecution(context, kernel);
-  if (!execution.admission.check.ok ||
-      execution.removed_dispatch_count != 2u ||
+  if (!execution.admission.check.ok || execution.removed_dispatch_count != 2u ||
       execution.steps.size() != 1u ||
       execution.original_operation_count != 3u ||
       execution.fused_operation_count != 1u ||
@@ -97,14 +96,17 @@ namespace node_accel_contract::fusion {
                                             .tile_count = inputs.host.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.original_operation_count != 3u ||
-      evidence.fused_operation_count != 1u ||
-      evidence.original_dispatch_count != 3u ||
-      evidence.final_dispatch_count != 1u || evidence.dispatch_count != 1u ||
-      evidence.internal_producer_consumer_roundtrip_bytes != 0u ||
-      evidence.external_producer_consumer_roundtrip_bytes != 0u ||
-      evidence.fusion_rejection_count != 0u ||
-      std::string_view{evidence.fusion_reason} != "compute_fusion_ok") {
+  if (!evidence.outcome.ok ||
+      evidence.run.work.original_operation_count != 3u ||
+      evidence.run.work.fused_operation_count != 1u ||
+      evidence.run.work.original_dispatch_count != 3u ||
+      evidence.run.work.final_dispatch_count != 1u ||
+      evidence.run.work.dispatch_count != 1u ||
+      evidence.run.transfer.internal_producer_consumer_roundtrip_bytes != 0u ||
+      evidence.run.transfer.external_producer_consumer_roundtrip_bytes != 0u ||
+      evidence.run.work.fusion_rejection_count != 0u ||
+      std::string_view{evidence.run.work.fusion_reason} !=
+          "compute_fusion_ok") {
     return false;
   }
   std::array<rund::kernel::i32, 8u> download{};

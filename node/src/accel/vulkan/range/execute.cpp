@@ -297,18 +297,27 @@ rund::AccelCheck PrepareVulkanRange(
     SetVulkanLastError(*adapter, "compute_window_invalid");
     return rund::AccelCheck{false, "compute_window_invalid"};
   }
+  VulkanCollectivePipeline *const data_pipeline =
+      pipelines == nullptr
+          ? AcquireVulkanRangePipeline(*adapter, *execution)
+          : pipelines->borrow(owner_kind,
+                              static_cast<std::uint32_t>(range.stage_count()),
+                              0u, descriptor_count, 1u);
+  if (data_pipeline == nullptr ||
+      (pipelines != nullptr &&
+       !VulkanRangePipelineMatches(*adapter, data_pipeline, *execution))) {
+    return rund::AccelCheck{false, VulkanLastError(adapter)};
+  }
   for (std::size_t index = 0u; index < range.stage_count(); ++index) {
     VulkanCollectivePipeline *const pipeline =
         pipelines == nullptr
-            ? AcquireVulkanRangePipeline(*adapter, *execution)
+            ? data_pipeline
             : pipelines->borrow(owner_kind,
                                 static_cast<std::uint32_t>(range.stage_count()),
                                 index, descriptor_count, 1u);
     const std::optional<RangeParams> params_value =
         execution->stage_params(index);
-    if (pipeline == nullptr ||
-        (pipelines != nullptr &&
-         !VulkanRangePipelineMatches(*adapter, pipeline, *execution)) ||
+    if (pipeline != data_pipeline ||
         (!raw->controlled &&
          (!params_value.has_value() ||
           !CreateVulkanBuffer(*adapter, sizeof(RangeParams),

@@ -650,6 +650,26 @@ template <class T>
   if (!sort_input || !sort_output) {
     return 15;
   }
+  Stats dense_sort_stats{};
+  {
+    auto dense_sort_target = device.buffer<std::int32_t>(4u);
+    auto dense_sort_input = unsorted->view(0u, 4u);
+    auto dense_sort_output = dense_sort_target->view(0u, 4u);
+    if (!dense_sort_target || !dense_sort_input || !dense_sort_output) {
+      return 15;
+    }
+    auto dense_sorted =
+        pipeline(device)
+            .then(*sort, read(*dense_sort_input), write(*dense_sort_output))
+            .prepare();
+    std::array<std::int32_t, 4u> dense_sorted_values{};
+    if (!dense_sorted || !dense_sorted->run() ||
+        !ReadExact(*dense_sorted, *dense_sort_target, dense_sorted_values) ||
+        dense_sorted_values != std::array<std::int32_t, 4u>{2, 4, 7, 9}) {
+      return 15;
+    }
+    dense_sort_stats = dense_sorted->stats();
+  }
   auto sorted = pipeline(device)
                     .then(*sort, read(*sort_input), write(*sort_output))
                     .prepare();
@@ -660,8 +680,10 @@ template <class T>
       sorted->stats().internal_roundtrip_bytes != 32u ||
       (backend != Backend::Cpu &&
        (sorted->stats().dispatches != sorted->stats().final_dispatches ||
+        sorted->stats().original_dispatches !=
+            dense_sort_stats.original_dispatches ||
         sorted->stats().final_dispatches !=
-            sorted->stats().original_dispatches + 2u))) {
+            dense_sort_stats.final_dispatches + 2u))) {
     if (sorted) {
       std::fprintf(
           stderr,

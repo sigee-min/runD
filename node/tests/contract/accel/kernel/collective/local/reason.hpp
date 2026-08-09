@@ -1,8 +1,8 @@
 #pragma once
 
 #include <accel/context/value.hpp>
-#include <accel/graph/value.hpp>
 #include <accel/graph/node.hpp>
+#include <accel/graph/value.hpp>
 #include <accel/kernel/check.hpp>
 #include <accel/kernel/evidence.hpp>
 
@@ -21,7 +21,8 @@ namespace node_accel_contract::collective {
 [[nodiscard]] inline bool
 EvidenceReason(const rund::AccelEvidence &evidence,
                const std::string_view reason) noexcept {
-  return !evidence.ok && std::string_view{evidence.reason} == reason;
+  return !evidence.outcome.ok &&
+         std::string_view{evidence.outcome.reason} == reason;
 }
 
 [[nodiscard]] inline bool SingleNodeCompileReason(

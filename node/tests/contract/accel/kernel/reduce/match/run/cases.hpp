@@ -72,31 +72,32 @@ bool MatchesWideHierarchyI64Cancellation(const rund::AccelDevice &pick) {
 }
 
 template <typename T>
-[[nodiscard]] bool RejectsWideOverflow(
-    const rund::AccelDevice &pick, const rund::kernel::ComputeScalar scalar,
-    const rund::kernel::ComputeDomain domain,
-    const rund::kernel::ReduceElement element) {
+[[nodiscard]] bool
+RejectsWideOverflow(const rund::AccelDevice &pick,
+                    const rund::kernel::ComputeScalar scalar,
+                    const rund::kernel::ComputeDomain domain,
+                    const rund::kernel::ReduceElement element) {
   std::vector<T> input(4097u, 0u);
   input.front() = std::numeric_limits<T>::max();
   input.back() = 1u;
-  match::Resources<T> resources = match::BuildResources(
-      pick, scalar, domain, rund::kernel::ReduceOp::Sum, element,
-      std::span<const T>{input}, 256u);
+  match::Resources<T> resources =
+      match::BuildResources(pick, scalar, domain, rund::kernel::ReduceOp::Sum,
+                            element, std::span<const T>{input}, 256u);
   if (!resources.kernel.check.ok) {
     return false;
   }
   const auto bindings = match::Bindings(resources);
-  const rund::AccelEvidence evidence = rund::node::accel::RunAccelKernel(
-      resources.context, resources.kernel,
-      rund::AccelRun{
-          .bindings = bindings.data(),
-          .binding_count = bindings.size(),
-          .tile_count = input.size(),
-          .fresh_evidence = true,
-      });
+  const rund::AccelEvidence evidence =
+      rund::node::accel::RunAccelKernel(resources.context, resources.kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = input.size(),
+                                            .fresh_evidence = true,
+                                        });
   return primitive::EvidenceReason(evidence, "compute_reduce_sum_overflow") &&
-         evidence.host_to_device_bytes == 0u &&
-         evidence.device_to_host_bytes == 0u;
+         evidence.run.transfer.host_to_device_bytes == 0u &&
+         evidence.run.transfer.device_to_host_bytes == 0u;
 }
 
 bool RejectsWideU32Overflow(const rund::AccelDevice &pick) {

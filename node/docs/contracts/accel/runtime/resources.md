@@ -144,8 +144,15 @@ graph unwind to that boundary and become `compute_pipeline_capacity`; other
 exception types retain normal propagation. The live `VulkanPipeline` owner
 destroys every partially acquired control, window, publication, recurrence,
 transducer, command, descriptor, and profile resource after helper locks have
-unwound. A query pool is move-only construction state until all profile vectors
-are complete, then transfers once into the Pipeline profile. Local boolean
+unwound. A Trace query pool is move-only construction state until its fixed
+`2D` result vector and immutable replay command are complete, then transfers
+once into the Pipeline Trace owner. Basic and Detail create no Pipeline
+per-dispatch query pool. A failed cold Trace candidate is destroyed without
+changing that owner; retry rebuilds from the same retained canonical recording
+recipe. The recipe owner projects its fixed state and occurrence, status, and
+telemetry vector capacities into cold host reservation before materialization;
+the materialized owner reports those same fields from actual vector capacity,
+so Pipeline memory admission and observation share one byte authority. Local boolean
 boundaries remain local only where the callback is `noexcept` or where failure
 selects a descriptor-specific reason rather than Pipeline capacity.
 
@@ -191,6 +198,29 @@ exceed the same frozen `backend_parameter_bytes` payload/capacity upper.
 Encoder calls outside the frozen prefix fail closed, and appends cannot grow
 beyond those reservations. No current Pipeline encoder authors dynamic threadgroup-memory
 bindings, so no host threadgroup snapshot or ICB replay owner is retained.
+
+Metal kernel planning and execution have seven implementation owners under
+`metal/kernel/run/`: `manifest` owns step control shape and completed manifest
+assembly; `source_recipe` owns emitted-source recipes and cold dependency
+cardinality; `structure` owns route/template memory projection; `pipeline`
+owns calibrated ICB command, binding, parameter, and native-object bounds;
+`recurrence` owns recurrence route/template reservation; `runtime` owns
+prepare, execute, and submit forwarding; and `template` owns structural
+template identity. The shared Map-memory and aligned-parameter helpers are
+owner-local headers used only by those projections. No compatibility source
+or second manifest authority remains at the former monolithic path.
+
+Vulkan kernel planning and execution use responsibility owners under
+`vulkan/kernel/run/`. `manifest/step` owns exact per-primitive source recipes
+and cold dependencies, while `manifest/capture` owns physical dispatch,
+status, and telemetry cardinality. `structure/route` owns per-route and
+template capacity projection, while `structure/pipeline` owns aggregate
+Pipeline command, descriptor, parameter, and native-memory bounds.
+`recurrence` owns recurrence reservation; `memory` observes retained template
+storage; `prepare`, `execute`, and `submit` own their lifecycle boundaries;
+and `identity` owns template equality. The owner-local `route` and `storage`
+headers hold the two shared projections. No compatibility source or second
+source/hash/manifest authority remains at the former monolithic path.
 
 Metal Pipeline command storage has one device-calibrated size-class authority.
 On the first opening of an exact nonzero Metal `registryID`, a locked fixed
@@ -292,7 +322,11 @@ failed-batch counts accumulate in that order, and the first non-success check
 terminates the fold. Backend finish functions retain only their native step
 observer and last-error publication. Pipeline control telemetry likewise has
 one common field projection into `RuntimeStats`; Metal and Vulkan own only how
-the 128-byte control is observed.
+the 128-byte control is observed. Backend completion publishes the fixed
+`AccelRunFacts` interface as typed work, time, transfer, and allocation groups.
+Common completion adds graph identity and outcome in one `AccelEvidence`
+handoff. `stats_from_evidence()` is the sole conversion from that handoff to
+public `compute::Stats`.
 
 The common prepared implementation is physically owned by
 `kernel/prepared/{run,batch,pipeline,completion,evidence}.cpp`, with immutable
@@ -344,11 +378,9 @@ preserve each exact status, overflow reason, and graph/output evidence.
 For `N <= 64` Jobs, one `Theta(N)` admission pass validates Context and backend
 identity, builds the ordered backend rows, and saturating-accumulates immutable
 planning evidence. The required `Theta(N)` Job-gate claim remains, but there is
-no second evidence scan, workload-sized allocation, or additional warm lock.
-The backend then owns one native submission. Thus host work remains
-`Theta(N)`: one prepared-state/evidence traversal plus the separately required
-gate claim and result projection, rather than two prepared-state traversals.
-Auxiliary storage remains the fixed 64-Job envelope.
+one prepared-state/evidence traversal, one separately required gate claim, and
+one result projection. The backend then owns one native submission. Thus host
+work remains `Theta(N)` with the fixed 64-Job auxiliary envelope.
 
 One shared evidence snapshot owns execution submit count, queue pressure,
 kernel timing, and submit-wait timing. The backend writes that snapshot from
@@ -537,7 +569,7 @@ rule above. A caller that cannot publish state before observing execution may
 request `Complete`; Vulkan then waits for every batch command and reports a
 completion failure synchronously. Pipeline checkpoint restore is that caller.
 Metal shared-memory upload is complete when its copy returns under either
-policy, so the policy adds no second Metal transfer implementation.
+policy; one transfer implementation owns both completion dispositions.
 
 Vulkan cold buffer reuse has two independent memory-class pools: temporary
 execution buffers and public resident storage. Each uses the same deterministic
@@ -550,6 +582,16 @@ temporary pool's mapped staging bytes remain in physical
 active plus pooled physical staging, while `cumulative` and `reused` remain
 lease traffic. Thus an idle cached allocation cannot disappear from telemetry,
 and neither pool can retain a workload-sized multi-gigabyte buffer.
+
+Vulkan Pipeline control has one source identity and five implementation
+owners. `control/source` owns the exact canonicalization and reduction GLSL
+plus their immutable artifact identity; `control/prepare` owns buffers,
+descriptor leases, and executable acquisition; `control/encode` owns ordered
+canonicalization and reduction dispatch; `control/profile` owns step-profile
+reset and projection; and `control/publication` owns terminal visibility and
+the single control read. Source byte length and FNV identity are contract-tested
+at the source owner and bind all five implementation owners to one shader,
+cache key, and result authority.
 
 Metal Pipeline status metadata separates canonical entry order from status
 source policy. For `Q` canonical status entries and `C` source bindings, one
@@ -587,9 +629,9 @@ projection authority; its operation may publish a first-invalid ordinal into
 the common runtime statistics. Later step status cannot overwrite that
 evidence. A segmented status
 range keeps all per-block atomics device-local while transferring the one
-reduced reason. On a discrete adapter the workgroup path performs no
-host-coherent or PCIe writes; unified memory uses the same explicit ordering.
-There is no memory-class fallback and no second semantic status value.
+reduced reason. On a discrete adapter the workgroup path keeps status writes
+device-local; unified memory uses the same explicit ordering and identical
+semantic status value.
 
 A Pipeline-private Vulkan numeric status range follows the same ownership law,
 but its standalone observation spans every batch word. For `Q` numeric status

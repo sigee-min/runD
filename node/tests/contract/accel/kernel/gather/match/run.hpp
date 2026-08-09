@@ -43,8 +43,9 @@ template <typename T>
                                             .tile_count = indices.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
 
@@ -102,8 +103,9 @@ bool PreparedRetainsStorage(const rund::AccelDevice &pick) {
   resources.output = {};
   const rund::AccelEvidence evidence =
       rund::node::accel::detail::RunPreparedKernel(resources.context, prepared);
-  return evidence.ok && evidence.host_to_device_bytes == 0u &&
-         evidence.device_to_host_bytes == 0u;
+  return evidence.outcome.ok &&
+         evidence.run.transfer.host_to_device_bytes == 0u &&
+         evidence.run.transfer.device_to_host_bytes == 0u;
 }
 
 } // namespace node_accel_contract::gather

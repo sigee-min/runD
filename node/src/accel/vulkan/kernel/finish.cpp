@@ -35,7 +35,8 @@ rund::AccelCheck FinishVulkanSteps(VulkanAdapter &adapter,
     std::uint64_t ordinal = std::numeric_limits<std::uint64_t>::max();
     if (entry != nullptr && entry->ops.failure != nullptr &&
         entry->ops.failure(entry->resource, ordinal)) {
-      stats->overflow_ordinal = std::min(stats->overflow_ordinal, ordinal);
+      stats->run.work.overflow_ordinal =
+          std::min(stats->run.work.overflow_ordinal, ordinal);
     }
   }
   if (result.ok) {

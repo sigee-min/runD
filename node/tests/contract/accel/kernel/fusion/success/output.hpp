@@ -218,24 +218,32 @@ RunTerminalOutputs(const rund::AccelContext &context,
                      .binding_count = fused_bindings.size(),
                      .tile_count = count,
                      .fresh_evidence = true});
-  if (!evidence.ok || evidence.original_operation_count != 2u ||
-      evidence.fused_operation_count != 1u ||
-      evidence.original_dispatch_count != 2u ||
-      evidence.final_dispatch_count != 1u || evidence.dispatch_count != 1u ||
-      evidence.fusion_rejection_count != 0u ||
-      std::string_view{evidence.fusion_reason} != "compute_fusion_ok") {
+  if (!evidence.outcome.ok ||
+      evidence.run.work.original_operation_count != 2u ||
+      evidence.run.work.fused_operation_count != 1u ||
+      evidence.run.work.original_dispatch_count != 2u ||
+      evidence.run.work.final_dispatch_count != 1u ||
+      evidence.run.work.dispatch_count != 1u ||
+      evidence.run.work.fusion_rejection_count != 0u ||
+      std::string_view{evidence.run.work.fusion_reason} !=
+          "compute_fusion_ok") {
     std::fprintf(
         stderr,
         "terminal output fused run failed api=%u width=%zu "
         "reason=%s original=%llu fused=%llu original_dispatch=%llu "
         "final_dispatch=%llu dispatch=%llu rejects=%llu\n",
-        static_cast<unsigned>(context.api), sizeof(Raw) * 8u, evidence.reason,
-        static_cast<unsigned long long>(evidence.original_operation_count),
-        static_cast<unsigned long long>(evidence.fused_operation_count),
-        static_cast<unsigned long long>(evidence.original_dispatch_count),
-        static_cast<unsigned long long>(evidence.final_dispatch_count),
-        static_cast<unsigned long long>(evidence.dispatch_count),
-        static_cast<unsigned long long>(evidence.fusion_rejection_count));
+        static_cast<unsigned>(context.api), sizeof(Raw) * 8u,
+        evidence.outcome.reason,
+        static_cast<unsigned long long>(
+            evidence.run.work.original_operation_count),
+        static_cast<unsigned long long>(
+            evidence.run.work.fused_operation_count),
+        static_cast<unsigned long long>(
+            evidence.run.work.original_dispatch_count),
+        static_cast<unsigned long long>(evidence.run.work.final_dispatch_count),
+        static_cast<unsigned long long>(evidence.run.work.dispatch_count),
+        static_cast<unsigned long long>(
+            evidence.run.work.fusion_rejection_count));
     return false;
   }
 
@@ -303,7 +311,7 @@ RunTerminalOutputs(const rund::AccelContext &context,
                      .binding_count = terminal_bindings.size(),
                      .tile_count = count,
                      .fresh_evidence = true});
-  if (!producer_run.ok || !terminal_run.ok) {
+  if (!producer_run.outcome.ok || !terminal_run.outcome.ok) {
     return false;
   }
 

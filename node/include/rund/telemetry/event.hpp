@@ -19,6 +19,7 @@ enum class Source : std::uint8_t {
 enum class Level : std::uint8_t {
   Basic,
   Detail,
+  Trace,
 };
 
 enum class Mode : std::uint8_t {
@@ -44,6 +45,9 @@ struct Compute final {
   std::uint64_t tiles = 0u;
   std::uint64_t dispatches = 0u;
   std::uint64_t command_submits = 0u;
+  std::uint64_t host_to_device_submits = 0u;
+  std::uint64_t device_to_host_submits = 0u;
+  std::uint64_t device_to_device_submits = 0u;
   std::uint64_t buffer_allocations = 0u;
   std::uint64_t buffer_reuses = 0u;
   std::uint64_t copied_bytes = 0u;

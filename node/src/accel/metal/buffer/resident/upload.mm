@@ -58,8 +58,8 @@ rund::AccelCheck UploadMetalResidentBuffer(
   auto *const target = static_cast<std::byte *>(contents);
   std::memcpy(target + static_cast<std::size_t>(offset), data,
               static_cast<std::size_t>(bytes));
-  ::rund::detail::counter::Accumulate(adapter->stats.host_to_device_bytes,
-                                      bytes);
+  ::rund::detail::counter::Accumulate(
+      adapter->stats.runtime.run.transfer.host_to_device_bytes, bytes);
   return rund::AccelCheck{true, "ok"};
 }
 
@@ -126,8 +126,9 @@ UploadMetalResidentBuffers(const rund::AccelDevice &pick,
                   plan.data, static_cast<std::size_t>(plan.bytes));
       ::rund::detail::counter::Accumulate(uploaded_bytes, plan.bytes);
     }
-    ::rund::detail::counter::Accumulate(adapter->stats.host_to_device_bytes,
-                                        uploaded_bytes);
+    ::rund::detail::counter::Accumulate(
+        adapter->stats.runtime.run.transfer.host_to_device_bytes,
+        uploaded_bytes);
     return BackendUpload{.check = {true, "ok"}};
   } catch (const std::bad_alloc &) {
     return BackendUpload{.check = {false, "accel_buffer_unavailable"}};

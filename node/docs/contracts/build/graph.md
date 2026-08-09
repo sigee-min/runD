@@ -203,9 +203,9 @@ or algorithm.
   typed result include that template owner. The same-manifest direct-header
   closure changed from 149 to 144 local headers for `scheduler/state.hpp`,
   from 7 to 5 for `task/completion.hpp`, and from 11 to 6 for
-  `state/model/task.hpp`; all three no longer reach
-  `rund/outcome/result.hpp`. These are dependency-graph counts, not wall-time
-  claims.
+  `state/model/task.hpp`; `rund/outcome/result.hpp` is confined to typed result
+  construction and observation owners. These are dependency-graph counts, not
+  wall-time claims.
 - The Scheduler declaration forward-declares `ScopeEvidence`, the Host I/O
   operation/result types, `io::Fd`, and `random::RunSeed`. Complete storage
   includes only `rund/host/io/fd.hpp` and `rund/host/random/seed.hpp`; the full

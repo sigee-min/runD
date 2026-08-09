@@ -120,7 +120,8 @@ rund::AccelCheck SubmitPreparedKernel(const rund::AccelContext &context,
                                       const PreparedKernelRun &prepared,
                                       std::shared_ptr<void> lifetime,
                                       const PreparedKernelCompletion completion,
-                                      void *const user) noexcept {
+                                      void *const user,
+                                      const KernelTiming timing) noexcept {
   auto *const state = static_cast<prepared::RunState *>(prepared.owner.get());
   if (!prepared.ok || state == nullptr || completion == nullptr ||
       IsPipelinePrivatePreparation(state->mode) ||
@@ -145,7 +146,7 @@ rund::AccelCheck SubmitPreparedKernel(const rund::AccelContext &context,
   }
   const rund::AccelCheck submitted = state->bound.run.ops->submit_prepared(
       state->bound.run, state->backend, CompleteRun, &submission,
-      &state->memory, prepared.owner);
+      &state->memory, prepared.owner, timing);
   if (!submitted.ok) {
     std::lock_guard lock{submission.mutex};
     if (submission.active) {
@@ -164,7 +165,7 @@ rund::AccelCheck SubmitPreparedKernel(const rund::AccelContext &context,
 rund::AccelCheck SubmitPreparedKernelPipeline(
     const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
     std::shared_ptr<void> lifetime, const PreparedPipelineCompletion completion,
-    void *const user) noexcept {
+    void *const user, const KernelTiming timing) noexcept {
   const rund::AccelCheck invalid{false, "accel_kernel_run_invalid"};
   auto *const pipeline =
       static_cast<prepared::PipelineState *>(prepared.owner.get());
@@ -187,7 +188,7 @@ rund::AccelCheck SubmitPreparedKernelPipeline(
     submission.user = user;
   }
   const rund::AccelCheck submitted = pipeline->ops->submit_prepared_pipeline(
-      pipeline->backend, CompletePipeline, &submission);
+      pipeline->backend, CompletePipeline, &submission, timing);
   if (!submitted.ok) {
     std::lock_guard lock{submission.mutex};
     if (submission.active()) {

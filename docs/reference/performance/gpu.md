@@ -99,8 +99,8 @@ Any correct single-group evaluation needs every element in that union, so `H`
 is the global-input-read lower bound for the group. The boundary loader reaches
 it by fanning lane-private loaded endpoint values into clamped halo slots. For
 every selected shared candidate, `H < D`, so its generated shader executes the
-shared path directly without a runtime traffic branch. A selected direct-only
-candidate declares no shared array and executes no workgroup barrier. These are
+shared path directly without a runtime traffic branch. A selected direct
+candidate declares zero shared bytes and executes its one data stage. These are
 exact source-level input-read bounds, not claims about physical memory
 transactions, occupancy, or measured latency.
 
@@ -144,8 +144,9 @@ The profile retains submissions and dispatches as separate fields. A Pipeline
 may execute several Range stages in one queue submission, and a terminal
 Vulkan transfer may add one submission after execution. Peak retained memory,
 logical and backing scratch, transfer bytes, compile/cache evidence, and warm
-allocation counters remain exact semantic evidence. The only checked timing
-values are first-result latency and warm p50/p95 for each declared shape.
+compile/allocation/transfer/cache-mutation cohort-cleanliness witnesses remain
+exact semantic evidence. The only checked timing values are first-result
+latency and warm p50/p95 for each declared shape.
 
 The resulting CPU/Metal/Vulkan comparisons are crossover samples over those
 counts and window shapes. They do not establish a device-independent winner,
@@ -196,16 +197,16 @@ verified.
 
 ## Measure the Boundary You Ship
 
-Use the installed Release SDK and measure the same surface used by the
+Use the installed Release SDK and measure the same Product surface used by the
 application:
 
 ```sh
-tools/measure/compute/run --resident metal
-tools/measure/compute/run --resident vulkan
-tools/measure/compute/run --pipeline metal
-tools/measure/compute/run --pipeline vulkan
+tools/measure/compute/run
 ```
 
-Interpret the result with [Method](./method.md). A passing upper bound is
-regression evidence, not a speedup claim, and a different device or driver
-requires its own admitted host profile.
+The argument-free route executes the installed `runD-compute-measure` binary.
+Current-source focused executables are diagnostic tools and are excluded from
+the Release baseline. Interpret the Product result with
+[Method](./method.md). A passing upper bound is regression evidence, not a
+speedup claim, and a different device or driver requires its own admitted host
+profile.

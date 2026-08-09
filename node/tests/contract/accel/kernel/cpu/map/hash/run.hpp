@@ -19,14 +19,15 @@ namespace node_accel_contract::cpu_context {
       rund::AccelRunBinding{.buffer = &resources.write,
                             .role = rund::kernel::BufferRole::Write},
   };
-  const rund::AccelEvidence evidence = rund::node::accel::RunAccelKernel(
-      resources.context, resources.kernel,
-      rund::AccelRun{.bindings = bindings.data(),
-                     .binding_count = bindings.size(),
-                     .tile_count = kMapHashCount,
-                     .fresh_evidence = true,
-});
-  if (!evidence.ok) {
+  const rund::AccelEvidence evidence =
+      rund::node::accel::RunAccelKernel(resources.context, resources.kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = kMapHashCount,
+                                            .fresh_evidence = true,
+                                        });
+  if (!evidence.outcome.ok) {
     return {};
   }
 
@@ -42,8 +43,7 @@ namespace node_accel_contract::cpu_context {
   return MapRun{.hash = hash, .evidence = evidence, .ok = true};
 }
 
-[[nodiscard]] inline MapRun
-ContextMapHash(const rund::AccelDevice &pick) {
+[[nodiscard]] inline MapRun ContextMapHash(const rund::AccelDevice &pick) {
   MapHashWork work = MakeMapHashWork();
   const rund::compute_dsl::ComputeOp op = MakeMapHashOp(work);
   if (!op.ok()) {

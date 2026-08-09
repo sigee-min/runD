@@ -87,4 +87,39 @@ private:
   std::uint64_t budget_{};
 };
 
+class PreparedPipelineMemoryMeter final {
+public:
+  void add(const PreparedPipelineMemory value) noexcept {
+    lock();
+    accumulate_memory(value_.host, value.host);
+    accumulate_memory(value_.device, value.device);
+    accumulate_memory(value_.staging, value.staging);
+    unlock();
+  }
+
+  void add_device(const PreparedMemory value) noexcept {
+    lock();
+    accumulate_memory(value_.device, value);
+    unlock();
+  }
+
+  [[nodiscard]] PreparedPipelineMemory read() const noexcept {
+    lock();
+    const PreparedPipelineMemory result = value_;
+    unlock();
+    return result;
+  }
+
+private:
+  void lock() const noexcept {
+    while (gate_.test_and_set(std::memory_order_acquire)) {
+    }
+  }
+
+  void unlock() const noexcept { gate_.clear(std::memory_order_release); }
+
+  mutable std::atomic_flag gate_{};
+  PreparedPipelineMemory value_{};
+};
+
 } // namespace rund::node::accel::detail

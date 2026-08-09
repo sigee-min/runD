@@ -133,11 +133,11 @@ CheckUnknownCompletionProfileIdentity(rund::compute::Device &device,
                PreparedPipelineStepTimingRelation::NonAdditive},
       }};
   rund::node::accel::detail::PreparedPipelineEvidence unknown{
-      .shared = {.backend = backend == Backend::Metal ? rund::AccelApi::Metal
-                                                      : rund::AccelApi::Vulkan,
-                 .command_submit_count = 1u,
-                 .ok = false,
-                 .reason = "compute_backend_failed"},
+      .shared = {.identity = {.backend = backend == Backend::Metal
+                                             ? rund::AccelApi::Metal
+                                             : rund::AccelApi::Vulkan},
+                 .run = {.work = {.command_submit_count = 1u}},
+                 .outcome = {.ok = false, .reason = "compute_backend_failed"}},
       .check = {false, "compute_backend_failed"},
       .control = {.generation =
                       static_cast<std::uint32_t>(state->attempt_generation),

@@ -11,6 +11,36 @@ work=$2
 fixture="$work/root"
 rm -rf "$work"
 mkdir -p "$fixture/docs/reference/performance"
+product_entry="$root/tools/measure/compute/suite/product.cpp"
+product_owners="$root/tools/measure/compute/suite/product"
+
+if rg -n 'NonnegativeDelta|constexpr std::uint64_t delta' \
+    "$root/tools/measure/compute/process.hpp" \
+    "$product_entry" "$product_owners" >/dev/null; then
+  echo "Compute measurement owns a parallel counter delta" >&2
+  exit 1
+fi
+rg -q 'counter::Delta' "$root/tools/measure/compute/process.hpp"
+if rg -n 'pipeline_result->(stats|memory)\(' \
+    "$product_entry" "$product_owners" >/dev/null; then
+  echo "Product measurement bypasses Profile" >&2
+  exit 1
+fi
+if rg -n 'write_stats\(' \
+    "$product_entry" "$product_owners" >/dev/null; then
+  echo "Product measurement bypasses Profile for host-write evidence" >&2
+  exit 1
+fi
+test "$(rg -o '\.profile\(' "$product_entry" "$product_owners" |
+  wc -l | tr -d ' ')" -eq 1
+rg -q 'auto observed = pipeline\.profile\(\);' \
+  "$product_entry" "$product_owners"
+test "$(rg -o 'pipeline_result->begin_samples\(\)' \
+  "$product_entry" "$product_owners" | wc -l | tr -d ' ')" -eq 2
+test "$(rg -o 'pipeline_result->end_samples\(\)' \
+  "$product_entry" "$product_owners" | wc -l | tr -d ' ')" -eq 2
+test "$(rg -o 'pipeline\.samples_clean\(WarmSamples\)' \
+  "$product_entry" "$product_owners" | wc -l | tr -d ' ')" -eq 2
 
 route_metrics() {
   perl - "$root" "$1" <<'PERL'
@@ -67,8 +97,8 @@ printf '%s\n' \
 
 compute_observation="$work/compute-observation.csv"
 printf '%s\n' \
-  'product_cold_columns,backend,chain,shape,status,capacity,active_count,radius,window_size,stride,candidate,width,stages,shared_capacity,candidate_scratch_bytes,source_hi,source_lo,execution_hi,execution_lo,first_result_us,author_us,compile_us,upload_us,prepare_us,run_us,read_us,dispatches,run_submissions,terminal_submissions,terminal_readbacks,logical_upload_bytes,logical_readback_bytes,transfer_upload_bytes,downloaded_bytes,peak_retained_bytes,resident_peak_bytes,scratch_payload_bytes,scratch_backing_bytes,pipeline_compiles,pipeline_cache_hits,program_cache_hits,program_cache_misses,prepared_templates,graph_hash,output_hash,result' \
-  'product_warm_columns,backend,chain,shape,status,capacity,active_count,radius,window_size,stride,candidate,width,stages,shared_capacity,candidate_scratch_bytes,source_hi,source_lo,execution_hi,execution_lo,samples,warm_p50_us,warm_p95_us,active_elements_per_s,dispatches_per_run,submissions_per_run,terminal_submissions,terminal_readbacks,transition_upload_bytes,downloaded_bytes,peak_retained_bytes,resident_peak_bytes,scratch_payload_bytes,scratch_backing_bytes,warm_pipeline_compiles,warm_cache_hits,warm_buffer_allocations,warm_descriptor_pool_creations,warm_descriptor_set_allocations,warm_allocations,warm_uploaded_bytes,warm_download_events,warm_downloaded_bytes,warm_rebindings,graph_hash,output_hash,result' \
+  'product_cold_columns,backend,chain,shape,status,capacity,active_count,radius,window_size,stride,candidate,width,stages,shared_capacity,candidate_scratch_bytes,source_hi,source_lo,execution_hi,execution_lo,first_result_us,author_us,compile_us,upload_us,prepare_us,run_us,read_us,dispatches,run_submissions,terminal_submissions,terminal_readbacks,logical_upload_bytes,logical_readback_bytes,downloaded_bytes,peak_retained_bytes,resident_peak_bytes,scratch_payload_bytes,scratch_backing_bytes,pipeline_compiles,pipeline_cache_hits,prepared_templates,graph_hash,output_hash,result' \
+  'product_warm_columns,backend,chain,shape,status,capacity,active_count,radius,window_size,stride,candidate,width,stages,shared_capacity,candidate_scratch_bytes,source_hi,source_lo,execution_hi,execution_lo,samples,warm_p50_us,warm_p95_us,active_elements_per_s,dispatches_per_run,submissions_per_run,terminal_submissions,terminal_readbacks,downloaded_bytes,peak_retained_bytes,resident_peak_bytes,scratch_payload_bytes,scratch_backing_bytes,sampled_runs,clean_runs,warm_cache_hits,graph_hash,output_hash,result' \
   >"$compute_observation"
 
 emit_product_cold() {
@@ -83,7 +113,7 @@ emit_product_cold() {
   product_window=$9
   shift 9
   product_stride=$1
-  printf 'product_cold,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,10.000,1.000,2.000,1.000,2.000,3.000,1.000,4,%s,%s,1,4096,4,4096,4,8192,8192,1024,1024,1,0,0,1,4,11,12,7\n' \
+  printf 'product_cold,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,10.000,1.000,2.000,1.000,2.000,3.000,1.000,4,%s,%s,1,4096,4,4,8192,8192,1024,1024,1,0,4,11,12,7\n' \
     "$product_backend" "$product_chain" "$product_shape" \
     "$product_capacity" "$product_active" "$product_radius" \
     "$product_window" "$product_stride" "$product_run_submits" \
@@ -102,7 +132,7 @@ emit_product_warm() {
   product_window=$9
   shift 9
   product_stride=$1
-  printf 'product_warm,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,60,10.000,10.000,1000000.000,4,%s,%s,1,0,4,8192,8192,1024,1024,0,0,0,0,0,0,0,0,0,0,11,12,7\n' \
+  printf 'product_warm,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,60,10.000,10.000,1000000.000,4,%s,%s,1,4,8192,8192,1024,1024,60,60,0,11,12,7\n' \
     "$product_backend" "$product_chain" "$product_shape" \
     "$product_capacity" "$product_active" "$product_radius" \
     "$product_window" "$product_stride" "$product_run_submits" \
@@ -1599,16 +1629,16 @@ sed 's/,prefix,64,4,0,1024,/,retired,64,4,0,1024,/' \
 reject compute-candidate measure-compute "$work/compute-candidate.csv" \
   'Compute product_cold candidate is invalid'
 
-sed 's/,60,10[.]000,10[.]000,1000000[.]000,4,0,0,1,0,4,/,60,10.000,10.000,1000000.000,4,0,0,0,0,4,/' \
+sed 's/,60,10[.]000,10[.]000,1000000[.]000,4,0,0,1,4,/,60,10.000,10.000,1000000.000,4,0,0,0,4,/' \
   "$compute_observation" >"$work/compute-readback.csv"
 reject compute-readback measure-compute "$work/compute-readback.csv" \
   'Compute product_warm must perform exactly one terminal readback'
 
-sed 's/,0,0,0,0,0,0,0,0,0,0,11,12,7$/,0,0,0,0,0,1,0,0,0,0,11,12,7/' \
-  "$compute_observation" >"$work/compute-warm-allocation.csv"
-reject compute-warm-allocation measure-compute \
-  "$work/compute-warm-allocation.csv" \
-  'Compute product warm allocation/transfer changed: warm_allocations'
+sed 's/,1024,1024,60,60,0,11,12,7$/,1024,1024,60,59,0,11,12,7/' \
+  "$compute_observation" >"$work/compute-warm-middle-dirty.csv"
+reject compute-warm-middle-dirty measure-compute \
+  "$work/compute-warm-middle-dirty.csv" \
+  'Compute product warm sample epoch is not entirely clean'
 
 sed 's/,60,10[.]000,10[.]000,1000000[.]000,/,60,10.000,500.000,1000000.000,/' \
   "$compute_observation" >"$work/compute-warm-time.csv"
@@ -1622,8 +1652,9 @@ reject compute-warm-columns measure-compute \
 
 printf '%s\n' \
   'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
-  >"$work/compute-legacy.csv"
-reject compute-legacy measure-compute "$work/compute-legacy.csv" \
+  >"$work/compute-focused-header.csv"
+reject compute-focused-header measure-compute \
+  "$work/compute-focused-header.csv" \
   'unsupported Compute header: resident_setup_columns'
 
 printf '%s\n' \

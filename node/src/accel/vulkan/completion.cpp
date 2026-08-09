@@ -33,11 +33,10 @@ void RunVulkanCompletion(VulkanAdapter *const adapter) noexcept {
 
     KernelResult result{
         .check = rund::AccelCheck{true, "ok"},
-        .stats = {.command_submit_count = 1u,
-                  .command_capacity = kVulkanCommandCapacity,
-                  .command_inflight_peak = pending.inflight,
-                  .ok = true,
-                  .reason = "ok"},
+        .stats = {.run = {.work = {.command_submit_count = 1u,
+                                   .command_capacity = kVulkanCommandCapacity,
+                                   .command_inflight_peak = pending.inflight}},
+                  .outcome = {.ok = true, .reason = "ok"}},
     };
     const VkFence fence =
         pending.external
@@ -61,10 +60,12 @@ void RunVulkanCompletion(VulkanAdapter *const adapter) noexcept {
 
     {
       std::lock_guard lock{adapter->mutex};
-      result.stats.command_submit_wait_ns =
-          MonotonicNanoseconds() - pending.submitted_ns;
-      RecordVulkanCommandSubmitWaitNs(*adapter,
-                                      result.stats.command_submit_wait_ns);
+      if (pending.timing) {
+        result.stats.run.time.command_submit_wait_ns =
+            MonotonicNanoseconds() - pending.submitted_ns;
+        RecordVulkanCommandSubmitWaitNs(
+            *adapter, result.stats.run.time.command_submit_wait_ns);
+      }
       if (result.check.ok && !pending.external && pending.timestamp &&
           !CollectVulkanTimestampSpan(*adapter, pending.command.slot,
                                       &result.stats)) {

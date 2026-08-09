@@ -192,9 +192,11 @@ RequireExec(const rund::node::accel::detail::RangePlan &plan) noexcept {
 
 [[nodiscard]] bool ModelContract();
 [[nodiscard]] bool PlannerContract();
+[[nodiscard]] bool ProjectionContract() noexcept;
 [[nodiscard]] bool ExecutionContract();
 [[nodiscard]] bool MemoryContract();
 [[nodiscard]] bool SourceContract();
+[[nodiscard]] bool SharedHaloSourceContract();
 [[nodiscard]] bool BackendContract();
 [[nodiscard]] bool CacheContract();
 [[nodiscard]] bool SignedSourcesCarryDomainOrder();

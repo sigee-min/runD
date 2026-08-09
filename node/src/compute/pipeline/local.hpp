@@ -3,6 +3,7 @@
 #include "state.hpp"
 
 #include <kernel/dispatch/worker/backend.hpp>
+#include <rund/compute/telemetry.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -11,6 +12,8 @@
 #include <utility>
 
 namespace rund::compute::detail {
+
+class TerminalObservation;
 
 struct CpuView;
 
@@ -158,12 +161,26 @@ pipeline_workers(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Stats
 pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
+begin_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Status
+end_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Result<telemetry::Profile>
+pipeline_profile(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Status
 queue_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status start_pipeline(PipelineState &state) noexcept;
 [[nodiscard]] Status
 cancel_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] TerminalObservation
+cancel_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
+                         std::uint64_t frame_bytes,
+                         bool capture_profile) noexcept;
 [[nodiscard]] Status fail_pipeline(const std::shared_ptr<PipelineState> &state,
                                    Status failure) noexcept;
+[[nodiscard]] TerminalObservation
+fail_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
+                       Status failure, std::uint64_t frame_bytes,
+                       bool capture_profile) noexcept;
 [[nodiscard]] std::size_t
 pipeline_size(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] std::shared_ptr<JobState>
@@ -187,13 +204,23 @@ complete_cpu_pipeline_schedule_step(const std::shared_ptr<PipelineState> &state,
                                     Status result) noexcept;
 [[nodiscard]] Status
 complete_cpu_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] TerminalObservation
+complete_cpu_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
+                               std::uint64_t frame_bytes,
+                               bool capture_profile) noexcept;
 [[nodiscard]] Status
 submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
                    std::shared_ptr<void> lifetime,
-                   PipelineCompletion completion, void *user) noexcept;
+                   PipelineCompletion completion, void *user,
+                   node::accel::detail::KernelTiming timing =
+                       node::accel::detail::KernelTiming::Submission) noexcept;
 [[nodiscard]] Status finish_pipeline_on(
     const std::shared_ptr<PipelineState> &state,
     node::accel::detail::PreparedPipelineEvidence &&evidence) noexcept;
+[[nodiscard]] TerminalObservation finish_pipeline_terminal_on(
+    const std::shared_ptr<PipelineState> &state,
+    node::accel::detail::PreparedPipelineEvidence &&evidence,
+    std::uint64_t frame_bytes, bool capture_profile) noexcept;
 [[nodiscard]] Status seed_pipeline_generations(PipelineState &state,
                                                std::uint64_t generation,
                                                std::uint8_t parity) noexcept;
@@ -203,7 +230,5 @@ submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
 void record_pipeline_frame(const std::shared_ptr<PipelineState> &state,
                            std::uint64_t bytes, bool reused,
                            std::uint64_t budget) noexcept;
-void release_pipeline_frame(const std::shared_ptr<PipelineState> &state,
-                            std::uint64_t bytes) noexcept;
 
 } // namespace rund::compute::detail

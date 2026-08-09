@@ -51,6 +51,8 @@ struct VulkanWindowRoute final {
 struct VulkanGateRoute final {
   VulkanBuffer source{};
   VkDescriptorSet descriptor{VK_NULL_HANDLE};
+  VkDeviceSize base{};
+  VkDeviceSize offset{};
 };
 
 struct VulkanWindowResources final {

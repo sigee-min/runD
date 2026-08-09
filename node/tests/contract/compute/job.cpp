@@ -130,9 +130,13 @@ int CheckAccelWarmRun(const rund::compute::Backend backend) {
     return 6;
   }
   const rund::compute::Stats read_stats = job->stats();
+  const std::uint64_t expected_read_submits =
+      backend == rund::compute::Backend::Vulkan ? 1u : 0u;
   if (read_stats.download_events != 1u ||
       read_stats.downloaded_bytes != sizeof(input) ||
-      read_stats.readback_ns <= warm.readback_ns) {
+      read_stats.readback_ns <= warm.readback_ns ||
+      read_stats.command_submits != warm.command_submits ||
+      read_stats.transfer_submissions.device_to_host != expected_read_submits) {
     std::fprintf(
         stderr,
         "accelerator read telemetry backend=%u events=%llu bytes=%llu "

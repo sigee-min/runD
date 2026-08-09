@@ -5,13 +5,23 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(
     runD-compute-measure
     main.cpp
-    suite/product.cpp)
+    suite/product.cpp
+    suite/product/bounded.hpp
+    suite/product/exact.hpp
+    suite/product/model.hpp
+    suite/product/oracle.hpp
+    suite/product/report.hpp)
   target_link_libraries(runD-compute-measure PRIVATE runD::sdk)
 else()
   add_executable(
     runD-compute-measure EXCLUDE_FROM_ALL
     main.cpp
-    suite/product.cpp)
+    suite/product.cpp
+    suite/product/bounded.hpp
+    suite/product/exact.hpp
+    suite/product/model.hpp
+    suite/product/oracle.hpp
+    suite/product/report.hpp)
   target_link_libraries(runD-compute-measure PRIVATE node)
 
   add_executable(

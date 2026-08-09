@@ -6,6 +6,7 @@
 #include "type.hpp"
 #include <rund/counter.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <span>
@@ -19,42 +20,26 @@ enum class BufferInitialization : unsigned char {
   FullOverwrite,
 };
 
-void raise_peak(MemoryMeter &meter, const std::uint64_t value) noexcept {
-  std::uint64_t peak = meter.peak.load(std::memory_order_relaxed);
-  while (peak < value && !meter.peak.compare_exchange_weak(
-                             peak, value, std::memory_order_relaxed)) {
-  }
-}
-
-[[nodiscard]] std::uint64_t accumulate(std::atomic<std::uint64_t> &counter,
-                                       const std::uint64_t delta) noexcept {
-  std::uint64_t current = counter.load(std::memory_order_relaxed);
-  while (true) {
-    const std::uint64_t next =
-        ::rund::detail::counter::SaturatingAdd(current, delta);
-    if (counter.compare_exchange_weak(current, next,
-                                      std::memory_order_relaxed)) {
-      return next;
-    }
-  }
-}
-
-void release(std::atomic<std::uint64_t> &counter,
-             const std::uint64_t value) noexcept {
-  std::uint64_t current = counter.load(std::memory_order_relaxed);
-  while (true) {
-    const std::uint64_t next =
-        ::rund::detail::counter::Remaining(current, value);
-    if (counter.compare_exchange_weak(current, next,
-                                      std::memory_order_relaxed)) {
-      return;
-    }
-  }
-}
-
-MemoryMeter &buffer_meter(DeviceState &device) noexcept {
+AllocationMeter &committed_buffer_meter(DeviceState &device) noexcept {
   return device.backend == Backend::Cpu ? device.memory.host
                                         : device.memory.device;
+}
+
+void record_allocation(AllocationMeter &meter, const std::uint64_t bytes,
+                       const bool reused) noexcept {
+  ::rund::detail::counter::Accumulate(meter.current, bytes);
+  ::rund::detail::counter::Accumulate(meter.cumulative, bytes);
+  if (reused) {
+    ::rund::detail::counter::Accumulate(meter.reused, bytes);
+  }
+  meter.peak = std::max(meter.peak, meter.current);
+}
+
+void record_buffer(DeviceState &device, const std::uint64_t logical_bytes,
+                   const std::uint64_t committed_bytes,
+                   const bool reused = false) noexcept {
+  record_allocation(device.memory.logical, logical_bytes, reused);
+  record_allocation(committed_buffer_meter(device), committed_bytes, reused);
 }
 
 [[nodiscard]] Result<std::shared_ptr<BufferState>>
@@ -64,7 +49,7 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
   if (device == nullptr) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::DeviceInvalid);
   }
-  std::lock_guard memory_lock{device->memory.allocation_gate};
+  std::lock_guard memory_lock{device->memory.gate};
   const std::size_t bytes = type_bytes(type);
   std::size_t byte_count = 0u;
   if (bytes == 0u || !size::multiply(count, bytes, byte_count)) {
@@ -96,7 +81,7 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
           .bytes = byte_count,
       });
       buffer->physical_bytes = byte_count;
-      record_buffer(*device, byte_count);
+      record_buffer(*device, buffer->bytes, buffer->physical_bytes);
       return Result<std::shared_ptr<BufferState>>::success(std::move(buffer));
     }
     if (device->ops == nullptr || device->ops->allocate == nullptr) {
@@ -108,10 +93,13 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
     if (!allocated) {
       return Result<std::shared_ptr<BufferState>>::fail(allocated.reason());
     }
+    if (buffer->physical_bytes < buffer->bytes) {
+      return Result<std::shared_ptr<BufferState>>::fail(Reason::BufferCapacity);
+    }
     const AccelBufferState *const stored = accel_buffer(*buffer);
     const bool reused =
         stored != nullptr && stored->buffer.buffer.storage_reused;
-    record_buffer(*device, buffer->physical_bytes, reused);
+    record_buffer(*device, buffer->bytes, buffer->physical_bytes, reused);
     return Result<std::shared_ptr<BufferState>>::success(std::move(buffer));
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::BufferCapacity);
@@ -120,26 +108,19 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
 
 } // namespace
 
-void record_buffer(DeviceState &device, const std::uint64_t bytes,
-                   const bool reused) noexcept {
-  MemoryMeter &meter = buffer_meter(device);
-  const std::uint64_t current = accumulate(meter.current, bytes);
-  (void)accumulate(meter.cumulative, bytes);
-  if (reused) {
-    (void)accumulate(meter.reused, bytes);
-  }
-  raise_peak(meter, current);
-}
-
 void record_transfer(DeviceState &device, const std::uint64_t bytes) noexcept {
-  MemoryMeter &meter = device.memory.transfer;
-  (void)accumulate(meter.cumulative, bytes);
-  raise_peak(meter, bytes);
+  std::lock_guard lock{device.memory.gate};
+  TrafficMeter &meter = device.memory.transfer;
+  ::rund::detail::counter::Accumulate(meter.cumulative, bytes);
+  meter.peak = std::max(meter.peak, bytes);
 }
 
 BufferState::~BufferState() {
-  if (physical_bytes != 0u && device != nullptr) {
-    release(buffer_meter(*device).current, physical_bytes);
+  if ((bytes != 0u || physical_bytes != 0u) && device != nullptr) {
+    std::lock_guard lock{device->memory.gate};
+    ::rund::detail::counter::Release(device->memory.logical.current, bytes);
+    ::rund::detail::counter::Release(committed_buffer_meter(*device).current,
+                                     physical_bytes);
   }
 }
 
@@ -193,14 +174,14 @@ upload_raw(const std::shared_ptr<DeviceState> &device, const HostView input) {
   if (device->ops == nullptr || device->ops->upload == nullptr) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::TransferInvalid);
   }
-  const Status uploaded =
+  const UploadResult uploaded =
       device->ops->upload(*device, *result.value(), input.data, bytes);
-  if (uploaded) {
+  if (uploaded.status) {
     record_transfer(*device, bytes);
   }
-  return uploaded
-             ? result
-             : Result<std::shared_ptr<BufferState>>::fail(uploaded.reason());
+  return uploaded.status ? result
+                         : Result<std::shared_ptr<BufferState>>::fail(
+                               uploaded.status.reason());
 }
 
 } // namespace rund::compute::detail

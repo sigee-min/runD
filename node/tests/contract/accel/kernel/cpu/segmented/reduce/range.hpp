@@ -118,23 +118,25 @@ namespace segmented {
                                             .tile_count = kCount,
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.backend != expected_backend ||
-      evidence.command_submit_count != expected_submits ||
-      evidence.dispatch_count != expected_dispatches ||
-      evidence.original_dispatch_count != 1u ||
-      evidence.final_dispatch_count != expected_dispatches) {
+  if (!evidence.outcome.ok || evidence.identity.backend != expected_backend ||
+      evidence.run.work.command_submit_count != expected_submits ||
+      evidence.run.work.dispatch_count != expected_dispatches ||
+      evidence.run.work.original_dispatch_count != 1u ||
+      evidence.run.work.final_dispatch_count != expected_dispatches) {
     std::fprintf(
         stderr,
         "segmented reduce range evidence backend=%u ok=%u reason=%s "
         "submit=%llu/%llu dispatch=%llu/%llu original=%llu final=%llu\n",
-        static_cast<unsigned>(expected_backend), evidence.ok ? 1u : 0u,
-        evidence.reason,
-        static_cast<unsigned long long>(evidence.command_submit_count),
+        static_cast<unsigned>(expected_backend), evidence.outcome.ok ? 1u : 0u,
+        evidence.outcome.reason,
+        static_cast<unsigned long long>(evidence.run.work.command_submit_count),
         static_cast<unsigned long long>(expected_submits),
-        static_cast<unsigned long long>(evidence.dispatch_count),
+        static_cast<unsigned long long>(evidence.run.work.dispatch_count),
         static_cast<unsigned long long>(expected_dispatches),
-        static_cast<unsigned long long>(evidence.original_dispatch_count),
-        static_cast<unsigned long long>(evidence.final_dispatch_count));
+        static_cast<unsigned long long>(
+            evidence.run.work.original_dispatch_count),
+        static_cast<unsigned long long>(
+            evidence.run.work.final_dispatch_count));
     return false;
   }
 

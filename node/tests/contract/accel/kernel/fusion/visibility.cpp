@@ -89,24 +89,25 @@ namespace node_accel_contract::fusion {
                                             .tile_count = host_input.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok) {
+  if (!evidence.outcome.ok) {
     return false;
   }
   if (internal_intermediate) {
-    if (evidence.original_operation_count != 2u ||
-        evidence.fused_operation_count != 1u ||
-        evidence.final_dispatch_count != 1u ||
-        evidence.dispatch_count != 1u ||
-        std::string_view{evidence.fusion_reason} != "compute_fusion_ok") {
+    if (evidence.run.work.original_operation_count != 2u ||
+        evidence.run.work.fused_operation_count != 1u ||
+        evidence.run.work.final_dispatch_count != 1u ||
+        evidence.run.work.dispatch_count != 1u ||
+        std::string_view{evidence.run.work.fusion_reason} !=
+            "compute_fusion_ok") {
       return false;
     }
   } else {
-    if (evidence.original_operation_count != 2u ||
-        evidence.fused_operation_count != 2u ||
-        evidence.final_dispatch_count != 2u ||
-        evidence.dispatch_count != 2u ||
-        evidence.fusion_rejection_count != 1u ||
-        std::string_view{evidence.fusion_reason} !=
+    if (evidence.run.work.original_operation_count != 2u ||
+        evidence.run.work.fused_operation_count != 2u ||
+        evidence.run.work.final_dispatch_count != 2u ||
+        evidence.run.work.dispatch_count != 2u ||
+        evidence.run.work.fusion_rejection_count != 1u ||
+        std::string_view{evidence.run.work.fusion_reason} !=
             "compute_fusion_visibility_boundary") {
       return false;
     }
@@ -212,19 +213,21 @@ namespace node_accel_contract::fusion {
         .role = index % 2u == 0u ? Role::Read : Role::Write,
     };
   }
-  const rund::AccelEvidence evidence = rund::node::accel::RunAccelKernel(
-      context, kernel,
-      rund::AccelRun{
-          .bindings = bindings.data(),
-          .binding_count = bindings.size(),
-          .tile_count = input.size(),
-          .fresh_evidence = true,
-      });
-  if (!evidence.ok || evidence.original_operation_count != 4u ||
-      evidence.fused_operation_count != 2u ||
-      evidence.original_dispatch_count != 4u ||
-      evidence.final_dispatch_count != 2u || evidence.dispatch_count != 2u ||
-      evidence.fusion_rejection_count != 1u) {
+  const rund::AccelEvidence evidence =
+      rund::node::accel::RunAccelKernel(context, kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = input.size(),
+                                            .fresh_evidence = true,
+                                        });
+  if (!evidence.outcome.ok ||
+      evidence.run.work.original_operation_count != 4u ||
+      evidence.run.work.fused_operation_count != 2u ||
+      evidence.run.work.original_dispatch_count != 4u ||
+      evidence.run.work.final_dispatch_count != 2u ||
+      evidence.run.work.dispatch_count != 2u ||
+      evidence.run.work.fusion_rejection_count != 1u) {
     return false;
   }
 
@@ -233,8 +236,8 @@ namespace node_accel_contract::fusion {
   return rund::node::accel::DownloadAccelBuffer(
              context, buffers[2], boundary.data(), sizeof(boundary))
              .ok &&
-         rund::node::accel::DownloadAccelBuffer(
-             context, buffers[4], output.data(), sizeof(output))
+         rund::node::accel::DownloadAccelBuffer(context, buffers[4],
+                                                output.data(), sizeof(output))
              .ok &&
          boundary == expected_boundary && output == expected_output;
 }

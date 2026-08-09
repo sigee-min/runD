@@ -470,12 +470,9 @@ residency, submission, completion, or fixed control observation. Invalid ICB
 calibration rejects Pipeline planning without disabling standalone Metal.
 Vulkan's primary command buffer remains recorded during cold preparation.
 
-The corresponding `rebinding_count` means mutations of those retained
-Job/Buffer/View/prepared-owner identities after preparation. Cold native
-capture and emission of already frozen descriptors are not mutations. The
-counter is zero by construction and is interpreted together with the
-`compute.window` frozen-binding snapshot oracle; a zero counter alone is not
-the ownership proof.
+The `compute.window` contract freezes the retained
+Job/Buffer/View/prepared-owner identities at preparation and compares the
+complete owner and View snapshot after successive warm executions.
 
 `PipelineBuilder::plan()` returns the public `PipelinePlan` admission summary
 used unchanged by `prepare()`: caller-owned `persistent_bytes`, Pipeline-owned

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../trace.hpp"
 #include "capture.hpp"
 
 #include <accel/check.hpp>
@@ -199,6 +200,7 @@ struct MetalSequence final {
   std::vector<id<MTLResource>> residency;
   std::vector<id<MTLComputePipelineState>> pipelines;
   std::vector<MetalIcbChunk> command_chunks;
+  std::vector<std::uint64_t> trace_commands;
   std::vector<MetalPipelineTelemetryRecord> telemetry;
   std::vector<PreparedPipelineStepEvidence> step_evidence;
   std::shared_ptr<void> recurrence;
@@ -209,6 +211,8 @@ struct MetalSequence final {
   id<MTLBuffer> states = nil;
   id<MTLBuffer> guard_zero = nil;
   id<MTLBuffer> step_control = nil;
+  MetalDispatchTrace trace{};
+  PreparedPipelineMemoryMeter *memory_meter{};
   MetalWarmSubmission warm{};
   NSUInteger command_count = 0u;
   std::uint32_t control_command_count{};
@@ -221,6 +225,7 @@ struct MetalSequence final {
   bool uses_status_arena{};
   bool profile_steps{};
   bool direct_aggregate{};
+  bool trace_active{};
   submission::State<MetalSequence> submission{};
 };
 

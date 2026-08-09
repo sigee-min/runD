@@ -28,7 +28,8 @@ namespace {
                                 const kernel::WorkerBackend worker_backend,
                                 const std::atomic_bool *const cancel,
                                 void *const ready_context,
-                                const CpuJobReady ready) noexcept {
+                                const CpuJobReady ready,
+                                const bool trace_kernel_dispatches) noexcept {
   if (state->program->empty()) {
     ready(ready_context);
     return Status::success();
@@ -40,7 +41,8 @@ namespace {
       state->cpu->graph == nullptr) {
     return Status::fail(Reason::RunInvalid);
   }
-  const CpuStepProgress started = start_cpu(*state, cancel);
+  const CpuStepProgress started =
+      start_cpu(*state, cancel, trace_kernel_dispatches);
   switch (started.disposition()) {
   case CpuStepDisposition::Failed:
     return started.status();
@@ -59,8 +61,8 @@ Status submit_cpu_job_on(const std::shared_ptr<JobState> &state,
                          const kernel::WorkerBackend worker_backend,
                          const kernel::u32 workers,
                          const std::atomic_bool *const cancel,
-                         void *const ready_context,
-                         const CpuJobReady ready) noexcept {
+                         void *const ready_context, const CpuJobReady ready,
+                         const bool trace_kernel_dispatches) noexcept {
   const Status valid = validate_submission(state, workers);
   if (!valid) {
     return valid;
@@ -69,7 +71,8 @@ Status submit_cpu_job_on(const std::shared_ptr<JobState> &state,
   if (!started) {
     return started;
   }
-  return submit_run(state, worker_backend, cancel, ready_context, ready);
+  return submit_run(state, worker_backend, cancel, ready_context, ready,
+                    trace_kernel_dispatches);
 }
 
 Status submit_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
@@ -77,7 +80,8 @@ Status submit_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
                                   const kernel::u32 workers,
                                   const std::atomic_bool *const cancel,
                                   void *const ready_context,
-                                  const CpuJobReady ready) noexcept {
+                                  const CpuJobReady ready,
+                                  const bool trace_kernel_dispatches) noexcept {
   const Status valid = validate_submission(state, workers);
   if (!valid) {
     return valid;
@@ -89,7 +93,8 @@ Status submit_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
   if (!gathered) {
     return gathered;
   }
-  return submit_run(state, worker_backend, cancel, ready_context, ready);
+  return submit_run(state, worker_backend, cancel, ready_context, ready,
+                    trace_kernel_dispatches);
 }
 
 } // namespace rund::compute::detail

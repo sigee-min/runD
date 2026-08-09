@@ -22,7 +22,8 @@ bytes.
 | `tools/sanitize/run thread` | TSan concurrency-owner matrix. |
 | `tools/check/leaks` | Native Apple leak checks for the four lifetime owners. |
 | `tools/measure/scheduler/run` | Installed scheduler latency, scaling, and memory workloads. |
-| `tools/measure/compute/run [--pipeline\|--recurrence\|--window-repeat metal\|vulkan]` | Installed Compute execution, scaling, parity, and warm-cost workloads; focused modes build one physical backend projection while retaining its CPU oracle. |
+| `tools/measure/compute/run` | Installed Compute Product chains through the public Flow and prepared-Pipeline API, including cold first-result and sixty-run resident evidence. |
+| `tools/measure/compute/run --pipeline\|--recurrence\|--window-repeat metal\|vulkan` | Current-source focused diagnostics that build one physical backend projection while retaining its CPU oracle. |
 | `tools/measure/compute/run --checkpoint cpu\|metal\|vulkan` | Compare live device publication, reusable host storage, and immutable host snapshots, including fused copy/hash latency, process allocations, transfer, staging, and RSS high-water observations. |
 | `tools/measure/compute/run --plan-memory cpu\|metal\|vulkan` | Plan the product-scale `Max=516096`, `Tile=8192`, `N=64` Pipeline without materializing it; report every preparation component, structural count, plan wall time, and process RSS high-water delta. |
 | `tools/measure/compute/run --prepare-memory cpu\|metal\|vulkan` | Explicit dedicated materialization of the same product-scale Pipeline; reconcile the frozen plan with Pipeline memory rows, preparation failure coordinates, wall time, and process RSS high-water delta. |
@@ -209,6 +210,26 @@ source, backend, cache, memory, introspection, or resident transition—and the
 folder-level runner only composes those leaves. CMake lists every leaf directly;
 flat compatibility sources and forwarding aliases are not retained.
 
+`accel.kernel-core` keeps its public case owner in `kernel/core.cpp`; its
+`kernel/authority/run.cpp` companion preserves the predicate order while the
+leaves below own the assertions and are case-scoped in the companion registry:
+
+| Authority leaf | Sole verification responsibility |
+| --- | --- |
+| `window` | backend-window defaults and occurrence shape |
+| `claim` | submission transitions and prepared pipeline claim ownership |
+| `phase` | nested-phase codec, recurrence ABI, control codes, and emitted-source identity |
+| `failure` | prepared failure coordinates and prepare-path evidence |
+| `cache` | cold registry collision safety, recurrence template reuse, and pointer identity |
+| `capacity` | fieldwise reservations and Metal/prepared capacity bounds |
+| `manifest` | route projection, command shape, physical capacity, and cold manifests |
+| `recipe` | generic and Vulkan source-recipe materialization |
+| `map` | Metal map partition, specialization, and guard authority |
+| `numeric` | Metal numeric/source semantic identity |
+| `route` | backend template-route demand and cursor lifecycle |
+| `publication` | prepared publication fingerprint and resolved view identity |
+| `backend` | grid, finish precedence, telemetry projection, and capacity exceptions |
+
 The six Runtime-base groups share `node-runtime` but retain six ordered CTest
 processes. The contract runner is one target-neutral OBJECT; a thin generated
 table supplies each executable's selected cases. Focused source partitioning
@@ -366,7 +387,7 @@ completion identity, frame high-water, resource limits, and memory observations.
 Flow and Pipeline API. Its installed Product matrix executes
 `map -> window/pool/rolling -> filter -> reduce` at declared count/window
 crossovers. Cold timing begins before Flow authoring and ends after the first
-typed result. Warm timing contains fifteen consecutive runs of one prepared
+typed result. Warm timing contains sixty consecutive runs of one prepared
 Pipeline and one terminal read after the samples. Bounded rolling reuses one
 capacity at four logical counts with poisoned inactive storage.
 
@@ -477,7 +498,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.5 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.6 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

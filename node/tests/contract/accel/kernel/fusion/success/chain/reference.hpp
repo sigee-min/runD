@@ -44,20 +44,22 @@ namespace node_accel_contract::fusion::chain {
   };
   return rund::node::accel::RunAccelKernel(
              context, first_kernel,
-             rund::AccelRun{.bindings = first_bindings.data(),
-                            .binding_count = first_bindings.size(),
-                            .tile_count = inputs.host.size(),
-                            .fresh_evidence = true,
-})
-             .ok &&
+             rund::AccelRun{
+                 .bindings = first_bindings.data(),
+                 .binding_count = first_bindings.size(),
+                 .tile_count = inputs.host.size(),
+                 .fresh_evidence = true,
+             })
+             .outcome.ok &&
          rund::node::accel::RunAccelKernel(
              context, second_kernel,
-             rund::AccelRun{.bindings = second_bindings.data(),
-                            .binding_count = second_bindings.size(),
-                            .tile_count = inputs.host.size(),
-                            .fresh_evidence = true,
-})
-             .ok;
+             rund::AccelRun{
+                 .bindings = second_bindings.data(),
+                 .binding_count = second_bindings.size(),
+                 .tile_count = inputs.host.size(),
+                 .fresh_evidence = true,
+             })
+             .outcome.ok;
 }
 
 } // namespace node_accel_contract::fusion::chain

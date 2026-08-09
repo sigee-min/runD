@@ -34,10 +34,10 @@ SortRejectsRunBufferShapeMismatch(const rund::AccelDevice &pick,
                                             .fresh_evidence = true,
                                         });
   if (!EvidenceReason(evidence, "accel_kernel_buffer_shape_mismatch")) {
-    std::fprintf(stderr,
-                 "sort shape rejection mismatch: api=%u ok=%u reason=%s\n",
-                 static_cast<unsigned>(pick.api),
-                 static_cast<unsigned>(evidence.ok), evidence.reason);
+    std::fprintf(
+        stderr, "sort shape rejection mismatch: api=%u ok=%u reason=%s\n",
+        static_cast<unsigned>(pick.api),
+        static_cast<unsigned>(evidence.outcome.ok), evidence.outcome.reason);
     return false;
   }
   return true;

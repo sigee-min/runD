@@ -75,8 +75,8 @@ struct CopyRequest final {
 struct DeviceOps final {
   Status (*allocate)(DeviceState &, BufferState &, std::size_t, std::size_t,
                      bool) = nullptr;
-  Status (*upload)(DeviceState &, BufferState &, const void *,
-                   std::size_t) = nullptr;
+  UploadResult (*upload)(DeviceState &, BufferState &, const void *,
+                         std::size_t) = nullptr;
   UploadResult (*upload_batch)(DeviceState &, std::span<const UploadRequest>,
                                node::accel::detail::TransferCompletion) =
       nullptr;
@@ -99,7 +99,8 @@ struct DeviceOps final {
                         std::span<rund::AccelRunBinding>) = nullptr;
   Result<RunState> (*run_job)(const std::shared_ptr<JobState> &) = nullptr;
   Status (*submit_job)(const std::shared_ptr<JobState> &, std::shared_ptr<void>,
-                       JobDone, void *) noexcept = nullptr;
+                       JobDone, void *,
+                       node::accel::detail::KernelTiming) noexcept = nullptr;
   Result<RunState> (*finish_job)(const std::shared_ptr<JobState> &,
                                  const rund::AccelEvidence &) = nullptr;
   node::accel::detail::PreparedKernelPipelineReservation (
@@ -121,7 +122,8 @@ struct DeviceOps final {
       const node::accel::detail::PreparedKernelPipeline &) = nullptr;
   rund::AccelCheck (*submit_pipeline)(
       const DeviceState &, const node::accel::detail::PreparedKernelPipeline &,
-      std::shared_ptr<void>, PipelineDone, void *) noexcept = nullptr;
+      std::shared_ptr<void>, PipelineDone, void *,
+      node::accel::detail::KernelTiming) noexcept = nullptr;
   rund::AccelCheck (*seed_pipeline_generation)(
       const node::accel::detail::PreparedKernelPipeline &,
       std::uint32_t) noexcept = nullptr;

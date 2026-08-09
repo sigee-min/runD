@@ -12,21 +12,22 @@ PhysicalDispatchCount(const rund::RuntimeStats &stats,
                       const std::uint64_t planned) noexcept {
   // CPU and empty backends report no physical counter. Accelerator backends
   // may append physical gather/scatter work to the authored dispatch plan.
-  return stats.dispatch_count == 0u ? planned : stats.dispatch_count;
+  return stats.run.work.dispatch_count == 0u ? planned
+                                             : stats.run.work.dispatch_count;
 }
 
 [[nodiscard]] rund::AccelCheck
 PipelineOutcome(const PipelineState &pipeline,
                 const KernelResult &backend) noexcept {
-  if (!backend.stats.ok) {
-    return rund::AccelCheck{false, backend.stats.reason};
+  if (!backend.stats.outcome.ok) {
+    return rund::AccelCheck{false, backend.stats.outcome.reason};
   }
   if (!backend.check.ok) {
     return backend.check;
   }
   if (!backend.pipeline.submitted && !backend.pipeline.control_observed &&
-      backend.stats.dispatch_count == 0u &&
-      backend.stats.command_submit_count == 0u) {
+      backend.stats.run.work.dispatch_count == 0u &&
+      backend.stats.run.work.command_submit_count == 0u) {
     return rund::AccelCheck{true, "ok"};
   }
   if (!backend.pipeline.control_observed ||
@@ -77,56 +78,26 @@ rund::AccelEvidence BatchEvidence(const rund::AccelContext &context,
   const std::uint64_t final_dispatches =
       check.ok ? PhysicalDispatchCount(stats, counts.final_dispatches)
                : counts.final_dispatches;
-  stats.dispatch_count = check.ok ? final_dispatches : 0u;
+  stats.run.work.dispatch_count = check.ok ? final_dispatches : 0u;
+  stats.run.work.original_operation_count = counts.original_operations;
+  stats.run.work.fused_operation_count = counts.fused_operations;
+  stats.run.work.original_dispatch_count = counts.original_dispatches;
+  stats.run.work.final_dispatch_count = final_dispatches;
+  stats.run.work.fusion_rejection_count = counts.fusion_rejections;
+  stats.run.work.fusion_reason =
+      counts.fusion_rejections == 0u ? "ok" : "batch";
+  stats.run.transfer.internal_producer_consumer_roundtrip_bytes =
+      check.ok ? counts.internal_roundtrip_bytes : 0u;
+  stats.run.transfer.external_producer_consumer_roundtrip_bytes =
+      check.ok ? counts.external_roundtrip_bytes : 0u;
   return rund::AccelEvidence{
-      .backend = context.api,
-      .dispatch_count = stats.dispatch_count,
-      .command_submit_count = stats.command_submit_count,
-      .command_capacity = stats.command_capacity,
-      .command_inflight_peak = stats.command_inflight_peak,
-      .command_capacity_rejection_count =
-          stats.command_capacity_rejection_count,
-      .reset_command_count = stats.reset_command_count,
-      .reset_bytes = stats.reset_bytes,
-      .original_operation_count = counts.original_operations,
-      .fused_operation_count = counts.fused_operations,
-      .original_dispatch_count = counts.original_dispatches,
-      .final_dispatch_count = final_dispatches,
-      .fusion_rejection_count = counts.fusion_rejections,
-      .fusion_reason = counts.fusion_rejections == 0u ? "ok" : "batch",
-      .internal_producer_consumer_roundtrip_bytes =
-          check.ok ? counts.internal_roundtrip_bytes : 0u,
-      .external_producer_consumer_roundtrip_bytes =
-          check.ok ? counts.external_roundtrip_bytes : 0u,
-      .host_to_device_bytes = stats.host_to_device_bytes,
-      .device_to_host_bytes = stats.device_to_host_bytes,
-      .pipeline_compile_count = stats.pipeline_compile_count,
-      .pipeline_cache_hit_count = stats.pipeline_cache_hit_count,
-      .pipeline_cache_eviction_count = stats.pipeline_cache_eviction_count,
-      .descriptor_pool_create_count = stats.descriptor_pool_create_count,
-      .descriptor_set_allocate_count = stats.descriptor_set_allocate_count,
-      .buffer_reuse_hit_count = stats.buffer_reuse_hit_count,
-      .buffer_allocation_count = stats.buffer_allocation_count,
-      .descriptor_reuse_hit_count = stats.descriptor_reuse_hit_count,
-      .accel_kernel_ns = stats.accel_kernel_ns,
-      .accel_timestamp_count = stats.accel_timestamp_count,
-      .accel_timestamp_source = stats.accel_timestamp_source,
-      .shader_compile_ns = stats.shader_compile_ns,
-      .spirv_compile_ns = stats.spirv_compile_ns,
-      .pipeline_create_ns = stats.pipeline_create_ns,
-      .descriptor_setup_ns = stats.descriptor_setup_ns,
-      .command_submit_wait_ns = stats.command_submit_wait_ns,
-      .readback_ns = stats.readback_ns,
-      .generated_item_count = stats.generated_item_count,
-      .generated_capacity = stats.generated_capacity,
-      .indirect_dispatch_count = stats.indirect_dispatch_count,
-      .indirect_work_item_count = stats.indirect_work_item_count,
-      .iteration_count = stats.iteration_count,
-      .skipped_iteration_count = stats.skipped_iteration_count,
-      .conflict_count = stats.conflict_count,
-      .overflow_ordinal = stats.overflow_ordinal,
-      .ok = check.ok && stats.ok,
-      .reason = !check.ok ? check.reason : stats.reason,
+      .identity = {.backend = context.api},
+      .run = stats.run,
+      .outcome =
+          {
+              .ok = check.ok && stats.outcome.ok,
+              .reason = !check.ok ? check.reason : stats.outcome.reason,
+          },
   };
 }
 
@@ -139,12 +110,12 @@ rund::AccelEvidence RunEvidence(const rund::AccelContext &context,
       check.ok
           ? PhysicalDispatchCount(stats, state.dispatch.final_dispatch_count)
           : state.dispatch.final_dispatch_count;
-  if (!stats.ok) {
-    return EvidenceFromStats(
+  if (!stats.outcome.ok) {
+    return BuildKernelEvidence(
         context, state.execution, stats, state.dispatch.original_dispatch_count,
-        state.dispatch.final_dispatch_count, false, stats.reason);
+        state.dispatch.final_dispatch_count, false, stats.outcome.reason);
   }
-  return EvidenceFromStats(
+  return BuildKernelEvidence(
       context, state.execution, stats, state.dispatch.original_dispatch_count,
       final_dispatch_count, check.ok, check.reason,
       check.ok ? state.roundtrip.internal_bytes : 0u,

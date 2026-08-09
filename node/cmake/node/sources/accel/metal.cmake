@@ -31,6 +31,11 @@ list(APPEND NODE_SOURCES
   src/accel/metal/pipeline.mm
   src/accel/metal/pipeline/cache.cpp
   src/accel/metal/kernel/prepared.mm
+  src/accel/metal/kernel/trace/counter.mm
+  src/accel/metal/kernel/trace/encoder.mm
+  src/accel/metal/kernel/trace/fold.mm
+  src/accel/metal/kernel/trace/replay.mm
+  src/accel/metal/kernel/trace/submit.mm
   src/accel/metal/scratch.mm
   src/accel/metal/kernel/batch.mm
   src/accel/metal/kernel/batch/copy.mm
@@ -52,13 +57,24 @@ list(APPEND NODE_SOURCES
   src/accel/metal/kernel/pipeline/prepare/finalize.mm
   src/accel/metal/kernel/pipeline/prepare/program.mm
   src/accel/metal/kernel/pipeline/prepare/telemetry.mm
-  src/accel/metal/kernel/pipeline/source/status.cpp
-  src/accel/metal/kernel/pipeline/source/telemetry.cpp
+  src/accel/metal/kernel/pipeline/source/status/abi.cpp
+  src/accel/metal/kernel/pipeline/source/status/advance.cpp
+  src/accel/metal/kernel/pipeline/source/status/publish.cpp
+  src/accel/metal/kernel/pipeline/source/status/reduce.cpp
+  src/accel/metal/kernel/pipeline/source/status/reset.cpp
+  src/accel/metal/kernel/pipeline/source/status/source.cpp
+  src/accel/metal/kernel/pipeline/source/status/telemetry.cpp
   src/accel/metal/kernel/context.mm
   src/accel/metal/kernel/encode.mm
   src/accel/metal/kernel/finish.mm
   src/accel/metal/kernel/prepare.mm
-  src/accel/metal/kernel/run.mm
+  src/accel/metal/kernel/run/manifest.mm
+  src/accel/metal/kernel/run/source_recipe.mm
+  src/accel/metal/kernel/run/pipeline.mm
+  src/accel/metal/kernel/run/recurrence.mm
+  src/accel/metal/kernel/run/runtime.mm
+  src/accel/metal/kernel/run/structure.mm
+  src/accel/metal/kernel/run/template.cpp
   src/accel/metal/kernel/template_memory.mm
   src/accel/metal/kernel/view.mm
   src/accel/metal/numeric/source.cpp
@@ -90,7 +106,11 @@ list(APPEND NODE_SOURCES
   src/accel/metal/scatter/reduce/pipeline.mm
   src/accel/metal/scatter/reduce/prepare.mm
   src/accel/metal/scatter/reduce/source.cpp
-  src/accel/metal/range/execute.mm
+  src/accel/metal/range/capability.mm
+  src/accel/metal/range/encode.mm
+  src/accel/metal/range/pipeline/execute.mm
+  src/accel/metal/range/prepare.mm
+  src/accel/metal/range/resources/execute.mm
   src/accel/metal/range/finish.mm
   src/accel/metal/range/source.cpp
   src/accel/metal/stencil/execute.mm

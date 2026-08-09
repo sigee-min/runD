@@ -1,16 +1,13 @@
 #include "../backend.hpp"
-#include "../device/info.hpp"
 #include "../job/state.hpp"
 #include "cpu.hpp"
 #include "local.hpp"
-#include "profile.hpp"
 
-#include <rund/counter.hpp>
 #include <rund/compute/abi/observe.hpp>
+#include <rund/counter.hpp>
 
 #include <algorithm>
 #include <limits>
-#include <utility>
 
 namespace rund::compute::detail {
 namespace {
@@ -83,7 +80,7 @@ struct JobMemoryView final {
 memory_view(const JobState &state,
             SnapshotWriter *const writer = nullptr) noexcept {
   const auto &internal = internal_buffers(state);
-  const CpuRetainedMemory cpu = cpu_run_memory(state.cpu.get());
+  const CpuStorageBytes cpu = cpu_run_memory(state.cpu.get());
   const std::uint64_t host = host_memory(state, cpu.host);
   const Backend backend = memory_backend(*state.program->device);
   if (writer != nullptr) {
@@ -133,8 +130,7 @@ memory_view(const JobState &state,
                                .reused = staging.reused,
                                .budget = staging.budget},
       .transfer = MemoryCounter{.peak = state.transfer_peak,
-                                .cumulative = state.transfer_bytes,
-                                .budget = device_budget(state.program->device)},
+                                .cumulative = state.transfer_bytes},
   };
   set_physical(stats, buffers.physical, buffers.reused);
   if (writer != nullptr) {
@@ -150,39 +146,17 @@ memory_view(const JobState &state,
 
 } // namespace
 
+MemoryStats job_memory_locked(const JobState &state) noexcept {
+  return memory_view(state).stats;
+}
+
 MemoryStats job_memory(const std::shared_ptr<JobState> &state) noexcept {
   if (state == nullptr || state->program == nullptr ||
       state->program->device == nullptr) {
     return {};
   }
   std::lock_guard lock{state->gate};
-  return memory_view(*state).stats;
-}
-
-Result<telemetry::Profile>
-job_profile(const std::shared_ptr<JobState> &state) noexcept {
-  if (state == nullptr || state->program == nullptr ||
-      state->program->device == nullptr) {
-    return Result<telemetry::Profile>::fail(Reason::ProfileInvalid);
-  }
-  auto device = snapshot_device_info(state->program->device);
-  if (!device) {
-    return Result<telemetry::Profile>::fail(device.reason());
-  }
-  std::lock_guard lock{state->gate};
-  if (job_busy(state->phase)) {
-    return Result<telemetry::Profile>::fail(Reason::ProfileBusy);
-  }
-  const Backend backend = state->program->device->backend;
-  Stats execution{.backend = backend};
-  if (state->terminal != nullptr && state->terminal->last.has_value()) {
-    execution = run_stats(*state->terminal->last);
-  } else if (state->terminal != nullptr &&
-             state->terminal->failed_stats.has_value()) {
-    execution = *state->terminal->failed_stats;
-  }
-  return Result<telemetry::Profile>::success(ProfileAccess::make(
-      std::move(*device), execution, memory_view(*state).stats));
+  return job_memory_locked(*state);
 }
 
 MemorySnapshot

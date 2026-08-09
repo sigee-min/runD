@@ -66,6 +66,8 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
     }
     if (captured.commands.size() == 2u) {
       captured.commands.back().control = true;
+      captured.commands[0u].trace = true;
+      captured.commands[1u].trace = true;
     }
     return rund::AccelCheck{true, "ok"};
   }
@@ -90,6 +92,7 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
     return opened;
   }
   captured.commands.back().control = true;
+  captured.commands.back().trace = false;
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   if (private_raw_count != 0u) {
     [encoder setComputePipelineState:reset];
@@ -107,6 +110,8 @@ rund::AccelCheck MetalPipelineBuild::Capture() {
     if (!reset_capture.ok) {
       return reset_capture;
     }
+    captured.commands.back().control = true;
+    captured.commands.back().trace = false;
     [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   }
   return EncodePrograms();

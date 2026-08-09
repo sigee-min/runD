@@ -1,7 +1,7 @@
 #include <accel/device.hpp>
 
-#include <rund/counter.hpp>
 #include "owner.hpp"
+#include <rund/counter.hpp>
 
 #include <cmath>
 #include <limits>
@@ -20,15 +20,15 @@ MetalMemoryStats ReadMetalMemoryStats(const rund::AccelDevice &pick) noexcept {
 void RecordMetalHostToDeviceBytes(MetalAdapter &adapter,
                                   const rund::kernel::u64 bytes) {
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Accumulate(adapter.stats.host_to_device_bytes,
-                                      bytes);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.transfer.host_to_device_bytes, bytes);
 }
 
 void RecordMetalDeviceToHostBytes(MetalAdapter &adapter,
                                   const rund::kernel::u64 bytes) {
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Accumulate(adapter.stats.device_to_host_bytes,
-                                      bytes);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.transfer.device_to_host_bytes, bytes);
 }
 
 void RecordMetalDispatch(MetalAdapter &adapter) {
@@ -41,15 +41,17 @@ void RecordMetalDispatches(MetalAdapter &adapter,
     return;
   }
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Accumulate(adapter.stats.dispatch_count, count);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.work.dispatch_count, count);
 }
 
 void RecordMetalCommandSubmitWaitNs(MetalAdapter &adapter,
                                     const std::uint64_t elapsed_ns) {
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Accumulate(adapter.stats.command_submit_count, 1u);
-  ::rund::detail::counter::Accumulate(adapter.stats.command_submit_wait_ns,
-                                      elapsed_ns);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.work.command_submit_count, 1u);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.command_submit_wait_ns, elapsed_ns);
 }
 
 std::uint64_t RecordMetalComputeKernelSeconds(MetalAdapter &adapter,
@@ -71,10 +73,25 @@ std::uint64_t RecordMetalComputeKernelSeconds(MetalAdapter &adapter,
                                ? std::numeric_limits<std::uint64_t>::max()
                                : static_cast<std::uint64_t>(elapsed_ns);
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Accumulate(adapter.stats.accel_kernel_ns, ns);
-  ::rund::detail::counter::Accumulate(adapter.stats.accel_timestamp_count, 1u);
-  adapter.stats.accel_timestamp_source = "metal_command_buffer_compute_time";
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.accel_kernel_ns, ns);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.accel_timestamp_count, 1u);
+  adapter.stats.runtime.run.time.accel_timestamp_source =
+      "metal_command_buffer_compute_time";
   return ns;
+}
+
+void RecordMetalDispatchTrace(MetalAdapter &adapter,
+                              const std::uint64_t elapsed_ns,
+                              const std::uint64_t sample_count) {
+  std::lock_guard<std::mutex> lock{adapter.mutex};
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.accel_kernel_ns, elapsed_ns);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.accel_timestamp_count, sample_count);
+  adapter.stats.runtime.run.time.accel_timestamp_source =
+      "metal_dispatch_counter_timestamp_calibrated";
 }
 
 } // namespace rund::node::accel::detail

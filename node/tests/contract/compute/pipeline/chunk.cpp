@@ -53,7 +53,9 @@ namespace rund_node_test_pipeline {
   const Stats after_snapshot = prepared->stats();
   if (!saved ||
       after_snapshot.publication.snapshot_byte_count != field_bytes * 2u ||
-      after_snapshot.command_submits != before_snapshot.command_submits + 2u ||
+      after_snapshot.command_submits != before_snapshot.command_submits ||
+      after_snapshot.transfer_submissions.device_to_host !=
+          before_snapshot.transfer_submissions.device_to_host + 2u ||
       after_snapshot.downloaded_bytes !=
           before_snapshot.downloaded_bytes + field_bytes * 2u) {
     return 3;
@@ -82,7 +84,8 @@ namespace rund_node_test_pipeline {
   }
   const Stats restored_stats = restored->stats();
   const MemoryStats restored_memory = restored->memory();
-  if (restored_stats.command_submits != 4u ||
+  if (restored_stats.command_submits != 0u ||
+      restored_stats.transfer_submissions.host_to_device != 4u ||
       restored_stats.uploaded_bytes != field_bytes * 4u ||
       restored_stats.publication.restore_byte_count != field_bytes * 4u ||
       restored_memory.staging.cumulative < field_bytes * 4u ||

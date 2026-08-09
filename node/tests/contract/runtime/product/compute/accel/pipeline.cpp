@@ -4,6 +4,9 @@
 #include <rund/compute/pipeline.hpp>
 #include <rund/compute/session.hpp>
 
+#include "src/accel/kernel/fault.hpp"
+#include "src/compute/device/state.hpp"
+
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -48,11 +51,10 @@ int CheckFixedRecurrence(rund::compute::Device &device,
     }
   }
 
-  auto prepared =
-      pipeline(device)
-          .template repeat<iterations>(*body, read(*initial),
-                                       write_final(*recurrent))
-          .prepare();
+  auto prepared = pipeline(device)
+                      .template repeat<iterations>(*body, read(*initial),
+                                                   write_final(*recurrent))
+                      .prepare();
   std::array<T, 4u> actual{};
   if (!prepared) {
     std::fprintf(stderr, "%s prepare failed: %.*s\n", name,
@@ -75,9 +77,11 @@ int CheckFixedRecurrence(rund::compute::Device &device,
     return 5;
   }
   const Stats observed_stats = prepared->stats();
-  const std::uint64_t expected_submits =
-      run_stats.backend == Backend::Vulkan ? 2u : 1u;
-  if (observed_stats.command_submits != expected_submits ||
+  const std::uint64_t expected_read_submits =
+      run_stats.backend == Backend::Vulkan ? 1u : 0u;
+  if (observed_stats.command_submits != 1u ||
+      observed_stats.transfer_submissions.device_to_host !=
+          expected_read_submits ||
       observed_stats.dispatches != 1u ||
       observed_stats.pipeline.step_count != 1u ||
       observed_stats.pipeline.verified_step_count != 1u) {
@@ -124,7 +128,17 @@ int CheckObservation(rund::compute::Device &device) {
   auto prepared = pipeline(device)
                       .then(*program, read(*source), write(*output, *count))
                       .prepare();
-  if (!prepared || !prepared->run()) {
+  if (!prepared) {
+    std::fprintf(stderr, "pipeline observation prepare failed: %.*s\n",
+                 static_cast<int>(prepared.error().size()),
+                 prepared.error().data());
+    return 2;
+  }
+  const Status status = prepared->run();
+  if (!status) {
+    std::fprintf(stderr, "pipeline observation run failed: %.*s\n",
+                 static_cast<int>(status.error().size()),
+                 status.error().data());
     return 2;
   }
   const Stats stats = prepared->stats();
@@ -177,12 +191,12 @@ int CheckWindow(rund::Session &session, rund::compute::Device &device) {
   if (!body || !initial || !terminal || !count || !output || !stopped) {
     return 1;
   }
-  auto prepared = pipeline(device)
-                      .windows<maximum, tile>(
-                          *body, rund::compute::window(*count).until<1u>(7u),
-                          read(*initial, *terminal),
-                          write_final(*output, *stopped))
-                      .prepare();
+  auto prepared =
+      pipeline(device)
+          .windows<maximum, tile>(
+              *body, rund::compute::window(*count).until<1u>(7u),
+              read(*initial, *terminal), write_final(*output, *stopped))
+          .prepare();
   if (!prepared) {
     return 2;
   }
@@ -226,6 +240,10 @@ int Check(const rund::compute::Target target, rund::compute::Device &device) {
                             rund::compute::write(*output))
                       .prepare();
   if (!prepared) {
+    std::fprintf(stderr, "pipeline prepare backend=%u reason=%.*s\n",
+                 static_cast<unsigned>(target.backend()),
+                 static_cast<int>(prepared.error().size()),
+                 prepared.error().data());
     return 3;
   }
   rund::Session session{};
@@ -271,6 +289,82 @@ int Check(const rund::compute::Target target, rund::compute::Device &device) {
       values != std::array<std::int32_t, 4u>{5, 7, 9, 11}) {
     return 7;
   }
+  rund::node::test_contract::TelemetryProbe trace_probe{};
+  rund::Session trace_session{};
+  rund::SessionConfig trace_options = rund::node::test_contract::Options();
+  trace_options.telemetry =
+      ::rund::telemetry::bind(trace_probe, ::rund::telemetry::Level::Trace);
+  if (!trace_session.open(trace_options)) {
+    return 9;
+  }
+  const std::shared_ptr<rund::compute::detail::DeviceState> &device_state =
+      rund::compute::detail::DeviceAccess::state(device);
+  rund::compute::detail::AccelDeviceState *const native =
+      device_state == nullptr
+          ? nullptr
+          : rund::compute::detail::accel_device(*device_state);
+  const rund::compute::MemoryStats before_trace_memory = prepared->memory();
+  if (native == nullptr ||
+      !rund::node::accel::detail::InjectNativeTraceUnavailableOnce(
+          native->pick)) {
+    return 9;
+  }
+  const rund::compute::Completion unavailable_trace =
+      trace_session.compute(*prepared).submit().wait();
+  const rund::compute::Stats unavailable_stats = unavailable_trace.stats();
+  const rund::compute::MemoryStats unavailable_memory = prepared->memory();
+  if (unavailable_trace ||
+      unavailable_trace.reason() !=
+          rund::compute::Reason::TelemetryTraceUnavailable ||
+      unavailable_stats.command_submits != 0u ||
+      unavailable_stats.buffer_allocations != 0u ||
+      prepared->generation() != 1u ||
+      unavailable_memory.host.current != before_trace_memory.host.current ||
+      unavailable_memory.host.cumulative !=
+          before_trace_memory.host.cumulative ||
+      unavailable_memory.device.current != before_trace_memory.device.current ||
+      unavailable_memory.device.cumulative !=
+          before_trace_memory.device.cumulative) {
+    return 9;
+  }
+  const rund::compute::Completion trace_completion =
+      trace_session.compute(*prepared).submit().wait();
+  const rund::compute::Stats trace_stats = trace_completion.stats();
+  const rund::compute::MemoryStats cold_trace_memory = prepared->memory();
+  const std::uint64_t trace_submits =
+      target.backend() == rund::compute::Backend::Metal ? 2u : 1u;
+  if (!trace_completion || trace_stats.command_submits != trace_submits ||
+      trace_stats.dispatches != stats.dispatches ||
+      trace_stats.kernel_samples != trace_stats.dispatches ||
+      trace_stats.kernel_ns == 0u ||
+      trace_stats.graph_hash != stats.graph_hash || trace_probe.events != 2u ||
+      (cold_trace_memory.host.current == before_trace_memory.host.current &&
+       cold_trace_memory.device.current ==
+           before_trace_memory.device.current)) {
+    std::fprintf(stderr,
+                 "pipeline trace backend=%u ok=%u submits=%llu dispatches=%llu "
+                 "samples=%llu ns=%llu events=%u reason=%u\n",
+                 static_cast<unsigned>(target.backend()),
+                 static_cast<unsigned>(!!trace_completion),
+                 static_cast<unsigned long long>(trace_stats.command_submits),
+                 static_cast<unsigned long long>(trace_stats.dispatches),
+                 static_cast<unsigned long long>(trace_stats.kernel_samples),
+                 static_cast<unsigned long long>(trace_stats.kernel_ns),
+                 trace_probe.events,
+                 static_cast<unsigned>(trace_completion.reason()));
+    return 10;
+  }
+  const rund::compute::Completion warm_trace_completion =
+      trace_session.compute(*prepared).submit().wait();
+  const rund::compute::Stats warm_trace_stats = warm_trace_completion.stats();
+  if (!warm_trace_completion || warm_trace_stats.buffer_allocations != 0u ||
+      warm_trace_stats.command_submits != trace_submits ||
+      warm_trace_stats.dispatches != trace_stats.dispatches ||
+      warm_trace_stats.kernel_samples != warm_trace_stats.dispatches ||
+      warm_trace_stats.graph_hash != trace_stats.graph_hash ||
+      trace_probe.events != 3u) {
+    return 11;
+  }
   if (const int observed = CheckObservation(device); observed != 0) {
     return 70 + observed;
   }
@@ -302,6 +396,43 @@ int Check(const rund::compute::Target target, rund::compute::Device &device) {
           "pipeline-fixed-i20-f44-recurrence");
       fixed != 0) {
     return 90 + fixed;
+  }
+  // A device-loss terminal may invalidate backend-global native state. Keep
+  // that destructive fault last so this contract never treats post-loss
+  // compilation as a supported retry surface.
+  const bool faulted =
+      target.backend() == rund::compute::Backend::Metal
+          ? rund::node::accel::detail::InjectNativeTraceResolveDeviceLostOnce(
+                native->pick)
+          : rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick);
+  if (!faulted) {
+    return 12;
+  }
+  const rund::compute::Completion lost_trace =
+      trace_session.compute(*prepared).submit().wait();
+  const std::uint64_t lost_submits =
+      target.backend() == rund::compute::Backend::Metal ? 2u : 1u;
+  const rund::compute::Completion poisoned_trace =
+      trace_session.compute(*prepared).submit().wait();
+  if (lost_trace || lost_trace.reason() != rund::compute::Reason::DeviceLost ||
+      lost_trace.stats().command_submits != lost_submits ||
+      lost_trace.stats().kernel_samples != 0u || !prepared->poisoned() ||
+      prepared->generation() != 3u || trace_probe.events != 4u ||
+      poisoned_trace.reason() != rund::compute::Reason::DeviceLost ||
+      !trace_session.close()) {
+    std::fprintf(
+        stderr,
+        "pipeline trace loss backend=%u ok=%u reason=%u submits=%llu "
+        "samples=%llu poisoned=%u generation=%llu events=%u retry=%u\n",
+        static_cast<unsigned>(target.backend()),
+        static_cast<unsigned>(!!lost_trace),
+        static_cast<unsigned>(lost_trace.reason()),
+        static_cast<unsigned long long>(lost_trace.stats().command_submits),
+        static_cast<unsigned long long>(lost_trace.stats().kernel_samples),
+        static_cast<unsigned>(prepared->poisoned()),
+        static_cast<unsigned long long>(prepared->generation()),
+        trace_probe.events, static_cast<unsigned>(poisoned_trace.reason()));
+    return 12;
   }
   return session.close() ? 0 : 8;
 }

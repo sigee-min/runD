@@ -7,6 +7,7 @@
 #include "../../runtime/timestamp.hpp"
 #include "../lease.hpp"
 #include "evidence.hpp"
+#include "prepare/record.hpp"
 #include "recurrence.hpp"
 #include "telemetry.hpp"
 
@@ -84,31 +85,6 @@ struct VulkanPipelineDescriptionCapacity final {
   std::uint64_t telemetry_source_count{};
 };
 
-class VulkanQueryPoolOwner final {
-public:
-  explicit VulkanQueryPoolOwner(const VkDevice device) noexcept
-      : device_{device} {}
-  VulkanQueryPoolOwner(const VulkanQueryPoolOwner &) = delete;
-  VulkanQueryPoolOwner &operator=(const VulkanQueryPoolOwner &) = delete;
-  ~VulkanQueryPoolOwner() noexcept {
-    if (value_ != VK_NULL_HANDLE) {
-      vkDestroyQueryPool(device_, value_, nullptr);
-    }
-  }
-
-  [[nodiscard]] VkQueryPool *output() noexcept { return &value_; }
-  [[nodiscard]] bool valid() const noexcept { return value_ != VK_NULL_HANDLE; }
-  [[nodiscard]] VkQueryPool release() noexcept {
-    const VkQueryPool value = value_;
-    value_ = VK_NULL_HANDLE;
-    return value;
-  }
-
-private:
-  VkDevice device_ = VK_NULL_HANDLE;
-  VkQueryPool value_ = VK_NULL_HANDLE;
-};
-
 [[nodiscard]] static rund::AccelCheck DescribeVulkanPipelineCapacity(
     const std::span<const BackendBatchEntry> templates,
     VulkanPipelineDescriptionCapacity &capacity) noexcept {
@@ -160,6 +136,7 @@ private:
     const std::span<const BackendPublish> publications,
     PreparedKernelTemplateRegistry &registry,
     PreparedPipelineStatusLayout &status, const bool profile_steps,
+    PreparedPipelineMemoryMeter *const memory_meter,
     std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
     PreparedPipelineFailureContext &failure_context) {
   prepared.reset();
@@ -233,6 +210,7 @@ private:
   failure_context.stage(PreparedPipelineFailureStage::BackendAllocation);
   {
     pipeline = std::make_shared<VulkanPipeline>();
+    pipeline->memory_meter = memory_meter;
     canonical.reserve(
         static_cast<std::size_t>(description_capacity.status_source_count));
     status_steps.reserve(
@@ -254,8 +232,6 @@ private:
         status.declared_step_count == 0u) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-    pipeline->profile->active_step_count = status.active_step_count;
-    pipeline->profile->command_count = status.command_count;
     pipeline->profile->declared_step_count = status.declared_step_count;
     pipeline->profile->declared_steps = status.declared_steps;
     std::array<bool, PreparedPipelineStepCapacity> declared{};
@@ -828,334 +804,22 @@ private:
     profile.instrumentation_byte_count =
         static_cast<std::uint64_t>(profile.declared_step_count) *
         PreparedPipelineStepControlBytes;
-    if (VulkanTimestampAvailable(*pipeline->adapter)) {
-      const std::uint64_t timestamp_commands =
-          recurrence.ready() ? 1u : entries.size();
-      if (timestamp_commands > std::numeric_limits<std::uint32_t>::max() / 2u) {
-        return FailVulkanPipeline(pipeline, "compute_pipeline_capacity");
-      }
-      VkQueryPoolCreateInfo query{};
-      query.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-      query.queryType = VK_QUERY_TYPE_TIMESTAMP;
-      query.queryCount = static_cast<std::uint32_t>(2u * timestamp_commands);
-      VulkanQueryPoolOwner timestamps{pipeline->adapter->device};
-      if (query.queryCount != 0u &&
-          vkCreateQueryPool(pipeline->adapter->device, &query, nullptr,
-                            timestamps.output()) == VK_SUCCESS &&
-          timestamps.valid()) {
-        profile.timestamped.resize(timestamp_commands);
-        profile.command_templates.resize(timestamp_commands);
-        profile.timestamp_values.resize(query.queryCount);
-        if (recurrence.ready()) {
-          profile.command_templates[0u] = 0u;
-        } else {
-          for (std::size_t index = 0u; index < entries.size(); ++index) {
-            profile.command_templates[index] = entries[index].template_index;
-          }
-        }
-        profile.timestamps = timestamps.release();
-        profile.command_count = static_cast<std::uint32_t>(timestamp_commands);
-        profile.query_count = query.queryCount;
-        // One bulk reset and one timestamp at each side of every active
-        // Program. Query storage is reported at its observable U64 width.
-        profile.instrumentation_command_count += 1u + profile.query_count;
-        profile.instrumentation_byte_count +=
-            static_cast<std::uint64_t>(profile.query_count) *
-            sizeof(std::uint64_t);
-      }
-    }
+  }
+  pipeline->record = std::make_unique<VulkanPipelineRecordRecipe>();
+  const rund::AccelCheck recipe_ready = MakeVulkanPipelineRecordRecipe(
+      entries, barriers, transducers, canonical, status_steps, telemetry_steps,
+      status_ranges, telemetry_ranges, status, templates.size(),
+      window_dispatches, window_gate_count, recurrence.ready(),
+      *pipeline->record);
+  if (!recipe_ready.ok) {
+    return FailVulkanPipeline(pipeline, recipe_ready.reason);
   }
   failure_context.stage(PreparedPipelineFailureStage::BackendCapture);
-  const rund::AccelCheck begun =
-      BeginCommand(pipeline->adapter->device, pipeline->command,
-                   CommandKind::ReusablePrimary);
-  if (!begun.ok) {
-    return FailVulkanPipeline(pipeline, begun.reason);
-  }
-  VulkanLeaseScope recording_leases{*pipeline->adapter,
-                                    pipeline->window.descriptor_leases};
-  const VkCommandBuffer recording = pipeline->command.buffer;
-  if (!OpenVulkanPipelineControl(recording, pipeline->control)) {
-    return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-  }
-  if (pipeline->profile != nullptr) {
-    if (!ResetVulkanPipelineProfile(recording, pipeline->control)) {
-      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-    }
-    if (pipeline->profile->timestamps != VK_NULL_HANDLE) {
-      vkCmdResetQueryPool(recording, pipeline->profile->timestamps, 0u,
-                          pipeline->profile->query_count);
-    }
-  }
-  if (!pipeline->window.routes.empty()) {
-    if (!EncodeVulkanWindowStart(recording, pipeline->window)) {
-      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-    }
-  }
-  if (recurrence.ready()) {
-    if (pipeline->profile != nullptr &&
-        pipeline->profile->timestamps != VK_NULL_HANDLE) {
-      vkCmdWriteTimestamp(recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                          pipeline->profile->timestamps, 0u);
-    }
-    const rund::AccelCheck encoded =
-        EncodeVulkanMap(*pipeline->adapter, pipeline->recurrence,
-                        reinterpret_cast<void *>(recording));
-    if (!encoded.ok) {
-      return FailVulkanPipeline(pipeline, encoded.reason);
-    }
-    if (pipeline->profile != nullptr &&
-        pipeline->profile->timestamps != VK_NULL_HANDLE) {
-      vkCmdWriteTimestamp(recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                          pipeline->profile->timestamps, 1u);
-      pipeline->profile->timestamped[0u] = true;
-    }
-  }
-  bool scratch_seen = false;
-  for (std::size_t index = 0u; !recurrence.ready() && index < entries.size();
-       ++index) {
-    const BackendBatchEntry &entry = entries[index];
-    failure_context.occurrence_route(entry);
-    const std::uint32_t template_index = entry.template_index;
-    auto *const resources =
-        static_cast<VulkanKernelResources *>(entry.prepared->get());
-    const TileTransducer *const transducer =
-        entry.transducer == NoTileTransducer ? nullptr
-                                             : &transducers[entry.transducer];
-    const std::shared_ptr<void> *const transducer_resource =
-        transducer == nullptr ? nullptr
-                              : &pipeline->transducers[entry.transducer];
-    if (resources == nullptr || template_index >= templates.size() ||
-        (transducer != nullptr &&
-         (transducer_resource == nullptr || *transducer_resource == nullptr))) {
-      return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
-    }
-    if (index != 0u && (barriers[index] != 0u ||
-                        (scratch_seen && resources->shared_scratch))) {
-      EncodeVulkanComputeToComputeBarrier(recording);
-    }
-    scratch_seen = scratch_seen || resources->shared_scratch;
-    const BackendWindow *const resident_window = entry.recurrence.window;
-    const std::uint32_t failed_outer_window =
-        resident_window != nullptr && resident_window->nested()
-            ? resident_window->outer_iteration
-            : PreparedPipelineNoStep;
-    const std::uint32_t failed_inner_iteration =
-        resident_window != nullptr &&
-                resident_window->phase == BackendWindowPhase::NestedAction
-            ? resident_window->inner_iteration
-            : PreparedPipelineNoStep;
-    std::uint32_t failed_nested_phase = PipelineNestedPhaseNoneCode;
-    if (resident_window != nullptr) {
-      rund::compute::PipelineNestedPhase public_phase{};
-      if (!resident_window->nested_phase(public_phase) ||
-          !EncodePipelineNestedPhase(public_phase, failed_nested_phase)) {
-        return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
-      }
-    }
-    if (resident_window != nullptr &&
-        resident_window->phase == BackendWindowPhase::NestedSeed &&
-        !EncodeVulkanWindow(recording, pipeline->window,
-                            static_cast<std::uint32_t>(index), true)) {
-      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-    }
-    if (pipeline->profile != nullptr &&
-        pipeline->profile->timestamps != VK_NULL_HANDLE) {
-      vkCmdWriteTimestamp(recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                          pipeline->profile->timestamps,
-                          static_cast<std::uint32_t>(2u * index));
-    }
-    const PreparedProgramStatusSlice status_range =
-        status_ranges[template_index];
-    const PreparedProgramStatusSlice telemetry_range =
-        telemetry_ranges[template_index];
-    const std::size_t status_step_end =
-        static_cast<std::size_t>(status_range.first) + status_range.count;
-    const std::size_t telemetry_step_end =
-        static_cast<std::size_t>(telemetry_range.first) + telemetry_range.count;
-    if (status_range.count != resources->size() ||
-        telemetry_range.count != resources->size() ||
-        status_step_end > status_steps.size() ||
-        telemetry_step_end > telemetry_steps.size()) {
-      return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
-    }
-    if (transducer != nullptr) {
-      const PreparedProgramStatusSlice program_status =
-          status.slices[template_index];
-      const bool status_empty = status_range.count == 1u &&
-                                status_steps[status_range.first].count == 0u;
-      const bool telemetry_empty =
-          telemetry_range.count == 1u &&
-          telemetry_steps[telemetry_range.first].count == 0u;
-      if (!transducer->recurrence.ready() || transducer_resource == nullptr ||
-          *transducer_resource == nullptr || resident_window == nullptr ||
-          resident_window->phase != BackendWindowPhase::NestedAction ||
-          resident_window->inner_advance != 0u || resources->size() != 1u ||
-          program_status.count != 0u || !status_empty || !telemetry_empty) {
-        return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
-      }
-      rund::AccelCheck encoded{};
-      {
-        VulkanDispatchScope scope{pipeline->window.capture, recording,
-                                  resident_window->state};
-        encoded = EncodeVulkanMap(*pipeline->adapter, *transducer_resource,
-                                  reinterpret_cast<void *>(recording));
-      }
-      if (!encoded.ok) {
-        return FailVulkanPipeline(pipeline, encoded.reason);
-      }
-      if (pipeline->window.capture.failed) {
-        return FailVulkanPipeline(pipeline, "compute_pipeline_capacity");
-      }
-    } else {
-      for (std::size_t step_index = 0u; step_index < resources->size();
-           ++step_index) {
-        failure_context.node_route(entry, step_index);
-        VulkanKernelEntry *const step = resources->entry(step_index);
-        if (step == nullptr) {
-          return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
-        }
-        rund::AccelCheck encoded{};
-        if (resident_window == nullptr) {
-          encoded = EncodeVulkanResets(*resources, step_index, recording);
-          if (encoded.ok) {
-            encoded = EncodeVulkanStep(*pipeline->adapter, *step, recording);
-          }
-        } else {
-          VulkanDispatchScope scope{pipeline->window.capture, recording,
-                                    resident_window->state};
-          encoded = EncodeVulkanResets(*resources, step_index, recording);
-          if (encoded.ok) {
-            encoded = EncodeVulkanStep(*pipeline->adapter, *step, recording);
-          }
-        }
-        if (!encoded.ok) {
-          return FailVulkanPipeline(pipeline, encoded.reason);
-        }
-        if (resident_window != nullptr && pipeline->window.capture.failed) {
-          return FailVulkanPipeline(pipeline, "compute_pipeline_capacity");
-        }
-
-        const PreparedProgramStatusSlice status_slice =
-            status_steps[status_range.first + step_index];
-        const std::size_t status_end =
-            static_cast<std::size_t>(status_slice.first) + status_slice.count;
-        if (status_end > canonical.size()) {
-          return FailVulkanPipeline(pipeline,
-                                    "accel_kernel_primitive_unsupported");
-        }
-        if (status_slice.count != 0u) {
-          EncodeVulkanComputeToComputeBarrier(recording);
-        }
-        for (std::size_t status_index = status_slice.first;
-             status_index < status_end; ++status_index) {
-          const VulkanPipelineCanonicalStatus &current =
-              canonical[status_index];
-          if (current.active_program != template_index) {
-            return FailVulkanPipeline(pipeline,
-                                      "accel_kernel_primitive_unsupported");
-          }
-          if (!EncodeVulkanPipelineCanonicalStatus(recording, pipeline->control,
-                                                   current) ||
-              !FoldVulkanPipelineControl(
-                  recording, pipeline->control,
-                  PreparedProgramStatusSlice{.first = current.first,
-                                             .count = current.source.count},
-                  status.declared_steps[template_index], failed_outer_window,
-                  failed_inner_iteration, failed_nested_phase)) {
-            return FailVulkanPipeline(pipeline,
-                                      "accel_vulkan_command_unavailable");
-          }
-        }
-
-        const PreparedProgramStatusSlice telemetry_slice =
-            telemetry_steps[telemetry_range.first + step_index];
-        const std::size_t telemetry_end =
-            static_cast<std::size_t>(telemetry_slice.first) +
-            telemetry_slice.count;
-        if (telemetry_end > pipeline->telemetry.size() ||
-            !EncodeVulkanTelemetry(
-                *pipeline, recording,
-                std::span<const VulkanPipelineTelemetryRecord>{
-                    pipeline->telemetry}
-                    .subspan(telemetry_slice.first, telemetry_slice.count),
-                resident_window == nullptr
-                    ? std::numeric_limits<std::uint32_t>::max()
-                    : resident_window->state,
-                status_slice.count == 0u)) {
-          return FailVulkanPipeline(pipeline,
-                                    "accel_vulkan_command_unavailable");
-        }
-        if (status_slice.count != 0u && telemetry_slice.count == 0u) {
-          EncodeVulkanComputeToComputeBarrier(recording);
-        }
-      }
-    }
-    failure_context.occurrence_route(entry);
-    const PreparedProgramStatusSlice program_status =
-        status.slices[template_index];
-    std::uint64_t folded = 0u;
-    for (std::size_t step_index = 0u; step_index < status_range.count;
-         ++step_index) {
-      const PreparedProgramStatusSlice slice =
-          status_steps[status_range.first + step_index];
-      if (slice.count != 0u) {
-        const VulkanPipelineCanonicalStatus &current = canonical[slice.first];
-        folded += current.source.count;
-      }
-    }
-    if (folded != program_status.count) {
-      return FailVulkanPipeline(pipeline, "accel_kernel_run_invalid");
-    }
-    if (!EncodeVulkanWindow(recording, pipeline->window,
-                            static_cast<std::uint32_t>(index))) {
-      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-    }
-    if (resident_window != nullptr &&
-        resident_window->phase == BackendWindowPhase::NestedFold &&
-        !EncodeVulkanPipelineWindowPublish(recording, pipeline->publish,
-                                           resident_window->state,
-                                           resident_window->outer_iteration)) {
-      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-    }
-    if (resident_window != nullptr && resident_window->advances_outer_state() &&
-        resident_window->outer_iteration + 1u == resident_window->outer_bound &&
-        !EncodeVulkanPipelineCanonicalize(recording, pipeline->publish,
-                                          resident_window->state)) {
-      return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-    }
-    if (pipeline->profile != nullptr &&
-        pipeline->profile->timestamps != VK_NULL_HANDLE) {
-      vkCmdWriteTimestamp(recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                          pipeline->profile->timestamps,
-                          static_cast<std::uint32_t>(2u * index + 1u));
-      pipeline->profile->timestamped[index] = 1u;
-    }
-  }
-  failure_context.stage(PreparedPipelineFailureStage::BackendFinalization);
-  if (pipeline->window.capture.failed) {
-    return FailVulkanPipeline(pipeline, "compute_pipeline_capacity");
-  }
-  if (pipeline->window.capture.cursor != window_dispatches ||
-      pipeline->window.capture.indirect_count != window_gate_count ||
-      pipeline->window.gates.size() != window_gate_count) {
-    return FailVulkanPipeline(pipeline, "compute_dispatch_count_mismatch");
-  }
-  if (!FreezeVulkanWindow(pipeline->window)) {
-    return FailVulkanPipeline(pipeline, "accel_vulkan_memory_unavailable");
-  }
-  if (!FinishVulkanPipelineControl(recording, pipeline->control, status)) {
-    return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-  }
-  if (!EncodeVulkanPipelinePublish(recording, pipeline->publish)) {
-    return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-  }
-  if (!PublishVulkanPipelineControl(recording, pipeline->control)) {
-    return FailVulkanPipeline(pipeline, "accel_vulkan_command_unavailable");
-  }
-  const rund::AccelCheck ended = EndCommand(pipeline->command);
-  if (!ended.ok) {
-    return FailVulkanPipeline(pipeline, ended.reason);
+  const rund::AccelCheck recorded = RecordVulkanPipeline(
+      *pipeline, pipeline->command, CommandKind::ReusablePrimary, false,
+      &failure_context);
+  if (!recorded.ok) {
+    return FailVulkanPipeline(pipeline, recorded.reason);
   }
   std::uint64_t bytes =
       sizeof(VulkanPipeline) +
@@ -1168,6 +832,8 @@ private:
       bytes, VulkanPipelinePublishHostBytes(pipeline->publish));
   bytes = ::rund::detail::counter::SaturatingAdd(
       bytes, VulkanWindowHostBytes(pipeline->window));
+  bytes = ::rund::detail::counter::SaturatingAdd(
+      bytes, VulkanPipelineRecordHostBytes(*pipeline->record));
   memory.host = PreparedMemory{
       .current = bytes, .peak = bytes, .cumulative = bytes, .budget = bytes};
   prepared = std::static_pointer_cast<void>(pipeline);
@@ -1185,6 +851,7 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
                       PreparedPipelineStatusLayout &status,
                       const bool profile_steps, std::shared_ptr<void> &prepared,
                       PreparedPipelineMemory &memory,
+                      PreparedPipelineMemoryMeter *const memory_meter,
                       PreparedPipelineFailure &failure) {
   PreparedPipelineFailureContext failure_context{};
   failure = {};
@@ -1192,7 +859,8 @@ PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
   try {
     result = PrepareVulkanPipelineImpl(
         templates, entries, barriers, transducers, aggregates, publications,
-        registry, status, profile_steps, prepared, memory, failure_context);
+        registry, status, profile_steps, memory_meter, prepared, memory,
+        failure_context);
   } catch (...) {
     backend_exception::RethrowUnlessCapacityException();
     result = rund::AccelCheck{false, "compute_pipeline_capacity"};

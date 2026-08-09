@@ -34,7 +34,7 @@ void CompleteVulkanCapacity(void *const raw,
   if (gate == nullptr) {
     return;
   }
-  if (!evidence.ok) {
+  if (!evidence.outcome.ok) {
     gate->ok.store(false, std::memory_order_release);
   }
   gate->release.wait(false, std::memory_order_acquire);
@@ -104,11 +104,11 @@ int CheckVulkanCommandCapacity(
   const bool bounded =
       !rejected.ok &&
       std::string_view{rejected.reason} == "accel_vulkan_command_capacity" &&
-      pressure.ok && pressure.command_capacity == capacity &&
-      pressure.command_inflight_peak == capacity &&
-      pressure.command_capacity_rejection_count == 1u &&
-      pressure.buffer_allocation_count == 0u &&
-      pressure.pipeline_compile_count == 0u;
+      pressure.outcome.ok && pressure.run.work.command_capacity == capacity &&
+      pressure.run.work.command_inflight_peak == capacity &&
+      pressure.run.work.command_capacity_rejection_count == 1u &&
+      pressure.run.allocations.buffer_allocation_count == 0u &&
+      pressure.run.allocations.pipeline_compile_count == 0u;
 
   ReleaseVulkanCapacity(gate, capacity);
   if (!bounded || !gate.ok.load(std::memory_order_acquire)) {
@@ -127,10 +127,9 @@ int CheckVulkanCommandCapacity(
       return 7;
     }
     const compute::Stats stats = job.stats();
-    // One compute submission plus one explicit host readback submission.
-    // Stats reports physical queue work, so the transfer is not hidden.
-    if (stats.command_submits != 2u || stats.dispatches == 0u ||
-        stats.command_capacity != capacity ||
+    if (stats.command_submits != 1u ||
+        stats.transfer_submissions.device_to_host != 1u ||
+        stats.dispatches == 0u || stats.command_capacity != capacity ||
         stats.command_inflight_peak == 0u ||
         stats.command_inflight_peak > stats.command_capacity ||
         stats.command_capacity_rejections != 0u) {
@@ -150,8 +149,9 @@ int CheckVulkanCommandCapacity(
   const rund::RuntimeStats retained =
       ::rund::node::accel::ReadRuntimeStats(device->pick);
   const std::uint64_t minimum_submits = capacity + jobs.size();
-  return retained.ok && retained.command_capacity_rejection_count == 1u &&
-                 retained.command_submit_count >= minimum_submits
+  return retained.outcome.ok &&
+                 retained.run.work.command_capacity_rejection_count == 1u &&
+                 retained.run.work.command_submit_count >= minimum_submits
              ? 0
              : 11;
 }

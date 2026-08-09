@@ -233,10 +233,11 @@ template <typename Count>
     return false;
   }
   const rund::AccelEvidence evidence = Run(resources);
-  return !evidence.ok &&
-         std::string_view{evidence.reason} == "compute_bounded_count_invalid" &&
-         evidence.dispatch_count == expected.dispatches &&
-         evidence.command_submit_count == expected.submits &&
+  return !evidence.outcome.ok &&
+         std::string_view{evidence.outcome.reason} ==
+             "compute_bounded_count_invalid" &&
+         evidence.run.work.dispatch_count == expected.dispatches &&
+         evidence.run.work.command_submit_count == expected.submits &&
          OutputsUnchanged(resources);
 }
 
@@ -248,8 +249,9 @@ template <typename Count>
     return false;
   }
   const rund::AccelEvidence evidence = Run(resources);
-  return evidence.ok && evidence.dispatch_count == expected.dispatches &&
-         evidence.command_submit_count == expected.submits &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == expected.dispatches &&
+         evidence.run.work.command_submit_count == expected.submits &&
          SparseOutputsMatch(resources);
 }
 
@@ -261,8 +263,9 @@ template <typename Count>
     return false;
   }
   const rund::AccelEvidence evidence = Run(resources);
-  return evidence.ok && evidence.dispatch_count == expected.dispatches &&
-         evidence.command_submit_count == expected.submits &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == expected.dispatches &&
+         evidence.run.work.command_submit_count == expected.submits &&
          OutputsUnchanged(resources);
 }
 

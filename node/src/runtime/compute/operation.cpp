@@ -1,12 +1,12 @@
-#include "local.hpp"
 #include "../runtime/local.hpp"
+#include "local.hpp"
 
 #include "../../compute/job/cpu/model.hpp"
 #include "../../compute/pipeline/local.hpp"
 #include "../task/scheduler/state/model/context.hpp"
 
-#include <rund/reason.hpp>
 #include <rund/compute/abi/observe.hpp>
+#include <rund/reason.hpp>
 
 #include <utility>
 
@@ -83,52 +83,37 @@ ReserveOperation(const compute_detail::Operation &operation) noexcept {
              : operation.table->reserve(operation.owner);
 }
 
-[[nodiscard]] compute::Stats
-OperationEvidence(const compute_detail::Operation &operation) noexcept {
-  return !operation || operation.table->evidence == nullptr
-             ? compute::Stats{}
-             : operation.table->evidence(operation.owner);
-}
-
-void RecordOperationFrame(
-    const compute_detail::Operation &operation,
-    const std::uint64_t bytes, const bool reused,
-    const std::uint64_t budget) noexcept {
+void RecordOperationFrame(const compute_detail::Operation &operation,
+                          const std::uint64_t bytes, const bool reused,
+                          const std::uint64_t budget) noexcept {
   if (!operation || operation.table->record_frame == nullptr) {
     return;
   }
   operation.table->record_frame(operation.owner, bytes, reused, budget);
 }
 
-void ReleaseOperationFrame(
-    const compute_detail::Operation &operation,
-    const std::uint64_t bytes) noexcept {
-  if (!operation || operation.table->release_frame == nullptr) {
-    return;
-  }
-  operation.table->release_frame(operation.owner, bytes);
-}
-
-[[nodiscard]] compute::Status
+[[nodiscard]] compute::detail::TerminalObservation
 FinishOperation(compute_detail::TaskState &task,
                 const compute::Status failure) noexcept {
   return compute_detail::FinishFailure(task, failure);
 }
 
 void Complete(compute_detail::TaskState *const task,
-              const compute::Status &status,
-              const compute::Stats &stats) noexcept {
-  ReleaseOperationFrame(task->operation, task->frame_bytes);
+              compute::detail::TerminalObservation observation) noexcept {
   task->frame_bytes = 0u;
+  const compute::Status status = observation.status();
   runtime_detail::ComputeHostState *const host = task->host;
   Signal(host, ::rund::TraceEvent::ComputeCompleted, status.reason());
   if (host != nullptr && host->emit != nullptr) {
-    host->emit(host->emit_context, status, stats);
+    const compute::telemetry::Profile *const profile = observation.profile();
+    if (profile != nullptr) {
+      host->emit(host->emit_context, status, *profile);
+    }
   }
   {
     std::lock_guard lock{task->mutex};
     task->status = status;
-    task->stats = stats;
+    task->stats = observation.stats();
   }
   if (host != nullptr) {
     std::lock_guard lock{host->mutex};
@@ -172,6 +157,27 @@ void CompletePipeline(
 
 void CpuReady(void *raw) noexcept;
 
+[[nodiscard]] node::accel::detail::KernelTiming
+KernelTimingFor(const compute_detail::TaskState &task) noexcept {
+  if (task.host == nullptr) {
+    return node::accel::detail::KernelTiming::None;
+  }
+  switch (task.host->telemetry_level) {
+  case ::rund::telemetry::Level::Basic:
+    return node::accel::detail::KernelTiming::None;
+  case ::rund::telemetry::Level::Detail:
+    return node::accel::detail::KernelTiming::Submission;
+  case ::rund::telemetry::Level::Trace:
+    return node::accel::detail::KernelTiming::Dispatch;
+  }
+  return node::accel::detail::KernelTiming::None;
+}
+
+[[nodiscard]] bool
+CaptureTerminalProfile(const compute_detail::TaskState &task) noexcept {
+  return task.host != nullptr && task.host->emit != nullptr;
+}
+
 [[nodiscard]] std::shared_ptr<compute::detail::JobState>
 JobOwner(const std::shared_ptr<void> &owner) noexcept {
   return std::static_pointer_cast<compute::detail::JobState>(owner);
@@ -208,7 +214,8 @@ SubmitJobCpu(const compute_detail::Operation &operation,
       JobOwner(operation.owner);
   const compute::Status submitted = compute::detail::submit_cpu_job_on(
       job, task.host->async_worker_backend, task.host->workers,
-      &task.cancel_requested, &task, CpuReady);
+      &task.cancel_requested, &task, CpuReady,
+      task.host->telemetry_level == ::rund::telemetry::Level::Trace);
   if (!submitted) {
     return compute_detail::Dispatch::failed(submitted);
   }
@@ -241,19 +248,21 @@ AdvanceJobCpu(const compute_detail::Operation &operation,
   return compute_detail::Advance::complete();
 }
 
-[[nodiscard]] compute::Status
+[[nodiscard]] compute::detail::TerminalObservation
 ResultJobCpu(const compute_detail::Operation &operation,
              compute_detail::TaskState &task) noexcept {
   if (!task.job_result.has_value()) {
-    return compute::detail::fail_job(
+    return compute::detail::fail_job_terminal(
         JobOwner(operation.owner),
-        compute::Status::fail(compute::Reason::CompletionInvalid));
+        compute::Status::fail(compute::Reason::CompletionInvalid),
+        task.frame_bytes, CaptureTerminalProfile(task));
   }
   compute::Result<compute::detail::RunState> result =
       std::move(*task.job_result);
   task.job_result.reset();
-  return compute::detail::finish_job(JobOwner(operation.owner),
-                                     std::move(result));
+  return compute::detail::finish_job_terminal(
+      JobOwner(operation.owner), std::move(result), task.frame_bytes,
+      CaptureTerminalProfile(task));
 }
 
 [[nodiscard]] compute_detail::Dispatch
@@ -261,8 +270,8 @@ SubmitJobAccel(const compute_detail::Operation &operation,
                compute_detail::TaskState &task) noexcept {
   const std::shared_ptr<compute::detail::JobState> job =
       JobOwner(operation.owner);
-  const compute::Status submitted =
-      compute::detail::submit_job_on(job, {}, CompleteAsync, &task);
+  const compute::Status submitted = compute::detail::submit_job_on(
+      job, {}, CompleteAsync, &task, KernelTimingFor(task));
   if (!submitted) {
     return compute_detail::Dispatch::failed(submitted);
   }
@@ -271,36 +280,33 @@ SubmitJobAccel(const compute_detail::Operation &operation,
              : compute_detail::Dispatch::backend_submitted();
 }
 
-[[nodiscard]] compute::Status
+[[nodiscard]] compute::detail::TerminalObservation
 ResultJobAccel(const compute_detail::Operation &operation,
                compute_detail::TaskState &task) noexcept {
   return ResultJobCpu(operation, task);
 }
 
-[[nodiscard]] compute::Status FailJob(const std::shared_ptr<void> &owner,
-                                      const compute::Status failure) noexcept {
-  return compute::detail::fail_job(JobOwner(owner), failure);
+[[nodiscard]] compute::detail::TerminalObservation
+FailJob(const compute_detail::Operation &operation,
+        compute_detail::TaskState &task,
+        const compute::Status failure) noexcept {
+  return compute::detail::fail_job_terminal(JobOwner(operation.owner), failure,
+                                            task.frame_bytes,
+                                            CaptureTerminalProfile(task));
 }
 
-[[nodiscard]] compute::Status
-CancelJob(const std::shared_ptr<void> &owner) noexcept {
-  return compute::detail::cancel_job(JobOwner(owner));
-}
-
-[[nodiscard]] compute::Stats
-JobEvidence(const std::shared_ptr<void> &owner) noexcept {
-  return compute::detail::job_stats(JobOwner(owner));
+[[nodiscard]] compute::detail::TerminalObservation
+CancelJob(const compute_detail::Operation &operation,
+          compute_detail::TaskState &task) noexcept {
+  return compute::detail::cancel_job_terminal(JobOwner(operation.owner),
+                                              task.frame_bytes,
+                                              CaptureTerminalProfile(task));
 }
 
 void RecordJobFrame(const std::shared_ptr<void> &owner,
                     const std::uint64_t bytes, const bool reused,
                     const std::uint64_t budget) noexcept {
   compute::detail::record_job_frame(JobOwner(owner), bytes, reused, budget);
-}
-
-void ReleaseJobFrame(const std::shared_ptr<void> &owner,
-                     const std::uint64_t bytes) noexcept {
-  compute::detail::release_job_frame(JobOwner(owner), bytes);
 }
 
 [[nodiscard]] compute::Result<compute::Backend>
@@ -326,8 +332,7 @@ SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
         compute::Status::fail(compute::Reason::CompletionInvalid));
   }
   const compute::detail::CpuPipelineSelection selected =
-      compute::detail::select_cpu_pipeline_step(state,
-                                                task.pipeline_schedule);
+      compute::detail::select_cpu_pipeline_step(state, task.pipeline_schedule);
   switch (selected.disposition()) {
   case compute::detail::CpuPipelineSelectionDisposition::Failed:
     return compute_detail::Advance::failed(selected.status());
@@ -337,10 +342,10 @@ SubmitPipelineStep(const std::shared_ptr<compute::detail::PipelineState> &state,
     break;
   }
   const std::shared_ptr<compute::detail::JobState> job = selected.job();
-  const compute::Status submitted =
-      compute::detail::submit_cpu_pipeline_job_on(
+  const compute::Status submitted = compute::detail::submit_cpu_pipeline_job_on(
       job, task.host->async_worker_backend, task.host->workers,
-      &task.cancel_requested, &task, CpuReady);
+      &task.cancel_requested, &task, CpuReady,
+      task.host->telemetry_level == ::rund::telemetry::Level::Trace);
   if (!submitted) {
     const compute::Status completed =
         compute::detail::complete_cpu_pipeline_schedule_step(
@@ -367,8 +372,8 @@ SubmitPipelineCpu(const compute_detail::Operation &operation,
   const std::shared_ptr<compute::detail::PipelineState> state =
       PipelineOwner(operation.owner);
   const compute::Status initialized =
-      compute::detail::initialize_cpu_pipeline_schedule(
-          state, task.pipeline_schedule);
+      compute::detail::initialize_cpu_pipeline_schedule(state,
+                                                        task.pipeline_schedule);
   if (!initialized) {
     return compute_detail::Dispatch::failed(initialized);
   }
@@ -400,8 +405,7 @@ AdvancePipelineCpu(const compute_detail::Operation &operation,
   if (task.pipeline_schedule.step == compute::detail::pipeline_size(state)) {
     return compute_detail::Advance::complete();
   }
-  if (task.pipeline_schedule.step >
-      compute::detail::pipeline_size(state)) {
+  if (task.pipeline_schedule.step > compute::detail::pipeline_size(state)) {
     return compute_detail::Advance::failed(
         compute::Status::fail(compute::Reason::CompletionInvalid));
   }
@@ -433,11 +437,12 @@ AdvancePipelineCpu(const compute_detail::Operation &operation,
   return SubmitPipelineStep(state, task);
 }
 
-[[nodiscard]] compute::Status
+[[nodiscard]] compute::detail::TerminalObservation
 ResultPipelineCpu(const compute_detail::Operation &operation,
-                  compute_detail::TaskState &) noexcept {
-  return compute::detail::complete_cpu_pipeline(
-      PipelineOwner(operation.owner));
+                  compute_detail::TaskState &task) noexcept {
+  return compute::detail::complete_cpu_pipeline_terminal(
+      PipelineOwner(operation.owner), task.frame_bytes,
+      CaptureTerminalProfile(task));
 }
 
 [[nodiscard]] compute_detail::Dispatch
@@ -446,7 +451,7 @@ SubmitPipelineAccel(const compute_detail::Operation &operation,
   const std::shared_ptr<compute::detail::PipelineState> pipeline =
       PipelineOwner(operation.owner);
   const compute::Status submitted = compute::detail::submit_pipeline_on(
-      pipeline, {}, CompletePipeline, &task);
+      pipeline, {}, CompletePipeline, &task, KernelTimingFor(task));
   if (!submitted) {
     return compute_detail::Dispatch::failed(submitted);
   }
@@ -455,34 +460,38 @@ SubmitPipelineAccel(const compute_detail::Operation &operation,
              : compute_detail::Dispatch::accepted_without_backend();
 }
 
-[[nodiscard]] compute::Status
+[[nodiscard]] compute::detail::TerminalObservation
 ResultPipelineAccel(const compute_detail::Operation &operation,
                     compute_detail::TaskState &task) noexcept {
   if (!task.pipeline_evidence.has_value()) {
-    return compute::detail::fail_pipeline(
+    return compute::detail::fail_pipeline_terminal(
         PipelineOwner(operation.owner),
-        compute::Status::fail(compute::Reason::CompletionInvalid));
+        compute::Status::fail(compute::Reason::CompletionInvalid),
+        task.frame_bytes, CaptureTerminalProfile(task));
   }
-  const compute::Status result = compute::detail::finish_pipeline_on(
-      PipelineOwner(operation.owner), std::move(*task.pipeline_evidence));
+  compute::detail::TerminalObservation result =
+      compute::detail::finish_pipeline_terminal_on(
+          PipelineOwner(operation.owner), std::move(*task.pipeline_evidence),
+          task.frame_bytes, CaptureTerminalProfile(task));
   task.pipeline_evidence.reset();
   return result;
 }
 
-[[nodiscard]] compute::Status
-FailPipeline(const std::shared_ptr<void> &owner,
+[[nodiscard]] compute::detail::TerminalObservation
+FailPipeline(const compute_detail::Operation &operation,
+             compute_detail::TaskState &task,
              const compute::Status failure) noexcept {
-  return compute::detail::fail_pipeline(PipelineOwner(owner), failure);
+  return compute::detail::fail_pipeline_terminal(PipelineOwner(operation.owner),
+                                                 failure, task.frame_bytes,
+                                                 CaptureTerminalProfile(task));
 }
 
-[[nodiscard]] compute::Status
-CancelPipeline(const std::shared_ptr<void> &owner) noexcept {
-  return compute::detail::cancel_pipeline(PipelineOwner(owner));
-}
-
-[[nodiscard]] compute::Stats
-PipelineEvidence(const std::shared_ptr<void> &owner) noexcept {
-  return compute::detail::pipeline_stats(PipelineOwner(owner));
+[[nodiscard]] compute::detail::TerminalObservation
+CancelPipeline(const compute_detail::Operation &operation,
+               compute_detail::TaskState &task) noexcept {
+  return compute::detail::cancel_pipeline_terminal(
+      PipelineOwner(operation.owner), task.frame_bytes,
+      CaptureTerminalProfile(task));
 }
 
 void RecordPipelineFrame(const std::shared_ptr<void> &owner,
@@ -490,11 +499,6 @@ void RecordPipelineFrame(const std::shared_ptr<void> &owner,
                          const std::uint64_t budget) noexcept {
   compute::detail::record_pipeline_frame(PipelineOwner(owner), bytes, reused,
                                          budget);
-}
-
-void ReleasePipelineFrame(const std::shared_ptr<void> &owner,
-                          const std::uint64_t bytes) noexcept {
-  compute::detail::release_pipeline_frame(PipelineOwner(owner), bytes);
 }
 
 void ReleaseOwner(std::shared_ptr<void> &owner) noexcept { owner.reset(); }
@@ -510,9 +514,7 @@ const compute_detail::OperationTable JobOperationTable{
     .result_accel = ResultJobAccel,
     .fail = FailJob,
     .cancel = CancelJob,
-    .evidence = JobEvidence,
     .record_frame = RecordJobFrame,
-    .release_frame = ReleaseJobFrame,
     .release = ReleaseOwner,
 };
 
@@ -527,9 +529,7 @@ const compute_detail::OperationTable PipelineOperationTable{
     .result_accel = ResultPipelineAccel,
     .fail = FailPipeline,
     .cancel = CancelPipeline,
-    .evidence = PipelineEvidence,
     .record_frame = RecordPipelineFrame,
-    .release_frame = ReleasePipelineFrame,
     .release = ReleaseOwner,
 };
 
@@ -554,8 +554,7 @@ compute_detail::Operation compute_detail::make_job(
 
 compute_detail::Operation compute_detail::make_pipeline(
     std::shared_ptr<compute::detail::PipelineState> state) noexcept {
-  return Operation{.table = &PipelineOperationTable,
-                   .owner = std::move(state)};
+  return Operation{.table = &PipelineOperationTable, .owner = std::move(state)};
 }
 
 compute_detail::Operation

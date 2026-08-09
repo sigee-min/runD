@@ -81,23 +81,27 @@ template <std::size_t Count>
           .tile_count = fixture.desc.element_count,
           .fresh_evidence = true,
       });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u ||
-      evidence.dispatch_count != physical_dispatches ||
-      evidence.original_dispatch_count != fixture.plan.pass_count ||
-      evidence.final_dispatch_count != physical_dispatches) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u ||
+      evidence.run.work.dispatch_count != physical_dispatches ||
+      evidence.run.work.original_dispatch_count != fixture.plan.pass_count ||
+      evidence.run.work.final_dispatch_count != physical_dispatches) {
     std::fprintf(
         stderr,
         "partition run count=%zu ok=%d reason=%s dispatch=%llu expected=%llu "
         "original=%llu final=%llu plan=%llu upload=%llu download=%llu\n",
-        Count, evidence.ok, evidence.reason,
-        static_cast<unsigned long long>(evidence.dispatch_count),
+        Count, evidence.outcome.ok, evidence.outcome.reason,
+        static_cast<unsigned long long>(evidence.run.work.dispatch_count),
         static_cast<unsigned long long>(physical_dispatches),
-        static_cast<unsigned long long>(evidence.original_dispatch_count),
-        static_cast<unsigned long long>(evidence.final_dispatch_count),
+        static_cast<unsigned long long>(
+            evidence.run.work.original_dispatch_count),
+        static_cast<unsigned long long>(evidence.run.work.final_dispatch_count),
         static_cast<unsigned long long>(fixture.plan.pass_count),
-        static_cast<unsigned long long>(evidence.host_to_device_bytes),
-        static_cast<unsigned long long>(evidence.device_to_host_bytes));
+        static_cast<unsigned long long>(
+            evidence.run.transfer.host_to_device_bytes),
+        static_cast<unsigned long long>(
+            evidence.run.transfer.device_to_host_bytes));
     return false;
   }
 

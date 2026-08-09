@@ -15,16 +15,14 @@ namespace rund::node::accel::detail {
 
 struct MetalAdapter;
 
-[[nodiscard]] rund::AccelCheck
-PrepareMetalResources(const rund::AccelDevice &pick, const BoundStep *steps,
-                      std::size_t step_count, std::uint64_t dispatch_count,
-                      KernelPreparationMode mode, const BoundResets *resets,
-                      const KernelViewLayout *views, const RunBinds *view_binds,
-                      const KernelScratchLayout *scratch,
-                      const BackendRun *template_probe,
-                      PreparedKernelTemplateRegistry *templates,
-                      std::uint32_t *failed_node,
-                      std::shared_ptr<void> &prepared, PreparedMemory &memory);
+[[nodiscard]] rund::AccelCheck PrepareMetalResources(
+    const rund::AccelDevice &pick, const BoundStep *steps,
+    std::size_t step_count, std::uint64_t dispatch_count,
+    KernelPreparationMode mode, const BoundResets *resets,
+    const KernelViewLayout *views, const RunBinds *view_binds,
+    const KernelScratchLayout *scratch, const BackendRun *template_probe,
+    PreparedKernelTemplateRegistry *templates, std::uint32_t *failed_node,
+    std::shared_ptr<void> &prepared, PreparedMemory &memory);
 [[nodiscard]] std::uint64_t
 MetalKernelTraffic(const std::shared_ptr<void> &prepared) noexcept;
 [[nodiscard]] rund::AccelCheck
@@ -33,7 +31,8 @@ RunMetalResources(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck
 SubmitMetalResources(const rund::AccelDevice &pick,
                      const std::shared_ptr<void> &prepared,
-                     KernelCompletion completion, void *user) noexcept;
+                     KernelCompletion completion, void *user,
+                     PreparedMemoryMeter *memory, KernelTiming timing) noexcept;
 
 [[nodiscard]] rund::AccelCheck
 SeedPreparedMetalPipelineGeneration(const std::shared_ptr<void> &prepared,

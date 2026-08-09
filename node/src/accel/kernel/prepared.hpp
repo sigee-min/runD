@@ -126,13 +126,12 @@ SeedPreparedKernelPipelineGeneration(const PreparedKernelPipeline &prepared,
 [[nodiscard]] rund::AccelCheck SubmitPreparedKernelPipeline(
     const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
     std::shared_ptr<void> lifetime, PreparedPipelineCompletion completion,
-    void *user) noexcept;
+    void *user, KernelTiming timing = KernelTiming::Submission) noexcept;
 
-[[nodiscard]] rund::AccelCheck
-SubmitPreparedKernel(const rund::AccelContext &context,
-                     const PreparedKernelRun &prepared,
-                     std::shared_ptr<void> lifetime,
-                     PreparedKernelCompletion completion, void *user) noexcept;
+[[nodiscard]] rund::AccelCheck SubmitPreparedKernel(
+    const rund::AccelContext &context, const PreparedKernelRun &prepared,
+    std::shared_ptr<void> lifetime, PreparedKernelCompletion completion,
+    void *user, KernelTiming timing = KernelTiming::Submission) noexcept;
 
 [[nodiscard]] PreparedMemory
 ReadPreparedKernelMemory(const PreparedKernelRun &prepared) noexcept;

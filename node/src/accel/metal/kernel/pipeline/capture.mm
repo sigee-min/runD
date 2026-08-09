@@ -66,8 +66,8 @@ MeasureMetalWork(const std::span<const MetalCommand> commands) noexcept {
     if (command.control) {
       continue;
     }
-    if (command.kind == MetalGrid::None || empty_grid(command.grid) ||
-        empty_grid(command.threads)) {
+    if (command.kind == MetalGrid::None || empty_grid(command.threads) ||
+        (command.kind != MetalGrid::Indirect && empty_grid(command.grid))) {
       return {};
     }
     std::uint64_t command_workgroups = 0u;
@@ -95,6 +95,9 @@ MeasureMetalWork(const std::span<const MetalCommand> commands) noexcept {
           !work_volume(command.grid, command_work_items)) {
         return {};
       }
+    } else if (command.kind == MetalGrid::Indirect) {
+      evidence.exact = false;
+      continue;
     } else {
       return {};
     }
@@ -111,10 +114,13 @@ MeasureMetalWork(const std::span<const MetalCommand> commands) noexcept {
 }
 
 void append_command(MetalCapture &capture, const MetalGrid kind,
-                    const MTLSize grid, const MTLSize threads) {
+                    const MTLSize grid, const MTLSize threads,
+                    id<MTLBuffer> const indirect = nil,
+                    const NSUInteger indirect_offset = 0u) {
   const bool owned = capture.owner != std::numeric_limits<std::uint32_t>::max();
   if (capture.pipeline == nil || kind == MetalGrid::None ||
       empty_grid(threads) || (capture.unguarded && owned) ||
+      (kind == MetalGrid::Indirect && indirect == nil) ||
       (!capture.unguarded &&
        (capture.guard_zero == nil ||
         (capture.binding_mask &
@@ -176,10 +182,12 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
     }
     MetalCommand command{
         .pipeline = capture.pipeline,
+        .indirect = indirect,
         .binding_begin = binding_begin,
         .binding_count = binding_count,
         .grid = grid,
         .threads = threads,
+        .indirect_offset = indirect_offset,
         .kind = kind,
         .owner = capture.owner,
     };
@@ -310,10 +318,8 @@ using rund::node::accel::detail::MetalGrid;
 - (void)dispatchThreadgroupsWithIndirectBuffer:(id<MTLBuffer>)buffer
                           indirectBufferOffset:(NSUInteger)offset
                          threadsPerThreadgroup:(MTLSize)threads {
-  (void)buffer;
-  (void)offset;
-  (void)threads;
-  _capture->failed = true;
+  append_command(*_capture, MetalGrid::Indirect, MTLSizeMake(0u, 0u, 0u),
+                 threads, buffer, offset);
 }
 - (void)memoryBarrierWithScope:(MTLBarrierScope)scope {
   if (scope == 0u) {
@@ -323,6 +329,8 @@ using rund::node::accel::detail::MetalGrid;
   if (!_capture->commands.empty()) {
     _capture->commands.back().barrier = true;
   }
+}
+- (void)endEncoding {
 }
 @end
 

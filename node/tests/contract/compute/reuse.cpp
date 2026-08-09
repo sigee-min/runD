@@ -1,4 +1,5 @@
 #include <rund/compute.hpp>
+#include <rund/telemetry/event.hpp>
 
 #include "allocation.hpp"
 #include "src/compute/memory/profile.hpp"
@@ -52,8 +53,9 @@ static_assert(std::is_nothrow_move_constructible_v<TelemetryProfile>);
                    .final_dispatches = 4u,
                    .kernel_samples = 1u};
   const Profile zero_profile = detail::ProfileAccess::make(
-      DeviceInfo{.name = "test", .driver = "test", .driver_details = ""}, zero,
-      {});
+      std::make_shared<const DeviceInfo>(
+          DeviceInfo{.name = "test", .driver = "test", .driver_details = ""}),
+      zero, {});
   const Focus zero_focus = zero_profile.largest_time();
   if (!zero_focus.available() || zero_focus.nanoseconds() != 0u ||
       zero_focus.saturated() || !zero_focus.includes(Stage::Kernel) ||
@@ -70,8 +72,9 @@ static_assert(std::is_nothrow_move_constructible_v<TelemetryProfile>);
                    .descriptor_setup_ns = 17u,
                    .readback_ns = limit};
   const Profile tied_profile = detail::ProfileAccess::make(
-      DeviceInfo{.name = "test", .driver = "test", .driver_details = ""}, tied,
-      {});
+      std::make_shared<const DeviceInfo>(
+          DeviceInfo{.name = "test", .driver = "test", .driver_details = ""}),
+      tied, {});
   const Focus tied_focus = tied_profile.largest_time();
   return tied_focus.available() && tied_focus.saturated() &&
          tied_focus.nanoseconds() == limit &&
@@ -113,7 +116,10 @@ SameMemory(const rund::compute::MemoryStats &left,
 static_assert(sizeof(rund::compute::Run) == 1152u);
 static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1160u);
 static_assert(sizeof(rund::compute::PipelineStats) == 184u);
-static_assert(sizeof(rund::compute::Stats) == 632u);
+static_assert(sizeof(rund::compute::Stats) == 664u);
+static_assert(sizeof(rund::compute::MemoryStats) == 288u);
+static_assert(sizeof(rund::compute::telemetry::Profile) == 968u);
+static_assert(sizeof(rund::telemetry::Event) == 304u);
 static_assert(rund::compute::Stats{}.pipeline.sealed_repetition_count == 0u);
 static_assert(rund::compute::Stats{}.pipeline.coalesced_repetition_count == 0u);
 static_assert(alignof(rund::compute::Run) == alignof(std::uint64_t));
@@ -294,7 +300,9 @@ template <class Job>
       MemoryCategory::Transfer,
   };
   for (const MemoryCategory category : categories) {
-    if (!profile->memory_usage(category)) {
+    const auto usage = profile->memory_usage(category);
+    if (!usage ||
+        (category == MemoryCategory::Transfer && usage->available())) {
       return 9;
     }
   }

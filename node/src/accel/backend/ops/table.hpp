@@ -47,6 +47,7 @@ struct KernelExecutionStep;
 struct BoundStep;
 struct PreparedBackendManifest;
 class PreparedMemoryMeter;
+class PreparedPipelineMemoryMeter;
 struct PreparedPipelineStatusLayout;
 class RangeCaps;
 
@@ -127,17 +128,23 @@ struct BackendOps final {
       std::span<const NestedAggregate>, std::span<const BackendPublish>,
       PreparedKernelTemplateRegistry &, PreparedPipelineStatusLayout &, bool,
       std::shared_ptr<void> &, PreparedPipelineMemory &,
-      PreparedPipelineFailure &) = nullptr;
+      PreparedPipelineMemoryMeter *, PreparedPipelineFailure &) = nullptr;
   rund::AccelCheck (*seed_prepared_pipeline_generation)(
       const std::shared_ptr<void> &, std::uint32_t) noexcept = nullptr;
   rund::AccelCheck (*submit_prepared_pipeline)(const std::shared_ptr<void> &,
-                                               KernelCompletion,
-                                               void *) noexcept = nullptr;
-  rund::AccelCheck (*submit_prepared)(
-      const BackendRun &, const std::shared_ptr<void> &, KernelCompletion,
-      void *, PreparedMemoryMeter *,
-      const std::shared_ptr<void> &) noexcept = nullptr;
+                                               KernelCompletion, void *,
+                                               KernelTiming) noexcept = nullptr;
+  rund::AccelCheck (*submit_prepared)(const BackendRun &,
+                                      const std::shared_ptr<void> &,
+                                      KernelCompletion, void *,
+                                      PreparedMemoryMeter *,
+                                      const std::shared_ptr<void> &,
+                                      KernelTiming) noexcept = nullptr;
   bool (*inject_device_lost_once)(const rund::AccelDevice &) noexcept = nullptr;
+  bool (*inject_trace_unavailable_once)(const rund::AccelDevice &) noexcept =
+      nullptr;
+  bool (*inject_trace_resolve_device_lost_once)(
+      const rund::AccelDevice &) noexcept = nullptr;
 };
 
 } // namespace rund::node::accel::detail

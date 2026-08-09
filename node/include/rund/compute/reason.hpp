@@ -44,7 +44,7 @@ namespace detail {
   case Code::Unsupported:
     return value <= ordinal(Reason::WindowOpUnsupported);
   case Code::Unavailable:
-    return value <= ordinal(Reason::ProfileUnavailable);
+    return value <= ordinal(Reason::TelemetryTraceUnavailable);
   case Code::Capacity:
     return value <= ordinal(Reason::WindowCountOverflow);
   case Code::Compile:

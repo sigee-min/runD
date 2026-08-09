@@ -52,6 +52,8 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
     if (!completed.ok) {
       return completed;
     }
+    captured.commands.back().control = true;
+    captured.commands.back().trace = false;
     if (native_publication_count != 0u) {
       [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
       for (const MetalPublish &publication : native_publication_rows()) {
@@ -95,6 +97,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
           return capture;
         }
         captured.commands.back().control = true;
+        captured.commands.back().trace = true;
         ++pipeline->dispatch_count;
         ++pipeline->control_command_count;
       }
@@ -106,6 +109,16 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
     return capture;
   }
   if (captured.commands.empty()) {
+    return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
+  }
+  // Capture is the final physical command-stream authority. Planning owns an
+  // allocation upper, while this exact membership projection includes every
+  // body/View command and the separately admitted native publications without
+  // conflating reset or control families with public dispatch evidence.
+  pipeline->dispatch_count = static_cast<std::uint64_t>(
+      std::count_if(captured.commands.begin(), captured.commands.end(),
+                    [](const MetalCommand &command) { return command.trace; }));
+  if (pipeline->dispatch_count == 0u) {
     return rund::AccelCheck{false, "accel_kernel_primitive_unsupported"};
   }
   const PreparedKernelPipelineReservation &limit = template_registry.limit;
@@ -140,9 +153,20 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       pipeline->residency.reserve(captured.command_bindings.size());
       pipeline->command_chunks.reserve(
           static_cast<std::size_t>(actual_icb_plan.chunk_count));
+      pipeline->trace_commands.reserve(
+          static_cast<std::size_t>(pipeline->dispatch_count));
       if (pipeline->pipelines.capacity() != captured.commands.size() ||
           pipeline->residency.capacity() != captured.command_bindings.size() ||
           pipeline->command_chunks.capacity() != actual_icb_plan.chunk_count) {
+        return rund::AccelCheck{false, "compute_pipeline_capacity"};
+      }
+      for (std::size_t index = 0u; index < captured.commands.size(); ++index) {
+        if (captured.commands[index].trace) {
+          pipeline->trace_commands.push_back(index);
+        }
+      }
+      if (pipeline->trace_commands.size() != pipeline->dispatch_count ||
+          pipeline->trace_commands.capacity() != pipeline->dispatch_count) {
         return rund::AccelCheck{false, "compute_pipeline_capacity"};
       }
       for (const MetalCommand &source : captured.commands) {
@@ -311,6 +335,9 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
       .chunks = pipeline->command_chunks.data(),
       .chunk_count = pipeline->command_chunks.size(),
   };
+  // command_count is the complete ICB stream, including control commands;
+  // dispatch_count is the public payload-dispatch evidence. Validate native
+  // ownership/cardinality here without conflating those two domains.
   if (!pipeline->warm.matches(pipeline->residency, pipeline->command_chunks,
                               pipeline->command_count)) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
@@ -359,6 +386,7 @@ rund::AccelCheck MetalPipelineBuild::Finalize(std::shared_ptr<void> &prepared,
   const std::uint64_t host_bytes =
       sizeof(MetalSequence) +
       pipeline->command_chunks.capacity() * sizeof(MetalIcbChunk) +
+      pipeline->trace_commands.capacity() * sizeof(std::uint64_t) +
       pipeline->residency.capacity() * sizeof(id<MTLResource>) +
       pipeline->pipelines.capacity() * sizeof(id<MTLComputePipelineState>) +
       pipeline->telemetry.capacity() * sizeof(MetalPipelineTelemetryRecord) +

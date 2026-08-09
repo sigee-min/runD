@@ -88,6 +88,7 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 [[nodiscard]] int CheckUnknownCompletionProfileIdentity(rund::compute::Device &,
                                                         Backend);
 [[nodiscard]] int CheckProfile(rund::compute::Device &, Backend);
+[[nodiscard]] int CheckProfileSamples(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckZeroWork(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckFrozenCpuMapBindings(rund::compute::Device &);
 [[nodiscard]] int CheckSemanticStatus(rund::compute::Device &, Backend);

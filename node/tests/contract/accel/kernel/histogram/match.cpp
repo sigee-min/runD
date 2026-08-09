@@ -4,8 +4,8 @@
 #include <accel/context/value.hpp>
 #include <accel/device.hpp>
 #include <accel/graph/buffer/ref.hpp>
-#include <accel/graph/value.hpp>
 #include <accel/graph/node.hpp>
+#include <accel/graph/value.hpp>
 #include <accel/kernel/evidence.hpp>
 #include <accel/kernel/run.hpp>
 #include <accel/kernel/run/binding.hpp>
@@ -116,8 +116,9 @@ template <std::size_t N, std::size_t B>
                                             .tile_count = bins.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
   std::array<rund::kernel::u32, B> downloaded{};

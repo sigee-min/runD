@@ -50,16 +50,20 @@ inline bool RequiredMetalRunsInclusiveScan() {
     return false;
   }
   const rund::RuntimeStats single = rund::node::accel::ReadRuntimeStats(pick);
-  if (!single.ok || single.pipeline_compile_count != 1u ||
-      single.pipeline_cache_hit_count != 0u || single.dispatch_count != 1u) {
+  if (!single.outcome.ok ||
+      single.run.allocations.pipeline_compile_count != 1u ||
+      single.run.allocations.pipeline_cache_hit_count != 0u ||
+      single.run.work.dispatch_count != 1u) {
     std::fprintf(
         stderr,
         "metal single-block scan cache mismatch: ok=%d reason=%s "
         "compile=%llu hit=%llu dispatch=%llu\n",
-        single.ok, single.reason,
-        static_cast<unsigned long long>(single.pipeline_compile_count),
-        static_cast<unsigned long long>(single.pipeline_cache_hit_count),
-        static_cast<unsigned long long>(single.dispatch_count));
+        single.outcome.ok, single.outcome.reason,
+        static_cast<unsigned long long>(
+            single.run.allocations.pipeline_compile_count),
+        static_cast<unsigned long long>(
+            single.run.allocations.pipeline_cache_hit_count),
+        static_cast<unsigned long long>(single.run.work.dispatch_count));
     return false;
   }
   if (!InclusiveScanMatchesReference<rund::kernel::u32>(
@@ -70,16 +74,19 @@ inline bool RequiredMetalRunsInclusiveScan() {
     return false;
   }
   const rund::RuntimeStats multi = rund::node::accel::ReadRuntimeStats(pick);
-  if (!multi.ok || multi.pipeline_compile_count != 2u ||
-      multi.pipeline_cache_hit_count != 1u || multi.dispatch_count != 3u) {
+  if (!multi.outcome.ok || multi.run.allocations.pipeline_compile_count != 2u ||
+      multi.run.allocations.pipeline_cache_hit_count != 1u ||
+      multi.run.work.dispatch_count != 3u) {
     std::fprintf(
         stderr,
         "metal multi-block scan cache mismatch: ok=%d reason=%s "
         "compile=%llu hit=%llu dispatch=%llu\n",
-        multi.ok, multi.reason,
-        static_cast<unsigned long long>(multi.pipeline_compile_count),
-        static_cast<unsigned long long>(multi.pipeline_cache_hit_count),
-        static_cast<unsigned long long>(multi.dispatch_count));
+        multi.outcome.ok, multi.outcome.reason,
+        static_cast<unsigned long long>(
+            multi.run.allocations.pipeline_compile_count),
+        static_cast<unsigned long long>(
+            multi.run.allocations.pipeline_cache_hit_count),
+        static_cast<unsigned long long>(multi.run.work.dispatch_count));
     return false;
   }
   return InclusiveScanMatchesReference<rund::kernel::u64>(
@@ -106,18 +113,21 @@ inline bool RequiredVulkanRunsInclusiveScan() {
   }
   const rund::RuntimeStats single_stats =
       rund::node::accel::ReadRuntimeStats(pick);
-  if (!single_stats.ok || single_stats.pipeline_compile_count != 1u ||
-      single_stats.pipeline_cache_hit_count != 0u ||
-      single_stats.dispatch_count != 1u ||
+  if (!single_stats.outcome.ok ||
+      single_stats.run.allocations.pipeline_compile_count != 1u ||
+      single_stats.run.allocations.pipeline_cache_hit_count != 0u ||
+      single_stats.run.work.dispatch_count != 1u ||
       single_counters.dispatch_count != 1u) {
     std::fprintf(
         stderr,
         "vulkan one-stage scan mismatch: ok=%d reason=%s compile=%llu "
         "hit=%llu dispatch=%llu evidence=%llu\n",
-        single_stats.ok, single_stats.reason,
-        static_cast<unsigned long long>(single_stats.pipeline_compile_count),
-        static_cast<unsigned long long>(single_stats.pipeline_cache_hit_count),
-        static_cast<unsigned long long>(single_stats.dispatch_count),
+        single_stats.outcome.ok, single_stats.outcome.reason,
+        static_cast<unsigned long long>(
+            single_stats.run.allocations.pipeline_compile_count),
+        static_cast<unsigned long long>(
+            single_stats.run.allocations.pipeline_cache_hit_count),
+        static_cast<unsigned long long>(single_stats.run.work.dispatch_count),
         static_cast<unsigned long long>(single_counters.dispatch_count));
     return false;
   }
@@ -132,17 +142,21 @@ inline bool RequiredVulkanRunsInclusiveScan() {
   }
   const rund::RuntimeStats multi_stats =
       rund::node::accel::ReadRuntimeStats(pick);
-  if (!multi_stats.ok || multi_stats.pipeline_compile_count != 2u ||
-      multi_stats.pipeline_cache_hit_count != 1u ||
-      multi_stats.dispatch_count != 3u || multi_counters.dispatch_count != 3u) {
+  if (!multi_stats.outcome.ok ||
+      multi_stats.run.allocations.pipeline_compile_count != 2u ||
+      multi_stats.run.allocations.pipeline_cache_hit_count != 1u ||
+      multi_stats.run.work.dispatch_count != 3u ||
+      multi_counters.dispatch_count != 3u) {
     std::fprintf(
         stderr,
         "vulkan three-stage scan mismatch: ok=%d reason=%s compile=%llu "
         "hit=%llu dispatch=%llu evidence=%llu\n",
-        multi_stats.ok, multi_stats.reason,
-        static_cast<unsigned long long>(multi_stats.pipeline_compile_count),
-        static_cast<unsigned long long>(multi_stats.pipeline_cache_hit_count),
-        static_cast<unsigned long long>(multi_stats.dispatch_count),
+        multi_stats.outcome.ok, multi_stats.outcome.reason,
+        static_cast<unsigned long long>(
+            multi_stats.run.allocations.pipeline_compile_count),
+        static_cast<unsigned long long>(
+            multi_stats.run.allocations.pipeline_cache_hit_count),
+        static_cast<unsigned long long>(multi_stats.run.work.dispatch_count),
         static_cast<unsigned long long>(multi_counters.dispatch_count));
     return false;
   }
@@ -154,18 +168,20 @@ inline bool RequiredVulkanRunsInclusiveScan() {
   }
   const rund::RuntimeStats exclusive_stats =
       rund::node::accel::ReadRuntimeStats(pick);
-  if (!exclusive_stats.ok || exclusive_stats.pipeline_compile_count != 1u ||
-      exclusive_stats.pipeline_cache_hit_count != 2u ||
-      exclusive_stats.dispatch_count != 3u) {
-    std::fprintf(
-        stderr,
-        "vulkan exclusive scan shared prefix/offset mismatch: ok=%d "
-        "reason=%s compile=%llu hit=%llu dispatch=%llu\n",
-        exclusive_stats.ok, exclusive_stats.reason,
-        static_cast<unsigned long long>(exclusive_stats.pipeline_compile_count),
-        static_cast<unsigned long long>(
-            exclusive_stats.pipeline_cache_hit_count),
-        static_cast<unsigned long long>(exclusive_stats.dispatch_count));
+  if (!exclusive_stats.outcome.ok ||
+      exclusive_stats.run.allocations.pipeline_compile_count != 1u ||
+      exclusive_stats.run.allocations.pipeline_cache_hit_count != 2u ||
+      exclusive_stats.run.work.dispatch_count != 3u) {
+    std::fprintf(stderr,
+                 "vulkan exclusive scan shared prefix/offset mismatch: ok=%d "
+                 "reason=%s compile=%llu hit=%llu dispatch=%llu\n",
+                 exclusive_stats.outcome.ok, exclusive_stats.outcome.reason,
+                 static_cast<unsigned long long>(
+                     exclusive_stats.run.allocations.pipeline_compile_count),
+                 static_cast<unsigned long long>(
+                     exclusive_stats.run.allocations.pipeline_cache_hit_count),
+                 static_cast<unsigned long long>(
+                     exclusive_stats.run.work.dispatch_count));
     return false;
   }
 
@@ -229,19 +245,23 @@ inline bool RequiredVulkanRunsInclusiveScan() {
         static_cast<std::size_t>(chunk_count));
     const rund::AccelCheck download = rund::node::accel::DownloadAccelBuffer(
         resources.context, resources.write, downloaded.data(), payload_bytes);
-    if (!evidence.ok || evidence.dispatch_count != 5u || !stats.ok ||
-        stats.dispatch_count != 5u || stats.pipeline_compile_count != 0u ||
-        stats.pipeline_cache_hit_count != 3u || !download.ok) {
+    if (!evidence.outcome.ok || evidence.run.work.dispatch_count != 5u ||
+        !stats.outcome.ok || stats.run.work.dispatch_count != 5u ||
+        stats.run.allocations.pipeline_compile_count != 0u ||
+        stats.run.allocations.pipeline_cache_hit_count != 3u || !download.ok) {
       std::fprintf(
           stderr,
           "vulkan scan chunk runtime mismatch: evidence=%d reason=%s "
           "dispatch=%llu stats=%d/%s/%llu compile=%llu hit=%llu "
           "download=%d/%s\n",
-          evidence.ok, evidence.reason,
-          static_cast<unsigned long long>(evidence.dispatch_count), stats.ok,
-          stats.reason, static_cast<unsigned long long>(stats.dispatch_count),
-          static_cast<unsigned long long>(stats.pipeline_compile_count),
-          static_cast<unsigned long long>(stats.pipeline_cache_hit_count),
+          evidence.outcome.ok, evidence.outcome.reason,
+          static_cast<unsigned long long>(evidence.run.work.dispatch_count),
+          stats.outcome.ok, stats.outcome.reason,
+          static_cast<unsigned long long>(stats.run.work.dispatch_count),
+          static_cast<unsigned long long>(
+              stats.run.allocations.pipeline_compile_count),
+          static_cast<unsigned long long>(
+              stats.run.allocations.pipeline_cache_hit_count),
           download.ok, download.reason);
       return false;
     }

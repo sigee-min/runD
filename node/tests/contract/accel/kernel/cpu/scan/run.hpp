@@ -32,10 +32,11 @@ namespace node_accel_contract::cpu_context {
                                             .tile_count = scan::kCount,
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.backend != rund::AccelApi::Cpu ||
-      evidence.command_submit_count != 0u ||
-      evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.identity.backend != rund::AccelApi::Cpu ||
+      evidence.run.work.command_submit_count != 0u ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
 

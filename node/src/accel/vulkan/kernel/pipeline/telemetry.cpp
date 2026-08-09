@@ -6,12 +6,10 @@
 #include "../../collective/pipeline.hpp"
 #include "../../command.hpp"
 #include "../../descriptor.hpp"
-#include "../../runtime/timestamp.hpp"
 #include "../lease.hpp"
 #include "source.hpp"
 #include "source_artifact.hpp"
 
-#include <algorithm>
 #include <array>
 #include <limits>
 
@@ -168,21 +166,6 @@ namespace rund::node::accel::detail {
   return true;
 }
 
-[[nodiscard]] std::uint64_t timestamp_ns(const VulkanAdapter &adapter,
-                                         const std::uint64_t start,
-                                         const std::uint64_t end) noexcept {
-  const std::uint64_t ticks =
-      VulkanTimestampTicks(start, end, adapter.timestamp_valid_bits);
-  const long double elapsed_ns =
-      static_cast<long double>(ticks) *
-      static_cast<long double>(adapter.timestamp_period_ns);
-  const long double limit =
-      static_cast<long double>(std::numeric_limits<std::uint64_t>::max());
-  return elapsed_ns >= limit
-             ? std::numeric_limits<std::uint64_t>::max()
-             : static_cast<std::uint64_t>(std::max(0.0L, elapsed_ns));
-}
-
 void ObserveVulkanProfile(VulkanPipeline &pipeline,
                           KernelResult &result) noexcept {
   if (pipeline.profile == nullptr) {
@@ -213,52 +196,6 @@ void ObserveVulkanProfile(VulkanPipeline &pipeline,
     row.work_sample_count = visible ? 1u : 0u;
     row.clock = PreparedPipelineStepClock::Unavailable;
     row.relation = PreparedPipelineStepTimingRelation::Unavailable;
-  }
-  if (profile.timestamps != VK_NULL_HANDLE && profile.query_count != 0u) {
-    if (profile.timestamp_values.size() < profile.query_count ||
-        profile.timestamped.size() < profile.command_count ||
-        profile.command_templates.size() < profile.command_count) {
-      return;
-    }
-    const VkResult queried = vkGetQueryPoolResults(
-        pipeline.adapter->device, profile.timestamps, 0u, profile.query_count,
-        static_cast<std::size_t>(profile.query_count) * sizeof(std::uint64_t),
-        profile.timestamp_values.data(), sizeof(std::uint64_t),
-        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-    if (queried == VK_SUCCESS) {
-      for (std::size_t command = 0u; command < profile.command_count;
-           ++command) {
-        if (profile.timestamped[command] == 0u) {
-          continue;
-        }
-        const std::uint32_t template_index = profile.command_templates[command];
-        if (template_index >= profile.active_step_count) {
-          continue;
-        }
-        const std::uint32_t declared = profile.declared_steps[template_index];
-        if (declared >= profile.declared_step_count ||
-            command > (profile.timestamp_values.size() - 2u) / 2u) {
-          continue;
-        }
-        PreparedPipelineStepEvidence &row = profile.rows[declared];
-        if (row.work_sample_count == 0u) {
-          continue;
-        }
-        const std::uint64_t duration = timestamp_ns(
-            *pipeline.adapter, profile.timestamp_values[2u * command],
-            profile.timestamp_values[2u * command + 1u]);
-        row.duration_ns = duration > std::numeric_limits<std::uint64_t>::max() -
-                                         row.duration_ns
-                              ? std::numeric_limits<std::uint64_t>::max()
-                              : row.duration_ns + duration;
-        if (row.timing_sample_count !=
-            std::numeric_limits<std::uint64_t>::max()) {
-          ++row.timing_sample_count;
-        }
-        row.clock = PreparedPipelineStepClock::Device;
-        row.relation = PreparedPipelineStepTimingRelation::NonAdditive;
-      }
-    }
   }
   result.pipeline.profile = PreparedPipelineProfileEvidence{
       .steps =

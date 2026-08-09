@@ -36,16 +36,15 @@ CpuContextMapEvidenceCountersMatch(const rund::AccelDevice &pick) {
           .staging_bytes = resources.kernel.frozen_caps.staging_bytes,
           .max_window_tiles = resources.kernel.frozen_caps.max_window_tiles,
       });
-  const auto warm =
-      rund::kernel::compute_lowering_detail::AdmitRetained(
-          plan, step.artifact, &step.cpu_input);
-  return run.ok && run.evidence.backend == rund::AccelApi::Cpu &&
-         run.evidence.dispatch_count == 1u &&
-         run.evidence.command_submit_count == 0u &&
-         run.evidence.original_dispatch_count == 1u &&
-         run.evidence.final_dispatch_count == 1u &&
-         run.evidence.host_to_device_bytes == 0u &&
-         run.evidence.device_to_host_bytes == 0u && plan.ok &&
+  const auto warm = rund::kernel::compute_lowering_detail::AdmitRetained(
+      plan, step.artifact, &step.cpu_input);
+  return run.ok && run.evidence.identity.backend == rund::AccelApi::Cpu &&
+         run.evidence.run.work.dispatch_count == 1u &&
+         run.evidence.run.work.command_submit_count == 0u &&
+         run.evidence.run.work.original_dispatch_count == 1u &&
+         run.evidence.run.work.final_dispatch_count == 1u &&
+         run.evidence.run.transfer.host_to_device_bytes == 0u &&
+         run.evidence.run.transfer.device_to_host_bytes == 0u && plan.ok &&
          step.artifact.canonical_ir_bytes.empty() &&
          step.artifact.source_text.empty() && step.cpu_input.ok &&
          step.cpu_input.retained_dynamic_memory_bytes() != 0u && warm.ok &&

@@ -57,20 +57,23 @@ struct VulkanPipelineProfileTelemetryParams final {
 static_assert(sizeof(VulkanPipelineProfileTelemetryParams) == 80u);
 
 struct VulkanPipelineProfile final {
-  VkQueryPool timestamps{VK_NULL_HANDLE};
   std::array<PreparedPipelineStepEvidence, PreparedPipelineStepCapacity> rows{};
   std::array<PreparedPipelineStepControl, PreparedPipelineStepCapacity>
       controls{};
   std::array<std::uint32_t, PreparedPipelineStepCapacity> declared_steps{};
-  std::vector<std::uint8_t> timestamped;
-  std::vector<std::uint32_t> command_templates;
-  std::vector<std::uint64_t> timestamp_values;
-  std::uint32_t active_step_count{};
-  std::uint32_t command_count{};
   std::uint32_t declared_step_count{};
-  std::uint32_t query_count{};
   std::uint64_t instrumentation_command_count{};
   std::uint64_t instrumentation_byte_count{};
+};
+
+struct VulkanPipelineRecordRecipe;
+
+struct VulkanPipelineDispatchTrace final {
+  VulkanCommand command{};
+  VkQueryPool queries{VK_NULL_HANDLE};
+  std::vector<std::uint64_t> values;
+  std::uint32_t query_count{};
+  bool ready{};
 };
 
 struct VulkanPipeline final {
@@ -80,6 +83,9 @@ struct VulkanPipeline final {
   VulkanPipelinePublishResources publish{};
   VulkanWindowResources window{};
   std::unique_ptr<VulkanPipelineProfile> profile;
+  std::unique_ptr<VulkanPipelineRecordRecipe> record;
+  VulkanPipelineDispatchTrace trace{};
+  PreparedPipelineMemoryMeter *memory_meter{};
   VulkanCollectivePipeline *telemetry_pipeline{};
   std::vector<VulkanPipelineTelemetryRecord> telemetry;
   std::shared_ptr<void> recurrence;
@@ -87,6 +93,7 @@ struct VulkanPipeline final {
   std::uint64_t dispatch_count{};
   std::uint64_t reset_count{};
   std::uint64_t reset_bytes{};
+  bool trace_active{};
   submission::State<VulkanPipeline> submission{};
 
   ~VulkanPipeline();

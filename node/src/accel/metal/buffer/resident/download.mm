@@ -103,10 +103,11 @@ BackendDownload DownloadMetalResidentBuffersWithScratch(
   adapter_lock.lock();
   const std::uint64_t readback_elapsed =
       MonotonicNanoseconds() - readback_begin;
-  ::rund::detail::counter::Accumulate(adapter.stats.readback_ns,
-                                      readback_elapsed);
-  ::rund::detail::counter::Accumulate(adapter.stats.device_to_host_bytes,
-                                      downloaded_bytes);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.readback_ns, readback_elapsed);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.transfer.device_to_host_bytes,
+      downloaded_bytes);
   --adapter.active_host_readbacks;
   adapter.host_readback_cv.notify_all();
   return BackendDownload{.check = {true, "ok"}, .payload_hash_valid = true};
@@ -174,10 +175,10 @@ BackendDownload DownloadMetalResidentBuffer(
   }
   const std::uint64_t readback_elapsed =
       MonotonicNanoseconds() - readback_begin;
-  ::rund::detail::counter::Accumulate(adapter->stats.readback_ns,
-                                      readback_elapsed);
-  ::rund::detail::counter::Accumulate(adapter->stats.device_to_host_bytes,
-                                      bytes);
+  ::rund::detail::counter::Accumulate(
+      adapter->stats.runtime.run.time.readback_ns, readback_elapsed);
+  ::rund::detail::counter::Accumulate(
+      adapter->stats.runtime.run.transfer.device_to_host_bytes, bytes);
   if (hash_payload) {
     --adapter->active_host_readbacks;
     adapter->host_readback_cv.notify_all();

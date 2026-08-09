@@ -141,9 +141,7 @@ rund::AccelCheck MetalPipelineBuild::EncodeTelemetry(
       return rund::AccelCheck{false, "accel_metal_buffer_failed"};
     }
     [encoder setBuffer:states offset:0u atIndex:7u];
-    [encoder setBytes:&captured.owner
-               length:sizeof(captured.owner)
-              atIndex:8u];
+    [encoder setBytes:&captured.owner length:sizeof(captured.owner) atIndex:8u];
     [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
         threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
     const rund::AccelCheck capture = CheckMetalPipelineCapture(captured);
@@ -151,6 +149,7 @@ rund::AccelCheck MetalPipelineBuild::EncodeTelemetry(
       return capture;
     }
     captured.commands.back().control = true;
+    captured.commands.back().trace = false;
     [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
   }
   return rund::AccelCheck{true, "ok"};

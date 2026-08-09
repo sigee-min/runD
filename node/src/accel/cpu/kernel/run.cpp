@@ -295,17 +295,24 @@ rund::AccelCheck PrepareCpuKernel(const BackendRun &run,
 rund::AccelCheck
 SubmitPreparedCpuKernel(const BackendRun &run, const std::shared_ptr<void> &,
                         const KernelCompletion completion, void *const user,
-                        PreparedMemoryMeter *,
-                        const std::shared_ptr<void> &) noexcept {
+                        PreparedMemoryMeter *, const std::shared_ptr<void> &,
+                        KernelTiming) noexcept {
   if (completion == nullptr) {
     return Invalid();
   }
-  completion(user, KernelResult{
-                       .check = RunCpuKernel(run),
-                       .stats = {.dispatch_count = run.final_dispatch_count,
-                                 .ok = true,
-                                 .reason = "ok"},
-                   });
+  completion(
+      user,
+      KernelResult{
+          .check = RunCpuKernel(run),
+          .stats =
+              {
+                  .run =
+                      {
+                          .work = {.dispatch_count = run.final_dispatch_count},
+                      },
+                  .outcome = {.ok = true, .reason = "ok"},
+              },
+      });
   return rund::AccelCheck{true, "ok"};
 }
 

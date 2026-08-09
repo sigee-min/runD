@@ -81,18 +81,15 @@ Status allocate(DeviceState &device, BufferState &buffer,
   return Status::success();
 }
 
-Status upload(DeviceState &device, BufferState &buffer, const void *const data,
-              const std::size_t bytes) {
-  const AccelDeviceState *const accel = accel_device(device);
-  AccelBufferState *const target = accel_buffer(buffer);
-  if (accel == nullptr || target == nullptr) {
-    return Status::fail(Reason::TransferInvalid);
-  }
-  const rund::AccelCheck check = node::accel::UploadAccelBuffer(
-      accel->context, target->buffer, data, bytes);
-  return check.ok ? Status::success()
-                  : Status::fail(
-                        project_reason(check.reason, Reason::TransferInvalid));
+UploadResult upload_batch(DeviceState &device,
+                          std::span<const UploadRequest> requests,
+                          node::accel::detail::TransferCompletion completion);
+
+UploadResult upload(DeviceState &device, BufferState &buffer,
+                    const void *const data, const std::size_t bytes) {
+  const UploadRequest request{.buffer = &buffer, .data = data, .bytes = bytes};
+  return upload_batch(device, std::span<const UploadRequest>{&request, 1u},
+                      node::accel::detail::TransferCompletion::Queued);
 }
 
 Status resolve_buffer(const DeviceState &device, const BufferState &buffer,
@@ -417,12 +414,12 @@ rund::AccelCheck submit_pipeline(
     const node::accel::detail::PreparedKernelPipeline &pipeline,
     std::shared_ptr<void> lifetime,
     const node::accel::detail::PreparedPipelineCompletion completion,
-    void *const user) noexcept {
+    void *const user, const node::accel::detail::KernelTiming timing) noexcept {
   const AccelDeviceState *const accel = accel_device(device);
   return accel == nullptr ? rund::AccelCheck{false, "accel_device_invalid"}
                           : node::accel::detail::SubmitPreparedKernelPipeline(
                                 accel->context, pipeline, std::move(lifetime),
-                                completion, user);
+                                completion, user, timing);
 }
 
 rund::AccelCheck seed_pipeline_generation(

@@ -84,10 +84,12 @@ bool CpuContextRunsWindow(const rund::AccelDevice &pick) {
                                             .tile_count = expected.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.backend != rund::AccelApi::Cpu ||
-      evidence.command_submit_count != 0u || evidence.dispatch_count != 1u ||
-      evidence.original_dispatch_count != 1u ||
-      evidence.final_dispatch_count != 1u) {
+  if (!evidence.outcome.ok ||
+      evidence.identity.backend != rund::AccelApi::Cpu ||
+      evidence.run.work.command_submit_count != 0u ||
+      evidence.run.work.dispatch_count != 1u ||
+      evidence.run.work.original_dispatch_count != 1u ||
+      evidence.run.work.final_dispatch_count != 1u) {
     return false;
   }
 

@@ -10,8 +10,8 @@ rund::AccelCheck PrepareMetalPipeline(
     const std::span<const std::uint8_t>, const std::span<const TileTransducer>,
     const std::span<const NestedAggregate>,
     const std::span<const BackendPublish>, PreparedKernelTemplateRegistry &,
-    PreparedPipelineStatusLayout &,
-    const bool, std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
+    PreparedPipelineStatusLayout &, const bool, std::shared_ptr<void> &prepared,
+    PreparedPipelineMemory &memory, PreparedPipelineMemoryMeter *,
     PreparedPipelineFailure &failure) {
   prepared.reset();
   memory = {};
@@ -29,8 +29,8 @@ SeedPreparedMetalPipelineGeneration(const std::shared_ptr<void> &,
 }
 
 rund::AccelCheck SubmitPreparedMetalPipeline(const std::shared_ptr<void> &,
-                                             KernelCompletion,
-                                             void *) noexcept {
+                                             KernelCompletion, void *,
+                                             KernelTiming) noexcept {
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 }
 

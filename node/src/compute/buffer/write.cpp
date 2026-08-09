@@ -1,16 +1,18 @@
-#include <rund/counter.hpp>
 #include "../backend.hpp"
 #include "../device/state.hpp"
 #include "../pipeline/claim.hpp"
 #include "../status.hpp"
 #include "../type.hpp"
+#include <rund/counter.hpp>
 
 #include <cstring>
 
 namespace rund::compute::detail {
 
-Status write_buffer(const std::shared_ptr<BufferState> &buffer,
-                    const HostView input, WriteStats &stats) noexcept {
+Status write_buffer_measured(const std::shared_ptr<BufferState> &buffer,
+                             const HostView input, WriteStats &stats,
+                             UploadResult &transfer) noexcept {
+  transfer = UploadResult{};
   if (buffer == nullptr || buffer->device == nullptr ||
       buffer->type != input.type || buffer->count != input.count ||
       (input.data == nullptr && input.count != 0u)) {
@@ -44,18 +46,28 @@ Status write_buffer(const std::shared_ptr<BufferState> &buffer,
       buffer->device->ops->upload == nullptr) {
     return Status::fail(Reason::TransferInvalid);
   }
-  const Status uploaded =
+  transfer =
       buffer->device->ops->upload(*buffer->device, *buffer, input.data, bytes);
-  if (!uploaded) {
+  if (!transfer.status) {
     publish_claims(*buffer->device, {&claim, 1u}, false, true);
     claim_guard.dismiss();
-    return uploaded;
+    return transfer.status;
   }
   ::rund::detail::counter::Accumulate(stats.uploads, 1u);
   ::rund::detail::counter::Accumulate(stats.bytes, bytes);
   publish_claims(*buffer->device, {&claim, 1u}, true, false);
   claim_guard.dismiss();
   return Status::success();
+}
+
+Status write_buffer(const std::shared_ptr<BufferState> &buffer,
+                    const HostView input, WriteStats &stats) noexcept {
+  UploadResult transfer{};
+  const Status written = write_buffer_measured(buffer, input, stats, transfer);
+  if (written && input.count != 0u) {
+    record_transfer(*buffer->device, input.count * type_bytes(input.type));
+  }
+  return written;
 }
 
 } // namespace rund::compute::detail

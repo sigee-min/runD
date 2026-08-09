@@ -9,11 +9,18 @@ callback ordering, and the release parity gate.
 ## User Contract
 
 One `rund::telemetry::Sink` is attached when a `Session` opens. The sink has
-two levels:
+three event-projection levels:
 
 - `Basic` emits stable identities, counters, byte totals, hashes, and the
-  typed terminal outcome;
-- `Detail` adds diagnostic phase durations.
+  typed terminal outcome without reading a telemetry clock or requesting a
+  backend timestamp;
+- `Detail` adds the backend's existing submission-level timing evidence;
+- `Trace` enables per-dispatch timing and folds every completed timestamp pair
+  into the existing `Stats::kernel_ns` and `Stats::kernel_samples` aggregate.
+
+`Session::trace()` is the bounded runtime lifecycle and failure record. It is
+independent of the `Event` projection level; `Level::Trace` does not add rows
+to, disable, or reinterpret that retained lifecycle record.
 
 `telemetry::bind(observer, level)` creates that same non-owning Sink from an
 lvalue callable accepting `const Event&`. It allocates nothing and retains no
@@ -28,9 +35,9 @@ Sink. Consumers can test whether it is configured and observe `level()`, but
 cannot assemble mismatched callback/context storage or mutate the level behind
 an open Session.
 
-The SDK spelling is `rund::telemetry::Level::Detail`. The operator and harness
-selector is exactly `telemetry:detail`. One configured Sink owns observation
-level, callback, and timing selection together.
+The SDK spellings are `rund::telemetry::Level::{Basic, Detail, Trace}`. One
+configured Sink owns observation level, callback, and timing selection
+together.
 The Sink is immutable after a successful `open()`. Scope timing selection may
 therefore read that configuration without taking the mutable runtime-state
 mutex: Session open completes before scope admission, and no lifecycle
@@ -41,11 +48,29 @@ scope is the only changing common field: scope admission publishes its
 acquire load. The validated `darwin-arm64` and `linux-x64` product targets
 require that atomic to be always lock-free; no mutex-backed fallback exists.
 
-Basic observation performs no telemetry-owned wall-clock reads. Detail may
-read a monotonic clock, but that work cannot change admission, scheduling,
-canonical order, hashes, counters, result status, or backend selection. The
-release contract runs the same workload at both levels and requires those
-semantic fields to match exactly.
+Basic observation performs no telemetry-owned wall-clock reads or device
+timestamp queries. Detail may read a monotonic clock or one backend submission
+timestamp pair. Trace reads one timestamp pair per actual dispatch and
+increments `kernel_samples` by the number of completed pairs, not by a planned
+dispatch bound. CPU implements Trace with a steady-clock interval around each
+submitted worker-backend pass. Metal records one counter pair per encoded
+dispatch. Devices with dispatch-boundary sampling use that boundary directly;
+Apple M4-class devices expose stage-boundary sampling, so Trace replays the
+canonical prepared dispatch recipe with one sampled compute encoder per
+dispatch. The sampled command buffer completes before one resolve-only command
+buffer copies the private counter storage into its preallocated shared result
+buffer. A completed nonempty Metal Trace therefore reports exactly two physical
+command submissions and performs no CPU `NSData` counter materialization.
+Vulkan lazily records the same canonical dispatch recipe into an immutable
+secondary command buffer with a `2D` timestamp-query pool for `D` actual
+dispatches. One ordinary primary executes that secondary in exactly one queue
+submission. Standalone Jobs and prepared Pipelines retain these cold Trace
+resources in their existing prepared memory owner; the next warm Trace neither
+allocates buffers nor re-records the dispatch stream. Unsupported counter or
+timestamp capability rejects before queue admission with
+`compute_telemetry_trace_unavailable`; no partial lazy owner is published, so a
+later attempt may retry. Timing policy cannot change canonical order, hashes,
+non-timing counters, result status, or backend selection.
 
 An unconfigured Sink is a zero-dispatch path. Session open installs no Compute
 emit callback or context, and `Runtime::emit` returns before callback dispatch,
@@ -61,8 +86,10 @@ common `source`, `level`, `session`, and `scope` fields and four nested
 projections:
 
 - `compute` owns its typed code, backend, graph, worker, tile, dispatch,
-  command-submit, buffer allocation/reuse, SDK boundary-copy bytes, canonical
-  graph-read bytes, and, at Detail, kernel sample/time and submit/wait time;
+  command-submit, host-to-device, device-to-host, and device-to-device transfer
+  submissions, buffer allocation/reuse, SDK boundary-copy bytes, canonical
+  graph-read bytes, and, at Detail or Trace, kernel sample/time and submit/wait
+  time;
 - `replay` owns its typed `replay::Code`, mode, prepared-plan state, canonical
   input rows and bytes, producer-emitted rows, choice count, evidence rows and
   bytes, retained bytes, copied bytes, prepared-storage growth, and the
@@ -137,8 +164,8 @@ are meaningfully comparable in the same unit:
 - Compute allocation events reference buffer-reuse events;
 - Replay copied bytes reference immutable retained bytes;
 - queue depth references the capacity of that same queue;
-- a Detail critical-path duration references the saturating sum of its three
-  non-overlapping phase durations.
+- a Detail or Trace critical-path duration references the saturating sum of
+  its three non-overlapping phase durations.
 
 Compute boundary-copy bytes deliberately have no reference. Canonical graph
 read bytes and transfer bytes are both byte counts but do not describe the same
@@ -160,15 +187,33 @@ plan, not a claim about post-fusion device transactions, cache-line fills, or
 hardware memory traffic. `Cause::GraphRead` and
 `Action::ReduceGraphBound` make that boundary explicit.
 
-Standalone `Job::profile().findings()` uses this same `Findings` type and the
-same compiled `Event::findings()` decision owner. One compiled Stats projection
-supplies both Profile and Session Compute events: boundary copies are
+`Job::profile().findings()` and `Pipeline::profile().findings()` use this same
+`Findings` type and the same compiled `Event::findings()` decision owner. One
+compiled `ProjectEvent(Profile, Code, Level)` projection supplies standalone
+profiles and Session Compute events: boundary copies are
 `sat(uploaded_bytes + downloaded_bytes)`, scan cost is `graph_read_bytes`, and
 queue pressure is `command_inflight_peak / command_capacity`. Profile stores no
 Event or derived counters. It materializes one bounded temporary projection,
 derives the findings, and returns that trivially copyable value. A backend with
 no timing source projects its critical path as unavailable rather than treating
 zero timing counters as measured zero.
+
+`compute/job/profile.cpp` and `compute/pipeline/profile.cpp` are the two
+scope-specific assembly owners. Each holds its existing state gate while
+copying `Stats` and consuming the memory owner's locked projection, then builds
+one `Profile` through `ProfileAccess`. `compute/memory/job.cpp` and
+`compute/pipeline/run/memory.cpp` retain memory arithmetic and placement
+ownership; they publish no Profile, Event, or duplicate counter set.
+
+Session completion uses the same assembly law at the terminal boundary. When a
+sink is enabled, Job or Pipeline finish creates one `Profile` while still
+holding the owner gate and before another submission can acquire it. Runtime
+then projects the Event from that captured Profile; it never calls `stats()` or
+`profile()` on the reusable owner after finish. The transient handoff has one
+exclusive evidence arm, either Stats when no sink exists or Profile when it
+does, so there is no Stats/Memory mirror that can disagree. The no-sink arm
+does not invoke a memory projection and remains constant work with respect to
+Pipeline step count.
 
 A queue finding is emitted only for the exact predicate
 `capacity != 0 && depth >= capacity`. Its cause is `QueueAtBound`; the action
@@ -265,11 +310,12 @@ clock reads or a second projection: the shared compiled Stats projection sets
 `prepare_ns` to the saturating sum of its compile and setup source counters,
 `work_ns` to submit/wait evidence when available and otherwise kernel evidence,
 and `finish_ns` to readback evidence.
-The complete Compute timing coordinates remain owned by `Job::profile()`.
+The complete Compute timing coordinates remain owned by `Job::profile()` or
+`Pipeline::profile()` for the corresponding execution owner.
 A duration of zero at Basic level means unmeasured. `level` distinguishes that
 state from a measured interval that rounded to zero.
 
-The normal Detail scope reads the clock exactly four times: public entry,
+The normal Detail or Trace scope reads the clock exactly four times: public entry,
 work entry, finish entry, and final publication. The final timestamp is
 captured before the read count is observed. This explicit sequence is the
 single authority and cannot depend on a compiler's function-argument
@@ -279,9 +325,14 @@ evaluation order. Basic performs zero reads through the same owner.
 
 Release acceptance requires, on one installed artifact and source manifest:
 
-1. Basic and Detail produce equal result status, deterministic hashes,
-   ordering, and stable counters for Live, Record, Replay, and Scenario;
-2. Basic performs zero telemetry-owned monotonic-clock reads;
+1. Basic, Detail, and every supported Trace route produce equal result status,
+   deterministic hashes, ordering, and stable non-timing counters for Live,
+   Record, Replay, and Scenario;
+2. Basic performs zero telemetry-owned monotonic-clock reads and accelerator
+   timestamp queries; Detail adds no per-dispatch query; CPU Trace records one
+   interval for every actual worker-backend dispatch, Metal Trace records one
+   counter pair per actual dispatch and two physical submissions, and Vulkan
+   Trace records one timestamp pair per actual dispatch in one submission;
 3. one terminal operation emits one event, callback exceptions are contained,
    and same-Session callback reentry fails without deadlock; an unconfigured
    Sink performs no dispatch, telemetry lock, or trace write;
@@ -294,9 +345,10 @@ Release acceptance requires, on one installed artifact and source manifest:
 7. Event stores no reason string, and `error()` projects exactly from the
    source-selected typed code without allocation;
 8. actionable findings are allocation-free, never exceed five, retain every
-   critical-path tie, preserve all non-time findings between Basic and Detail,
+   critical-path tie, preserve all non-time findings across all three levels,
    map only raw counters plus declared bounds to causes and actions, and
-   `Job::profile().findings()` equals the same canonical Event projection;
+   `Job::profile().findings()` and `Pipeline::profile().findings()` equal the
+   same canonical Event projection;
    a Compute work maximum with `command_submits != 0`, `kernel_samples != 0`,
    and `submit_wait_ns > kernel_ns` reports `submit-overhead` and `batch-jobs`,
    while equality or a missing sample/submission does not invent overhead;
@@ -304,12 +356,20 @@ Release acceptance requires, on one installed artifact and source manifest:
    fixed-capacity finding values and allocation-free `describe` projection
    transitively; the support leaf is not a direct SDK entry, while caller
    `append` and unbounded `push_back` construction remain ill-formed; a
-   configured Sink can be created only by binding an lvalue observer.
+   configured Sink can be created only by binding an lvalue observer;
+10. a forced cold capability failure returns
+    `compute_telemetry_trace_unavailable` before submission and publishes no
+    lazy resource, the immediate retry succeeds, and a second warm Trace reports
+    zero buffer allocations with unchanged graph and output hashes.
 
 The installed [`telemetry.cpp`](../../../package/tests/consumer/example/telemetry.cpp)
 executes one Basic Live observation and consumes its actionable findings.
 Exact Basic/Detail parity across Live, Record, Replay, Scenario, and Compute is
-owned by `runtime.task.replay.telemetry` and the `telemetry:detail` route.
+owned by `runtime.task.replay.telemetry`; the `telemetry:detail` route also
+proves CPU Trace Job/Pipeline/collective sampling. The focused accelerator
+runtime contracts prove Metal and Vulkan standalone and Pipeline Trace
+capability, exact dispatch/sample parity, backend submission topology, cold
+failure retry, warm-zero allocation, and result-hash parity.
 
 Performance evidence follows the single
 [telemetry overhead method](../../../docs/reference/performance/method.md#telemetry-overhead-method)

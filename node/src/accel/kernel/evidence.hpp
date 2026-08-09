@@ -15,7 +15,7 @@ namespace rund::node::accel::detail {
 RejectKernelEvidence(const rund::AccelContext &context,
                      const KernelExecution &execution, const char *reason);
 
-[[nodiscard]] rund::AccelEvidence EvidenceFromStats(
+[[nodiscard]] rund::AccelEvidence BuildKernelEvidence(
     const rund::AccelContext &context, const KernelExecution &execution,
     const rund::RuntimeStats &stats, std::uint64_t original_dispatch_count,
     std::uint64_t final_dispatch_count, bool ok, const char *reason,

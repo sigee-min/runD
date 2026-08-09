@@ -147,8 +147,7 @@ Submission Request::submit() const noexcept {
     if (!task->handle) {
       const Status failure =
           Status::fail(node::SpawnReason(task->handle.code()));
-      const Status status = node::FinishOperation(*task, failure);
-      node::Complete(task, status, node::OperationEvidence(task->operation));
+      node::Complete(task, node::FinishOperation(*task, failure));
       node::Release(task);
       return Submission{failure};
     }
@@ -156,8 +155,7 @@ Submission Request::submit() const noexcept {
   } catch (...) {
     if (task != nullptr) {
       const Status failure = Status::fail(Reason::TaskCapacity);
-      const Status status = node::FinishOperation(*task, failure);
-      node::Complete(task, status, node::OperationEvidence(task->operation));
+      node::Complete(task, node::FinishOperation(*task, failure));
       node::Release(task);
       return Submission{failure};
     }

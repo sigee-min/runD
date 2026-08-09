@@ -217,10 +217,11 @@ namespace {
                                             .tile_count = input_real.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.dispatch_count != plan.pass_count ||
-      evidence.original_dispatch_count != plan.pass_count ||
-      evidence.final_dispatch_count != plan.pass_count) {
-    return TransformFail(evidence.reason);
+  if (!evidence.outcome.ok ||
+      evidence.run.work.dispatch_count != plan.pass_count ||
+      evidence.run.work.original_dispatch_count != plan.pass_count ||
+      evidence.run.work.final_dispatch_count != plan.pass_count) {
+    return TransformFail(evidence.outcome.reason);
   }
 
   std::array<rund::kernel::i32, 2'048u> real_download{};
@@ -343,9 +344,10 @@ namespace {
                                         });
   std::array<rund::kernel::i64, 2'048u> real_download{};
   std::array<rund::kernel::i64, 2'048u> imag_download{};
-  return evidence.ok && evidence.dispatch_count == plan.pass_count &&
-         evidence.original_dispatch_count == plan.pass_count &&
-         evidence.final_dispatch_count == plan.pass_count &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == plan.pass_count &&
+         evidence.run.work.original_dispatch_count == plan.pass_count &&
+         evidence.run.work.final_dispatch_count == plan.pass_count &&
          rund::node::accel::DownloadAccelBuffer(
              context, real_out, real_download.data(),
              real_download.size() * sizeof(rund::kernel::i64))

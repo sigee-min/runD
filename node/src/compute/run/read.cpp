@@ -106,8 +106,8 @@ read_bytes(const RunState &run, const std::shared_ptr<BufferState> &buffer,
     if (cpu == nullptr || cpu->bytes < bytes) {
       return Status::fail(Reason::TransferInvalid);
     }
-    output_hash = ::rund::node::hash_detail::CopyHash(cpu->data.get(), data,
-                                                      bytes);
+    output_hash =
+        ::rund::node::hash_detail::CopyHash(cpu->data.get(), data, bytes);
   } else {
     if (run.program->device->ops == nullptr ||
         run.program->device->ops->download == nullptr) {
@@ -128,8 +128,9 @@ read_bytes(const RunState &run, const std::shared_ptr<BufferState> &buffer,
                                         transfer.buffer_allocations);
     ::rund::detail::counter::Accumulate(run.stats.buffer_reuses,
                                         transfer.buffer_reuses);
-    ::rund::detail::counter::Accumulate(run.stats.command_submits,
-                                        transfer.command_submits);
+    ::rund::detail::counter::Accumulate(
+        run.stats.transfer_submissions.device_to_host,
+        transfer.command_submits);
     ::rund::detail::counter::Accumulate(run.stats.readback_ns,
                                         transfer.readback_ns);
     if (!transfer.status) {

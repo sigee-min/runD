@@ -2,6 +2,9 @@
 
 #include "../../backend.hpp"
 #include "../../cpu/run/state.hpp"
+#include "../../device/info.hpp"
+#include "../../memory/local.hpp"
+#include "../../terminal.hpp"
 #include "../cpu/model.hpp"
 #include "../local.hpp"
 #include <rund/counter.hpp>
@@ -11,6 +14,54 @@
 #include <utility>
 
 namespace rund::compute::detail {
+namespace {
+
+[[nodiscard]] Status finish_job_locked(JobState &state,
+                                       Result<RunState> result) {
+  if (!result) {
+    if (state.terminal != nullptr && state.program != nullptr &&
+        state.program->device != nullptr &&
+        state.program->device->backend == Backend::Cpu &&
+        state.cpu != nullptr && state.cpu->graph != nullptr) {
+      state.terminal->failed_stats = completed_state(state).stats;
+    }
+    state.failure = result.reason();
+    state.phase = JobPhase::Failed;
+    return Status::fail(state.failure);
+  }
+  if (state.terminal != nullptr) {
+    state.terminal->last = std::move(result).value();
+  }
+  ::rund::detail::counter::Accumulate(state.run_count, 1u);
+  state.phase = JobPhase::Idle;
+  return Status::success();
+}
+
+[[nodiscard]] Status cancel_job_locked(JobState &state) noexcept {
+  if (state.terminal != nullptr) {
+    state.terminal->last.reset();
+    state.terminal->failed_stats.reset();
+  }
+  state.failure = Reason::Cancelled;
+  state.phase = JobPhase::Failed;
+  return Status::fail(Reason::Cancelled);
+}
+
+[[nodiscard]] TerminalObservation
+observe_job_terminal_locked(JobState &state, const Status status,
+                            const std::uint64_t frame_bytes,
+                            const bool capture_profile) noexcept {
+  ::rund::detail::counter::Release(state.frame_current, frame_bytes);
+  const Stats stats = job_stats_locked(state);
+  if (!capture_profile) {
+    return TerminalObservationAccess::from_stats(status, stats);
+  }
+  const MemoryStats memory = job_memory_locked(state);
+  return TerminalObservationAccess::from_profile(
+      status, device_info_owner(state.program->device), stats, memory);
+}
+
+} // namespace
 
 Result<RunState> empty_job_run(const std::shared_ptr<JobState> &state) {
   return empty_run(state);
@@ -63,23 +114,22 @@ Status finish_job(const std::shared_ptr<JobState> &state,
     return Status::fail(Reason::RunInvalid);
   }
   std::lock_guard lock{state->gate};
-  if (!result) {
-    if (state->terminal != nullptr && state->program != nullptr &&
-        state->program->device != nullptr &&
-        state->program->device->backend == Backend::Cpu &&
-        state->cpu != nullptr && state->cpu->graph != nullptr) {
-      state->terminal->failed_stats = completed_state(*state).stats;
-    }
-    state->failure = result.reason();
-    state->phase = JobPhase::Failed;
-    return Status::fail(state->failure);
+  return finish_job_locked(*state, std::move(result));
+}
+
+TerminalObservation finish_job_terminal(const std::shared_ptr<JobState> &state,
+                                        Result<RunState> result,
+                                        const std::uint64_t frame_bytes,
+                                        const bool capture_profile) {
+  if (state == nullptr || state->program == nullptr ||
+      state->program->device == nullptr) {
+    return TerminalObservationAccess::from_stats(
+        Status::fail(Reason::RunInvalid));
   }
-  if (state->terminal != nullptr) {
-    state->terminal->last = std::move(result).value();
-  }
-  ::rund::detail::counter::Accumulate(state->run_count, 1u);
-  state->phase = JobPhase::Idle;
-  return Status::success();
+  std::lock_guard lock{state->gate};
+  const Status status = finish_job_locked(*state, std::move(result));
+  return observe_job_terminal_locked(*state, status, frame_bytes,
+                                     capture_profile);
 }
 
 Status queue_job(const std::shared_ptr<JobState> &state) {
@@ -103,17 +153,33 @@ Status cancel_job(const std::shared_ptr<JobState> &state) {
     return Status::fail(Reason::RunInvalid);
   }
   std::lock_guard lock{state->gate};
-  if (state->terminal != nullptr) {
-    state->terminal->last.reset();
-    state->terminal->failed_stats.reset();
+  return cancel_job_locked(*state);
+}
+
+TerminalObservation cancel_job_terminal(const std::shared_ptr<JobState> &state,
+                                        const std::uint64_t frame_bytes,
+                                        const bool capture_profile) noexcept {
+  if (state == nullptr || state->program == nullptr ||
+      state->program->device == nullptr) {
+    return TerminalObservationAccess::from_stats(
+        Status::fail(Reason::RunInvalid));
   }
-  state->failure = Reason::Cancelled;
-  state->phase = JobPhase::Failed;
-  return Status::fail(Reason::Cancelled);
+  std::lock_guard lock{state->gate};
+  const Status status = cancel_job_locked(*state);
+  return observe_job_terminal_locked(*state, status, frame_bytes,
+                                     capture_profile);
 }
 
 Status fail_job(const std::shared_ptr<JobState> &state, const Status failure) {
   return finish_job(state, Result<RunState>::fail(failure.reason()));
+}
+
+TerminalObservation fail_job_terminal(const std::shared_ptr<JobState> &state,
+                                      const Status failure,
+                                      const std::uint64_t frame_bytes,
+                                      const bool capture_profile) {
+  return finish_job_terminal(state, Result<RunState>::fail(failure.reason()),
+                             frame_bytes, capture_profile);
 }
 
 namespace {
@@ -155,8 +221,8 @@ Status run_pipeline_job(const std::shared_ptr<JobState> &state) {
 
 Status submit_job_on(const std::shared_ptr<JobState> &state,
                      std::shared_ptr<void> lifetime,
-                     const JobCompletion completion,
-                     void *const user) noexcept {
+                     const JobCompletion completion, void *const user,
+                     const node::accel::detail::KernelTiming timing) noexcept {
   const Result<Backend> backend = job_backend(state);
   if (!backend) {
     return Status::fail(backend.reason());
@@ -176,7 +242,7 @@ Status submit_job_on(const std::shared_ptr<JobState> &state,
   if (ops == nullptr || ops->submit_job == nullptr) {
     return Status::fail(Reason::DeviceInvalid);
   }
-  return ops->submit_job(state, std::move(lifetime), completion, user);
+  return ops->submit_job(state, std::move(lifetime), completion, user, timing);
 }
 
 } // namespace rund::compute::detail

@@ -58,7 +58,9 @@ list(APPEND NODE_SOURCES
   src/compute/pipeline/plan/schedule.cpp
   src/compute/pipeline/plan/scratch.cpp
   src/compute/pipeline/read.cpp
+  src/compute/pipeline/write.cpp
   src/compute/pipeline/snapshot.cpp
+  src/compute/pipeline/profile.cpp
   src/compute/pipeline/run.cpp
   src/compute/pipeline/run/cpu.cpp
   src/compute/pipeline/run/finish.cpp
@@ -73,6 +75,7 @@ list(APPEND NODE_SOURCES
   src/compute/memory/device.cpp
   src/compute/memory/program.cpp
   src/compute/memory/job.cpp
+  src/compute/job/profile.cpp
   src/compute/graph/build/create.cpp
   src/compute/graph/build/map.cpp
   src/compute/graph/build/output.cpp

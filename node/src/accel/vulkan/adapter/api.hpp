@@ -44,10 +44,50 @@ struct VulkanDispatchCapture final {
   Indirect indirect{};
   std::uint64_t indirect_count{};
   bool has_push{};
+  bool replay{};
   bool failed{};
 };
 
 inline thread_local VulkanDispatchCapture *vulkan_dispatch_capture = nullptr;
+
+struct VulkanTimestampCapture final {
+  VkQueryPool queries{VK_NULL_HANDLE};
+  std::uint32_t cursor{};
+  std::uint32_t capacity{};
+  bool failed{};
+};
+
+inline thread_local VulkanTimestampCapture *vulkan_timestamp_capture = nullptr;
+
+class VulkanTimestampScope final {
+public:
+  explicit VulkanTimestampScope(VulkanTimestampCapture &capture) noexcept
+      : previous_{vulkan_timestamp_capture} {
+    vulkan_timestamp_capture = &capture;
+  }
+
+  ~VulkanTimestampScope() { vulkan_timestamp_capture = previous_; }
+
+  VulkanTimestampScope(const VulkanTimestampScope &) = delete;
+  VulkanTimestampScope &operator=(const VulkanTimestampScope &) = delete;
+
+private:
+  VulkanTimestampCapture *previous_{};
+};
+
+inline void
+WriteVulkanDispatchTimestamp(const VkCommandBuffer command) noexcept {
+  VulkanTimestampCapture *const capture = vulkan_timestamp_capture;
+  if (capture == nullptr || capture->queries == VK_NULL_HANDLE ||
+      capture->cursor >= capture->capacity) {
+    if (capture != nullptr) {
+      capture->failed = true;
+    }
+    return;
+  }
+  ::vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        capture->queries, capture->cursor++);
+}
 
 [[nodiscard]] inline bool
 CapturesVulkanDispatch(const VkCommandBuffer command) noexcept {
@@ -144,7 +184,9 @@ inline void DispatchVulkan(const VkCommandBuffer command, const std::uint32_t x,
                            const std::uint32_t z) noexcept {
   VulkanDispatchCapture *const capture = vulkan_dispatch_capture;
   if (capture == nullptr || capture->command != command) {
+    WriteVulkanDispatchTimestamp(command);
     ::vkCmdDispatch(command, x, y, z);
+    WriteVulkanDispatchTimestamp(command);
     return;
   }
   if (capture->mapped == nullptr || capture->original == nullptr ||
@@ -159,12 +201,24 @@ inline void DispatchVulkan(const VkCommandBuffer command, const std::uint32_t x,
       .y = y,
       .z = z,
   };
-  capture->mapped[slot] = value;
-  capture->original[slot] = value;
-  capture->owners[slot] = capture->owner;
+  if (capture->replay) {
+    if (capture->original[slot].x != value.x ||
+        capture->original[slot].y != value.y ||
+        capture->original[slot].z != value.z ||
+        capture->owners[slot] != capture->owner) {
+      capture->failed = true;
+      return;
+    }
+  } else {
+    capture->mapped[slot] = value;
+    capture->original[slot] = value;
+    capture->owners[slot] = capture->owner;
+  }
+  WriteVulkanDispatchTimestamp(command);
   ::vkCmdDispatchIndirect(
       command, capture->arguments,
       static_cast<VkDeviceSize>(slot * sizeof(VkDispatchIndirectCommand)));
+  WriteVulkanDispatchTimestamp(command);
 }
 
 inline void DispatchVulkanIndirect(const VkCommandBuffer command,
@@ -172,7 +226,9 @@ inline void DispatchVulkanIndirect(const VkCommandBuffer command,
                                    const VkDeviceSize offset) noexcept {
   VulkanDispatchCapture *const capture = vulkan_dispatch_capture;
   if (capture == nullptr || capture->command != command) {
+    WriteVulkanDispatchTimestamp(command);
     ::vkCmdDispatchIndirect(command, source, offset);
+    WriteVulkanDispatchTimestamp(command);
     return;
   }
   if (capture->indirect == nullptr ||

@@ -1,7 +1,6 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include <rund/counter.hpp>
 #include "../../../resident/ref.hpp"
 #include "../../../resident/result.hpp"
 #include "../../../resident/usage.hpp"
@@ -9,6 +8,7 @@
 #include "../../resident/access.hpp"
 #include "../../resident/storage.hpp"
 #include "../local.hpp"
+#include <rund/counter.hpp>
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #import <Metal/Metal.h>
@@ -112,8 +112,8 @@ CreateMetalResidentBuffer(const rund::AccelDevice &pick,
         "accel_metal_buffer_unavailable");
   }
   ++resident.next_id;
-  ::rund::detail::counter::Accumulate(adapter->stats.buffer_allocation_count,
-                                      1u);
+  ::rund::detail::counter::Accumulate(
+      adapter->stats.runtime.run.allocations.buffer_allocation_count, 1u);
   return MetalResidentBufferResult{
       .check = rund::AccelCheck{true, "ok"},
       .ref = RefFromDesc(id, desc),

@@ -14,6 +14,7 @@
 #include "manifest.hpp"
 #include "ops/model.hpp"
 #include "pipeline/template.hpp"
+#include "trace.hpp"
 #include "view.hpp"
 #include <memory>
 #include <type_traits>

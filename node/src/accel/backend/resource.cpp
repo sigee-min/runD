@@ -229,7 +229,8 @@ LookupBackendBuffer(const std::shared_ptr<PickToken> &token,
 
 rund::RuntimeStats ReadBackendStats(const std::shared_ptr<PickToken> &token) {
   if (!ValidRoute(token) || token->ops->stats == nullptr) {
-    return rund::RuntimeStats{.reason = "accel_buffer_backend_unavailable"};
+    return rund::RuntimeStats{
+        .outcome = {.reason = "accel_buffer_backend_unavailable"}};
   }
   return token->ops->stats(token->raw);
 }

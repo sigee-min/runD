@@ -9,19 +9,31 @@ namespace rund::node::accel::detail {
 rund::RuntimeStats ReadCpuRuntimeStats(const rund::AccelDevice &pick) {
   CpuAdapter *const adapter = CpuAdapterFromPick(pick);
   if (adapter == nullptr) {
-    return rund::RuntimeStats{.ok = false,
-                              .reason = "accel_buffer_backend_unavailable"};
+    return rund::RuntimeStats{
+        .outcome = {.ok = false, .reason = "accel_buffer_backend_unavailable"}};
   }
   std::lock_guard<std::mutex> lock{adapter->mutex};
   return rund::RuntimeStats{
-      .dispatch_count = adapter->dispatch_count,
-      .reset_command_count = adapter->reset_command_count,
-      .reset_bytes = adapter->reset_bytes,
-      .buffer_allocation_count = adapter->buffer_allocation_count,
-      .host_to_device_bytes = adapter->host_to_device_bytes,
-      .device_to_host_bytes = adapter->device_to_host_bytes,
-      .ok = true,
-      .reason = "ok",
+      .run =
+          {
+              .work =
+                  {
+                      .dispatch_count = adapter->dispatch_count,
+                      .reset_command_count = adapter->reset_command_count,
+                      .reset_bytes = adapter->reset_bytes,
+                  },
+              .transfer =
+                  {
+                      .host_to_device_bytes = adapter->host_to_device_bytes,
+                      .device_to_host_bytes = adapter->device_to_host_bytes,
+                  },
+              .allocations =
+                  {
+                      .buffer_allocation_count =
+                          adapter->buffer_allocation_count,
+                  },
+          },
+      .outcome = {.ok = true, .reason = "ok"},
   };
 }
 

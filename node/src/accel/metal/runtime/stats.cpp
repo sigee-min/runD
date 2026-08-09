@@ -27,8 +27,7 @@ MetalRuntimeStats ReadMetalRuntimeStats(const rund::AccelDevice &pick) {
   adapter->host_readback_cv.wait(
       lock, [adapter] { return adapter->active_host_readbacks == 0u; });
   MetalRuntimeStats stats = adapter->stats;
-  stats.ok = true;
-  stats.reason = "ok";
+  stats.runtime.outcome = rund::AccelOutcome{.ok = true, .reason = "ok"};
   return stats;
 }
 
@@ -40,7 +39,8 @@ void ResetMetalRuntimeStats(const rund::AccelDevice &pick) {
   std::unique_lock<std::mutex> lock{adapter->mutex};
   adapter->host_readback_cv.wait(
       lock, [adapter] { return adapter->active_host_readbacks == 0u; });
-  adapter->stats = MetalRuntimeStats{.ok = true, .reason = "ok"};
+  adapter->stats = MetalRuntimeStats{
+      .runtime = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}}};
 }
 
 void SetMetalLastError(MetalAdapter &adapter,

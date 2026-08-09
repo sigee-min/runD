@@ -85,9 +85,10 @@ ResidentRunRejectsForgedAndForeign(const ResidentRunFixture &fixture) {
       fixture.context, forged_kernel,
       RunRequest(bindings, fixture.host_input.size(), true));
   if (!EvidenceReason(forged_evidence, "accel_kernel_run_invalid") ||
-      forged_evidence.graph_id_hi != 0u || forged_evidence.graph_id_lo != 0u ||
-      forged_evidence.kernel_id != 0u ||
-      forged_evidence.backend != rund::AccelApi::Auto) {
+      forged_evidence.identity.graph_id_hi != 0u ||
+      forged_evidence.identity.graph_id_lo != 0u ||
+      forged_evidence.identity.kernel_id != 0u ||
+      forged_evidence.identity.backend != rund::AccelApi::Auto) {
     return false;
   }
 
@@ -188,7 +189,7 @@ bool LogicalAliasAdmissionMatches(const ResidentRunFixture &fixture) {
   if (!rund::node::accel::RunAccelKernel(
            fixture.context, collision_kernel,
            RunRequest(collision_bindings, fixture.input.count, true))
-           .ok) {
+           .outcome.ok) {
     return false;
   }
 
@@ -253,7 +254,7 @@ bool LogicalAliasAdmissionMatches(const ResidentRunFixture &fixture) {
   };
   if (!rund::node::accel::RunAccelKernel(fixture.context, alias_kernel,
                                          request(alias_bindings))
-           .ok) {
+           .outcome.ok) {
     return false;
   }
   alias_bindings[2].buffer = &other_intermediate;
@@ -342,8 +343,8 @@ bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
   };
   const rund::AccelEvidence rejected = run();
   std::array<rund::kernel::i64, sentinel.size()> observed{};
-  if (rejected.ok ||
-      std::string_view{rejected.reason} !=
+  if (rejected.outcome.ok ||
+      std::string_view{rejected.outcome.reason} !=
           "compute_gather_index_out_of_range" ||
       !rund::node::accel::DownloadAccelBuffer(context, output_buffer,
                                               observed.data(), sizeof(observed))
@@ -354,7 +355,7 @@ bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
   if (!rund::node::accel::UploadAccelBuffer(context, index_buffer, valid.data(),
                                             sizeof(valid))
            .ok ||
-      !run().ok ||
+      !run().outcome.ok ||
       !rund::node::accel::DownloadAccelBuffer(context, output_buffer,
                                               observed.data(), sizeof(observed))
            .ok) {

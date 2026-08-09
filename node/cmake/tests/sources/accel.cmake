@@ -63,7 +63,20 @@ set(NODE_TEST_ACCEL_CPU_SIMD_BACKEND_TEST_SOURCES
 
 set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/core.cpp
-  tests/contract/accel/kernel/authority.cpp
+  tests/contract/accel/kernel/authority/backend.cpp
+  tests/contract/accel/kernel/authority/cache.cpp
+  tests/contract/accel/kernel/authority/capacity.cpp
+  tests/contract/accel/kernel/authority/claim.cpp
+  tests/contract/accel/kernel/authority/failure.cpp
+  tests/contract/accel/kernel/authority/manifest.cpp
+  tests/contract/accel/kernel/authority/map.cpp
+  tests/contract/accel/kernel/authority/numeric.cpp
+  tests/contract/accel/kernel/authority/phase.cpp
+  tests/contract/accel/kernel/authority/publication.cpp
+  tests/contract/accel/kernel/authority/recipe.cpp
+  tests/contract/accel/kernel/authority/route.cpp
+  tests/contract/accel/kernel/authority/run.cpp
+  tests/contract/accel/kernel/authority/window.cpp
   tests/contract/accel/kernel/binding/indices.cpp
   tests/contract/accel/kernel/collective.cpp
   tests/contract/accel/kernel/collective/backend.cpp
@@ -98,6 +111,8 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/range/memory.cpp
   tests/contract/accel/kernel/range/model.cpp
   tests/contract/accel/kernel/range/planner.cpp
+  tests/contract/accel/kernel/range/projection.cpp
+  tests/contract/accel/kernel/range/shared.cpp
   tests/contract/accel/kernel/range/source.cpp
   tests/contract/accel/kernel/reduce.cpp
   tests/contract/accel/kernel/recurrence.cpp
@@ -110,9 +125,25 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/scatter.cpp
   tests/contract/accel/kernel/stencil.cpp
   tests/contract/accel/kernel/stencil/backend.cpp
-  tests/contract/accel/kernel/stencil/model.cpp
-  tests/contract/accel/kernel/stencil/source.cpp
+  tests/contract/accel/kernel/stencil/storage.cpp
   tests/contract/accel/kernel/window.cpp
+)
+
+list(APPEND RUND_NODE_TEST_COMPANION_ROWS
+  "tests/contract/accel/kernel/authority/backend.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/cache.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/capacity.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/claim.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/failure.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/manifest.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/map.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/numeric.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/phase.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/publication.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/recipe.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/route.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/run.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/window.cpp|accel.kernel-core"
 )
 
 if(RUND_NODE_HAVE_METAL_SDK)

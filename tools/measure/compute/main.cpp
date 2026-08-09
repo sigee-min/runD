@@ -49,16 +49,17 @@ int main(const int argc, char **const argv) {
                        pipeline || checkpoint || recurrence || window_repeat ||
                        pipeline_profile || plan_memory || prepare_memory;
   if (!focused) {
-#else
-  (void)argv;
-  if (argc != 1) {
-#endif
-    std::fputs("usage: runD-compute-measure "
+    std::fputs("usage: runD-compute-focus "
                "[--resident|--collective|--sort|--bulk|--batch|--pipeline|"
                "--checkpoint|--recurrence|--window-repeat|--pipeline-profile|"
                "--plan-memory|--prepare-memory "
                "cpu|metal|vulkan]\n",
                stderr);
+#else
+  (void)argv;
+  if (argc != 1) {
+    std::fputs("usage: runD-compute-measure\n", stderr);
+#endif
     return 2;
   }
   const unsigned hint = std::thread::hardware_concurrency();

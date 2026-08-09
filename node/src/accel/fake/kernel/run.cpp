@@ -39,17 +39,24 @@ rund::AccelCheck PrepareFakeKernel(const BackendRun &run,
 rund::AccelCheck
 SubmitPreparedFakeKernel(const BackendRun &run, const std::shared_ptr<void> &,
                          const KernelCompletion completion, void *const user,
-                         PreparedMemoryMeter *,
-                         const std::shared_ptr<void> &) noexcept {
+                         PreparedMemoryMeter *, const std::shared_ptr<void> &,
+                         KernelTiming) noexcept {
   if (completion == nullptr) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
-  completion(user, KernelResult{
-                       .check = RunFakeKernel(run),
-                       .stats = {.dispatch_count = run.final_dispatch_count,
-                                 .ok = true,
-                                 .reason = "ok"},
-                   });
+  completion(
+      user,
+      KernelResult{
+          .check = RunFakeKernel(run),
+          .stats =
+              {
+                  .run =
+                      {
+                          .work = {.dispatch_count = run.final_dispatch_count},
+                      },
+                  .outcome = {.ok = true, .reason = "ok"},
+              },
+      });
   return rund::AccelCheck{true, "ok"};
 }
 

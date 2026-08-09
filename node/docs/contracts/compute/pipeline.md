@@ -103,6 +103,41 @@ moved-from owner fails with `ProfileInvalid`, and an in-flight owner fails with
 returns the work and memory row with timing explicitly unavailable; it never
 substitutes a measured zero or another clock.
 
+The zero-argument `Pipeline::profile()` is the aggregate execution profile. It
+is available independently of per-step instrumentation and returns the same
+read-only `telemetry::Profile` shape as `Job::profile()`. Pipeline execution
+`Stats` and aggregate `MemoryStats` are copied under the same Pipeline state
+gate, while the Profile retains the Device's immutable metadata owner without
+copying strings. Consequently a warm aggregate capture allocates no storage;
+`PipelineProfile::Steps` remains the separate opt-in authority for row-level
+timing and memory evidence.
+
+`begin_samples()` and `end_samples()` delimit an explicit cohort of accepted
+Pipeline terminals. The cohort is source-private state under the same Pipeline
+gate; the public evidence remains `Stats::pipeline`. `begin_samples()` clears
+only `sampled_runs` and `clean_runs`. Each accepted terminal increments the
+first counter with absorbing `uint32_t` saturation. It increments the second
+only when the terminal succeeds and the cohort has observed no compile,
+Buffer allocation or reuse, descriptor-pool or set allocation or reuse,
+upload, host write, download, cache lookup or eviction, command-capacity
+rejection, pipeline construction, readback, output observation, or transfer
+submission. A typed read or write between the two calls makes the remaining
+cohort non-clean. Typed writes hold the Pipeline gate through claim, physical
+upload, transfer evidence, and sample-state publication; `end_samples()` can
+therefore neither close across an in-flight write nor certify a partially
+published transfer. Checkpoint acquisition, checkpoint-storage construction,
+snapshot materialization, and every restore overload return `ProfileBusy`
+while the cohort is active, before allocating, copying, rebasing, or changing
+publication state. Ordinary per-run Stats still describe the latest invocation.
+
+For an expected cohort size `K`, `samples_clean(K)` is true exactly when
+`K < UINT32_MAX` and both counters equal `K`. Thus one Profile captured after
+`end_samples()` proves every accepted terminal in the cohort satisfied the
+clean predicate; it never reconstructs erased invocations from the last run.
+Both boundary calls require a ready, non-poisoned Pipeline. Concurrent
+execution returns `ProfileBusy`, an invalid or inactive boundary returns
+`ProfileInvalid`, and a poisoned owner returns `PipelinePoisoned`.
+
 `then(...)` consumes one Program followed by exactly one read pack and one
 write pack. Program signature expansion determines the required scalar leaf
 types and counts at compile time. Rvalue Buffers are rejected. Pipeline retains
@@ -1076,10 +1111,10 @@ The private tile bank and guarded publication are the single semantic
 authority on CPU, Metal, and Vulkan. CPU preparation freezes every required
 window-publication descriptor and Job owner. Accelerator preparation lowers
 the same descriptors to count-gated device commands in the retained stream.
-Accelerator warm execution performs no count readback, host descriptor walk,
-rebinding, allocation, transfer, fallback, or construction of another
-Pipeline. CPU warm execution retains its allocation-free canonical traversal
-of the frozen schedule and publication descriptors. The fixed destination
+Accelerator warm execution consumes the frozen count-gated command stream and
+its immutable owner/View bindings. CPU warm execution retains its
+allocation-free canonical traversal of the frozen schedule and publication
+descriptors. The fixed destination
 contributes `O(Max)` persistent caller backing; Fold state, live workspace,
 and per-window publication are `O(Tile)`, and total window publication traffic
 is `O(Max)`.
@@ -1389,8 +1424,9 @@ overflow rule, and operand order is unchanged, while element locality makes
 lanes independent. Seed and Fold remain outside the transducer, the next Seed
 still follows the complete preceding Fold, and one boundary canonicalization
 publishes the final selected outer bank before any downstream step consumes
-it. Metal and Vulkan use one Pipeline submission with no warm count readback,
-allocation, compilation, descriptor growth, binding mutation, or fallback.
+it. Metal and Vulkan use one Pipeline submission, retain the prepared
+owner/View identity, and consume zero warm count readback, allocation,
+compilation, descriptor growth, or fallback work.
 CPU executes the identical logical order inside one Pipeline run and retains
 the same compact prepared ownership. Metal executes its fixed retained ICB
 chunk slice; its canonical stream's device guards suppress inactive payloads
@@ -1399,18 +1435,12 @@ traversal, while the exact
 aggregate stream has no guard commands and derives its active outer bound on
 device.
 
-`PipelineStats::rebinding_count` counts post-prepare mutations of the retained
-Job, Buffer, View, or prepared-owner binding identity. It is zero by
-construction because warm execution has no such mutation path. Metal's and
-Vulkan's cold preparation, and Metal's one bulk residency declaration plus
-fixed-chunk ICB execution from a fresh single-use command buffer, are execution
-operations, not binding mutations. The zero counter is diagnostic rather than standalone
-proof: `compute.window` snapshots every unique nested normal `JobState`; a
-transactional recurrence in the same binding oracle also captures each normal
-and alternate `JobState`. Both capture Program/workspace/Buffer owners, typed
-Views, arena bindings, and the available primary/alternate
-`PreparedKernelPipeline` owners, then compare the complete snapshot after
-successive executions; the nested oracle also compares overflow.
+Prepared ownership is proved structurally. `compute.window` snapshots every
+unique nested normal `JobState`; a transactional recurrence in the same oracle
+also captures each normal and alternate `JobState`. Both snapshots contain the
+Program/workspace/Buffer owners, typed Views, arena bindings, and available
+primary/alternate `PreparedKernelPipeline` owners. Successive executions and
+overflow attempts must preserve the complete snapshot exactly.
 
 Logical output leaves are the user-facing binding order. Preparation maps them
 through the Program's existing logical-to-physical output projection. If two
@@ -2748,8 +2778,8 @@ through the common Compute result vocabulary.
 | `BufferBusy` | A dynamic read/write claim conflicts with an active execution. |
 | `BufferPoisoned` | The Buffer may contain unpublished writes from a failed execution. |
 | `ProfileUnavailable` | Step profiling was not enabled before Pipeline preparation. |
-| `ProfileInvalid` | Step profiling was requested from an invalid or moved-from Pipeline. |
-| `ProfileBusy` | Step profiling was requested while the Pipeline execution is in flight. |
+| `ProfileInvalid` | Profile or sample-epoch work was requested from an invalid, moved-from, or inactive Pipeline boundary. |
+| `ProfileBusy` | Profile or sample-epoch work conflicted with an in-flight execution or active sample epoch. |
 
 `BackendFailed`, accelerator preparation reasons, `Cancelled`,
 `AlreadyCompleted`, and Program-owned reasons retain their existing meanings.
@@ -2860,7 +2890,8 @@ projection rather than parallel top-level counters:
 | `control_command_count` | One for the exact Metal aggregate specialization; otherwise exact `2 + C + F + T + R + M` Metal, `2 + C + F + T` Vulkan, or the zero-work command law above. It is separate from Program dispatches and barriers. |
 | `prepared_template_count` | Compact retained route-template count. It does not count native occurrence references. |
 | `prepared_command_count` | Checked authored occurrence capacity. A nested body contributes `K * (N + 2)` logical Seed/Action/Fold occurrences even when a proved Action transducer lowers them to `K * 3` physical Program occurrences or the exact Metal aggregate lowers the complete stream to two physical commands. It does not imply distinct Program, Job, binding, or native-command owners. |
-| `rebinding_count` | Post-prepare retained binding-identity mutations. The immutable prepared executor reports zero by construction; cold native descriptor encoding is not a mutation, and the structural owner/View snapshot is the independent proof. |
+| `sampled_runs` | Saturating count of accepted terminals in the active explicit sample cohort. |
+| `clean_runs` | Saturating count of that cohort's successful terminals satisfying the complete clean predicate. |
 | `claim_ns` | Saturating nanoseconds spent in the resource-claim boundary; diagnostic timing, not a portable performance claim. |
 | `control_ns` | Saturating nanoseconds spent resetting, reducing, and observing control state; diagnostic timing, not payload-readback time. |
 
@@ -3589,7 +3620,12 @@ node/src/compute/pipeline/plan.cpp
 node/src/compute/pipeline/claim.cpp
 node/src/compute/pipeline/run.cpp
 node/src/compute/pipeline/read.cpp
+node/src/compute/pipeline/write.cpp
 node/src/compute/pipeline/async.cpp
+node/src/compute/pipeline/profile.cpp
+node/src/compute/pipeline/sample.hpp
+node/src/compute/pipeline/transfer.hpp
+node/src/compute/pipeline/run/memory.hpp
 
 node/src/accel/kernel/status.hpp
 node/src/accel/kernel/prepared.hpp
@@ -3602,10 +3638,13 @@ node/src/accel/kernel/prepared/evidence.cpp
 node/src/accel/kernel/recurrence.hpp
 node/src/accel/kernel/recurrence/
 node/src/accel/metal/kernel/pipeline/
+node/src/accel/metal/kernel/pipeline/source/status/
 node/src/accel/vulkan/kernel/pipeline/
 
 node/tests/contract/compute/pipeline.cpp
 node/tests/contract/compute/pipeline/
+node/tests/contract/compute/window/nested/
+node/tests/contract/compute/window/output/
 node/tests/contract/runtime/product/compute/pipeline.cpp
 node/tests/contract/runtime/product/compute/pipeline/
 package/tests/consumer/example/pipeline.cpp
@@ -3614,10 +3653,32 @@ tools/measure/compute/pipeline/recurrence.cpp
 tools/measure/compute/pipeline/run.cpp
 ```
 
+The nested Window contract entry is a thin ordered runner over directly linked
+leaf translation units: `local.hpp` owns the shared fixture values and
+declarations, `fixture.cpp` freezes their shape invariants,
+`program.cpp` owns Program factories, `plan.cpp` owns route and prepared-shape
+assertions, and `identity.cpp` owns retained binding extraction. Its adjacent
+`execution.cpp`, `failure.cpp`, `evidence.cpp`, `control.cpp`, and `oracle.cpp`
+owners retain those independent contract boundaries. `identity.hpp` contains
+the identity declarations and shared value types. The output entry
+likewise links `ordinary.cpp` and `subview.cpp` alias routing independently
+from `publication_mutation.cpp`; `model.cpp`, `publication.cpp`, `control.cpp`,
+`execution.cpp`, and `failure.cpp` remain their named leaf owners. CMake lists
+every leaf directly under `compute.window`; neither entry textually includes an
+implementation owner or routes through an umbrella compatibility seam.
+
 The common prepared-entry and status owners are shared by Pipeline backend
 execution rather than mirrored below Metal and Vulkan. Pipeline may not call
 the public Batch executor, use the Program convenience cache, or retain adapter
 mirrors.
+
+Metal's generated Pipeline status program is assembled by
+`source/status/source.cpp` from the ordered `abi`, `reset`, `publish`,
+`advance`, and `reduce` owners in that directory; `pipeline/source.cpp` appends
+the adjacent `status/telemetry.cpp` owner to form the final MSL program.
+`accel.kernel-core` freezes the exact status, telemetry, and combined source
+byte counts and FNV-1a identities, so an ownership-only split cannot silently
+change the compiled MSL program or cache identity.
 
 ## Verification
 
@@ -3791,10 +3852,9 @@ can claim the Pipeline contract:
     native Windows Vulkan where available produce matching results, failure
     coordinates, and outer/inner work totals against a serial oracle;
     each GPU attempt submits once, warm counters report zero compilation,
-    allocation, descriptor growth, binding mutation, count readback, and
-    fallback, and an independent frozen-owner/View snapshot proves that the
-    zero binding-mutation count is structural rather than an unwritten
-    counter. `N = 1` and `N = 64` retain the same Action scratch allocation
+    allocation, descriptor growth, count readback, and fallback, and an
+    independent frozen-owner/View snapshot proves stable prepared ownership.
+    `N = 1` and `N = 64` retain the same Action scratch allocation
     count and one Action fingerprint rather than graph expansion. A plan-only
     large `Max` proves authored logical-route growth is `O(K + N)`, prepared
     route-template growth is `O(K)`, and neither retained dimension is
@@ -3831,14 +3891,14 @@ can claim the Pipeline contract:
     both required; a one-submit counter alone is not hard-cut evidence.
 30. the exact `WindowIndexedReduceSumU32` aggregate proof rejects every
     mismatched Program identity, binding role, numeric policy, schedule,
-    failure projection, and profile projection; successful Metal preparation
-    owns no expanded occurrence stream, raw-status/state/guard layer, or warm
-    fallback selector. Its two-command ICB proves exact result bits, earliest
-    invalid ordinal, authored failure coordinates, verified prefix, work
-    totals, two-dispatch/one-control profile ownership, exact reuse of two
-    nonoverlapping plan-owned `K`-word ranges, zero native aggregate scratch
-    allocation, one submission, warm-stable memory, and zero compile/allocation/
-    upload/download/rebinding/fallback counters against the serial oracle. CPU
+    failure projection, and profile projection. Successful Metal preparation
+    freezes common status/state evidence and a two-command ICB backed by two
+    nonoverlapping plan-owned `K`-word ranges. The contract proves exact result
+    bits, earliest invalid ordinal, authored failure coordinates, verified
+    prefix, work totals, two-dispatch/one-control profile ownership, zero native
+    aggregate scratch allocation, one submission, warm-stable memory, and one
+    frozen compiled, allocated, and transferred execution owner against the
+    serial oracle. CPU
     and Vulkan retain the canonical path and must pass the same semantic
     vectors.
 31. `sealed_repetitions<N>()` proves exact external write-to-next-read
@@ -3883,9 +3943,9 @@ can claim the Pipeline contract:
     unchanged. The high-index vector proves semantic bytes, not sparse physical
     stores inside an active dense slice. CPU, Metal, and Vulkan prove identical
     final `O`/window bytes,
-    deterministic warm reruns, one accelerator submission, no warm allocation,
-    rebinding, upload, or readback, exact publication traffic, and frozen
-    template/command counts. A declaration-order consumer reads the sealed
+    deterministic warm reruns, one accelerator submission, stable warm memory,
+    exact publication traffic, and frozen owner/View and template/command
+    counts. A declaration-order consumer reads the sealed
     `write_window` target in the same Pipeline with one exact write-to-read
     boundary, unchanged publication traffic and private state, and no
     `O(Max)` shadow; a later write remains rejected. A zero-count Fold whose

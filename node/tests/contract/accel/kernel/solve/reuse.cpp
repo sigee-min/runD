@@ -85,7 +85,7 @@ template <typename Value>
                                                .tile_count = 4u,
                                                .fresh_evidence = true,
                                            })
-             .ok) {
+             .outcome.ok) {
       return SolveReuseFail<Value>(kernel.check.reason, factor);
     }
   } else {
@@ -131,7 +131,7 @@ template <typename Value>
                                                .tile_count = 4u,
                                                .fresh_evidence = true,
                                            })
-             .ok) {
+             .outcome.ok) {
       return SolveReuseFail<Value>(kernel.check.reason, factor);
     }
   }
@@ -185,14 +185,15 @@ template <typename Value>
                                               .fresh_evidence = true,
                                           });
     constexpr std::uint64_t expected_dispatches = 1u;
-    if (!evidence.ok || evidence.dispatch_count != expected_dispatches ||
-        evidence.failed_batches != 0u ||
+    if (!evidence.outcome.ok ||
+        evidence.run.work.dispatch_count != expected_dispatches ||
+        evidence.outcome.failed_batches != 0u ||
         !rund::node::accel::DownloadAccelBuffer(
              context, b.status, status.data(), sizeof(rund::kernel::u32))
              .ok ||
         status[0] !=
             static_cast<rund::kernel::u32>(rund::kernel::SolveStatus::Ok)) {
-      return SolveReuseFail<Value>(evidence.reason, factor);
+      return SolveReuseFail<Value>(evidence.outcome.reason, factor);
     }
     return OutputMatches(context, b.output, ExpectedIdentitySolve2<Value>());
   }
@@ -230,14 +231,15 @@ template <typename Value>
                                             .fresh_evidence = true,
                                         });
   constexpr std::uint64_t expected_dispatches = 1u;
-  if (!evidence.ok || evidence.dispatch_count != expected_dispatches ||
-      evidence.failed_batches != 0u ||
+  if (!evidence.outcome.ok ||
+      evidence.run.work.dispatch_count != expected_dispatches ||
+      evidence.outcome.failed_batches != 0u ||
       !rund::node::accel::DownloadAccelBuffer(context, b.status, status.data(),
                                               sizeof(rund::kernel::u32))
            .ok ||
       status[0] !=
           static_cast<rund::kernel::u32>(rund::kernel::SolveStatus::Ok)) {
-    return SolveReuseFail<Value>(evidence.reason, factor);
+    return SolveReuseFail<Value>(evidence.outcome.reason, factor);
   }
   return OutputMatches(context, b.output, ExpectedIdentitySolve2<Value>());
 }

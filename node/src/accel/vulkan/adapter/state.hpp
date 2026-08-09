@@ -44,6 +44,7 @@ struct VulkanAdapter {
     VulkanBuffer staging{};
     std::shared_ptr<void> target{};
     std::uint64_t inflight = 0u;
+    bool timing = true;
     bool timestamp = true;
     bool external = false;
     bool force_device_lost = false;
@@ -122,6 +123,7 @@ struct VulkanAdapter {
   std::uint64_t command_submit_wait_ns = 0u;
   std::uint64_t readback_ns = 0u;
   std::atomic<bool> fault_device_lost_once{false};
+  std::atomic<bool> fault_trace_unavailable_once{false};
   VulkanAdapter();
   VulkanAdapter(const VulkanAdapter &) = delete;
   VulkanAdapter &operator=(const VulkanAdapter &) = delete;

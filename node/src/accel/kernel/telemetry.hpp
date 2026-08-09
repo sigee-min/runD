@@ -8,14 +8,14 @@ namespace rund::node::accel::detail {
 
 inline void ProjectTelemetry(const PreparedPipelineControl &control,
                              rund::RuntimeStats &stats) noexcept {
-  stats.generated_item_count = control.generated_item_count;
-  stats.generated_capacity = control.generated_capacity;
-  stats.indirect_dispatch_count = control.indirect_dispatch_count;
-  stats.indirect_work_item_count = control.indirect_work_item_count;
-  stats.iteration_count = control.iteration_count;
-  stats.skipped_iteration_count = control.skipped_iteration_count;
-  stats.conflict_count = control.conflict_count;
-  stats.overflow_ordinal = control.overflow_ordinal;
+  stats.run.work.generated_item_count = control.generated_item_count;
+  stats.run.work.generated_capacity = control.generated_capacity;
+  stats.run.work.indirect_dispatch_count = control.indirect_dispatch_count;
+  stats.run.work.indirect_work_item_count = control.indirect_work_item_count;
+  stats.run.work.iteration_count = control.iteration_count;
+  stats.run.work.skipped_iteration_count = control.skipped_iteration_count;
+  stats.run.work.conflict_count = control.conflict_count;
+  stats.run.work.overflow_ordinal = control.overflow_ordinal;
 }
 
 } // namespace rund::node::accel::detail

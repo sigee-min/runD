@@ -53,10 +53,8 @@ namespace {
   using rund::node::accel::detail::EmitMetalNumericFixedLane64Source;
   const std::string metal =
       rund::node::accel::detail::backend_source_recipe::materialize(
-          [](auto &sink) noexcept(
-              noexcept(EmitMetalNumericFixedLane64Source(sink))) {
-            return EmitMetalNumericFixedLane64Source(sink);
-          });
+          [](auto &sink) noexcept(noexcept(EmitMetalNumericFixedLane64Source(
+              sink))) { return EmitMetalNumericFixedLane64Source(sink); });
   if (!OrderedToken(metal, "inline ulong RundUnsignedDivU128ByU64(",
                     "ulong magnitude = RundUnsignedDivU128ByU64(") ||
       !OrderedToken(metal, "inline ulong RundUnsignedSqrtU128ToU64(",
@@ -179,8 +177,8 @@ template <typename Value, std::size_t LeftCount, std::size_t RightCount,
                                             .tile_count = expected.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.dispatch_count != 1u) {
-    return MatrixFailure(pick, "run", evidence.reason);
+  if (!evidence.outcome.ok || evidence.run.work.dispatch_count != 1u) {
+    return MatrixFailure(pick, "run", evidence.outcome.reason);
   }
   std::array<Value, OutputCount> downloaded{};
   const rund::AccelCheck download = rund::node::accel::DownloadAccelBuffer(

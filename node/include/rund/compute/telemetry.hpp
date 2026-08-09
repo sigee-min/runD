@@ -144,7 +144,7 @@ public:
   Profile &operator=(const Profile &) = default;
   Profile &operator=(Profile &&) noexcept = default;
 
-  [[nodiscard]] const DeviceInfo &device() const noexcept { return device_; }
+  [[nodiscard]] const DeviceInfo &device() const noexcept { return *device_; }
   [[nodiscard]] const Stats &execution() const noexcept { return execution_; }
   [[nodiscard]] const MemoryStats &memory() const noexcept { return memory_; }
 
@@ -258,11 +258,11 @@ public:
 private:
   friend struct ::rund::compute::detail::ProfileAccess;
 
-  Profile(DeviceInfo device, const Stats execution,
+  Profile(std::shared_ptr<const DeviceInfo> device, const Stats execution,
           const MemoryStats memory) noexcept
       : device_(std::move(device)), execution_(execution), memory_(memory) {}
 
-  DeviceInfo device_;
+  std::shared_ptr<const DeviceInfo> device_;
   Stats execution_{};
   MemoryStats memory_{};
 };

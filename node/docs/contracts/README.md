@@ -29,7 +29,7 @@ Stable `/node` behavior lives here. Kernel-owned behavior stays in
 | [Replay](./replay.md) | One-Session canonical input, record/replay/scenario scopes, checkpoint schema and lineage, persistence, and cost laws. |
 | [Scheduler](./scheduler/README.md) | `task::spawn/join/scope/yield/sleep/channel/io`, task-worker lanes, deterministic scheduler evidence, and blocking primitive semantics. |
 | [Storage](./storage.md) | Domain-neutral hierarchical allocated capacity, reservation, physical/allocated usage, refund, and report laws. |
-| [Telemetry](./telemetry.md) | Session Compute/Replay event shape, Basic/Detail cost boundary, callback ordering, and `telemetry:detail` parity. |
+| [Telemetry](./telemetry.md) | Session Compute/Replay event shape, Basic/Detail/Trace collection policy, callback ordering, and `telemetry:detail` parity. |
 | [Topology](./topology.md) | Node topology and resource evidence before projection into kernel inputs. |
 
 Session-owned prepared-memory evidence is documented by

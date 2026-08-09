@@ -88,15 +88,19 @@ namespace node_accel_contract::fusion::chain {
       KernelBinding{.buffer = &resources.fused_output, .role = Role::Write},
   };
   const auto evidence_ok = [](const rund::AccelEvidence &evidence) {
-    return evidence.ok && evidence.original_operation_count == 2u &&
-           evidence.fused_operation_count == 1u &&
-           evidence.original_dispatch_count == 2u &&
-           evidence.final_dispatch_count == 1u &&
-           evidence.dispatch_count == 1u &&
-           evidence.internal_producer_consumer_roundtrip_bytes == 0u &&
-           evidence.external_producer_consumer_roundtrip_bytes == 0u &&
-           evidence.fusion_rejection_count == 0u &&
-           std::string_view{evidence.fusion_reason} == "compute_fusion_ok";
+    return evidence.outcome.ok &&
+           evidence.run.work.original_operation_count == 2u &&
+           evidence.run.work.fused_operation_count == 1u &&
+           evidence.run.work.original_dispatch_count == 2u &&
+           evidence.run.work.final_dispatch_count == 1u &&
+           evidence.run.work.dispatch_count == 1u &&
+           evidence.run.transfer.internal_producer_consumer_roundtrip_bytes ==
+               0u &&
+           evidence.run.transfer.external_producer_consumer_roundtrip_bytes ==
+               0u &&
+           evidence.run.work.fusion_rejection_count == 0u &&
+           std::string_view{evidence.run.work.fusion_reason} ==
+               "compute_fusion_ok";
   };
   const auto run = [&]() {
     return rund::node::accel::RunAccelKernel(
@@ -117,18 +121,22 @@ namespace node_accel_contract::fusion::chain {
         "original_dispatch=%llu final_dispatch=%llu dispatch=%llu "
         "roundtrip_internal=%llu roundtrip_external=%llu rejects=%llu "
         "fusion_reason=%s\n",
-        evidence.ok ? 1 : 0, evidence.reason,
-        static_cast<unsigned long long>(evidence.original_operation_count),
-        static_cast<unsigned long long>(evidence.fused_operation_count),
-        static_cast<unsigned long long>(evidence.original_dispatch_count),
-        static_cast<unsigned long long>(evidence.final_dispatch_count),
-        static_cast<unsigned long long>(evidence.dispatch_count),
+        evidence.outcome.ok ? 1 : 0, evidence.outcome.reason,
         static_cast<unsigned long long>(
-            evidence.internal_producer_consumer_roundtrip_bytes),
+            evidence.run.work.original_operation_count),
         static_cast<unsigned long long>(
-            evidence.external_producer_consumer_roundtrip_bytes),
-        static_cast<unsigned long long>(evidence.fusion_rejection_count),
-        evidence.fusion_reason);
+            evidence.run.work.fused_operation_count),
+        static_cast<unsigned long long>(
+            evidence.run.work.original_dispatch_count),
+        static_cast<unsigned long long>(evidence.run.work.final_dispatch_count),
+        static_cast<unsigned long long>(evidence.run.work.dispatch_count),
+        static_cast<unsigned long long>(
+            evidence.run.transfer.internal_producer_consumer_roundtrip_bytes),
+        static_cast<unsigned long long>(
+            evidence.run.transfer.external_producer_consumer_roundtrip_bytes),
+        static_cast<unsigned long long>(
+            evidence.run.work.fusion_rejection_count),
+        evidence.run.work.fusion_reason);
   }
   if (!ok) {
     return false;

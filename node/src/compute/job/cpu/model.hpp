@@ -113,9 +113,11 @@ submit_graph_pass(JobState &job, kernel::WorkerBackend backend,
 finish_graph_pass(JobState &job, const kernel::ComputeTileRunResult *tiles,
                   const std::atomic_bool *cancel) noexcept;
 
-[[nodiscard]] Status initialize_cpu_run(JobState &job) noexcept;
+[[nodiscard]] Status initialize_cpu_run(JobState &job,
+                                        bool trace_kernel_dispatches) noexcept;
 [[nodiscard]] CpuStepProgress
-start_cpu(JobState &job, const std::atomic_bool *cancel) noexcept;
+start_cpu(JobState &job, const std::atomic_bool *cancel,
+          bool trace_kernel_dispatches = false) noexcept;
 [[nodiscard]] CpuStepProgress
 finish_cpu(JobState &job, const kernel::ComputeTileRunResult *tiles,
            const std::atomic_bool *cancel) noexcept;

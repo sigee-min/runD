@@ -91,6 +91,9 @@ CheckBackend(const Backend backend,
   if (const int profile = CheckProfile(*device, backend); profile != 0) {
     return 625 + profile;
   }
+  if (const int samples = CheckProfileSamples(*device, backend); samples != 0) {
+    return 640 + samples;
+  }
   if (backend == Backend::Cpu) {
     if (const int frozen = CheckFrozenCpuMapBindings(*device); frozen != 0) {
       return 650 + frozen;

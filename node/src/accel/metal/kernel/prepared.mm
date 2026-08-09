@@ -8,7 +8,11 @@
 #include "../resident.hpp"
 #include "../scratch.hpp"
 #include "local.hpp"
+#include "trace/encoder.hpp"
+#include "trace/replay.hpp"
+#include "trace/submit.hpp"
 
+#include <kernel/core/checked.hpp>
 #include <rund/counter.hpp>
 
 #include <limits>
@@ -121,11 +125,25 @@ void CompleteMetalPrepared(void *const raw, KernelResult submitted) noexcept {
     return;
   }
   MetalKernelResources &resources = *claim.owner;
+  if (resources.trace_active) {
+    resources.trace_active = false;
+    if (submitted.check.ok) {
+      submitted.check = FoldMetalDispatchTrace(
+          resources.trace,
+          (__bridge id<MTLDevice>)resources.adapter->device.get(),
+          submitted.stats);
+      if (submitted.check.ok && resources.adapter != nullptr) {
+        RecordMetalDispatchTrace(
+            *resources.adapter, submitted.stats.run.time.accel_kernel_ns,
+            submitted.stats.run.time.accel_timestamp_count);
+      }
+    }
+  }
   if (submitted.check.ok && resources.adapter != nullptr) {
     submitted.check =
         FinishMetalSteps(*resources.adapter, resources, &submitted.stats);
   }
-  submitted.stats.dispatch_count =
+  submitted.stats.run.work.dispatch_count =
       submitted.check.ok ? resources.dispatch_count : 0u;
   SetResetStats(submitted.stats, submitted.check.ok, resources.reset_count,
                 resources.reset_bytes);
@@ -257,7 +275,9 @@ rund::AccelCheck RunMetalResources(const rund::AccelDevice &pick,
 rund::AccelCheck SubmitMetalResources(const rund::AccelDevice &pick,
                                       const std::shared_ptr<void> &prepared,
                                       const KernelCompletion completion,
-                                      void *const user) noexcept {
+                                      void *const user,
+                                      PreparedMemoryMeter *const memory,
+                                      const KernelTiming timing) noexcept {
   @autoreleasepool {
     auto *const resources = static_cast<MetalKernelResources *>(prepared.get());
     if (resources == nullptr || resources->size() == 0u ||
@@ -269,25 +289,71 @@ rund::AccelCheck SubmitMetalResources(const rund::AccelDevice &pick,
     if (!valid.ok) {
       return valid;
     }
-    CommandRun command{};
-    const rund::AccelCheck ready =
-        OpenCommand<ResourceRefs::Borrowed>(*context.adapter, command);
-    if (!ready.ok) {
-      return ready;
+    submission::State<MetalKernelResources> &state = resources->submission;
+    {
+      std::lock_guard lock{state.mutex};
+      if (state.active()) {
+        return rund::AccelCheck{false, "compute_job_busy"};
+      }
+      if (timing == KernelTiming::Dispatch) {
+        const rund::AccelCheck traced = EnsureMetalPreparedDispatchTrace(
+            (__bridge id<MTLDevice>)context.adapter->device.get(), *resources,
+            memory);
+        if (!traced.ok) {
+          return traced;
+        }
+      }
+      state.owner = resources;
+      state.completion = completion;
+      state.user = user;
     }
-    const rund::AccelCheck encoded =
-        EncodeMetalSteps(*context.adapter, *resources, command);
+    CommandRun command{};
+    id trace_encoder = nil;
+    rund::AccelCheck encoded{};
+    if (timing == KernelTiming::Dispatch &&
+        resources->trace.sampling == MetalTraceSampling::StageBoundary) {
+      encoded = EncodeMetalPreparedStageTrace(
+          *context.adapter, *resources,
+          (__bridge id<MTLDevice>)context.adapter->device.get(), command);
+    } else {
+      const rund::AccelCheck ready =
+          OpenCommand<ResourceRefs::Borrowed>(*context.adapter, command);
+      if (!ready.ok) {
+        submission::Cancel(state);
+        return ready;
+      }
+      if (timing == KernelTiming::Dispatch) {
+        BeginMetalDispatchTrace(
+            (__bridge id<MTLDevice>)context.adapter->device.get(),
+            resources->trace);
+        trace_encoder = resources->trace_encoder;
+        BindMetalDispatchTraceEncoder(trace_encoder, command.encoder,
+                                      resources->trace);
+        command.encoder = (id<MTLComputeCommandEncoder>)trace_encoder;
+      }
+      encoded = EncodeMetalSteps(*context.adapter, *resources, command);
+      ClearMetalDispatchTraceEncoder(trace_encoder);
+      if (encoded.ok && timing == KernelTiming::Dispatch &&
+          !SealMetalDispatchTrace(command.buffer, resources->trace)) {
+        encoded =
+            rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
+      }
+    }
     if (!encoded.ok) {
+      submission::Cancel(state);
       return encoded;
     }
-    submission::State<MetalKernelResources> &state = resources->submission;
-    if (!submission::Begin(state, *resources, completion, user)) {
-      return rund::AccelCheck{false, "compute_job_busy"};
-    }
+    resources->trace_active = timing == KernelTiming::Dispatch;
     const rund::AccelCheck submitted =
-        QueueCommand(*context.adapter, (__bridge void *)command.buffer,
-                     CompleteMetalPrepared, &state);
+        resources->trace_active
+            ? QueueMetalDispatchTrace(*context.adapter, command.buffer,
+                                      resources->trace, CompleteMetalPrepared,
+                                      &state)
+            : QueueCommand(*context.adapter, (__bridge void *)command.buffer,
+                           CompleteMetalPrepared, &state,
+                           timing == KernelTiming::Submission);
     if (!submitted.ok) {
+      resources->trace_active = false;
       submission::Cancel(state);
     }
     return submitted;
@@ -310,7 +376,9 @@ rund::AccelCheck RunMetalResources(const rund::AccelDevice &,
 }
 rund::AccelCheck SubmitMetalResources(const rund::AccelDevice &,
                                       const std::shared_ptr<void> &,
-                                      KernelCompletion, void *) noexcept {
+                                      KernelCompletion, void *,
+                                      PreparedMemoryMeter *,
+                                      KernelTiming) noexcept {
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 }
 #endif

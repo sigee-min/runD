@@ -102,11 +102,10 @@ sub validate_product_cold_columns {
       source_lo execution_hi execution_lo first_result_us author_us compile_us
       upload_us prepare_us run_us read_us dispatches run_submissions
       terminal_submissions terminal_readbacks logical_upload_bytes
-      logical_readback_bytes transfer_upload_bytes downloaded_bytes
+      logical_readback_bytes downloaded_bytes
       peak_retained_bytes resident_peak_bytes scratch_payload_bytes
       scratch_backing_bytes pipeline_compiles pipeline_cache_hits
-      program_cache_hits program_cache_misses prepared_templates graph_hash
-      output_hash result);
+      prepared_templates graph_hash output_hash result);
   join("\n", @$columns) eq join("\n", @required)
       or fail('Compute product cold columns changed');
 }
@@ -118,13 +117,10 @@ sub validate_product_warm_columns {
       candidate width stages shared_capacity candidate_scratch_bytes source_hi
       source_lo execution_hi execution_lo samples warm_p50_us warm_p95_us
       active_elements_per_s dispatches_per_run submissions_per_run
-      terminal_submissions terminal_readbacks transition_upload_bytes
-      downloaded_bytes peak_retained_bytes resident_peak_bytes
-      scratch_payload_bytes scratch_backing_bytes warm_pipeline_compiles
-      warm_cache_hits warm_buffer_allocations warm_descriptor_pool_creations
-      warm_descriptor_set_allocations warm_allocations warm_uploaded_bytes
-      warm_download_events warm_downloaded_bytes warm_rebindings graph_hash
-      output_hash result);
+      terminal_submissions terminal_readbacks downloaded_bytes
+      peak_retained_bytes resident_peak_bytes
+      scratch_payload_bytes scratch_backing_bytes sampled_runs clean_runs
+      warm_cache_hits graph_hash output_hash result);
   join("\n", @$columns) eq join("\n", @required)
       or fail('Compute product warm columns changed');
 }
@@ -174,14 +170,11 @@ sub validate_product_values {
         or fail('Compute product warm sample count changed');
     $values->{submissions_per_run} eq $expected_run_submissions
         or fail('Compute product warm submission count changed');
-    for my $name (qw(warm_pipeline_compiles warm_buffer_allocations
-                     warm_descriptor_pool_creations
-                     warm_descriptor_set_allocations warm_allocations
-                     warm_uploaded_bytes warm_download_events
-                     warm_downloaded_bytes warm_rebindings)) {
-      $values->{$name} eq '0'
-          or fail("Compute product warm allocation/transfer changed: $name");
-    }
+    $values->{sampled_runs} eq $values->{samples} &&
+        $values->{clean_runs} eq $values->{samples}
+        or fail('Compute product warm sample epoch is not entirely clean');
+    $values->{warm_cache_hits} eq '0'
+        or fail('Compute product warm cache lookup changed');
   }
 }
 

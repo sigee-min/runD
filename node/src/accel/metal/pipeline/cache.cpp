@@ -58,7 +58,7 @@ std::shared_ptr<void> LookupMetalNamedPipeline(MetalAdapter &adapter,
         adapter.named_pipelines[index->second].name == scoped_key &&
         adapter.named_pipelines[index->second].pipeline != nullptr) {
       ::rund::detail::counter::Accumulate(
-          adapter.stats.pipeline_cache_hit_count, 1u);
+          adapter.stats.runtime.run.allocations.pipeline_cache_hit_count, 1u);
       return adapter.named_pipelines[index->second].pipeline;
     }
   }
@@ -110,10 +110,10 @@ PublishMetalNamedPipeline(MetalAdapter &adapter, std::string key,
       adapter.last_error = "compute_pipeline_capacity";
       return {};
     }
-    ::rund::detail::counter::Accumulate(adapter.stats.pipeline_compile_count,
-                                        1u);
-    ::rund::detail::counter::Accumulate(adapter.stats.pipeline_create_ns,
-                                        create_ns);
+    ::rund::detail::counter::Accumulate(
+        adapter.stats.runtime.run.allocations.pipeline_compile_count, 1u);
+    ::rund::detail::counter::Accumulate(
+        adapter.stats.runtime.run.time.pipeline_create_ns, create_ns);
     return {MetalNamedPipelinePublishStatus::Inserted,
             adapter.named_pipelines.back().pipeline};
   } catch (...) {
@@ -131,9 +131,10 @@ void StoreMetalNamedPipeline(MetalAdapter &adapter, std::string key,
 void RecordMetalUncachedPipelineCompile(
     MetalAdapter &adapter, const std::uint64_t create_ns) noexcept {
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Accumulate(adapter.stats.pipeline_compile_count, 1u);
-  ::rund::detail::counter::Accumulate(adapter.stats.pipeline_create_ns,
-                                      create_ns);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.allocations.pipeline_compile_count, 1u);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.pipeline_create_ns, create_ns);
 }
 
 std::shared_ptr<void> LookupMetalSourceLibrary(MetalAdapter &adapter,
@@ -166,8 +167,8 @@ PublishMetalSourceLibrary(MetalAdapter &adapter, std::string source,
     // disposition follows.
     ::rund::detail::counter::Accumulate(adapter.stats.library_compile_count,
                                         1u);
-    ::rund::detail::counter::Accumulate(adapter.stats.shader_compile_ns,
-                                        compile_ns);
+    ::rund::detail::counter::Accumulate(
+        adapter.stats.runtime.run.time.shader_compile_ns, compile_ns);
     const std::uint64_t hash = SourceHash(source);
     const std::size_t index =
         FindMetalSourceLibrary(adapter.source_libraries, source, hash);
@@ -213,8 +214,8 @@ void RecordMetalUncachedLibraryCompile(
     MetalAdapter &adapter, const std::uint64_t compile_ns) noexcept {
   std::lock_guard<std::mutex> lock{adapter.mutex};
   ::rund::detail::counter::Accumulate(adapter.stats.library_compile_count, 1u);
-  ::rund::detail::counter::Accumulate(adapter.stats.shader_compile_ns,
-                                      compile_ns);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.shader_compile_ns, compile_ns);
 }
 
 } // namespace rund::node::accel::detail

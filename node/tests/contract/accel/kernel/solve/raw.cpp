@@ -85,15 +85,16 @@ RunRawSolve(const rund::AccelDevice &pick, const std::array<Value, 4u> &matrix,
                                         });
   std::array<rund::kernel::u32, 1u> status{};
   constexpr std::uint64_t expected_dispatches = 1u;
-  if (!evidence.ok || evidence.dispatch_count != expected_dispatches ||
+  if (!evidence.outcome.ok ||
+      evidence.run.work.dispatch_count != expected_dispatches ||
       !rund::node::accel::DownloadAccelBuffer(context, b.status, status.data(),
                                               sizeof(rund::kernel::u32))
            .ok) {
-    return SolveFail(evidence.reason);
+    return SolveFail(evidence.outcome.reason);
   }
   const bool failed = expected_status != rund::kernel::SolveStatus::Ok;
   if (status[0] != static_cast<rund::kernel::u32>(expected_status) ||
-      evidence.failed_batches != (failed ? 1u : 0u)) {
+      evidence.outcome.failed_batches != (failed ? 1u : 0u)) {
     return SolveFail("raw.status");
   }
   if (failed) {
@@ -184,8 +185,9 @@ template <typename Value>
                                         });
   std::array<rund::kernel::u32, 1u> status{};
   constexpr std::uint64_t expected_dispatches = 1u;
-  return evidence.ok && evidence.dispatch_count == expected_dispatches &&
-         evidence.failed_batches == 0u &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == expected_dispatches &&
+         evidence.outcome.failed_batches == 0u &&
          rund::node::accel::DownloadAccelBuffer(
              context, b.status, status.data(), sizeof(rund::kernel::u32))
              .ok &&
@@ -315,8 +317,9 @@ template <typename Value, std::size_t Rows>
   std::array<rund::kernel::u32, batches> status{};
   constexpr std::uint64_t expected_dispatches = 1u;
   if (!plan.ok || !reference.ok || reference.failed_batches != 0u ||
-      !evidence.ok || evidence.dispatch_count != expected_dispatches ||
-      evidence.failed_batches != 0u ||
+      !evidence.outcome.ok ||
+      evidence.run.work.dispatch_count != expected_dispatches ||
+      evidence.outcome.failed_batches != 0u ||
       !rund::node::accel::DownloadAccelBuffer(context, b.status, status.data(),
                                               status.size() *
                                                   sizeof(rund::kernel::u32))

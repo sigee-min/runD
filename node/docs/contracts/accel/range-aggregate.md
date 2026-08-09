@@ -16,6 +16,13 @@ Implementation authority:
 - `/node/src/accel/vulkan/range/`
 - `/node/src/accel/scan/prefix.hpp` for the native Scan projection
 
+Metal keeps one owner per native Range responsibility:
+`capability.mm` projects device limits, `resources/execute.mm` owns temporary
+and resident-count control lifetime, `pipeline/execute.mm` owns cache lookup,
+compilation, and publication, `prepare.mm` owns admission and assembly, and
+`encode.mm` owns command encoding. `source.cpp` and `source/` own the complete
+MSL recipe.
+
 Verification authority:
 
 - `/node/tests/contract/accel/kernel/range_aggregate.cpp`
@@ -290,6 +297,17 @@ immutable binding tuple, while the unique native pipeline dependency count is
 PSO, `D` descriptor sets, and one descriptor pool per unique PSO—rather than
 multiplying native PSOs or pools by aliased stage slots. Immutable preparation
 acquires the data PSO once and borrows that exact pointer in every data slot.
+Standalone preparation also acquires it once before materializing the stage
+slots. The source recipe and cache hash/byte comparison execute once per
+unique data PSO.
+
+Backend shader source is privately split by durable responsibility. Metal and
+Vulkan each own separate `source/{algebra,direct,shared,prefix,block}.hpp`
+leaves, while `source/control.hpp` owns only the resident-count control pass.
+Metal `source/build.hpp` is the short source-assembly owner; Vulkan
+`range/source.cpp` performs the equivalent assembly. These owners emit the
+exact source byte stream consumed by cache identity. Common Range source owns
+no Stencil descriptor, radius policy, hash, or shader variant.
 
 `RangePrefixExec` is the common source-private stage derivation for
 associative prefix work. Its hierarchical form derives PrefixDifference's

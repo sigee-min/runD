@@ -46,6 +46,16 @@ struct PublicationStats final {
   std::uint64_t device_loss_count{};
 };
 
+// Physical queue submissions caused by transfer operations are distinct from
+// algorithm execution submissions. Keeping the directions explicit lets a
+// terminal Profile report one execution submission and one readback submission
+// without a benchmark subtracting two snapshots or guessing backend behavior.
+struct TransferSubmissionStats final {
+  std::uint64_t host_to_device{};
+  std::uint64_t device_to_host{};
+  std::uint64_t device_to_device{};
+};
+
 // Pipeline-only checkpoint telemetry is intentionally separate from Stats so
 // every Job/Run result does not pay for resident checkpoint state it cannot
 // produce.
@@ -90,14 +100,20 @@ struct PipelineStats final {
   PipelineNestedPhase failed_nested_phase{PipelineNestedPhase::None};
   std::uint64_t prepared_template_count{};
   std::uint64_t prepared_command_count{};
-  // Post-prepare mutations of retained Job/Buffer/View binding identity.
-  // Encoding an immutable descriptor into a fresh native command buffer is
-  // not a mutation. The current prepared Pipeline has no warm mutation path,
-  // so this is zero by construction; structural contract tests independently
-  // compare the frozen owners and descriptors across executions.
-  std::uint64_t rebinding_count{};
+  // Explicit sample epoch over accepted Pipeline terminals. begin_samples()
+  // clears only these counters; ordinary per-run Stats remain the latest
+  // execution snapshot. UINT32_MAX is the absorbing saturation value and is
+  // never accepted as exact clean-sample evidence.
+  std::uint32_t sampled_runs{};
+  std::uint32_t clean_runs{};
   std::uint64_t claim_ns{};
   std::uint64_t control_ns{};
+
+  [[nodiscard]] constexpr bool
+  samples_clean(const std::uint64_t expected) const noexcept {
+    return expected < std::numeric_limits<std::uint32_t>::max() &&
+           sampled_runs == expected && clean_runs == expected;
+  }
 };
 
 struct Stats final {
@@ -144,6 +160,12 @@ struct Stats final {
   std::uint64_t vector_chunks{};
   std::uint64_t tail_chunks{};
   ControlStats control{};
+  TransferSubmissionStats transfer_submissions{};
+  // HostIteration writes occur after one completed Pipeline execution. Their
+  // exact byte total stays in that execution epoch so Profile remains the
+  // single observation surface for product measurement. Per-call CPU-copy and
+  // accelerator-upload counts remain the existing WriteStats receipt.
+  std::uint64_t host_write_bytes{};
   PublicationStats publication{};
   PipelineStats pipeline{};
 

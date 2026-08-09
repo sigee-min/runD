@@ -44,8 +44,9 @@ SortHashesMatchCpuReference(const rund::AccelDevice &pick,
                                             .tile_count = input_keys.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return {};
   }
 
@@ -71,8 +72,8 @@ SortHashesMatchCpuReference(const rund::AccelDevice &pick,
   return SortRunHashes<Key>{
       .key_hash = key_hash,
       .value_hash = value_hash,
-      .dispatch_count = evidence.dispatch_count,
-      .command_submit_count = evidence.command_submit_count,
+      .dispatch_count = evidence.run.work.dispatch_count,
+      .command_submit_count = evidence.run.work.command_submit_count,
       .ok = true,
   };
 }

@@ -1,7 +1,7 @@
 #include "model.hpp"
 
-#include <rund/counter.hpp>
 #include "../../cpu/run/state.hpp"
+#include <rund/counter.hpp>
 
 #include <rund/compute/abi/observe.hpp>
 
@@ -25,19 +25,23 @@ kernel::u32 job_workers(const std::shared_ptr<JobState> &state) noexcept {
   return cpu == nullptr ? 0u : cpu->workers.requested_worker_width;
 }
 
+Stats job_stats_locked(const JobState &state) noexcept {
+  if (state.terminal != nullptr && state.terminal->last.has_value()) {
+    return run_stats(*state.terminal->last);
+  }
+  if (state.terminal != nullptr && state.terminal->failed_stats.has_value()) {
+    return *state.terminal->failed_stats;
+  }
+  return Stats{.backend = state.program->device->backend};
+}
+
 Stats job_stats(const std::shared_ptr<JobState> &state) noexcept {
   if (state == nullptr || state->program == nullptr ||
       state->program->device == nullptr) {
     return {};
   }
   std::lock_guard lock{state->gate};
-  if (state->terminal != nullptr && state->terminal->last.has_value()) {
-    return run_stats(*state->terminal->last);
-  }
-  if (state->terminal != nullptr && state->terminal->failed_stats.has_value()) {
-    return *state->terminal->failed_stats;
-  }
-  return Stats{.backend = state->program->device->backend};
+  return job_stats_locked(*state);
 }
 
 void record_job_frame(const std::shared_ptr<JobState> &state,

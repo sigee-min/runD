@@ -52,7 +52,7 @@ struct ProgramMemoryView final {
 
 [[nodiscard]] ProgramMemoryView
 memory_view(const ProgramState &state) noexcept {
-  const CpuRetainedMemory plans = cpu_program_memory(state.cpu_graph.get());
+  const CpuStorageBytes plans = cpu_program_memory(state.cpu_graph.get());
   return ProgramMemoryView{
       .host = add_cpu_memory_bytes(host_memory(state), plans.host),
       .tile = plans.tile,

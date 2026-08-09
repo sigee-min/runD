@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../trace.hpp"
+
 #include <vector>
 
 enum class MetalKernelTemplateKind : std::uint8_t {
@@ -56,12 +58,16 @@ struct MetalKernelResources final {
   std::shared_ptr<void> reset_pipeline{};
   submission::State<MetalKernelResources> submission{};
   PreparedMemory memory{};
+  MetalDispatchTrace trace{};
+  std::shared_ptr<void> trace_recipe{};
+  id trace_encoder = nil;
   std::uint64_t dispatch_count = 0u;
   std::uint64_t reset_count = 0u;
   std::uint64_t reset_bytes = 0u;
   std::uint64_t traffic = 0u;
   KernelPreparationMode mode{KernelPreparationMode::Standalone};
   bool shared_scratch{};
+  bool trace_active{};
 
   [[nodiscard]] bool reserve(const std::size_t step_count) {
     entries.resize(step_count);

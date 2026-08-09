@@ -370,6 +370,7 @@ RUND_COMPUTE_REASON(TaskCompletionCapacity, 0x403au, "compute_task_completion_ca
 RUND_COMPUTE_REASON(TaskFrameCapacity, 0x403bu, "compute_task_frame_capacity")
 RUND_COMPUTE_REASON(TaskFrameTooLarge, 0x403cu, "compute_task_frame_too_large")
 RUND_COMPUTE_REASON(TaskInvalid, 0x107eu, "compute_task_invalid")
+RUND_COMPUTE_REASON(TelemetryTraceUnavailable, 0x3005u, "compute_telemetry_trace_unavailable")
 RUND_COMPUTE_REASON(TileBackendFailed, 0x8011u, "compute_tile_backend_failed")
 RUND_COMPUTE_REASON(TileBackendInvalid, 0x1071u, "compute_tile_backend_invalid")
 RUND_COMPUTE_REASON(TileCallbackFailed, 0x1072u, "compute_tile_callback_failed")

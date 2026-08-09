@@ -814,6 +814,12 @@ struct PipelineState final {
   bool failure_step_known{};
   bool writes_possible{};
   bool backend_submitted{};
+  bool dispatch_timing{};
+  // Explicit measurement epoch. It reuses PipelineStats as the sole public
+  // evidence owner; these booleans only control whether terminals contribute
+  // and whether an in-epoch observation/mutation invalidated the clean proof.
+  enum class SampleState : std::uint8_t { Inactive, Clean, Dirty };
+  SampleState samples{SampleState::Inactive};
   bool transactional{};
   bool preparing{true};
   bool observation_identity_valid{};
@@ -825,12 +831,12 @@ struct PipelineState final {
   std::uint64_t frame_bytes{};
   std::uint64_t frame_reused{};
   std::uint64_t frame_budget{};
-  std::uint64_t read_transfer_peak{};
-  std::uint64_t read_transfer_bytes{};
-  std::uint64_t read_staging_peak{};
-  std::uint64_t read_staging_bytes{};
-  std::uint64_t read_staging_reused{};
-  std::uint64_t read_staging_budget{};
+  std::uint64_t transfer_peak{};
+  std::uint64_t transfer_bytes{};
+  std::uint64_t staging_peak{};
+  std::uint64_t staging_bytes{};
+  std::uint64_t staging_reused{};
+  std::uint64_t staging_budget{};
   std::size_t unobserved_outputs{};
 };
 

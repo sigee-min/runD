@@ -46,7 +46,7 @@ namespace {
     const std::uint64_t submitted_ns, const KernelCompletion completion,
     void *const user, const VulkanBuffer staging = {},
     std::shared_ptr<void> target = {}, const bool timestamp = true,
-    const bool force_device_lost = false) {
+    const bool timing = true, const bool force_device_lost = false) {
   std::lock_guard lock{adapter.completion_mutex};
   if (adapter.completion_stop ||
       adapter.pending_size == adapter.pending.size()) {
@@ -62,6 +62,7 @@ namespace {
       .staging = staging,
       .target = std::move(target),
       .inflight = adapter.command_ring.active,
+      .timing = timing,
       .timestamp = timestamp,
       .force_device_lost = force_device_lost,
   };
@@ -71,7 +72,8 @@ namespace {
 
 [[nodiscard]] bool SubmitVulkanCommand(VulkanAdapter &adapter,
                                        VulkanCommandLease &command,
-                                       std::uint64_t &submitted_ns) {
+                                       std::uint64_t &submitted_ns,
+                                       const bool collect_timing = true) {
   const char *reason = "ok";
   if (!EndVulkanCommand(adapter, command, reason)) {
     SetVulkanLastError(adapter, reason);
@@ -82,7 +84,7 @@ namespace {
   submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submit.commandBufferCount = 1u;
   submit.pCommandBuffers = &native.buffer;
-  submitted_ns = MonotonicNanoseconds();
+  submitted_ns = collect_timing ? MonotonicNanoseconds() : 0u;
   const VkResult submitted =
       vkQueueSubmit(adapter.compute_queue, 1u, &submit, native.fence);
   if (submitted != VK_SUCCESS) {
@@ -100,7 +102,7 @@ namespace {
 bool SubmitVulkanCommand(VulkanAdapter &adapter, const bool collect_timestamp,
                          rund::RuntimeStats *const stats) {
   if (stats != nullptr) {
-    *stats = rund::RuntimeStats{.ok = true, .reason = "ok"};
+    *stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
   }
   VulkanCommandLease command{};
   std::uint64_t submitted_ns = 0u;
@@ -108,9 +110,9 @@ bool SubmitVulkanCommand(VulkanAdapter &adapter, const bool collect_timestamp,
     return false;
   }
   if (stats != nullptr) {
-    stats->command_submit_count = 1u;
-    stats->command_capacity = kVulkanCommandCapacity;
-    stats->command_inflight_peak = adapter.command_ring.active;
+    stats->run.work.command_submit_count = 1u;
+    stats->run.work.command_capacity = kVulkanCommandCapacity;
+    stats->run.work.command_inflight_peak = adapter.command_ring.active;
   }
   VulkanCommand &native = adapter.commands[command.slot].command;
   const VkResult waited =
@@ -133,7 +135,7 @@ bool SubmitVulkanCommand(VulkanAdapter &adapter, const bool collect_timestamp,
   const std::uint64_t submit_wait_ns = MonotonicNanoseconds() - submitted_ns;
   RecordVulkanCommandSubmitWaitNs(adapter, submit_wait_ns);
   if (stats != nullptr) {
-    stats->command_submit_wait_ns = submit_wait_ns;
+    stats->run.time.command_submit_wait_ns = submit_wait_ns;
   }
   const bool timestamp =
       !collect_timestamp ||
@@ -180,7 +182,8 @@ bool SubmitVulkanTransfer(VulkanAdapter &adapter, VulkanBuffer &staging,
 }
 
 bool SubmitVulkanCommand(VulkanAdapter &adapter,
-                         const KernelCompletion completion, void *const user) {
+                         const KernelCompletion completion, void *const user,
+                         const bool collect_timestamp) {
   if (completion == nullptr) {
     CancelVulkanCommand(adapter);
     SetVulkanLastError(adapter, "accel_vulkan_command_unavailable");
@@ -203,7 +206,8 @@ bool SubmitVulkanCommand(VulkanAdapter &adapter,
   const bool force_device_lost =
       adapter.fault_device_lost_once.exchange(false, std::memory_order_relaxed);
   if (!QueueVulkanCommand(adapter, command, submitted_ns, completion, user, {},
-                          {}, true, force_device_lost)) {
+                          {}, collect_timestamp, collect_timestamp,
+                          force_device_lost)) {
     // Capacity is pre-proved while the adapter mutex serializes publishers;
     // reaching this branch means service shutdown violated the owner lifetime.
     (void)vkWaitForFences(adapter.device, 1u,
@@ -220,7 +224,8 @@ bool SubmitVulkanCommand(VulkanAdapter &adapter,
 
 bool SubmitVulkanExternal(VulkanAdapter &adapter, const VkCommandBuffer command,
                           const VkFence fence,
-                          const KernelCompletion completion, void *const user) {
+                          const KernelCompletion completion, void *const user,
+                          const bool collect_timing) {
   if (command == VK_NULL_HANDLE || fence == VK_NULL_HANDLE ||
       completion == nullptr || user == nullptr) {
     SetVulkanLastError(adapter, "accel_vulkan_command_unavailable");
@@ -242,7 +247,8 @@ bool SubmitVulkanExternal(VulkanAdapter &adapter, const VkCommandBuffer command,
   submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submit.commandBufferCount = 1u;
   submit.pCommandBuffers = &command;
-  const std::uint64_t submitted_ns = MonotonicNanoseconds();
+  const std::uint64_t submitted_ns =
+      collect_timing ? MonotonicNanoseconds() : 0u;
   const VkResult submitted =
       vkQueueSubmit(adapter.compute_queue, 1u, &submit, fence);
   if (submitted != VK_SUCCESS) {
@@ -258,6 +264,7 @@ bool SubmitVulkanExternal(VulkanAdapter &adapter, const VkCommandBuffer command,
       .user = user,
       .submitted_ns = submitted_ns,
       .inflight = 1u,
+      .timing = collect_timing,
       .timestamp = false,
       .external = true,
       .force_device_lost = adapter.fault_device_lost_once.exchange(

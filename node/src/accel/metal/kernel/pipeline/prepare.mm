@@ -15,6 +15,7 @@ PrepareMetalPipeline(const std::span<const BackendBatchEntry> templates,
                      PreparedPipelineStatusLayout &status,
                      const bool profile_steps, std::shared_ptr<void> &prepared,
                      PreparedPipelineMemory &memory,
+                     PreparedPipelineMemoryMeter *const memory_meter,
                      PreparedPipelineFailure &failure) {
   prepared.reset();
   memory = {};
@@ -60,6 +61,8 @@ PrepareMetalPipeline(const std::span<const BackendBatchEntry> templates,
     const rund::AccelCheck finalized = build.Finalize(prepared, memory);
     if (!finalized.ok) {
       failure = build.failure_context.failure(finalized.reason);
+    } else if (build.pipeline != nullptr) {
+      build.pipeline->memory_meter = memory_meter;
     }
     return finalized;
   }

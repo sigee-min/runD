@@ -19,12 +19,12 @@ namespace rund::node::accel::detail {
 
 // One canonical status source emits one import and one fold dispatch. These
 // constants are the exact recorded push-constant payloads for that pair; the
-// private C++ layouts and shader ABI are asserted against them in control.cpp.
+// private C++ layouts and shader ABI are asserted against them in
+// control/model.hpp.
 inline constexpr std::uint64_t VulkanPipelineCanonicalParameterBytes = 88u;
 inline constexpr std::uint64_t VulkanPipelineControlParameterBytes = 40u;
 inline constexpr std::uint64_t VulkanPipelineStatusSourceParameterBytes =
-    VulkanPipelineCanonicalParameterBytes +
-    VulkanPipelineControlParameterBytes;
+    VulkanPipelineCanonicalParameterBytes + VulkanPipelineControlParameterBytes;
 
 struct VulkanPipelineCanonicalStatus final {
   VulkanPipelineStatusSource source{};

@@ -220,7 +220,7 @@ bool Access::detail(::rund::Session &session) noexcept {
   const auto &state = ::rund::node::runtime_detail::RuntimeAccess::state(
       *session.state_->runtime);
   return state.telemetry &&
-         state.telemetry.level() == ::rund::telemetry::Level::Detail;
+         state.telemetry.level() != ::rund::telemetry::Level::Basic;
 }
 
 Prepared Access::prepare(

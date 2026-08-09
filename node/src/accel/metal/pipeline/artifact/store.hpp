@@ -1,29 +1,28 @@
 #pragma once
 
-#include "../../state.hpp"
 #include "../../../source/hash.hpp"
-#include <rund/counter.hpp>
+#include "../../state.hpp"
 #include "index.hpp"
 #include <memory>
 #include <mutex>
 #include <new>
+#include <rund/counter.hpp>
 #include <utility>
 
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
-[[nodiscard]] std::shared_ptr<void> StoreMetalMapArtifactPipeline(
-    MetalAdapter& adapter,
-    rund::kernel::LoweringArtifact artifact,
-    const std::shared_ptr<void>& pipeline) {
+[[nodiscard]] std::shared_ptr<void>
+StoreMetalMapArtifactPipeline(MetalAdapter &adapter,
+                              rund::kernel::LoweringArtifact artifact,
+                              const std::shared_ptr<void> &pipeline) {
   std::lock_guard<std::mutex> lock{adapter.mutex};
   if (pipeline == nullptr) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return {};
   }
-  const std::uint64_t source_hash =
-      SourceHash(artifact.source_text);
+  const std::uint64_t source_hash = SourceHash(artifact.source_text);
   const auto [begin, end] =
       adapter.pipeline_index->entries.equal_range(source_hash);
   for (auto entry = begin; entry != end; ++entry) {
@@ -32,10 +31,9 @@ namespace rund::node::accel::detail {
     }
     const MetalPipeline &cached = adapter.pipelines[entry->second];
     if (cached.source_hash == source_hash && cached.key == artifact.key &&
-        cached.source == artifact.source_text &&
-        cached.pipeline != nullptr) {
+        cached.source == artifact.source_text && cached.pipeline != nullptr) {
       ::rund::detail::counter::Accumulate(
-          adapter.stats.pipeline_cache_hit_count, 1u);
+          adapter.stats.runtime.run.allocations.pipeline_cache_hit_count, 1u);
       return cached.pipeline;
     }
   }
@@ -57,10 +55,11 @@ namespace rund::node::accel::detail {
     SetMetalLastError(adapter, "compute_pipeline_capacity");
     return {};
   }
-  ::rund::detail::counter::Accumulate(adapter.stats.pipeline_compile_count, 1u);
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.allocations.pipeline_compile_count, 1u);
   return pipeline;
 }
 
 #endif
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

@@ -141,7 +141,7 @@ Delta(const std::span<const std::uint32_t> ordinals) noexcept {
          stats.descriptor_pool_creations == 0u &&
          stats.descriptor_set_allocations == 0u && stats.uploaded_bytes == 0u &&
          stats.download_events == 0u && stats.downloaded_bytes == 0u &&
-         stats.pipeline.rebinding_count == 0u && stats.output_hash == 0u;
+         stats.output_hash == 0u;
 }
 
 template <std::size_t N>

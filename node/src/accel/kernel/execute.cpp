@@ -23,10 +23,10 @@ namespace {
     const std::uint64_t final_dispatch_count, const rund::AccelCheck &check) {
   const rund::RuntimeStats stats =
       ReadBackendStats(execution.context_admission.pick);
-  return EvidenceFromStats(context, execution, stats, original_dispatch_count,
-                           final_dispatch_count, false, check.reason, 0u, 0u,
-                           check.failed_batches, check.first_failed_batch,
-                           check.first_status);
+  return BuildKernelEvidence(context, execution, stats, original_dispatch_count,
+                             final_dispatch_count, false, check.reason, 0u, 0u,
+                             check.failed_batches, check.first_failed_batch,
+                             check.first_status);
 }
 
 } // namespace
@@ -34,8 +34,7 @@ namespace {
 rund::AccelEvidence
 ExecuteKernelSteps(const rund::AccelContext &context,
                    const KernelExecution &execution, const rund::AccelRun &run,
-                   const RunBinds &run_binds,
-                   const BoundResets &resets,
+                   const RunBinds &run_binds, const BoundResets &resets,
                    const PlannedStepStorage &planned_steps,
                    const std::uint64_t original_dispatch_count,
                    const std::uint64_t final_dispatch_count) {
@@ -71,20 +70,21 @@ ExecuteKernelSteps(const rund::AccelContext &context,
 
   const rund::RuntimeStats stats =
       ReadBackendStats(execution.context_admission.pick);
-  if (!stats.ok) {
-    return EvidenceFromStats(context, execution, stats, original_dispatch_count,
-                             final_dispatch_count, false, stats.reason);
+  if (!stats.outcome.ok) {
+    return BuildKernelEvidence(context, execution, stats,
+                               original_dispatch_count, final_dispatch_count,
+                               false, stats.outcome.reason);
   }
   const std::uint64_t physical_dispatch_count =
-      stats.dispatch_count == 0u ? final_dispatch_count : stats.dispatch_count;
-  const std::uint64_t internal_bytes =
-      ::rund::detail::counter::SaturatingAdd(roundtrip.internal_bytes,
-                                             backend_traffic);
-  return EvidenceFromStats(context, execution, stats, original_dispatch_count,
-                           physical_dispatch_count, true, "ok",
-                           internal_bytes, roundtrip.external_bytes,
-                           finish.failed_batches, finish.first_failed_batch,
-                           finish.first_status);
+      stats.run.work.dispatch_count == 0u ? final_dispatch_count
+                                          : stats.run.work.dispatch_count;
+  const std::uint64_t internal_bytes = ::rund::detail::counter::SaturatingAdd(
+      roundtrip.internal_bytes, backend_traffic);
+  return BuildKernelEvidence(context, execution, stats, original_dispatch_count,
+                             physical_dispatch_count, true, "ok",
+                             internal_bytes, roundtrip.external_bytes,
+                             finish.failed_batches, finish.first_failed_batch,
+                             finish.first_status);
 }
 
 } // namespace rund::node::accel::detail

@@ -300,7 +300,9 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
       capture.pipeline == VK_NULL_HANDLE || capture.layout == VK_NULL_HANDLE ||
       capture.descriptor == VK_NULL_HANDLE ||
       resources->adapter->storage_align == 0u ||
-      resources->gates.size() >= resources->gate_capacity) {
+      (!capture.replay &&
+       resources->gates.size() >= resources->gate_capacity) ||
+      (capture.replay && capture.indirect_count >= resources->gates.size())) {
     return false;
   }
   const VkDeviceSize base =
@@ -314,41 +316,60 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
   if (range == 0u || range > resources->adapter->storage_limit) {
     return false;
   }
-  try {
-    resources->gates.push_back(VulkanGateRoute{
-        .source =
-            VulkanBuffer{
-                .buffer = source,
-                .bytes = end,
-                .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-            },
-    });
-  } catch (...) {
-    backend_exception::RethrowUnlessCapacityException();
-    return false;
-  }
-  VulkanGateRoute &route = resources->gates.back();
-  if (!AcquireVulkanCollectiveDescriptorSet(*resources->adapter,
-                                            *resources->gate_pipeline, 3u,
-                                            route.descriptor)) {
-    resources->gates.pop_back();
-    return false;
-  }
-  const std::array<VulkanStorageBinding, 3u> bindings{
-      VulkanStorageBinding{&route.source, base, range},
-      VulkanStorageBindingFor(resources->arguments),
-      VulkanStorageBindingFor(resources->states),
-  };
-  if (!WriteVulkanStorageDescriptorSet(*resources->adapter, route.descriptor,
-                                       bindings)) {
-    resources->gates.pop_back();
-    return false;
+  VulkanGateRoute *route = nullptr;
+  if (capture.replay) {
+    route = &resources->gates[capture.indirect_count];
+    if (route->source.buffer != source || route->base != base ||
+        route->offset != offset) {
+      return false;
+    }
+  } else {
+    try {
+      resources->gates.push_back(VulkanGateRoute{
+          .source =
+              VulkanBuffer{
+                  .buffer = source,
+                  .bytes = end,
+                  .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+              },
+          .base = base,
+          .offset = offset,
+      });
+    } catch (...) {
+      backend_exception::RethrowUnlessCapacityException();
+      return false;
+    }
+    route = &resources->gates.back();
+    if (!AcquireVulkanCollectiveDescriptorSet(*resources->adapter,
+                                              *resources->gate_pipeline, 3u,
+                                              route->descriptor)) {
+      resources->gates.pop_back();
+      return false;
+    }
+    const std::array<VulkanStorageBinding, 3u> bindings{
+        VulkanStorageBinding{&route->source, base, range},
+        VulkanStorageBindingFor(resources->arguments),
+        VulkanStorageBindingFor(resources->states),
+    };
+    if (!WriteVulkanStorageDescriptorSet(*resources->adapter, route->descriptor,
+                                         bindings)) {
+      resources->gates.pop_back();
+      return false;
+    }
   }
   const std::size_t slot = capture.cursor++;
-  capture.mapped[slot] = {};
-  capture.original[slot] = {};
-  capture.owners[slot] = std::numeric_limits<std::uint32_t>::max();
+  if (capture.replay) {
+    if (capture.original[slot].x != 0u || capture.original[slot].y != 0u ||
+        capture.original[slot].z != 0u ||
+        capture.owners[slot] != std::numeric_limits<std::uint32_t>::max()) {
+      return false;
+    }
+  } else {
+    capture.mapped[slot] = {};
+    capture.original[slot] = {};
+    capture.owners[slot] = std::numeric_limits<std::uint32_t>::max();
+  }
   const GateParams params{
       .state = capture.owner,
       .source_word = static_cast<std::uint32_t>((offset - base) / 4u),
@@ -359,7 +380,7 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
                       resources->gate_pipeline->pipeline);
   ::vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                             resources->gate_pipeline->pipeline_layout, 0u, 1u,
-                            &route.descriptor, 0u, nullptr);
+                            &route->descriptor, 0u, nullptr);
   ::vkCmdPushConstants(command, resources->gate_pipeline->pipeline_layout,
                        VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(params),
                        &params);
@@ -375,9 +396,11 @@ void EncodeDispatchBarrier(VkCommandBuffer command) noexcept;
                          capture.push_offset, capture.push_size,
                          capture.push.data() + capture.push_offset);
   }
+  WriteVulkanDispatchTimestamp(command);
   ::vkCmdDispatchIndirect(
       command, capture.arguments,
       static_cast<VkDeviceSize>(slot * sizeof(VkDispatchIndirectCommand)));
+  WriteVulkanDispatchTimestamp(command);
   ++capture.indirect_count;
   return true;
 }

@@ -45,31 +45,31 @@ struct ReduceResources final {
   rund::AccelKernel kernel{};
 };
 
-[[nodiscard]] inline ReduceResources BuildReduceResources(
-    const rund::AccelDevice &pick, const ReduceWork &work,
-    const bool bounded) {
+[[nodiscard]] inline ReduceResources
+BuildReduceResources(const rund::AccelDevice &pick, const ReduceWork &work,
+                     const bool bounded) {
   namespace fix = node_accel_contract::primitive;
   ReduceResources out{};
   out.context = rund::node::accel::OpenAccel(pick);
-  if (!out.context.check.ok) return out;
+  if (!out.context.check.ok)
+    return out;
 
   out.values = rund::node::accel::CreateAccelBuffer(
       out.context,
-      fix::BufferDesc(rund::BufferUsage::ReadOnly,
-                      sizeof(rund::kernel::u32), work.values.size()));
+      fix::BufferDesc(rund::BufferUsage::ReadOnly, sizeof(rund::kernel::u32),
+                      work.values.size()));
   out.indices = rund::node::accel::CreateAccelBuffer(
       out.context,
-      fix::BufferDesc(rund::BufferUsage::ReadOnly,
-                      sizeof(rund::kernel::u32), work.invalid_indices.size()));
+      fix::BufferDesc(rund::BufferUsage::ReadOnly, sizeof(rund::kernel::u32),
+                      work.invalid_indices.size()));
   out.output = rund::node::accel::CreateAccelBuffer(
       out.context,
-      fix::BufferDesc(rund::BufferUsage::ReadWrite,
-                      sizeof(rund::kernel::u32), work.output_sentinel.size()));
+      fix::BufferDesc(rund::BufferUsage::ReadWrite, sizeof(rund::kernel::u32),
+                      work.output_sentinel.size()));
   if (bounded) {
     out.count = rund::node::accel::CreateAccelBuffer(
-        out.context,
-        fix::BufferDesc(rund::BufferUsage::ReadOnly,
-                        sizeof(rund::kernel::u32), 1u));
+        out.context, fix::BufferDesc(rund::BufferUsage::ReadOnly,
+                                     sizeof(rund::kernel::u32), 1u));
   }
   const auto &indices = bounded ? work.valid_indices : work.invalid_indices;
   if (!out.values.check.ok || !out.indices.check.ok || !out.output.check.ok ||
@@ -77,18 +77,17 @@ struct ReduceResources final {
       !rund::node::accel::UploadAccelBuffer(
            out.context, out.values, work.values.data(), sizeof(work.values))
            .ok ||
-      !rund::node::accel::UploadAccelBuffer(
-           out.context, out.indices, indices.data(), sizeof(indices))
+      !rund::node::accel::UploadAccelBuffer(out.context, out.indices,
+                                            indices.data(), sizeof(indices))
            .ok ||
-      !rund::node::accel::UploadAccelBuffer(
-           out.context, out.output, work.output_sentinel.data(),
-           sizeof(work.output_sentinel))
+      !rund::node::accel::UploadAccelBuffer(out.context, out.output,
+                                            work.output_sentinel.data(),
+                                            sizeof(work.output_sentinel))
            .ok ||
-      (bounded &&
-       !rund::node::accel::UploadAccelBuffer(
-            out.context, out.count, &work.overflowing_count,
-            sizeof(work.overflowing_count))
-            .ok)) {
+      (bounded && !rund::node::accel::UploadAccelBuffer(
+                       out.context, out.count, &work.overflowing_count,
+                       sizeof(work.overflowing_count))
+                       .ok)) {
     return out;
   }
 
@@ -97,10 +96,10 @@ struct ReduceResources final {
                                 .role = rund::kernel::BufferRole::Read},
       rund::AccelGraphBufferRef{.buffer = &out.indices,
                                 .role = rund::kernel::BufferRole::Read},
-      rund::AccelGraphBufferRef{
-          .buffer = bounded ? &out.count : &out.output,
-          .role = bounded ? rund::kernel::BufferRole::Read
-                          : rund::kernel::BufferRole::Write},
+      rund::AccelGraphBufferRef{.buffer = bounded ? &out.count : &out.output,
+                                .role = bounded
+                                            ? rund::kernel::BufferRole::Read
+                                            : rund::kernel::BufferRole::Write},
       rund::AccelGraphBufferRef{.buffer = &out.output,
                                 .role = rund::kernel::BufferRole::Write},
   };
@@ -109,15 +108,12 @@ struct ReduceResources final {
       .domain = rund::kernel::ComputeDomain::U32,
       .element_count = work.values.size(),
       .output_count = work.output_sentinel.size(),
-      .count_source = bounded
-                          ? rund::kernel::ComputeCountSource::BufferU32
-                          : rund::kernel::ComputeCountSource::Descriptor,
+      .count_source = bounded ? rund::kernel::ComputeCountSource::BufferU32
+                              : rund::kernel::ComputeCountSource::Descriptor,
   };
   out.plan = rund::kernel::PlanScatterReduce(desc);
-  const std::array<rund::AccelGraphNode, 1u> nodes{
-      rund::AccelScatterReduce(refs.data(), bounded ? refs.size()
-                                                   : refs.size() - 1u,
-                               desc)};
+  const std::array<rund::AccelGraphNode, 1u> nodes{rund::AccelScatterReduce(
+      refs.data(), bounded ? refs.size() : refs.size() - 1u, desc)};
   out.kernel = rund::node::accel::CompileAccelKernel(
       out.context, rund::AccelGraph{
                        .nodes = nodes.data(),
@@ -135,19 +131,19 @@ ReduceBindings(const ReduceResources &resources, const bool bounded) {
                             .role = rund::kernel::BufferRole::Read},
       rund::AccelRunBinding{.buffer = &resources.indices,
                             .role = rund::kernel::BufferRole::Read},
-      rund::AccelRunBinding{
-          .buffer = bounded ? &resources.count : &resources.output,
-          .role = bounded ? rund::kernel::BufferRole::Read
-                          : rund::kernel::BufferRole::Write},
+      rund::AccelRunBinding{.buffer =
+                                bounded ? &resources.count : &resources.output,
+                            .role = bounded ? rund::kernel::BufferRole::Read
+                                            : rund::kernel::BufferRole::Write},
       rund::AccelRunBinding{.buffer = &resources.output,
                             .role = rund::kernel::BufferRole::Write},
   };
 }
 
-[[nodiscard]] inline bool ReferenceScatterReduceFailuresAreAtomic(
-    const ReduceWork &work) {
-  const auto exact_plan = rund::kernel::PlanScatterReduce(
-      rund::kernel::ScatterReduceDesc{
+[[nodiscard]] inline bool
+ReferenceScatterReduceFailuresAreAtomic(const ReduceWork &work) {
+  const auto exact_plan =
+      rund::kernel::PlanScatterReduce(rund::kernel::ScatterReduceDesc{
           .op = rund::kernel::ScatterReduceOp::Sum,
           .domain = rund::kernel::ComputeDomain::U32,
           .element_count = work.values.size(),
@@ -171,9 +167,9 @@ ReduceBindings(const ReduceResources &resources, const bool bounded) {
          count_output == work.output_sentinel;
 }
 
-[[nodiscard]] inline bool RunScatterReduceFailure(
-    const rund::AccelDevice &pick, const ReduceWork &work,
-    const bool bounded) {
+[[nodiscard]] inline bool RunScatterReduceFailure(const rund::AccelDevice &pick,
+                                                  const ReduceWork &work,
+                                                  const bool bounded) {
   namespace fix = node_accel_contract::primitive;
   const ReduceResources resources = BuildReduceResources(pick, work, bounded);
   const auto bindings = ReduceBindings(resources, bounded);
@@ -190,8 +186,8 @@ ReduceBindings(const ReduceResources &resources, const bool bounded) {
               : "compute_scatter_reduce_index_out_of_range";
   if (!resources.plan.ok || !resources.kernel.check.ok ||
       !fix::EvidenceReason(evidence, reason) ||
-      evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
   std::array<rund::kernel::u32, 2u> observed{};
@@ -200,9 +196,10 @@ ReduceBindings(const ReduceResources &resources, const bool bounded) {
   return downloaded.ok && observed == work.output_sentinel;
 }
 
-[[nodiscard]] inline bool ScatterReduceFailuresAreAtomic(
-    const rund::AccelDevice &pick) {
-  if (!pick.check.ok) return false;
+[[nodiscard]] inline bool
+ScatterReduceFailuresAreAtomic(const rund::AccelDevice &pick) {
+  if (!pick.check.ok)
+    return false;
   const ReduceWork work{};
   return ReferenceScatterReduceFailuresAreAtomic(work) &&
          RunScatterReduceFailure(pick, work, false) &&
@@ -213,13 +210,13 @@ template <class T, std::size_t N, std::size_t O>
 [[nodiscard]] inline bool RunScatterReduceSuccess(
     const rund::AccelDevice &pick, const std::array<T, N> &values,
     const std::array<rund::kernel::u32, N> &indices,
-    const std::array<T, O> &expected,
-    const rund::kernel::ScatterReduceOp op,
+    const std::array<T, O> &expected, const rund::kernel::ScatterReduceOp op,
     const rund::kernel::ComputeDomain domain,
     const rund::kernel::ComputeFixedFormat fixed_format = {}) {
   namespace fix = node_accel_contract::primitive;
   const rund::AccelContext context = rund::node::accel::OpenAccel(pick);
-  if (!context.check.ok) return false;
+  if (!context.check.ok)
+    return false;
   const rund::AccelBuffer input = rund::node::accel::CreateAccelBuffer(
       context, fix::BufferDesc(rund::BufferUsage::ReadOnly, sizeof(T), N));
   const rund::AccelBuffer targets = rund::node::accel::CreateAccelBuffer(
@@ -277,16 +274,15 @@ template <class T, std::size_t N, std::size_t O>
                      .fresh_evidence = true});
   std::array<T, O> observed{};
   return rund::kernel::PlanScatterReduce(desc).ok && kernel.check.ok &&
-         evidence.ok &&
-         rund::node::accel::DownloadAccelBuffer(context, output,
-                                                observed.data(),
-                                                sizeof(observed))
+         evidence.outcome.ok &&
+         rund::node::accel::DownloadAccelBuffer(
+             context, output, observed.data(), sizeof(observed))
              .ok &&
          observed == expected;
 }
 
-[[nodiscard]] inline bool ScatterReduceParallelModes(
-    const rund::AccelDevice &pick) {
+[[nodiscard]] inline bool
+ScatterReduceParallelModes(const rund::AccelDevice &pick) {
   using rund::kernel::ComputeDomain;
   using rund::kernel::ScatterReduceOp;
   constexpr std::array<rund::kernel::u32, 4u> indices{0u, 0u, 1u, 1u};
@@ -301,10 +297,8 @@ template <class T, std::size_t N, std::size_t O>
   constexpr std::array<rund::kernel::u32, 2u> unsigned_max{7u, 3u};
   constexpr std::array<rund::kernel::i32, 4u> fixed_values{
       -5 * 65536, 7 * 65536, -2 * 65536, 3 * 65536};
-  constexpr std::array<rund::kernel::i32, 2u> fixed_min{-5 * 65536,
-                                                        -2 * 65536};
-  constexpr std::array<rund::kernel::i32, 2u> fixed_max{7 * 65536,
-                                                        3 * 65536};
+  constexpr std::array<rund::kernel::i32, 2u> fixed_min{-5 * 65536, -2 * 65536};
+  constexpr std::array<rund::kernel::i32, 2u> fixed_max{7 * 65536, 3 * 65536};
   constexpr rund::kernel::ComputeFixedFormat fixed{
       .integer_bits = 16u,
       .fraction_bits = 16u,

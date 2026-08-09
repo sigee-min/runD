@@ -66,9 +66,6 @@ template <std::size_t Max, std::size_t Width>
       .compile();
 }
 
-// rebinding_count is the post-prepare binding-mutation diagnostic. The
-// compute.window contract's frozen owner/View snapshot, not this zero alone,
-// proves that prepared bindings remain identical across executions.
 [[nodiscard]] bool SerialStepEvidence(const Backend backend,
                                       const Stats &stats) noexcept {
   using ::rund::compute::PipelineStats;
@@ -77,8 +74,7 @@ template <std::size_t Max, std::size_t Width>
          stats.pipeline.verified_step_count == 1u &&
          stats.pipeline.failed_step_index == PipelineStats::no_failed_step &&
          stats.pipeline.sealed_repetition_count == 1u &&
-         stats.pipeline.coalesced_repetition_count == 0u &&
-         stats.pipeline.rebinding_count == 0u;
+         stats.pipeline.coalesced_repetition_count == 0u;
 }
 
 [[nodiscard]] bool NestedEvidence(const Backend backend, const Stats &stats,
@@ -104,7 +100,6 @@ template <std::size_t Max, std::size_t Width>
          stats.pipeline.skipped_inner_iteration_count == 0u &&
          stats.pipeline.prepared_template_count == Templates &&
          stats.pipeline.prepared_command_count == Commands &&
-         stats.pipeline.rebinding_count == 0u &&
          plan.outer_window_count == Outer && plan.tile_capacity == Tile &&
          plan.inner_iteration_count == Inner &&
          plan.prepared_template_count == Templates &&
@@ -142,10 +137,7 @@ void PrintNestedRepeatColumns() {
              "repeated_warm_download_events,sealed_warm_download_events,"
              "serial_warm_downloaded_bytes,nested_warm_downloaded_bytes,"
              "repeated_warm_downloaded_bytes,sealed_warm_downloaded_bytes,"
-             "serial_warm_binding_mutation_count,"
-             "nested_warm_binding_mutation_count,"
-             "repeated_warm_binding_mutation_count,"
-             "sealed_warm_binding_mutation_count,serial_fallback,"
+             "serial_fallback,"
              "nested_fallback,repeated_fallback,sealed_fallback,serial_result,"
              "nested_result,repeated_result,sealed_result,result_parity,"
              "warm_zero\n",
@@ -304,10 +296,6 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
   WarmCounters nested_warm{};
   WarmCounters repeated_warm{};
   WarmCounters sealed_warm{};
-  std::uint64_t serial_warm_binding_mutation_count{};
-  std::uint64_t nested_warm_binding_mutation_count{};
-  std::uint64_t repeated_warm_binding_mutation_count{};
-  std::uint64_t sealed_warm_binding_mutation_count{};
   ExecutionCounters serial_counters{};
   ExecutionCounters nested_counters{};
   ExecutionCounters repeated_counters{};
@@ -356,8 +344,6 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
         ::rund::detail::counter::Accumulate(counters.dispatches,
                                             stats.dispatches);
         ObserveWarm(serial_warm, stats);
-        ::rund::detail::counter::Accumulate(serial_warm_binding_mutation_count,
-                                            stats.pipeline.rebinding_count);
       }
     }
     const auto end = Clock::now();
@@ -396,7 +382,7 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
           "outer_failed=%llu inner_failed=%llu phase=%u outer=%llu/%llu "
           "inner=%llu/%llu templates=%llu commands=%llu controls=%llu "
           "plan_outer=%llu plan_tile=%llu plan_inner=%llu "
-          "plan_templates=%llu plan_commands=%llu rebind=%llu\n",
+          "plan_templates=%llu plan_commands=%llu\n",
           Name(backend),
           static_cast<unsigned long long>(nested_stats.command_submits),
           static_cast<unsigned long long>(nested_stats.dispatches),
@@ -428,9 +414,7 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
           static_cast<unsigned long long>(nested_plan->tile_capacity),
           static_cast<unsigned long long>(nested_plan->inner_iteration_count),
           static_cast<unsigned long long>(nested_plan->prepared_template_count),
-          static_cast<unsigned long long>(nested_plan->prepared_command_count),
-          static_cast<unsigned long long>(
-              nested_stats.pipeline.rebinding_count));
+          static_cast<unsigned long long>(nested_plan->prepared_command_count));
       return false;
     }
     nested_counters = {
@@ -438,8 +422,6 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
         .dispatches = nested_stats.dispatches,
     };
     ObserveWarm(nested_warm, nested_stats);
-    ::rund::detail::counter::Accumulate(nested_warm_binding_mutation_count,
-                                        nested_stats.pipeline.rebinding_count);
     if (timings != nullptr) {
       timings->push_back(
           std::chrono::duration<double, std::micro>(end - begin).count());
@@ -464,9 +446,6 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
         return false;
       }
       ObserveWarm(repeated_warm, repeated_stats);
-      ::rund::detail::counter::Accumulate(
-          repeated_warm_binding_mutation_count,
-          repeated_stats.pipeline.rebinding_count);
       return true;
     };
     const std::uint64_t generation_before = repeated->generation();
@@ -549,8 +528,6 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
         .dispatches = sealed_stats.dispatches,
     };
     ObserveWarm(sealed_warm, sealed_stats);
-    ::rund::detail::counter::Accumulate(sealed_warm_binding_mutation_count,
-                                        sealed_stats.pipeline.rebinding_count);
     if (timings != nullptr) {
       timings->push_back(
           std::chrono::duration<double, std::micro>(end - begin).count());
@@ -673,11 +650,7 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
   constexpr bool repeated_fallback = false;
   constexpr bool sealed_fallback = false;
   const bool warm_zero = serial_warm.zero() && nested_warm.zero() &&
-                         repeated_warm.zero() && sealed_warm.zero() &&
-                         serial_warm_binding_mutation_count == 0u &&
-                         nested_warm_binding_mutation_count == 0u &&
-                         repeated_warm_binding_mutation_count == 0u &&
-                         sealed_warm_binding_mutation_count == 0u;
+                         repeated_warm.zero() && sealed_warm.zero();
   const bool contract =
       balanced && parity && warm_zero && !serial_fallback && !nested_fallback &&
       !repeated_fallback && !sealed_fallback &&
@@ -749,16 +722,11 @@ bool MeasureNestedRepeat(const Backend backend, const std::size_t samples) {
               static_cast<unsigned long long>(nested_warm.downloaded_bytes),
               static_cast<unsigned long long>(repeated_warm.downloaded_bytes),
               static_cast<unsigned long long>(sealed_warm.downloaded_bytes));
-  std::printf(
-      ",%llu,%llu,%llu,%llu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
-      static_cast<unsigned long long>(serial_warm_binding_mutation_count),
-      static_cast<unsigned long long>(nested_warm_binding_mutation_count),
-      static_cast<unsigned long long>(repeated_warm_binding_mutation_count),
-      static_cast<unsigned long long>(sealed_warm_binding_mutation_count),
-      serial_fallback ? 1u : 0u, nested_fallback ? 1u : 0u,
-      repeated_fallback ? 1u : 0u, sealed_fallback ? 1u : 0u, serial_result,
-      nested_value[0], repeated_value[0], sealed_value[0], parity ? 1u : 0u,
-      warm_zero ? 1u : 0u);
+  std::printf(",%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", serial_fallback ? 1u : 0u,
+              nested_fallback ? 1u : 0u, repeated_fallback ? 1u : 0u,
+              sealed_fallback ? 1u : 0u, serial_result, nested_value[0],
+              repeated_value[0], sealed_value[0], parity ? 1u : 0u,
+              warm_zero ? 1u : 0u);
   return contract;
 }
 

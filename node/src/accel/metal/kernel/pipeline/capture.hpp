@@ -62,6 +62,7 @@ enum class MetalGrid : std::uint8_t {
   None,
   Groups,
   Threads,
+  Indirect,
 };
 
 struct MetalBinding final {
@@ -87,13 +88,16 @@ struct MetalCommandBinding final {
 
 struct MetalCommand final {
   id<MTLComputePipelineState> pipeline = nil;
+  id<MTLBuffer> indirect = nil;
   std::size_t binding_begin = 0u;
   std::size_t binding_count = 0u;
   MTLSize grid = MTLSizeMake(0u, 0u, 0u);
   MTLSize threads = MTLSizeMake(0u, 0u, 0u);
+  NSUInteger indirect_offset = 0u;
   MetalGrid kind = MetalGrid::None;
   bool barrier = false;
   bool control = false;
+  bool trace = false;
   std::uint32_t owner{std::numeric_limits<std::uint32_t>::max()};
 };
 
@@ -138,7 +142,7 @@ CheckMetalPipelineCapture(const MetalCapture &capture) noexcept {
 
 static_assert(sizeof(MetalBinding) == 32u);
 static_assert(sizeof(MetalCommandBinding) == 32u);
-static_assert(sizeof(MetalCommand) == 80u);
+static_assert(sizeof(MetalCommand) == 96u);
 
 struct MetalWork final {
   std::uint64_t workgroup_count{};
@@ -171,6 +175,7 @@ MeasureMetalWork(std::span<const MetalCommand> commands) noexcept;
                           indirectBufferOffset:(NSUInteger)offset
                          threadsPerThreadgroup:(MTLSize)threads;
 - (void)memoryBarrierWithScope:(MTLBarrierScope)scope;
+- (void)endEncoding;
 @end
 
 #endif

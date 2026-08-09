@@ -38,8 +38,9 @@ CompactHashMatchesCpuReference(const rund::AccelDevice &pick,
     return {};
   }
   const rund::AccelEvidence evidence = compact::Run(ctx, flags.size());
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return {};
   }
   std::array<rund::kernel::u32, 8u> downloaded{};

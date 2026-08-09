@@ -11,6 +11,7 @@
 #include <rund/compute/program.hpp>
 #include <rund/compute/stats.hpp>
 #include <rund/compute/status.hpp>
+#include <rund/compute/telemetry.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -178,6 +179,10 @@ valid_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] bool
 poisoned_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
+begin_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Status
+end_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Status
 run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Stats
 pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept;
@@ -191,6 +196,8 @@ pipeline_memory_snapshot(const std::shared_ptr<PipelineState> &state,
 [[nodiscard]] Result<PipelineProfileSnapshot>
 pipeline_profile(const std::shared_ptr<PipelineState> &state,
                  std::span<PipelineStepProfile> steps) noexcept;
+[[nodiscard]] Result<telemetry::Profile>
+pipeline_profile(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] graph::Fingerprint
 pipeline_fingerprint(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] std::uint64_t
@@ -247,6 +254,10 @@ read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
                   const std::shared_ptr<BufferState> &buffer, Type type,
                   FixedFormat format, void *data, std::size_t bytes,
                   std::size_t count) noexcept;
+[[nodiscard]] Status
+write_pipeline_raw(const std::shared_ptr<PipelineState> &state,
+                   const std::shared_ptr<BufferState> &buffer, HostView input,
+                   WriteStats &writes) noexcept;
 
 } // namespace detail
 
@@ -360,6 +371,12 @@ public:
   [[nodiscard]] bool poisoned() const noexcept {
     return detail::poisoned_pipeline(state_);
   }
+  [[nodiscard]] Status begin_samples() noexcept {
+    return detail::begin_pipeline_samples(state_);
+  }
+  [[nodiscard]] Status end_samples() noexcept {
+    return detail::end_pipeline_samples(state_);
+  }
   [[nodiscard]] Status run() noexcept { return detail::run_pipeline(state_); }
   [[nodiscard]] Stats stats() const noexcept {
     return detail::pipeline_stats(state_);
@@ -380,6 +397,9 @@ public:
   [[nodiscard]] Result<PipelineProfileSnapshot>
   profile(const std::span<PipelineStepProfile> steps) const noexcept {
     return detail::pipeline_profile(state_, steps);
+  }
+  [[nodiscard]] Result<telemetry::Profile> profile() const noexcept {
+    return detail::pipeline_profile(state_);
   }
   [[nodiscard]] graph::Fingerprint fingerprint() const noexcept {
     return detail::pipeline_fingerprint(state_);
@@ -445,6 +465,7 @@ public:
 
 private:
   friend class PipelineBuilder;
+  friend class HostIteration;
   friend class ::rund::Session;
   friend struct detail::PipelineStateAccess;
   explicit Pipeline(std::shared_ptr<detail::PipelineState> state) noexcept
@@ -467,6 +488,9 @@ public:
   }
   [[nodiscard]] bool has_next() const noexcept { return completed_ < total_; }
   [[nodiscard]] Stats stats() const noexcept { return pipeline_->stats(); }
+  [[nodiscard]] Result<telemetry::Profile> profile() const noexcept {
+    return pipeline_->profile();
+  }
   [[nodiscard]] WriteStats write_stats() const noexcept { return writes_; }
 
   template <class T>
@@ -483,8 +507,8 @@ public:
     if (!has_next()) {
       return Status::fail(Reason::AlreadyCompleted);
     }
-    return detail::write_buffer(
-        detail::BufferAccess::state(buffer),
+    return detail::write_pipeline_raw(
+        pipeline_->state_, detail::BufferAccess::state(buffer),
         detail::HostView{input.data(), input.size(), detail::type<T>()},
         writes_);
   }

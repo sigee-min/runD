@@ -33,11 +33,11 @@ template <typename T>
     return false;
   }
   const run::RepeatedRun repeated = run::RunTwice(resources, values.size());
-  if (!repeated.first.ok || !repeated.second.ok ||
-      repeated.first.host_to_device_bytes != 0u ||
-      repeated.first.device_to_host_bytes != 0u ||
-      repeated.second.host_to_device_bytes != 0u ||
-      repeated.second.device_to_host_bytes != 0u) {
+  if (!repeated.first.outcome.ok || !repeated.second.outcome.ok ||
+      repeated.first.run.transfer.host_to_device_bytes != 0u ||
+      repeated.first.run.transfer.device_to_host_bytes != 0u ||
+      repeated.second.run.transfer.host_to_device_bytes != 0u ||
+      repeated.second.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
 

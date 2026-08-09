@@ -42,8 +42,8 @@ namespace rund_node_test_pipeline {
          stats.pipeline_cache_evictions == 0u &&
          stats.descriptor_pool_creations == 0u &&
          stats.descriptor_set_allocations == 0u && stats.uploaded_bytes == 0u &&
-         stats.download_events == 0u && stats.downloaded_bytes == 0u &&
-         stats.internal_roundtrip_bytes == 0u &&
+         stats.host_write_bytes == 0u && stats.download_events == 0u &&
+         stats.downloaded_bytes == 0u && stats.internal_roundtrip_bytes == 0u &&
          stats.external_roundtrip_bytes == 0u && stats.output_hash == 0u;
 }
 
@@ -158,11 +158,18 @@ SameControlStats(const rund::compute::ControlStats &left,
          left.download_events == right.download_events &&
          left.dispatches == right.dispatches &&
          left.command_submits == right.command_submits &&
+         left.transfer_submissions.host_to_device ==
+             right.transfer_submissions.host_to_device &&
+         left.transfer_submissions.device_to_host ==
+             right.transfer_submissions.device_to_host &&
+         left.transfer_submissions.device_to_device ==
+             right.transfer_submissions.device_to_device &&
          left.command_capacity == right.command_capacity &&
          left.command_inflight_peak == right.command_inflight_peak &&
          left.command_capacity_rejections ==
              right.command_capacity_rejections &&
          left.uploaded_bytes == right.uploaded_bytes &&
+         left.host_write_bytes == right.host_write_bytes &&
          left.downloaded_bytes == right.downloaded_bytes &&
          left.pipeline_cache_hits == right.pipeline_cache_hits &&
          left.pipeline_cache_evictions == right.pipeline_cache_evictions &&

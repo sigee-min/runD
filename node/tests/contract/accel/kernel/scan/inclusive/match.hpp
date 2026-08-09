@@ -38,26 +38,30 @@ template <typename T, std::size_t N>
     return false;
   }
   const auto bindings = scan::Bindings(resources);
-  const rund::AccelEvidence evidence = rund::node::accel::RunAccelKernel(
-      resources.context, resources.kernel,
-      rund::AccelRun{.bindings = bindings.data(),
-                     .binding_count = bindings.size(),
-                     .tile_count = input.size(),
-                     .fresh_evidence = true,
-});
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  const rund::AccelEvidence evidence =
+      rund::node::accel::RunAccelKernel(resources.context, resources.kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = input.size(),
+                                            .fresh_evidence = true,
+                                        });
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     std::fprintf(
         stderr,
         "inclusive scan run: ok=%d reason=%s upload=%llu download=%llu\n",
-        evidence.ok, evidence.reason,
-        static_cast<unsigned long long>(evidence.host_to_device_bytes),
-        static_cast<unsigned long long>(evidence.device_to_host_bytes));
+        evidence.outcome.ok, evidence.outcome.reason,
+        static_cast<unsigned long long>(
+            evidence.run.transfer.host_to_device_bytes),
+        static_cast<unsigned long long>(
+            evidence.run.transfer.device_to_host_bytes));
     return false;
   }
   if (counters != nullptr) {
-    counters->dispatch_count = evidence.dispatch_count;
-    counters->command_submit_count = evidence.command_submit_count;
+    counters->dispatch_count = evidence.run.work.dispatch_count;
+    counters->command_submit_count = evidence.run.work.command_submit_count;
   }
   std::array<T, N> downloaded{};
   const rund::AccelCheck download = rund::node::accel::DownloadAccelBuffer(

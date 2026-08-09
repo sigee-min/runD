@@ -11,6 +11,7 @@
 
 #include <rund/session/trace.hpp>
 #include <rund/task/handle/ref.hpp>
+#include <rund/telemetry/event.hpp>
 
 #include <atomic>
 #include <condition_variable>
@@ -158,7 +159,7 @@ struct ComputeHostState final {
   using Signal = void (*)(void *, ::rund::TraceEvent,
                           ::rund::TraceCode) noexcept;
   using Emit = void (*)(void *, const compute::Status &,
-                        const compute::Stats &) noexcept;
+                        const compute::telemetry::Profile &) noexcept;
   using TaskControl =
       void (*)(const std::shared_ptr<ComputeHostState> &) noexcept;
   using CompileControl =
@@ -173,6 +174,7 @@ struct ComputeHostState final {
   kernel::WorkerBackend async_worker_backend{};
   kernel::u32 workers{};
   std::uint32_t task_capacity{};
+  ::rund::telemetry::Level telemetry_level{::rund::telemetry::Level::Basic};
   compute::Compile compile_resources{};
   std::shared_ptr<compute::detail::CompileService> compile_service{};
   std::vector<kernel::u32> worker_capacity{};

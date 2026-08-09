@@ -85,15 +85,17 @@ namespace node_accel_contract::fusion {
                                             .tile_count = inputs.host.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.original_operation_count != 3u ||
-      evidence.fused_operation_count != 3u ||
-      evidence.original_dispatch_count != 3u ||
-      evidence.final_dispatch_count != 3u || evidence.dispatch_count != 3u ||
-      evidence.internal_producer_consumer_roundtrip_bytes !=
+  if (!evidence.outcome.ok ||
+      evidence.run.work.original_operation_count != 3u ||
+      evidence.run.work.fused_operation_count != 3u ||
+      evidence.run.work.original_dispatch_count != 3u ||
+      evidence.run.work.final_dispatch_count != 3u ||
+      evidence.run.work.dispatch_count != 3u ||
+      evidence.run.transfer.internal_producer_consumer_roundtrip_bytes !=
           inputs.host.size() * sizeof(rund::kernel::i32) * 4u ||
-      evidence.external_producer_consumer_roundtrip_bytes != 0u ||
-      evidence.fusion_rejection_count != 1u ||
-      std::string_view{evidence.fusion_reason} !=
+      evidence.run.transfer.external_producer_consumer_roundtrip_bytes != 0u ||
+      evidence.run.work.fusion_rejection_count != 1u ||
+      std::string_view{evidence.run.work.fusion_reason} !=
           "compute_fusion_dependency_conflict") {
     return false;
   }

@@ -145,7 +145,8 @@ rund::RuntimeStats Stats(const rund::AccelDevice &pick) {
   return ReadVulkanRuntimeStats(pick);
 #else
   (void)pick;
-  return rund::RuntimeStats{.reason = "accel_runtime_stats_unavailable"};
+  return rund::RuntimeStats{
+      .outcome = {.reason = "accel_runtime_stats_unavailable"}};
 #endif
 }
 
@@ -193,6 +194,20 @@ bool InjectDeviceLostOnce(const rund::AccelDevice &pick) noexcept {
 #endif
 }
 
+bool InjectTraceUnavailableOnce(const rund::AccelDevice &pick) noexcept {
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  VulkanAdapter *const adapter = CheckedVulkanAdapter(pick);
+  if (adapter == nullptr) {
+    return false;
+  }
+  adapter->fault_trace_unavailable_once.store(true, std::memory_order_relaxed);
+  return true;
+#else
+  (void)pick;
+  return false;
+#endif
+}
+
 const BackendOps Operations{
     .api = rund::AccelApi::Vulkan,
     .resident = true,
@@ -225,6 +240,7 @@ const BackendOps Operations{
     .submit_prepared_pipeline = SubmitPreparedVulkanPipeline,
     .submit_prepared = SubmitPreparedVulkanKernel,
     .inject_device_lost_once = InjectDeviceLostOnce,
+    .inject_trace_unavailable_once = InjectTraceUnavailableOnce,
 };
 
 } // namespace

@@ -121,8 +121,9 @@ template <typename T, std::size_t Count>
                                             .tile_count = input.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return match_detail::Fail("run", match_detail::BackendLastError(pick));
   }
   std::array<T, Count> downloaded{};

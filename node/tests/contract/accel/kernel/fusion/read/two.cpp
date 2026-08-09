@@ -68,8 +68,8 @@ RunTwoReadCase(const rund::AccelContext &context,
                                             .fresh_evidence = true,
                                         });
   std::array<rund::kernel::i32, 8u> download{};
-  return evidence.ok && evidence.dispatch_count == 1u &&
-         evidence.device_to_host_bytes == 0u &&
+  return evidence.outcome.ok && evidence.run.work.dispatch_count == 1u &&
+         evidence.run.transfer.device_to_host_bytes == 0u &&
          rund::node::accel::DownloadAccelBuffer(
              context, output, download.data(), sizeof(download))
              .ok &&

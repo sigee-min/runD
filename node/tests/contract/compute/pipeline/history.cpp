@@ -169,9 +169,11 @@ ExpectedHistory(const std::array<std::int32_t, Count> &seed) noexcept {
       return 8;
     }
   }
-  if (backend != Backend::Cpu && (strided->stats().dispatches != 1u ||
-                                  strided->stats().command_submits !=
-                                      (backend == Backend::Vulkan ? 2u : 1u))) {
+  if (backend != Backend::Cpu &&
+      (strided->stats().dispatches != 1u ||
+       strided->stats().command_submits != 1u ||
+       strided->stats().transfer_submissions.device_to_host !=
+           (backend == Backend::Vulkan ? 1u : 0u))) {
     return 9;
   }
 

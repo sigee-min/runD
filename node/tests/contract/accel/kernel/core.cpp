@@ -2,6 +2,7 @@
 #include <accel/device.hpp>
 
 #include "../backend/run/local.hpp"
+#include "authority/run.hpp"
 #include "cpu/local.hpp"
 #include "cpu/segmented/reduce/backend.hpp"
 #include "cpu/segmented/scan/backend.hpp"
@@ -39,7 +40,6 @@ namespace node_accel_contract {
 [[nodiscard]] bool MapRecurrenceSourceContract();
 [[nodiscard]] bool BackendParameterModelsMatchSources();
 [[nodiscard]] bool ResetModelContract();
-[[nodiscard]] bool AuthorityContract();
 [[nodiscard]] bool MetalTemplateMemoryContract();
 [[nodiscard]] bool MetalIcbCalibrationContract();
 

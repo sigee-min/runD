@@ -34,8 +34,9 @@ namespace {
       vulkan, buffer, output.data(), sizeof(output));
   const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(vulkan);
   return buffer.check.ok && upload.ok && download.ok && input == output &&
-         stats.ok && stats.host_to_device_bytes == sizeof(input) &&
-         stats.device_to_host_bytes == sizeof(output);
+         stats.outcome.ok &&
+         stats.run.transfer.host_to_device_bytes == sizeof(input) &&
+         stats.run.transfer.device_to_host_bytes == sizeof(output);
 }
 
 } // namespace
@@ -62,8 +63,8 @@ bool PublicBufferApiRejectsUnavailableBackends() {
 
   const rund::RuntimeStats fake_stats =
       rund::node::accel::ReadRuntimeStats(fake);
-  return !fake_stats.ok &&
-         std::string_view{fake_stats.reason} ==
+  return !fake_stats.outcome.ok &&
+         std::string_view{fake_stats.outcome.reason} ==
              "accel_buffer_backend_unavailable" &&
          VulkanRoundTripsWhenAvailable() &&
          fix::HighResidentIdsRoundTripAcrossBackends();

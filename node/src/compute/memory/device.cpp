@@ -7,17 +7,21 @@ MemoryStats device_memory(const std::shared_ptr<DeviceState> &state) noexcept {
   if (state == nullptr) {
     return {};
   }
-  MemoryStats stats{
-      .backend = state->backend,
-      .scope = MemoryScope::Backend,
-      .host = meter_memory(state->memory.host),
-      .device = meter_memory(state->memory.device),
-      .transfer = meter_memory(state->memory.transfer),
-  };
+  MemoryStats stats{};
+  {
+    std::lock_guard lock{state->memory.gate};
+    stats = MemoryStats{
+        .backend = state->backend,
+        .scope = MemoryScope::Backend,
+        .host = allocation_meter_memory(state->memory.host),
+        .resident = allocation_meter_memory(state->memory.logical),
+        .device = allocation_meter_memory(state->memory.device),
+        .transfer = traffic_meter_memory(state->memory.transfer),
+    };
+  }
   const AccelDeviceState *const accel = accel_device(*state);
   if (accel != nullptr) {
     stats.device.budget = accel->pick.caps.device_bytes;
-    stats.transfer.budget = accel->pick.caps.device_bytes;
     if (state->ops != nullptr && state->ops->device_staging != nullptr) {
       stats.staging = state->ops->device_staging(*state);
     }
@@ -58,7 +62,7 @@ device_memory_snapshot(const std::shared_ptr<DeviceState> &state,
   if (state == nullptr) {
     return writer.finish();
   }
-  writer.add(MemoryCategory::Host, MemoryUse::Metadata, 0u, stats.host);
+  writer.add(MemoryCategory::Host, MemoryUse::Internal, 0u, stats.host);
   writer.add(MemoryCategory::Frame, MemoryUse::Coordinator, 0u, stats.frame);
   writer.add(MemoryCategory::Tile, MemoryUse::Scratch, 0u, stats.tile);
   writer.add(MemoryCategory::Resident, MemoryUse::Internal, 0u, stats.resident);

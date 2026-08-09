@@ -8,12 +8,47 @@
 #include <kernel/dispatch/kernel.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <string_view>
 
 namespace rund::compute::detail {
 
 namespace {
+
+[[nodiscard]] std::uint64_t trace_now_ns() noexcept {
+  const auto elapsed = std::chrono::steady_clock::now().time_since_epoch();
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
+}
+
+void begin_trace_dispatch(CpuRun &run) noexcept {
+  if (!run.trace_kernel_dispatches) {
+    return;
+  }
+  run.trace_dispatch_started_ns = trace_now_ns();
+  run.trace_dispatch_active = true;
+}
+
+void cancel_trace_dispatch(CpuRun &run) noexcept {
+  run.trace_dispatch_started_ns = 0u;
+  run.trace_dispatch_active = false;
+}
+
+void finish_trace_dispatch(CpuRun &run, const bool timestamped) noexcept {
+  if (!run.trace_dispatch_active) {
+    return;
+  }
+  const std::uint64_t started = run.trace_dispatch_started_ns;
+  cancel_trace_dispatch(run);
+  if (!timestamped) {
+    return;
+  }
+  const std::uint64_t finished = trace_now_ns();
+  ::rund::detail::counter::Accumulate(
+      run.stats.kernel_ns, finished >= started ? finished - started : 0u);
+  ::rund::detail::counter::Accumulate(run.stats.kernel_samples, 1u);
+}
 
 void primitive_worker(void *const raw, const kernel::Partition &) noexcept {
   auto *const job = static_cast<JobState *>(raw);
@@ -202,24 +237,30 @@ Status submit_graph_pass(JobState &job, const kernel::WorkerBackend backend,
                          void *const ready_context,
                          void (*const ready)(void *context) noexcept) noexcept {
   CpuRun &run = *job.cpu;
+  begin_trace_dispatch(run);
+  Status submitted = Status::fail(Reason::CpuStepInvalid);
   if (run.pass == CpuPass::Primitive) {
-    return submit_primitive(job, backend, ready_context, ready);
-  }
-  kernel::ComputeTileExecutor *const tiles = active_tiles(job);
-  if (tiles == nullptr) {
-    return Status::fail(Reason::CpuStepInvalid);
-  }
-  if (run.pass == CpuPass::Map) {
+    submitted = submit_primitive(job, backend, ready_context, ready);
+  } else if (kernel::ComputeTileExecutor *const tiles = active_tiles(job);
+             tiles == nullptr) {
+    submitted = Status::fail(Reason::CpuStepInvalid);
+  } else if (run.pass == CpuPass::Map) {
     CpuMapRun &map = *cpu_map_run(*run.graph->storage, run.step);
     CpuMapRoute *const route = cpu_map_route(*run.graph, run.step);
     if (route == nullptr) {
-      return Status::fail(Reason::CpuStepInvalid);
+      submitted = Status::fail(Reason::CpuStepInvalid);
+    } else {
+      submitted = submit_tiles(map.tiles, backend, &route->tile,
+                               run_cpu_map_tile, ready_context, ready);
     }
-    return submit_tiles(map.tiles, backend, &route->tile, run_cpu_map_tile,
-                        ready_context, ready);
+  } else {
+    submitted = submit_tiles(*tiles, backend, &run.tile, collective_tile,
+                             ready_context, ready);
   }
-  return submit_tiles(*tiles, backend, &run.tile, collective_tile,
-                      ready_context, ready);
+  if (!submitted) {
+    cancel_trace_dispatch(run);
+  }
+  return submitted;
 }
 
 kernel::ComputeTileRunResult run_graph_pass(JobState &job) {
@@ -248,6 +289,7 @@ CpuPassResult finish_graph_pass(JobState &job,
                                 const std::atomic_bool *const cancel) noexcept {
   CpuRun &run = *job.cpu;
   if (run.pass == CpuPass::Primitive) {
+    finish_trace_dispatch(run, true);
     run.primitive_ready = nullptr;
     run.primitive_ready_context = nullptr;
     if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
@@ -260,6 +302,8 @@ CpuPassResult finish_graph_pass(JobState &job,
     ++run.step;
     return CpuPassResult::next();
   }
+  finish_trace_dispatch(run, tiles != nullptr &&
+                                 tiles->backend_dispatch_count != 0u);
   if (tiles == nullptr || !tiles->ok) {
     return CpuPassResult::failed(Status::fail(project_reason(
         tiles == nullptr ? "compute_cpu_step_invalid" : tiles->reason,

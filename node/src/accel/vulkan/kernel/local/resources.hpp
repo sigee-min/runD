@@ -94,10 +94,12 @@ struct VulkanKernelResources final {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   VulkanAdapter *adapter = nullptr;
   VulkanCommand command{};
+  VulkanDispatchTrace trace{};
   VulkanCollectivePipeline *reset_pipeline{};
   std::vector<VulkanCollectiveDescriptorLease> descriptor_leases{};
   std::vector<VulkanReset> resets{};
   submission::State<VulkanKernelResources> submission{};
+  bool trace_active{};
 #endif
 
   [[nodiscard]] bool reserve(const std::size_t step_count) {

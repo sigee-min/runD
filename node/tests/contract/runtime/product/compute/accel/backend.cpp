@@ -77,7 +77,8 @@ int CheckComputeAccelBackend(const compute::Target target) {
   if (!completed.backend_submitted || warm.backend != backend ||
       warm.pipeline_compiles != 0u || warm.buffer_allocations != 0u ||
       warm.uploaded_bytes != 0u || warm.download_events != 0u ||
-      warm.dispatches == 0u) {
+      warm.dispatches == 0u || warm.kernel_ns != 0u ||
+      warm.kernel_samples != 0u || warm.submit_wait_ns != 0u) {
     return 6;
   }
   if (telemetry.events != 1u || telemetry.event.compute.dispatches != 1u ||
@@ -89,6 +90,61 @@ int CheckComputeAccelBackend(const compute::Target target) {
   if (!output ||
       *output != std::vector<std::int32_t>{-1, 5, 13, 23, 29, -11, 19, 47}) {
     return 7;
+  }
+
+  auto trace_job = program->resident(input);
+  TelemetryProbe trace_telemetry{};
+  ::rund::Session trace_session{};
+  rund::SessionConfig trace_options = Options();
+  trace_options.telemetry =
+      ::rund::telemetry::bind(trace_telemetry, ::rund::telemetry::Level::Trace);
+  if (!trace_job || !trace_session.open(trace_options)) {
+    return 50;
+  }
+  const compute::Completion trace_result =
+      trace_session.compute(*trace_job).submit().wait();
+  const compute::Stats trace_stats = trace_result.stats();
+  const auto trace_output = trace_job->read();
+  const std::uint64_t trace_submits =
+      backend == compute::Backend::Metal ? 2u : 1u;
+  if (!trace_result || trace_stats.dispatches == 0u ||
+      trace_stats.kernel_samples != trace_stats.dispatches ||
+      trace_stats.kernel_ns == 0u ||
+      trace_stats.command_submits != trace_submits ||
+      trace_stats.graph_hash != warm.graph_hash ||
+      trace_telemetry.events != 1u ||
+      trace_telemetry.event.compute.kernel_samples !=
+          trace_stats.kernel_samples ||
+      !trace_output ||
+      *trace_output !=
+          std::vector<std::int32_t>{-1, 5, 13, 23, 29, -11, 19, 47} ||
+      trace_job->stats().output_hash == 0u ||
+      trace_job->stats().output_hash != job->stats().output_hash) {
+    std::fprintf(
+        stderr,
+        "trace backend=%u ok=%u reason=%u dispatches=%llu samples=%llu "
+        "kernel_ns=%llu events=%llu event_samples=%llu output=%u\n",
+        static_cast<unsigned>(backend), static_cast<unsigned>(!!trace_result),
+        static_cast<unsigned>(trace_result.reason()),
+        static_cast<unsigned long long>(trace_stats.dispatches),
+        static_cast<unsigned long long>(trace_stats.kernel_samples),
+        static_cast<unsigned long long>(trace_stats.kernel_ns),
+        static_cast<unsigned long long>(trace_telemetry.events),
+        static_cast<unsigned long long>(
+            trace_telemetry.event.compute.kernel_samples),
+        static_cast<unsigned>(!!trace_output));
+    return 51;
+  }
+  const compute::Completion warm_trace_result =
+      trace_session.compute(*trace_job).submit().wait();
+  const compute::Stats warm_trace_stats = warm_trace_result.stats();
+  if (!warm_trace_result || warm_trace_stats.buffer_allocations != 0u ||
+      warm_trace_stats.command_submits != trace_submits ||
+      warm_trace_stats.dispatches != trace_stats.dispatches ||
+      warm_trace_stats.kernel_samples != warm_trace_stats.dispatches ||
+      warm_trace_stats.graph_hash != trace_stats.graph_hash ||
+      trace_telemetry.events != 2u || !trace_session.close()) {
+    return 52;
   }
   const std::vector<std::int32_t> empty;
   auto empty_program =
@@ -126,12 +182,11 @@ int CheckComputeAccelBackend(const compute::Target target) {
       empty_job->stats().output_hash == 0u) {
     return 44;
   }
-  auto reset_program =
-      compute::on(target)
-          .map<std::uint32_t>("node-host-accel-reset", 1u,
-                              [](auto value) { return value; })
-          .scatter(1u, {.count = 2u})
-          .compile();
+  auto reset_program = compute::on(target)
+                           .map<std::uint32_t>("node-host-accel-reset", 1u,
+                                               [](auto value) { return value; })
+                           .scatter(1u, {.count = 2u})
+                           .compile();
   constexpr std::array<std::uint32_t, 1u> reset_value{7u};
   constexpr std::array<std::uint32_t, 1u> reset_index{0u};
   if (!reset_program) {

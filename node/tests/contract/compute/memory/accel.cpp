@@ -45,27 +45,53 @@ int CheckAccelMemory(const rund::compute::Backend backend) {
       return 2;
     }
     const auto active = device->memory();
+    std::array<rund::compute::MemoryEntry, 7u> entries{};
+    const auto snapshot = device->memory_snapshot(entries);
+    bool found_logical = false;
+    bool found_committed = false;
+    for (std::size_t index = 0u; index < snapshot.written; ++index) {
+      const rund::compute::MemoryEntry &entry = entries[index];
+      found_logical =
+          found_logical ||
+          (entry.category == rund::compute::MemoryCategory::Resident &&
+           entry.use == rund::compute::MemoryUse::Internal &&
+           entry.bytes.current == values.size() * sizeof(std::uint32_t));
+      found_committed =
+          found_committed ||
+          (entry.category == rund::compute::MemoryCategory::Device &&
+           entry.use == rund::compute::MemoryUse::Internal &&
+           entry.bytes.current == active.device.current);
+    }
     if (!ValidStats(active) ||
+        active.resident.current != values.size() * sizeof(std::uint32_t) ||
+        active.resident.peak != active.resident.current ||
+        active.resident.cumulative != active.resident.current ||
         active.device.current < values.size() * sizeof(std::uint32_t) ||
         active.device.peak < active.device.current ||
         active.device.cumulative < active.device.current ||
         active.device.budget < active.device.current ||
-        active.transfer.current != 0u ||
+        active.transfer.current != 0u || active.transfer.reused != 0u ||
+        active.transfer.budget != 0u ||
         active.transfer.cumulative != values.size() * sizeof(std::uint32_t) ||
-        active.transfer.budget == 0u) {
+        active.transfer.peak != values.size() * sizeof(std::uint32_t) ||
+        snapshot.truncated() ||
+        snapshot.summary.resident.current != active.resident.current ||
+        snapshot.summary.device.current != active.device.current ||
+        !found_logical || !found_committed) {
       return 3;
     }
   }
   const auto released = device->memory();
-  if (!ValidStats(released) || released.device.current != 0u ||
-      released.device.peak == 0u) {
+  if (!ValidStats(released) || released.resident.current != 0u ||
+      released.resident.peak != values.size() * sizeof(std::uint32_t) ||
+      released.resident.cumulative != released.resident.peak ||
+      released.device.current != 0u || released.device.peak == 0u) {
     return 4;
   }
   if (backend == rund::compute::Backend::Vulkan) {
     constexpr std::size_t staging_budget = 1024u * 1024u;
     constexpr std::size_t pool_limit = staging_budget * 32u;
-    constexpr std::size_t count =
-        staging_budget / sizeof(std::uint32_t) + 17u;
+    constexpr std::size_t count = staging_budget / sizeof(std::uint32_t) + 17u;
     std::vector<std::uint32_t> input(count);
     for (std::size_t index = 0u; index < input.size(); ++index) {
       input[index] = static_cast<std::uint32_t>(index * 17u + 3u);
@@ -95,8 +121,7 @@ int CheckAccelMemory(const rund::compute::Backend backend) {
     if (!transfer.check.ok || output != input ||
         transfer.staging_peak_bytes == 0u ||
         transfer.staging_peak_bytes > staging_budget ||
-        transfer.command_submits < 2u ||
-        memory.staging.current > pool_limit ||
+        transfer.command_submits < 2u || memory.staging.current > pool_limit ||
         memory.staging.peak > pool_limit + staging_budget) {
       return 6;
     }
@@ -172,8 +197,7 @@ int CheckVulkanMemoryModel() {
     return 1;
   }
   constexpr std::uint64_t staging_budget = 1024u * 1024u;
-  constexpr std::uint64_t pool_limit =
-      staging_budget * kVulkanPoolCapacity;
+  constexpr std::uint64_t pool_limit = staging_budget * kVulkanPoolCapacity;
   if (VulkanPoolLimit(staging_budget) != pool_limit ||
       !FitsVulkanPool(pool_limit - 64u, 64u, pool_limit) ||
       FitsVulkanPool(pool_limit - 63u, 64u, pool_limit) ||
@@ -259,7 +283,8 @@ int CheckRetainedJobMemory(const rund::compute::Backend backend) {
   const MemoryStats resident = job->memory();
   const MemoryCounter prepared = resident.staging;
   node_compute_allocation::Stop();
-  if (resident.transfer.current != 0u ||
+  if (resident.transfer.current != 0u || resident.transfer.reused != 0u ||
+      resident.transfer.budget != 0u ||
       resident.transfer.cumulative != input.size() * sizeof(std::uint32_t) ||
       prepared.current == 0u || prepared.peak != prepared.current ||
       prepared.cumulative < prepared.current ||
@@ -278,12 +303,37 @@ int CheckRetainedJobMemory(const rund::compute::Backend backend) {
   }
   std::array<MemoryEntry, 32u> entries{};
   const MemorySnapshot snapshot = job->memory_snapshot(entries);
-  bool found = false;
+  const std::shared_ptr<detail::BufferState> input_owner =
+      state->inputs.empty() ? nullptr : state->inputs.front();
+  bool found_staging = false;
+  bool found_logical_input = false;
+  bool found_physical_input = false;
+  bool found_traffic = false;
   for (std::size_t index = 0u; index < snapshot.written; ++index) {
-    found = found || (entries[index].category == MemoryCategory::Staging &&
-                      entries[index].bytes.current == prepared.current);
+    const MemoryEntry &entry = entries[index];
+    found_staging =
+        found_staging || (entry.category == MemoryCategory::Staging &&
+                          entry.bytes.current == prepared.current);
+    found_logical_input =
+        found_logical_input ||
+        (input_owner != nullptr && entry.category == MemoryCategory::Resident &&
+         entry.use == MemoryUse::Input && entry.index == 0u &&
+         entry.bytes.current == input_owner->bytes);
+    found_physical_input =
+        found_physical_input ||
+        (input_owner != nullptr && entry.category == MemoryCategory::Device &&
+         entry.use == MemoryUse::Input && entry.index == 0u &&
+         entry.bytes.current == input_owner->physical_bytes);
+    found_traffic =
+        found_traffic ||
+        (entry.category == MemoryCategory::Transfer &&
+         entry.use == MemoryUse::Traffic && entry.bytes.current == 0u &&
+         entry.bytes.peak == resident.transfer.peak &&
+         entry.bytes.cumulative == resident.transfer.cumulative &&
+         entry.bytes.reused == 0u && entry.bytes.budget == 0u);
   }
-  if (!found) {
+  if (!found_staging || !found_logical_input || !found_physical_input ||
+      !found_traffic) {
     return 6;
   }
   return 0;

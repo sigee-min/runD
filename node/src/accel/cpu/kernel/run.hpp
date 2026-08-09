@@ -17,6 +17,6 @@ namespace rund::node::accel::detail {
 [[nodiscard]] rund::AccelCheck SubmitPreparedCpuKernel(
     const BackendRun &run, const std::shared_ptr<void> &prepared,
     KernelCompletion completion, void *user, PreparedMemoryMeter *memory,
-    const std::shared_ptr<void> &lifetime) noexcept;
+    const std::shared_ptr<void> &lifetime, KernelTiming timing) noexcept;
 
 } // namespace rund::node::accel::detail

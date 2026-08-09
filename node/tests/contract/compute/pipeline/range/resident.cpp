@@ -90,7 +90,6 @@ void Fill(std::vector<std::uint32_t> &values,
       first.descriptor_pool_creations != 0u ||
       first.descriptor_set_allocations != 0u || first.uploaded_bytes != 0u ||
       first.download_events != 0u || first.downloaded_bytes != 0u ||
-      first.pipeline.rebinding_count != 0u ||
       first.command_submits != (backend == Backend::Cpu ? 0u : 1u) ||
       !prepared->read(*output, std::span<std::uint32_t>{cold}) ||
       cold[0u] != 0u || !prepared->run()) {

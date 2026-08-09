@@ -104,19 +104,20 @@ private:
 static_assert(std::is_nothrow_move_constructible_v<RunState>);
 static_assert(std::is_nothrow_move_assignable_v<RunState>);
 
-[[nodiscard]] Status submit_cpu_job_on(const std::shared_ptr<JobState> &state,
-                                       kernel::WorkerBackend worker_backend,
-                                       kernel::u32 workers,
-                                       const std::atomic_bool *cancel,
-                                       void *ready_context,
-                                       CpuJobReady ready) noexcept;
+[[nodiscard]] Status
+submit_cpu_job_on(const std::shared_ptr<JobState> &state,
+                  kernel::WorkerBackend worker_backend, kernel::u32 workers,
+                  const std::atomic_bool *cancel, void *ready_context,
+                  CpuJobReady ready,
+                  bool trace_kernel_dispatches = false) noexcept;
 // Pipeline-private Jobs are already exclusively owned by the Pipeline phase
 // gate and therefore start without reacquiring or mutating a public Job phase.
 [[nodiscard]] Status
 submit_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
                            kernel::WorkerBackend worker_backend,
                            kernel::u32 workers, const std::atomic_bool *cancel,
-                           void *ready_context, CpuJobReady ready) noexcept;
+                           void *ready_context, CpuJobReady ready,
+                           bool trace_kernel_dispatches = false) noexcept;
 
 [[nodiscard]] CpuJobProgress
 advance_cpu_job_on(const std::shared_ptr<JobState> &state,
@@ -129,10 +130,12 @@ advance_cpu_pipeline_job_on(const std::shared_ptr<JobState> &state,
                             const std::atomic_bool *cancel, void *ready_context,
                             CpuJobReady ready) noexcept;
 
-[[nodiscard]] Status submit_job_on(const std::shared_ptr<JobState> &state,
-                                   std::shared_ptr<void> lifetime,
-                                   JobCompletion completion,
-                                   void *user) noexcept;
+[[nodiscard]] Status
+submit_job_on(const std::shared_ptr<JobState> &state,
+              std::shared_ptr<void> lifetime, JobCompletion completion,
+              void *user,
+              node::accel::detail::KernelTiming timing =
+                  node::accel::detail::KernelTiming::Submission) noexcept;
 
 [[nodiscard]] Result<Backend>
 job_backend(const std::shared_ptr<JobState> &state) noexcept;

@@ -1,3 +1,4 @@
+#include "../device/info.hpp"
 #include "../device/state.hpp"
 #include "../status.hpp"
 
@@ -84,7 +85,7 @@ Status initialize_device_state(
   }
   state.host_page_bytes = static_cast<std::uint64_t>(page_bytes);
   state.pipeline_memory_budget = std::move(budget);
-  return Status::success();
+  return initialize_device_info(state);
 }
 
 Result<std::shared_ptr<DeviceState>> open_target(const Target target) {

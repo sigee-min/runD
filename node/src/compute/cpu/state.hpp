@@ -794,8 +794,11 @@ struct CpuRun final {
   void *primitive_ready_context = nullptr;
   void (*primitive_ready)(void *) noexcept = nullptr;
   Stats stats{};
+  std::uint64_t trace_dispatch_started_ns{};
   std::uint64_t pending_dispatches{};
   std::uint64_t controlled_count{};
+  bool trace_dispatch_active{};
+  bool trace_kernel_dispatches{};
   bool controlled_count_valid{};
   std::size_t step{};
   std::size_t reset{};

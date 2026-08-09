@@ -2,7 +2,7 @@
 
 ## Authority
 
-The current package version is `1.0.5`. CMake install rules in
+The current package version is `1.0.6`. CMake install rules in
 `cmake/root/package.cmake` own the installed prefix. Candidate routes add only
 sealed source and artifact identity before archiving.
 The checked-in package identity may advance while it is still a candidate.
@@ -23,10 +23,10 @@ execution. Release selects product and package namespaces; repository harness
 self-tests remain in their one full Debug owner. The local command and manual
 Linux workflow consume the same internal selection authority.
 `package.consumer` only validates that staged prefix, configures a
-fresh external project with `find_package(runD 1.0.5 EXACT CONFIG REQUIRED)`,
+fresh external project with `find_package(runD 1.0.6 EXACT CONFIG REQUIRED)`,
 and builds and runs the SDK, Compute, black-box, and private-implementation
 consumers. It never starts a nested build of the repository tree. The consumer
-configure accepts only the exact `1.0.5` version. All three external configure
+configure accepts only the exact `1.0.6` version. All three external configure
 probes name
 the Ninja generator and the repository state-locking Ninja driver together.
 That pair is intrinsic to each fresh consumer build and does not inspect or
@@ -203,8 +203,8 @@ After Release and Darwin identity observation pass, the common candidate owner
 creates exactly:
 
 ```text
-.cache/release/dist/rund-sdk-1.0.5-darwin-arm64.tar.gz
-.cache/release/dist/rund-sdk-1.0.5-darwin-arm64.sha256
+.cache/release/dist/rund-sdk-1.0.6-darwin-arm64.tar.gz
+.cache/release/dist/rund-sdk-1.0.6-darwin-arm64.sha256
 .cache/release/dist/rund-verify
 ```
 
@@ -230,9 +230,12 @@ verifier hashes.
 GitHub publication is a separate operator action and is not performed here.
 The archive producer proves the exact source bytes and identity it consumed;
 the publication authority separately owns tag and hosted-release admission.
-The 1.0.5 archive, checksum, and verifier may be externally hosted only after
-their bytes match the passing candidate evidence and the canonical Darwin row
-is promoted to `supported/release`. Candidate creation never rewrites policy.
+The 1.0.6 archive, checksum, and verifier may be externally hosted only after
+their bytes match passing candidate evidence and publication atomically makes
+1.0.6 the current artifact named by the Darwin `supported/release` contract in
+[Platform Support](./platform/support.md). The existing tuple classification
+admits candidate production; it does not publish a new package version.
+Candidate creation never rewrites policy.
 
 ## Manual Linux Artifact
 

@@ -129,7 +129,9 @@ rund::AccelDevice PickMetal() {
           .storage_alignment = adapter->caps.storage_alignment,
           .storage_bytes = buffer_limit,
       };
-      adapter->stats = MetalRuntimeStats{.ok = true, .reason = "ok"};
+      adapter->stats =
+          MetalRuntimeStats{.runtime = rund::RuntimeStats{
+                                .outcome = {.ok = true, .reason = "ok"}}};
 
       std::shared_ptr<void> owner = adapter;
       adapter->owner_token = owner;

@@ -85,30 +85,7 @@ BackendLookup Lookup(const rund::AccelDevice &pick,
 
 rund::RuntimeStats Stats(const rund::AccelDevice &pick) {
   const MetalRuntimeStats stats = ReadMetalRuntimeStats(pick);
-  if (!stats.ok) {
-    return rund::RuntimeStats{.reason = stats.reason};
-  }
-  return rund::RuntimeStats{
-      .dispatch_count = stats.dispatch_count,
-      .command_submit_count = stats.command_submit_count,
-      .pipeline_compile_count = stats.pipeline_compile_count,
-      .pipeline_cache_hit_count = stats.pipeline_cache_hit_count,
-      .buffer_allocation_count = stats.buffer_allocation_count,
-      .buffer_reuse_hit_count = stats.buffer_reuse_hit_count,
-      .host_to_device_bytes = stats.host_to_device_bytes,
-      .device_to_host_bytes = stats.device_to_host_bytes,
-      .accel_kernel_ns = stats.accel_kernel_ns,
-      .accel_timestamp_count = stats.accel_timestamp_count,
-      .accel_timestamp_source = stats.accel_timestamp_source,
-      .shader_compile_ns = stats.shader_compile_ns,
-      .spirv_compile_ns = stats.spirv_compile_ns,
-      .pipeline_create_ns = stats.pipeline_create_ns,
-      .descriptor_setup_ns = stats.descriptor_setup_ns,
-      .command_submit_wait_ns = stats.command_submit_wait_ns,
-      .readback_ns = stats.readback_ns,
-      .ok = true,
-      .reason = "ok",
-  };
+  return stats.runtime;
 }
 
 rund::node::accel::AccelMemoryStats
@@ -128,6 +105,25 @@ bool InjectDeviceLostOnce(const rund::AccelDevice &pick) noexcept {
     return false;
   }
   adapter->fault_device_lost_once.store(true, std::memory_order_relaxed);
+  return true;
+}
+
+bool InjectTraceUnavailableOnce(const rund::AccelDevice &pick) noexcept {
+  MetalAdapter *const adapter = MetalAdapterFromPick(pick);
+  if (adapter == nullptr) {
+    return false;
+  }
+  adapter->fault_trace_unavailable_once.store(true, std::memory_order_relaxed);
+  return true;
+}
+
+bool InjectTraceResolveDeviceLostOnce(const rund::AccelDevice &pick) noexcept {
+  MetalAdapter *const adapter = MetalAdapterFromPick(pick);
+  if (adapter == nullptr) {
+    return false;
+  }
+  adapter->fault_trace_resolve_device_lost_once.store(
+      true, std::memory_order_relaxed);
   return true;
 }
 
@@ -164,6 +160,8 @@ const BackendOps Operations{
     .submit_prepared_pipeline = SubmitPreparedMetalPipeline,
     .submit_prepared = SubmitPreparedMetalKernel,
     .inject_device_lost_once = InjectDeviceLostOnce,
+    .inject_trace_unavailable_once = InjectTraceUnavailableOnce,
+    .inject_trace_resolve_device_lost_once = InjectTraceResolveDeviceLostOnce,
 };
 
 } // namespace

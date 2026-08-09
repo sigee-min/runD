@@ -75,7 +75,7 @@ RunPreparedVulkanBatch(const std::span<const BackendBatchEntry> entries,
                        const std::span<rund::AccelCheck> results,
                        std::shared_ptr<void> &workspace,
                        rund::RuntimeStats &stats) {
-  stats = rund::RuntimeStats{.ok = true, .reason = "ok"};
+  stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
   (void)workspace;
   if (entries.empty() || entries.size() != results.size()) {
     const rund::AccelCheck failure{false, "accel_kernel_run_invalid"};
@@ -112,12 +112,12 @@ RunPreparedVulkanBatch(const std::span<const BackendBatchEntry> entries,
   for (std::size_t index = 0u; index < entries.size(); ++index) {
     auto *const resources =
         static_cast<VulkanKernelResources *>(entries[index].prepared->get());
-    stats.dispatch_count = ::rund::detail::counter::SaturatingAdd(
-        stats.dispatch_count, resources->dispatch_count);
-    stats.reset_command_count = ::rund::detail::counter::SaturatingAdd(
-        stats.reset_command_count, resources->reset_count);
-    stats.reset_bytes = ::rund::detail::counter::SaturatingAdd(
-        stats.reset_bytes, resources->reset_bytes);
+    stats.run.work.dispatch_count = ::rund::detail::counter::SaturatingAdd(
+        stats.run.work.dispatch_count, resources->dispatch_count);
+    stats.run.work.reset_command_count = ::rund::detail::counter::SaturatingAdd(
+        stats.run.work.reset_command_count, resources->reset_count);
+    stats.run.work.reset_bytes = ::rund::detail::counter::SaturatingAdd(
+        stats.run.work.reset_bytes, resources->reset_bytes);
     results[index] = FinishVulkanSteps(*adapter, *resources);
     if (entries[index].stats != nullptr) {
       SetResetStats(*entries[index].stats, results[index].ok,
@@ -128,9 +128,9 @@ RunPreparedVulkanBatch(const std::span<const BackendBatchEntry> entries,
     }
   }
   if (!batch.ok) {
-    stats.dispatch_count = 0u;
-    stats.reset_command_count = 0u;
-    stats.reset_bytes = 0u;
+    stats.run.work.dispatch_count = 0u;
+    stats.run.work.reset_command_count = 0u;
+    stats.run.work.reset_bytes = 0u;
   }
   return batch;
 }
@@ -140,7 +140,7 @@ rund::AccelCheck
 RunPreparedVulkanBatch(const std::span<const BackendBatchEntry>,
                        const std::span<rund::AccelCheck> results,
                        std::shared_ptr<void> &, rund::RuntimeStats &stats) {
-  stats = rund::RuntimeStats{.ok = true, .reason = "ok"};
+  stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
   const rund::AccelCheck failure{false, "accel_vulkan_loader_unavailable"};
   std::fill(results.begin(), results.end(), failure);
   return failure;

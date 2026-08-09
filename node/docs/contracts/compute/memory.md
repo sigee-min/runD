@@ -6,6 +6,87 @@ Node owns the mapping from Compute object ownership to public `MemoryStats` and
 private executor and lowering-owner byte oracles live in
 [`kernel/docs/contracts/compute/handoff.md`](../../../../kernel/docs/contracts/compute/handoff.md).
 
+## Public observation coordinates
+
+`MemoryCounter` is one fixed public value shape, but a producer publishes only
+the coordinates it owns. It does not turn every category into the same kind of
+meter. For each retained Buffer `b`, let
+
+```text
+R_b = checked count * element_bytes request
+L_b = BufferState::bytes
+C_b = BufferState::physical_bytes
+F_b = bytes backed by currently resident physical pages
+```
+
+Buffer construction stores the checked request without changing its semantic
+extent, so `R_b = L_b`. A View does not allocate another Buffer and therefore
+does not create a second request coordinate. `C_b` is the retained storage
+extent charged by the CPU or accelerator Buffer owner; it can exceed `L_b`
+because of backend alignment or reuse. A Buffer snapshot publishes
+
+```text
+Resident/use/index = fixed_memory(R_b = L_b)
+Host-or-Device/use/index = fixed_memory(C_b, reused_b ? C_b : 0)
+```
+
+CPU uses Host for the committed-storage row and accelerators use Device. The
+matching summary composes those same values with saturating arithmetic; it
+never derives `C_b` by aligning `L_b` or substitutes a Pipeline reservation.
+`F_b` has no CPU, Metal, or Vulkan producer: allocator page residency, process
+RSS, Metal residency, and Vulkan physical-page commitment are not inferred
+from `C_b`. Consequently no `MemoryStats` category or `MemorySnapshot` row
+publishes `F_b`; it remains unavailable. Host/Metadata is different: it is the
+exact logical retained object/container extent owned by runD and excludes
+allocator rounding. Staging consumes only the lease extent exposed by its
+backend owner.
+
+`MemoryStats` is the sole public memory summary. `MemorySnapshot::summary` is
+that same value, while its bounded entries only decompose the existing summary
+by category, use, and owner index; they do not form another ledger.
+The separately named `PipelinePlan::committed_peak_bytes` remains the sealed
+mapping/device-governor planning coordinate and is not copied into live
+`MemoryStats`. Thus requested/logical payload, committed storage charge,
+unavailable physical residency, logical metadata, and planned admission remain
+distinguishable through the existing authorities without another ledger.
+
+Device-wide Buffer accounting uses allocation meters inside the existing
+`DeviceMemory` owner. Its one mutex serializes paired logical/committed
+publication, release, traffic mutation, and snapshot projection. A snapshot
+therefore cannot observe one half of an allocation or release and preserves
+`current <= peak <= cumulative` for every active allocation axis. The logical
+meter projects `R_b = L_b` into Resident; the
+backend meter projects `C_b` into Host on CPU or Device on accelerators. Each
+owns live `current`, live high-water `peak`, saturating allocated `cumulative`,
+and saturating pool-served `reused`. Accelerator Device `budget` is added from
+the frozen device storage capability when the snapshot is formed; it is not
+stored in either allocation meter. Transfer is traffic rather than residency.
+Its sole producer publishes the maximum single recorded transfer as `peak` and
+the saturating byte total as `cumulative`:
+
+```text
+Transfer.current = 0
+Transfer.peak = max(recorded transfer bytes)
+Transfer.cumulative = sat_sum(recorded transfer bytes)
+Transfer.reused = 0
+Transfer.budget = 0
+```
+
+Successful Buffer upload, Job write, Pipeline host-iteration write, Pipeline
+snapshot transfer, and explicit read each record their exact semantic payload.
+Job and Pipeline owners accumulate that payload in their own scoped Traffic
+counter; the same physical host/device movement also reaches the Device
+Traffic meter. A zero-byte or rejected transfer publishes no bytes. Pipeline
+read, snapshot, and write consume one source-private typed transfer projection.
+It copies backend-produced staging, allocation/reuse, directional submission,
+and semantic-byte facts into `Stats` and the existing memory meters; it does
+not reconstruct those facts from payload bytes. Their common summary therefore
+cannot omit one direction or reinterpret command submissions as bytes.
+
+No configured traffic bound exists, so a storage-capacity value is never
+reinterpreted as a Transfer budget. The zero budget makes a derived transfer
+memory-usage rate unavailable while preserving the raw traffic evidence.
+
 ## Capacity exception boundaries
 
 Compute boundaries that intentionally project both `std::bad_alloc` and
@@ -285,11 +366,10 @@ the proved Range; repeated encoding performs no range, overflow, alignment,
 replacement, allocation, or payload-copy work.
 
 The public `Run` receipt retains its private state in a 1,152-byte,
-`uint64_t`-aligned inline store. The source-private `RunState` is 1,120 bytes
-with 8-byte alignment, so the checked bound is `1,120 <= 1,152` with 32 bytes
-of reserve. `Result<Run>` is 1,160 bytes on the checked 64-bit ABI. The reserve
-is an explicit stack and ABI footprint tradeoff for isolating private layout
-growth; it is neither heap storage nor extra initialized/copied payload.
+`uint64_t`-aligned inline store. The source-private `RunState` is exactly 1,152
+bytes with 8-byte alignment, and `Result<Run>` is 1,160 bytes on the checked
+64-bit ABI. The inline store is the complete private owner; it is neither heap
+storage nor extra initialized/copied payload.
 Construction, copying, moving, and destruction are compiled owners; public
 headers never require the complete private state. A warm
 `Program::run(Buffer, Buffer)` therefore still performs zero SDK heap
@@ -944,30 +1024,22 @@ retained capacity. Count overflow fails before payload writes, so it cannot
 make a speculative tile owner live or publish an outer bank. A Seed, Action,
 or Fold failure is folded into the fixed control owner before the corresponding
 mutable route is reused. Warm CPU, Metal, and Vulkan execution may change
-control contents and counters, but it cannot allocate, resize, rebind, or
-re-place any owner.
+control contents and counters. Preparation freezes every Job, Buffer, typed
+View, arena descriptor, prepared-pipeline owner identity, and placement for all
+later executions. The nested-window contract fixture captures the unique
+normal and transactional alternate Jobs across its nested and transactional
+binding oracles, their Program/workspace/Buffer owners and View descriptors,
+shared arena bindings, and the available primary/alternate opaque
+prepared-pipeline owners. Every captured identity remains equal after
+successive executions and after overflow.
 
-Here, rebind means a post-prepare mutation of retained Job, Buffer, typed View,
-arena descriptor, or prepared-pipeline owner identity. Executing the frozen
-Metal size-class ICB chunks from a fresh single-use outer command buffer does
-not change that identity and is not a rebind. The public
-`rebinding_count` is therefore zero by construction, not sufficient evidence
-by itself. The nested-window contract fixture captures the unique normal and
-transactional alternate Jobs across its nested and transactional binding
-oracles, their Program/workspace/Buffer owners and View descriptors, shared
-arena bindings, and the available primary/alternate opaque prepared-pipeline
-owners; every identity must compare equal after successive executions, and
-the nested identities must also survive overflow.
-
-That definition must not erase Metal's host boundary from the execution model.
-The Metal warm path creates the required outer command buffer and encoder,
-passes the frozen unique-resource array through one bulk residency call, walks
-only `C = ceil(D / 65,536)` compact 16-byte chunk records, executes their ICB
-ranges, commits, and observes completion. It visits no command, binding,
-indirect-grid, or recurrence-state table and restores no bytes.
-`rebinding_count` remains an identity-mutation counter; zero descriptor-schedule
-traversal is proved by the fixed-chunk executor structure, while the chunk
-calls, bulk residency call, and submission CPU work remain explicit.
+Metal retains its host boundary in that immutable model. The warm path creates
+the required outer command buffer and encoder, passes the frozen
+unique-resource array through one bulk residency call, walks exactly
+`C = ceil(D / 65,536)` compact 16-byte chunk records, executes their ICB ranges,
+commits, and observes completion. The retained ICB owns the command, binding,
+indirect-grid, and recurrence-state schedule. Host work is therefore the
+explicit chunk calls, bulk residency call, and submission boundary.
 
 Metal cold finalization owns one non-retained pointer-index workspace. With
 `D` captured commands and `B` captured Buffer-binding rows, the one table has
@@ -1524,8 +1596,8 @@ physical storage for CPU or Device physical storage for an accelerator.
 Every cumulative Compute and accelerator telemetry value consumes the sole
 [Counter Arithmetic](../counter.md) owner directly. Compute retains no local
 accumulate, release, remaining-value, delta, or capacity-product formula.
-Relaxed-atomic gauges apply the same common value law inside their
-compare-exchange loop; the successful exchange is the linearization point.
+Device memory gauges apply that law while holding the existing `DeviceMemory`
+mutex; the guarded mutation is their linearization point.
 The common absorbing-maximum rule prevents a saturated Metal, Vulkan,
 CPU-buffer, or coordinator-frame gauge from reappearing as an apparently exact
 smaller value after release or snapshot subtraction.

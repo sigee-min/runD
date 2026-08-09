@@ -1,6 +1,7 @@
 #include "test/assert.hpp"
 
 #include "src/compute/job/cpu/model.hpp"
+#include "src/runtime/compute/local.hpp"
 #include "src/runtime/compute/operation.hpp"
 #include "src/runtime/compute/state.hpp"
 #include "src/runtime/compute/terminal.hpp"
@@ -10,15 +11,20 @@
 
 #include <array>
 #include <atomic>
+#include <barrier>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <span>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 
 namespace {
 
-using ComputeTelemetryEmit = void (*)(void *, const rund::compute::Status &,
-                                      const rund::compute::Stats &) noexcept;
+using ComputeTelemetryEmit =
+    void (*)(void *, const rund::compute::Status &,
+             const rund::compute::telemetry::Profile &) noexcept;
 
 static_assert(std::is_same_v<rund::node::runtime_detail::ComputeHostState::Emit,
                              ComputeTelemetryEmit>);
@@ -129,25 +135,39 @@ static_assert(
 std::atomic<std::uint32_t> configured_abort_cancels{0u};
 std::atomic<std::uint32_t> configured_abort_retires{0u};
 
+struct TerminalProbe final {
+  rund::compute::Status status =
+      rund::compute::Status::fail(rund::compute::Reason::CompletionInvalid);
+  rund::compute::Stats stats{};
+  rund::compute::MemoryStats memory{};
+  std::uint32_t calls{};
+};
+
+void CaptureTerminal(
+    void *const raw, const rund::compute::Status &status,
+    const rund::compute::telemetry::Profile &profile) noexcept {
+  auto &probe = *static_cast<TerminalProbe *>(raw);
+  probe.status = status;
+  probe.stats = profile.execution();
+  probe.memory = profile.memory();
+  ++probe.calls;
+}
+
 void CountConfiguredAbortCancel(
-    const std::shared_ptr<rund::node::runtime_detail::ComputeHostState> &)
-    noexcept {
+    const std::shared_ptr<rund::node::runtime_detail::ComputeHostState>
+        &) noexcept {
   configured_abort_cancels.fetch_add(1u, std::memory_order_relaxed);
 }
 
 void CountConfiguredAbortRetire(
-    const std::shared_ptr<rund::node::runtime_detail::ComputeHostState> &)
-    noexcept {
+    const std::shared_ptr<rund::node::runtime_detail::ComputeHostState>
+        &) noexcept {
   configured_abort_retires.fetch_add(1u, std::memory_order_relaxed);
 }
 
 } // namespace
 
 int RunRuntimeComputeTerminalContract() {
-  using rund::node::runtime_detail::ComputeHostAdmission;
-  using rund::node::runtime_detail::ComputeHostCloseClaim;
-  using rund::node::runtime_detail::ComputeHostLifecycle;
-  using rund::node::runtime_detail::ComputeHostPhase;
   using rund::node::compute_detail::CancelClaim;
   using rund::node::compute_detail::ClaimFinish;
   using rund::node::compute_detail::FinishClaim;
@@ -159,6 +179,10 @@ int RunRuntimeComputeTerminalContract() {
   using rund::node::compute_detail::TaskRetirementPhase;
   using rund::node::compute_detail::TaskState;
   using rund::node::compute_detail::TerminalPhase;
+  using rund::node::runtime_detail::ComputeHostAdmission;
+  using rund::node::runtime_detail::ComputeHostCloseClaim;
+  using rund::node::runtime_detail::ComputeHostLifecycle;
+  using rund::node::runtime_detail::ComputeHostPhase;
 
   CpuJobProgress failed_cpu_job = CpuJobProgress::failed(
       rund::compute::Status::fail(rund::compute::Reason::Cancelled));
@@ -238,8 +262,7 @@ int RunRuntimeComputeTerminalContract() {
       std::make_shared<rund::node::runtime_detail::ComputeHostState>();
   TEST_ASSERT(configured_abort->lifecycle.configure());
   rund::node::runtime_detail::BindLifecycle(
-      configured_abort, CountConfiguredAbortCancel,
-      CountConfiguredAbortRetire);
+      configured_abort, CountConfiguredAbortCancel, CountConfiguredAbortRetire);
   rund::node::runtime_detail::CloseHost(configured_abort);
   TEST_ASSERT(configured_abort->lifecycle.phase() == ComputeHostPhase::Closed);
   TEST_ASSERT(configured_abort_cancels.load(std::memory_order_relaxed) == 0u);
@@ -288,14 +311,136 @@ int RunRuntimeComputeTerminalContract() {
   task.operation = rund::node::compute_detail::make_job(job_state);
   TEST_ASSERT(rund::compute::detail::queue_job(job_state));
   TEST_ASSERT(RequestCancel(task.terminal_phase) == CancelClaim::Accept);
-  const rund::compute::Status cancelled = FinishFailure(
-      task,
-      rund::compute::Status::fail(
-          rund::compute::Reason::PrimitiveBackendFailed));
+  const auto cancelled_observation =
+      FinishFailure(task, rund::compute::Status::fail(
+                              rund::compute::Reason::PrimitiveBackendFailed));
+  const rund::compute::Status cancelled = cancelled_observation.status();
+  TEST_ASSERT(cancelled_observation.profile() == nullptr);
   TEST_ASSERT(!cancelled);
   TEST_ASSERT(cancelled.error() == std::string_view{"compute_cancelled"});
   const auto output = job->read();
   TEST_ASSERT(!output);
   TEST_ASSERT(output.error() == std::string_view{"compute_cancelled"});
+
+  auto epoch_job = program->resident(input);
+  TEST_ASSERT(epoch_job);
+  const auto epoch_job_state =
+      rund::compute::detail::JobAccess::state(*epoch_job);
+  TerminalProbe job_probe{};
+  rund::node::runtime_detail::ComputeHostState job_host{};
+  job_host.emit_context = &job_probe;
+  job_host.emit = CaptureTerminal;
+  TaskState job_task{};
+  job_task.host = &job_host;
+  job_task.operation = rund::node::compute_detail::make_job(epoch_job_state);
+  rund::compute::detail::RunState first_job_run{};
+  first_job_run.program = epoch_job_state->program;
+  first_job_run.stats = {.backend = rund::compute::Backend::Cpu,
+                         .dispatches = 11u,
+                         .graph_hash = 101u};
+  job_task.job_result.emplace(
+      rund::compute::Result<rund::compute::detail::RunState>::success(
+          std::move(first_job_run)));
+  TEST_ASSERT(rund::compute::detail::queue_job(epoch_job_state));
+  std::barrier job_barrier{2};
+  std::atomic_bool job_reused{false};
+  std::thread job_resubmit{[&] {
+    job_barrier.arrive_and_wait();
+    rund::compute::detail::RunState second_job_run{};
+    second_job_run.program = epoch_job_state->program;
+    second_job_run.stats = {.backend = rund::compute::Backend::Cpu,
+                            .dispatches = 22u,
+                            .graph_hash = 202u};
+    job_reused.store(
+        rund::compute::detail::queue_job(epoch_job_state) &&
+            rund::compute::detail::finish_job(
+                epoch_job_state,
+                rund::compute::Result<rund::compute::detail::RunState>::success(
+                    std::move(second_job_run))),
+        std::memory_order_release);
+  }};
+  auto first_job = rund::node::compute_detail::FinishCpu(job_task);
+  job_barrier.arrive_and_wait();
+  job_resubmit.join();
+  rund::node::Complete(&job_task, std::move(first_job));
+  TEST_ASSERT(job_reused.load(std::memory_order_acquire));
+  TEST_ASSERT(job_probe.calls == 1u && job_probe.status &&
+              job_probe.stats.dispatches == 11u &&
+              job_probe.stats.graph_hash == 101u &&
+              job_probe.memory.scope == rund::compute::MemoryScope::Job);
+  TEST_ASSERT(
+      job_task.stats.dispatches == 11u && job_task.stats.graph_hash == 101u &&
+      rund::compute::detail::job_stats(epoch_job_state).dispatches == 22u);
+
+  auto pipeline_device = rund::compute::open(rund::compute::Target::cpu(1u));
+  TEST_ASSERT(pipeline_device);
+  auto pipeline_program =
+      rund::compute::on(*pipeline_device)
+          .map<std::int32_t>("terminal-pipeline-epoch", input.size(),
+                             [](auto value) { return value + 1; })
+          .compile();
+  auto pipeline_input =
+      pipeline_device->upload(std::span<const std::int32_t>{input});
+  auto pipeline_output = pipeline_device->buffer<std::int32_t>(input.size());
+  auto epoch_pipeline =
+      pipeline_program && pipeline_input && pipeline_output
+          ? rund::compute::pipeline(*pipeline_device)
+                .then(*pipeline_program, rund::compute::read(*pipeline_input),
+                      rund::compute::write(*pipeline_output))
+                .prepare()
+          : rund::compute::Result<rund::compute::Pipeline>::fail(
+                rund::compute::Reason::PipelineInvalid);
+  TEST_ASSERT(epoch_pipeline);
+  const auto &epoch_pipeline_state =
+      rund::compute::detail::PipelineStateAccess::state(*epoch_pipeline);
+  TerminalProbe pipeline_probe{};
+  rund::node::runtime_detail::ComputeHostState pipeline_host{};
+  pipeline_host.emit_context = &pipeline_probe;
+  pipeline_host.emit = CaptureTerminal;
+  TaskState pipeline_task{};
+  pipeline_task.host = &pipeline_host;
+  pipeline_task.operation =
+      rund::node::compute_detail::make_pipeline(epoch_pipeline_state);
+  TEST_ASSERT(rund::compute::detail::queue_pipeline(epoch_pipeline_state));
+  {
+    std::lock_guard lock{epoch_pipeline_state->gate};
+    epoch_pipeline_state->stats.dispatches = 33u;
+    epoch_pipeline_state->stats.graph_hash = 303u;
+  }
+  std::barrier pipeline_barrier{2};
+  std::atomic_bool pipeline_reused{false};
+  std::thread pipeline_resubmit{[&] {
+    pipeline_barrier.arrive_and_wait();
+    const bool queued = static_cast<bool>(
+        rund::compute::detail::queue_pipeline(epoch_pipeline_state));
+    if (queued) {
+      std::lock_guard lock{epoch_pipeline_state->gate};
+      epoch_pipeline_state->stats.dispatches = 44u;
+      epoch_pipeline_state->stats.graph_hash = 404u;
+    }
+    const bool finished =
+        queued && !rund::compute::detail::fail_pipeline(
+                      epoch_pipeline_state,
+                      rund::compute::Status::fail(
+                          rund::compute::Reason::PrimitiveBackendFailed));
+    pipeline_reused.store(finished, std::memory_order_release);
+  }};
+  auto first_pipeline = rund::node::compute_detail::FinishFailure(
+      pipeline_task, rund::compute::Status::fail(
+                         rund::compute::Reason::PrimitiveBackendFailed));
+  pipeline_barrier.arrive_and_wait();
+  pipeline_resubmit.join();
+  rund::node::Complete(&pipeline_task, std::move(first_pipeline));
+  TEST_ASSERT(pipeline_reused.load(std::memory_order_acquire));
+  TEST_ASSERT(pipeline_probe.calls == 1u && !pipeline_probe.status &&
+              pipeline_probe.stats.dispatches == 33u &&
+              pipeline_probe.stats.graph_hash == 303u &&
+              pipeline_probe.memory.scope ==
+                  rund::compute::MemoryScope::Pipeline);
+  TEST_ASSERT(
+      pipeline_task.stats.dispatches == 33u &&
+      pipeline_task.stats.graph_hash == 303u &&
+      rund::compute::detail::pipeline_stats(epoch_pipeline_state).dispatches ==
+          44u);
   return 0;
 }

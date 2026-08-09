@@ -9,24 +9,22 @@
 
 namespace rund::compute::detail {
 
-using CpuRetainedMemory = CpuStorageBytes;
-
 [[nodiscard]] inline std::uint64_t
 add_cpu_memory_bytes(const std::uint64_t left,
                      const std::uint64_t right) noexcept {
   return ::rund::detail::counter::SaturatingAdd(left, right);
 }
 
-inline void add_cpu_memory(CpuRetainedMemory &total,
-                           const CpuRetainedMemory value) noexcept {
+inline void add_cpu_memory(CpuStorageBytes &total,
+                           const CpuStorageBytes value) noexcept {
   total.host = add_cpu_memory_bytes(total.host, value.host);
   total.tile = add_cpu_memory_bytes(total.tile, value.tile);
 }
 
-[[nodiscard]] inline CpuRetainedMemory
+[[nodiscard]] inline CpuStorageBytes
 cpu_executor_memory(const kernel::ComputeTileExecutor &executor) noexcept {
   const kernel::ComputeTileRetainedMemory retained = executor.retained_memory();
-  return CpuRetainedMemory{
+  return CpuStorageBytes{
       .host = add_cpu_memory_bytes(retained.state_bytes,
                                    retained.async_context_bytes),
       .tile = add_cpu_memory_bytes(
@@ -53,12 +51,12 @@ cpu_runtime_graph_memory(const CpuRuntimeGraph &graph) noexcept {
   return bytes;
 }
 
-[[nodiscard]] inline CpuRetainedMemory
+[[nodiscard]] inline CpuStorageBytes
 cpu_program_memory(const CpuGraphProgram *const program) noexcept {
   if (program == nullptr) {
     return {};
   }
-  CpuRetainedMemory memory{.host = sizeof(CpuGraphProgram)};
+  CpuStorageBytes memory{.host = sizeof(CpuGraphProgram)};
   memory.host = add_cpu_memory_bytes(memory.host, vector_memory(program->maps));
   memory.host =
       add_cpu_memory_bytes(memory.host, vector_memory(program->collectives));
@@ -95,12 +93,12 @@ cpu_program_memory(const CpuGraphProgram *const program) noexcept {
   return memory;
 }
 
-[[nodiscard]] inline CpuRetainedMemory cpu_graph_storage_private_memory(
+[[nodiscard]] inline CpuStorageBytes cpu_graph_storage_private_memory(
     const CpuGraphStorage *const storage) noexcept {
   if (storage == nullptr) {
     return {};
   }
-  CpuRetainedMemory memory{.host = sizeof(CpuGraphStorage)};
+  CpuStorageBytes memory{.host = sizeof(CpuGraphStorage)};
   memory.host =
       add_cpu_memory_bytes(memory.host, vector_memory(storage->map_by_step));
   memory.host = add_cpu_memory_bytes(
@@ -113,17 +111,17 @@ cpu_program_memory(const CpuGraphProgram *const program) noexcept {
   return memory;
 }
 
-[[nodiscard]] inline CpuRetainedMemory
+[[nodiscard]] inline CpuStorageBytes
 cpu_prepared_arena_memory(const CpuPreparedArena *const arena) noexcept {
   return arena == nullptr
-             ? CpuRetainedMemory{}
-             : CpuRetainedMemory{.host = arena->payload_host_bytes(),
-                                 .tile = arena->payload_tile_bytes()};
+             ? CpuStorageBytes{}
+             : CpuStorageBytes{.host = arena->payload_host_bytes(),
+                               .tile = arena->payload_tile_bytes()};
 }
 
-[[nodiscard]] inline CpuRetainedMemory
+[[nodiscard]] inline CpuStorageBytes
 cpu_graph_storage_memory(const CpuGraphStorage *const storage) noexcept {
-  CpuRetainedMemory memory = cpu_graph_storage_private_memory(storage);
+  CpuStorageBytes memory = cpu_graph_storage_private_memory(storage);
   if (storage != nullptr) {
     add_cpu_memory(memory,
                    cpu_prepared_arena_memory(storage->prepared_arena.get()));
@@ -134,9 +132,9 @@ cpu_graph_storage_memory(const CpuGraphStorage *const storage) noexcept {
   return memory;
 }
 
-[[nodiscard]] inline CpuRetainedMemory
+[[nodiscard]] inline CpuStorageBytes
 cpu_run_memory(const CpuRun *const run) noexcept {
-  CpuRetainedMemory memory{};
+  CpuStorageBytes memory{};
   if (run != nullptr && run->graph != nullptr) {
     add_cpu_memory(memory, cpu_graph_storage_memory(run->graph->storage.get()));
   }

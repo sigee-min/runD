@@ -18,8 +18,8 @@ CollectMetalStatus(MetalKernelResources &resources, std::uint32_t declared_step,
                    bool &capacity_failed);
 
 // The native direct aggregate is admitted only for the exact six-step Seed
-// shape (Action and Fold have one step). Its status projection needs counts,
-// not retained binding/source rows, so keep that proof allocation-free.
+// shape (Action and Fold have one step). Its allocation-free status projection
+// counts entries directly from the prepared resources.
 inline constexpr std::size_t kMetalDirectAggregateStatusStepCapacity = 6u;
 
 [[nodiscard]] bool

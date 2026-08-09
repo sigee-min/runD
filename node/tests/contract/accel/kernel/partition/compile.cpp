@@ -73,7 +73,7 @@ bool CompileContract() {
           .tile_count = fixture.desc.element_count,
           .fresh_evidence = true,
       });
-  if (!evidence.ok) {
+  if (!evidence.outcome.ok) {
     return false;
   }
 

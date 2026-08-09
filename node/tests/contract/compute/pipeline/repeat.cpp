@@ -144,8 +144,8 @@ namespace rund_node_test_pipeline {
     }
     if (repeated_execution.dispatches != 1u ||
         repeated_execution.command_submits != 1u ||
-        loop->stats().command_submits !=
-            repeated_execution.command_submits + read_submits ||
+        loop->stats().command_submits != repeated_execution.command_submits ||
+        loop->stats().transfer_submissions.device_to_host != read_submits ||
         profiled_dispatches != 1u) {
       std::fprintf(
           stderr,
@@ -175,7 +175,9 @@ namespace rund_node_test_pipeline {
     if (!plain || !plain_status || !plain_read || plain_values != actual ||
         plain_execution.dispatches != repeated_execution.dispatches ||
         plain_execution.command_submits != repeated_execution.command_submits ||
-        plain->stats().command_submits != loop->stats().command_submits) {
+        plain->stats().command_submits != loop->stats().command_submits ||
+        plain->stats().transfer_submissions.device_to_host !=
+            loop->stats().transfer_submissions.device_to_host) {
       std::fprintf(
           stderr,
           "repeat plain backend=%u prepare=%u run=%u read=%u exact=%u "

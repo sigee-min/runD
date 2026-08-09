@@ -28,6 +28,10 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
     if (!capture.ok) {
       return capture;
     }
+    for (std::size_t command_index = reset_command_count;
+         command_index < captured.commands.size(); ++command_index) {
+      captured.commands[command_index].trace = true;
+    }
     if (profile_steps) {
       const MetalWork work = MeasureMetalWork(std::span<const MetalCommand>{
           captured.commands.data() + reset_command_count,
@@ -157,6 +161,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
             return capture;
           }
           captured.commands.back().control = true;
+          captured.commands.back().trace = false;
           if (advance_count == std::numeric_limits<std::uint32_t>::max()) {
             return rund::AccelCheck{false, "compute_pipeline_capacity"};
           }
@@ -197,6 +202,10 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
         const rund::AccelCheck capture = CheckMetalPipelineCapture(captured);
         if (!capture.ok) {
           return capture;
+        }
+        for (std::size_t command = program_command_begin;
+             command < captured.commands.size(); ++command) {
+          captured.commands[command].trace = true;
         }
       } else {
         for (std::size_t index = 0u; index < resources->size(); ++index) {
@@ -242,6 +251,13 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
             return capture;
           }
           const std::size_t step_command_end = captured.commands.size();
+          // The canonical public dispatch coordinate is every physical
+          // Program body and View helper command. Resets were captured before
+          // step_command_begin and retain their independent reset coordinate.
+          for (std::size_t command_index = step_command_begin;
+               command_index < step_command_end; ++command_index) {
+            captured.commands[command_index].trace = true;
+          }
           for (std::size_t command_index = step_command_begin;
                command_index + 1u < step_command_end; ++command_index) {
             captured.commands[command_index].barrier = true;
@@ -409,6 +425,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
           return capture;
         }
         captured.commands.back().control = true;
+        captured.commands.back().trace = false;
         [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
         ++fold_count;
       }
@@ -461,6 +478,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
             return capture;
           }
           captured.commands.back().control = true;
+          captured.commands.back().trace = true;
           ++pipeline->dispatch_count;
           ++window_publish_count;
           [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
@@ -517,6 +535,7 @@ rund::AccelCheck MetalPipelineBuild::EncodePrograms() {
             return capture;
           }
           captured.commands.back().control = true;
+          captured.commands.back().trace = true;
           ++pipeline->dispatch_count;
           ++canonicalize_count;
           [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];

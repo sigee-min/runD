@@ -252,11 +252,11 @@ namespace {
   if (active == 0u) {
     node::accel::detail::PreparedPipelineEvidence empty{};
     empty.check = {true, "ok"};
-    empty.shared.backend = state.device->backend == Backend::Metal
-                               ? rund::AccelApi::Metal
-                               : rund::AccelApi::Vulkan;
-    empty.shared.ok = true;
-    empty.shared.reason = "ok";
+    empty.shared.identity.backend = state.device->backend == Backend::Metal
+                                        ? rund::AccelApi::Metal
+                                        : rund::AccelApi::Vulkan;
+    empty.shared.outcome.ok = true;
+    empty.shared.outcome.reason = "ok";
     return finish_accel_pipeline(state, empty);
   }
   const node::accel::detail::PreparedKernelPipeline &prepared =
@@ -284,6 +284,46 @@ bool poisoned_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
   }
   std::lock_guard lock{state->gate};
   return state->phase == PipelinePhase::Poisoned;
+}
+
+Status
+begin_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept {
+  if (!valid_pipeline(state)) {
+    return Status::fail(Reason::ProfileInvalid);
+  }
+  std::unique_lock lock{state->gate, std::try_to_lock};
+  if (!lock.owns_lock() || state->phase == PipelinePhase::Running) {
+    return Status::fail(Reason::ProfileBusy);
+  }
+  if (state->phase == PipelinePhase::Poisoned) {
+    return Status::fail(Reason::PipelinePoisoned);
+  }
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Status::fail(Reason::ProfileBusy);
+  }
+  state->stats.pipeline.sampled_runs = 0u;
+  state->stats.pipeline.clean_runs = 0u;
+  state->samples = PipelineState::SampleState::Clean;
+  return Status::success();
+}
+
+Status
+end_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept {
+  if (!valid_pipeline(state)) {
+    return Status::fail(Reason::ProfileInvalid);
+  }
+  std::unique_lock lock{state->gate, std::try_to_lock};
+  if (!lock.owns_lock() || state->phase == PipelinePhase::Running) {
+    return Status::fail(Reason::ProfileBusy);
+  }
+  if (state->phase == PipelinePhase::Poisoned) {
+    return Status::fail(Reason::PipelinePoisoned);
+  }
+  if (state->samples == PipelineState::SampleState::Inactive) {
+    return Status::fail(Reason::ProfileInvalid);
+  }
+  state->samples = PipelineState::SampleState::Inactive;
+  return Status::success();
 }
 
 Status run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {

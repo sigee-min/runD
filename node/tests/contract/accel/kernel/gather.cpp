@@ -64,12 +64,14 @@ bool RequiredMetalRunsGather() {
   }
   const rund::node::accel::detail::MetalRuntimeStats first =
       rund::node::accel::detail::ReadMetalRuntimeStats(pick);
-  if (!first.ok || first.library_compile_count != 1u ||
-      first.library_cache_hit_count != 0u || first.shader_compile_ns == 0u) {
+  if (!first.runtime.outcome.ok || first.library_compile_count != 1u ||
+      first.library_cache_hit_count != 0u ||
+      first.runtime.run.time.shader_compile_ns == 0u) {
     std::cerr << "metal gather u32 library cache mismatch: compile="
               << first.library_compile_count
               << " hit=" << first.library_cache_hit_count
-              << " compile_ns=" << first.shader_compile_ns << '\n';
+              << " compile_ns=" << first.runtime.run.time.shader_compile_ns
+              << '\n';
     return false;
   }
   if (!gather::MatchesU64(pick)) {
@@ -77,12 +79,14 @@ bool RequiredMetalRunsGather() {
   }
   const rund::node::accel::detail::MetalRuntimeStats second =
       rund::node::accel::detail::ReadMetalRuntimeStats(pick);
-  if (!second.ok || second.library_compile_count != 0u ||
-      second.library_cache_hit_count != 1u || second.shader_compile_ns != 0u) {
+  if (!second.runtime.outcome.ok || second.library_compile_count != 0u ||
+      second.library_cache_hit_count != 1u ||
+      second.runtime.run.time.shader_compile_ns != 0u) {
     std::cerr << "metal gather u64 library cache mismatch: compile="
               << second.library_compile_count
               << " hit=" << second.library_cache_hit_count
-              << " compile_ns=" << second.shader_compile_ns << '\n';
+              << " compile_ns=" << second.runtime.run.time.shader_compile_ns
+              << '\n';
     return false;
   }
   return gather::RejectsOutOfRangeIndex(pick) &&

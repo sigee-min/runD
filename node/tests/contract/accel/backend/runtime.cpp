@@ -217,8 +217,8 @@ template <class Adapter>
     return true;
   }
   const rund::RuntimeStats after = rund::node::accel::ReadRuntimeStats(pick);
-  return after.ok && after.device_to_host_bytes == 0u &&
-         after.readback_ns == 0u;
+  return after.outcome.ok && after.run.transfer.device_to_host_bytes == 0u &&
+         after.run.time.readback_ns == 0u;
 }
 
 [[nodiscard]] bool MetalHostReadbackContracts() {
@@ -301,15 +301,18 @@ template <class Adapter>
   const rund::RuntimeStats saturated =
       rund::node::accel::ReadRuntimeStats(pick);
   const bool saturated_ok =
-      saturated.ok && CountersEqual(kCounterMaximum, saturated.dispatch_count,
-                                    saturated.buffer_allocation_count,
-                                    saturated.host_to_device_bytes,
-                                    saturated.device_to_host_bytes);
+      saturated.outcome.ok &&
+      CountersEqual(kCounterMaximum, saturated.run.work.dispatch_count,
+                    saturated.run.allocations.buffer_allocation_count,
+                    saturated.run.transfer.host_to_device_bytes,
+                    saturated.run.transfer.device_to_host_bytes);
   rund::node::accel::ResetRuntimeStats(pick);
   const rund::RuntimeStats reset = rund::node::accel::ReadRuntimeStats(pick);
-  return saturated_ok && reset.ok &&
-         CountersEqual(0u, reset.dispatch_count, reset.buffer_allocation_count,
-                       reset.host_to_device_bytes, reset.device_to_host_bytes);
+  return saturated_ok && reset.outcome.ok &&
+         CountersEqual(0u, reset.run.work.dispatch_count,
+                       reset.run.allocations.buffer_allocation_count,
+                       reset.run.transfer.host_to_device_bytes,
+                       reset.run.transfer.device_to_host_bytes);
 }
 
 [[nodiscard]] bool MetalCounterContract(const rund::AccelDevice &pick) {
@@ -328,42 +331,61 @@ template <class Adapter>
   {
     std::lock_guard lock{adapter->mutex};
     detail::MetalRuntimeStats &stats = adapter->stats;
-    OverflowCounters(
-        stats.dispatch_count, stats.command_submit_count,
-        stats.pipeline_compile_count, stats.pipeline_cache_hit_count,
-        stats.buffer_allocation_count, stats.buffer_reuse_hit_count,
-        stats.host_to_device_bytes, stats.device_to_host_bytes,
-        stats.accel_kernel_ns, stats.accel_timestamp_count,
-        stats.shader_compile_ns, stats.spirv_compile_ns,
-        stats.pipeline_create_ns, stats.descriptor_setup_ns,
-        stats.command_submit_wait_ns, stats.readback_ns);
+    OverflowCounters(stats.runtime.run.work.dispatch_count,
+                     stats.runtime.run.work.command_submit_count,
+                     stats.runtime.run.allocations.pipeline_compile_count,
+                     stats.runtime.run.allocations.pipeline_cache_hit_count,
+                     stats.runtime.run.allocations.buffer_allocation_count,
+                     stats.runtime.run.allocations.buffer_reuse_hit_count,
+                     stats.runtime.run.transfer.host_to_device_bytes,
+                     stats.runtime.run.transfer.device_to_host_bytes,
+                     stats.runtime.run.time.accel_kernel_ns,
+                     stats.runtime.run.time.accel_timestamp_count,
+                     stats.runtime.run.time.shader_compile_ns,
+                     stats.runtime.run.time.spirv_compile_ns,
+                     stats.runtime.run.time.pipeline_create_ns,
+                     stats.runtime.run.time.descriptor_setup_ns,
+                     stats.runtime.run.time.command_submit_wait_ns,
+                     stats.runtime.run.time.readback_ns);
   }
   const rund::RuntimeStats saturated =
       rund::node::accel::ReadRuntimeStats(pick);
   const bool saturated_ok =
-      saturated.ok &&
-      CountersEqual(
-          kCounterMaximum, saturated.dispatch_count,
-          saturated.command_submit_count, saturated.pipeline_compile_count,
-          saturated.pipeline_cache_hit_count, saturated.buffer_allocation_count,
-          saturated.buffer_reuse_hit_count, saturated.host_to_device_bytes,
-          saturated.device_to_host_bytes, saturated.accel_kernel_ns,
-          saturated.accel_timestamp_count, saturated.shader_compile_ns,
-          saturated.spirv_compile_ns, saturated.pipeline_create_ns,
-          saturated.descriptor_setup_ns, saturated.command_submit_wait_ns,
-          saturated.readback_ns);
+      saturated.outcome.ok &&
+      CountersEqual(kCounterMaximum, saturated.run.work.dispatch_count,
+                    saturated.run.work.command_submit_count,
+                    saturated.run.allocations.pipeline_compile_count,
+                    saturated.run.allocations.pipeline_cache_hit_count,
+                    saturated.run.allocations.buffer_allocation_count,
+                    saturated.run.allocations.buffer_reuse_hit_count,
+                    saturated.run.transfer.host_to_device_bytes,
+                    saturated.run.transfer.device_to_host_bytes,
+                    saturated.run.time.accel_kernel_ns,
+                    saturated.run.time.accel_timestamp_count,
+                    saturated.run.time.shader_compile_ns,
+                    saturated.run.time.spirv_compile_ns,
+                    saturated.run.time.pipeline_create_ns,
+                    saturated.run.time.descriptor_setup_ns,
+                    saturated.run.time.command_submit_wait_ns,
+                    saturated.run.time.readback_ns);
   rund::node::accel::ResetRuntimeStats(pick);
   const rund::RuntimeStats reset = rund::node::accel::ReadRuntimeStats(pick);
-  return saturated_ok && reset.ok &&
+  return saturated_ok && reset.outcome.ok &&
          CountersEqual(
-             0u, reset.dispatch_count, reset.command_submit_count,
-             reset.pipeline_compile_count, reset.pipeline_cache_hit_count,
-             reset.buffer_allocation_count, reset.buffer_reuse_hit_count,
-             reset.host_to_device_bytes, reset.device_to_host_bytes,
-             reset.accel_kernel_ns, reset.accel_timestamp_count,
-             reset.shader_compile_ns, reset.spirv_compile_ns,
-             reset.pipeline_create_ns, reset.descriptor_setup_ns,
-             reset.command_submit_wait_ns, reset.readback_ns);
+             0u, reset.run.work.dispatch_count,
+             reset.run.work.command_submit_count,
+             reset.run.allocations.pipeline_compile_count,
+             reset.run.allocations.pipeline_cache_hit_count,
+             reset.run.allocations.buffer_allocation_count,
+             reset.run.allocations.buffer_reuse_hit_count,
+             reset.run.transfer.host_to_device_bytes,
+             reset.run.transfer.device_to_host_bytes,
+             reset.run.time.accel_kernel_ns,
+             reset.run.time.accel_timestamp_count,
+             reset.run.time.shader_compile_ns, reset.run.time.spirv_compile_ns,
+             reset.run.time.pipeline_create_ns,
+             reset.run.time.descriptor_setup_ns,
+             reset.run.time.command_submit_wait_ns, reset.run.time.readback_ns);
 }
 
 [[nodiscard]] bool VulkanCounterContract(const rund::AccelDevice &pick) {
@@ -398,41 +420,54 @@ template <class Adapter>
   const rund::RuntimeStats saturated =
       rund::node::accel::ReadRuntimeStats(pick);
   const bool saturated_ok =
-      saturated.ok &&
-      CountersEqual(
-          kCounterMaximum, saturated.dispatch_count,
-          saturated.command_submit_count,
-          saturated.command_capacity_rejection_count,
-          saturated.pipeline_compile_count, saturated.pipeline_cache_hit_count,
-          saturated.descriptor_pool_create_count,
-          saturated.descriptor_set_allocate_count,
-          saturated.descriptor_reuse_hit_count,
-          saturated.buffer_allocation_count, saturated.buffer_reuse_hit_count,
-          saturated.host_to_device_bytes, saturated.device_to_host_bytes,
-          saturated.accel_kernel_ns, saturated.accel_timestamp_count,
-          saturated.shader_compile_ns, saturated.spirv_compile_ns,
-          saturated.pipeline_create_ns, saturated.descriptor_setup_ns,
-          saturated.command_submit_wait_ns, saturated.readback_ns) &&
-      saturated.command_capacity == detail::kVulkanCommandCapacity &&
-      saturated.command_inflight_peak == detail::kVulkanCommandCapacity;
+      saturated.outcome.ok &&
+      CountersEqual(kCounterMaximum, saturated.run.work.dispatch_count,
+                    saturated.run.work.command_submit_count,
+                    saturated.run.work.command_capacity_rejection_count,
+                    saturated.run.allocations.pipeline_compile_count,
+                    saturated.run.allocations.pipeline_cache_hit_count,
+                    saturated.run.allocations.descriptor_pool_create_count,
+                    saturated.run.allocations.descriptor_set_allocate_count,
+                    saturated.run.allocations.descriptor_reuse_hit_count,
+                    saturated.run.allocations.buffer_allocation_count,
+                    saturated.run.allocations.buffer_reuse_hit_count,
+                    saturated.run.transfer.host_to_device_bytes,
+                    saturated.run.transfer.device_to_host_bytes,
+                    saturated.run.time.accel_kernel_ns,
+                    saturated.run.time.accel_timestamp_count,
+                    saturated.run.time.shader_compile_ns,
+                    saturated.run.time.spirv_compile_ns,
+                    saturated.run.time.pipeline_create_ns,
+                    saturated.run.time.descriptor_setup_ns,
+                    saturated.run.time.command_submit_wait_ns,
+                    saturated.run.time.readback_ns) &&
+      saturated.run.work.command_capacity == detail::kVulkanCommandCapacity &&
+      saturated.run.work.command_inflight_peak ==
+          detail::kVulkanCommandCapacity;
   rund::node::accel::ResetRuntimeStats(pick);
   const rund::RuntimeStats reset = rund::node::accel::ReadRuntimeStats(pick);
-  return saturated_ok && reset.ok &&
-         reset.command_capacity == detail::kVulkanCommandCapacity &&
-         reset.command_inflight_peak == 0u &&
-         reset.command_capacity_rejection_count == 0u &&
+  return saturated_ok && reset.outcome.ok &&
+         reset.run.work.command_capacity == detail::kVulkanCommandCapacity &&
+         reset.run.work.command_inflight_peak == 0u &&
+         reset.run.work.command_capacity_rejection_count == 0u &&
          CountersEqual(
-             0u, reset.dispatch_count, reset.command_submit_count,
-             reset.pipeline_compile_count, reset.pipeline_cache_hit_count,
-             reset.descriptor_pool_create_count,
-             reset.descriptor_set_allocate_count,
-             reset.descriptor_reuse_hit_count, reset.buffer_allocation_count,
-             reset.buffer_reuse_hit_count, reset.host_to_device_bytes,
-             reset.device_to_host_bytes, reset.accel_kernel_ns,
-             reset.accel_timestamp_count, reset.shader_compile_ns,
-             reset.spirv_compile_ns, reset.pipeline_create_ns,
-             reset.descriptor_setup_ns, reset.command_submit_wait_ns,
-             reset.readback_ns);
+             0u, reset.run.work.dispatch_count,
+             reset.run.work.command_submit_count,
+             reset.run.allocations.pipeline_compile_count,
+             reset.run.allocations.pipeline_cache_hit_count,
+             reset.run.allocations.descriptor_pool_create_count,
+             reset.run.allocations.descriptor_set_allocate_count,
+             reset.run.allocations.descriptor_reuse_hit_count,
+             reset.run.allocations.buffer_allocation_count,
+             reset.run.allocations.buffer_reuse_hit_count,
+             reset.run.transfer.host_to_device_bytes,
+             reset.run.transfer.device_to_host_bytes,
+             reset.run.time.accel_kernel_ns,
+             reset.run.time.accel_timestamp_count,
+             reset.run.time.shader_compile_ns, reset.run.time.spirv_compile_ns,
+             reset.run.time.pipeline_create_ns,
+             reset.run.time.descriptor_setup_ns,
+             reset.run.time.command_submit_wait_ns, reset.run.time.readback_ns);
 #else
   return false;
 #endif
@@ -497,8 +532,9 @@ template <class Adapter>
       return false;
     }
     const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(pick);
-    if (!stats.ok || stats.host_to_device_bytes != 10u ||
-        stats.device_to_host_bytes != 7u || stats.command_submit_count < 4u) {
+    if (!stats.outcome.ok || stats.run.transfer.host_to_device_bytes != 10u ||
+        stats.run.transfer.device_to_host_bytes != 7u ||
+        stats.run.work.command_submit_count < 4u) {
       return false;
     }
   }

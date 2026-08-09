@@ -2,8 +2,8 @@
 #include <accel/buffer.hpp>
 #include <accel/device.hpp>
 #include <accel/graph/buffer/ref.hpp>
-#include <accel/graph/value.hpp>
 #include <accel/graph/node.hpp>
+#include <accel/graph/value.hpp>
 #include <accel/kernel/run.hpp>
 #include <accel/kernel/run/binding.hpp>
 
@@ -86,13 +86,13 @@ template <typename Value, std::size_t Rows>
       rund::AccelSpectrum(refs.data(), refs.size(), desc),
   };
   const auto kernel = rund::node::accel::CompileAccelKernel(
-      context,
-      rund::AccelGraph{.nodes = nodes.data(),
-                       .node_count = nodes.size(),
-                       .scalar = scalar,
-                       .domain = rund::kernel::ComputeDomain::Fixed,
-                       .fixed_format = test::FixedFormatForLane(scalar),
-});
+      context, rund::AccelGraph{
+                   .nodes = nodes.data(),
+                   .node_count = nodes.size(),
+                   .scalar = scalar,
+                   .domain = rund::kernel::ComputeDomain::Fixed,
+                   .fixed_format = test::FixedFormatForLane(scalar),
+               });
   if (!kernel.check.ok) {
     return false;
   }
@@ -104,13 +104,14 @@ template <typename Value, std::size_t Rows>
       rund::AccelRunBinding{.buffer = &status,
                             .role = rund::kernel::BufferRole::Write},
   };
-  const auto evidence = rund::node::accel::RunAccelKernel(
-      context, kernel,
-      rund::AccelRun{.bindings = bindings.data(),
-                     .binding_count = bindings.size(),
-                     .tile_count = 2u,
-                     .fresh_evidence = true,
-});
+  const auto evidence =
+      rund::node::accel::RunAccelKernel(context, kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = 2u,
+                                            .fresh_evidence = true,
+                                        });
   std::array<rund::kernel::u32, 1u> status_out{};
   std::array<Value, Rows> values_out{};
   const Value expected_first = static_cast<Value>(
@@ -126,8 +127,9 @@ template <typename Value, std::size_t Rows>
     values_match = values_match && values_out[i] == expected_rest;
   }
   constexpr std::uint64_t expected_dispatches = 1u;
-  return evidence.ok && evidence.dispatch_count == expected_dispatches &&
-         evidence.failed_batches == 0u &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == expected_dispatches &&
+         evidence.outcome.failed_batches == 0u &&
          rund::node::accel::DownloadAccelBuffer(
              context, status, status_out.data(), sizeof(rund::kernel::u32))
              .ok &&
@@ -195,13 +197,13 @@ template <typename Value, std::size_t Rows>
                   rund::kernel::ComputeApproximation::Deterministic)}),
   };
   const auto kernel = rund::node::accel::CompileAccelKernel(
-      context,
-      rund::AccelGraph{.nodes = nodes.data(),
-                       .node_count = nodes.size(),
-                       .scalar = scalar,
-                       .domain = rund::kernel::ComputeDomain::Fixed,
-                       .fixed_format = test::FixedFormatForLane(scalar),
-});
+      context, rund::AccelGraph{
+                   .nodes = nodes.data(),
+                   .node_count = nodes.size(),
+                   .scalar = scalar,
+                   .domain = rund::kernel::ComputeDomain::Fixed,
+                   .fixed_format = test::FixedFormatForLane(scalar),
+               });
   if (!kernel.check.ok) {
     return false;
   }
@@ -215,13 +217,14 @@ template <typename Value, std::size_t Rows>
       rund::AccelRunBinding{.buffer = &status,
                             .role = rund::kernel::BufferRole::Write},
   };
-  const auto evidence = rund::node::accel::RunAccelKernel(
-      context, kernel,
-      rund::AccelRun{.bindings = bindings.data(),
-                     .binding_count = bindings.size(),
-                     .tile_count = Rows,
-                     .fresh_evidence = true,
-});
+  const auto evidence =
+      rund::node::accel::RunAccelKernel(context, kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = Rows,
+                                            .fresh_evidence = true,
+                                        });
   std::array<rund::kernel::u32, 1u> status_out{};
   std::array<Value, Rows * Rows> vectors_out{};
   const Value one = static_cast<Value>(
@@ -237,8 +240,9 @@ template <typename Value, std::size_t Rows>
     }
   }
   constexpr std::uint64_t expected_dispatches = 1u;
-  return evidence.ok && evidence.dispatch_count == expected_dispatches &&
-         evidence.failed_batches == 0u &&
+  return evidence.outcome.ok &&
+         evidence.run.work.dispatch_count == expected_dispatches &&
+         evidence.outcome.failed_batches == 0u &&
          rund::node::accel::DownloadAccelBuffer(
              context, status, status_out.data(), sizeof(rund::kernel::u32))
              .ok &&
@@ -279,13 +283,11 @@ template <typename Value, std::size_t Rows>
       for (std::size_t col = 0u; col < Rows; ++col) {
         matrix[batch * Rows * Rows + row * Rows + col] =
             row == col
-                ? static_cast<Value>(quarter +
-                                     quarter /
-                                         static_cast<Value>(8u + row + batch))
+                ? static_cast<Value>(
+                      quarter + quarter / static_cast<Value>(8u + row + batch))
                 : ((row / 2u == col / 2u)
                        ? static_cast<Value>(
-                             quarter /
-                             static_cast<Value>(32u + batch * 4u))
+                             quarter / static_cast<Value>(32u + batch * 4u))
                        : Value{1});
       }
     }
@@ -318,13 +320,13 @@ template <typename Value, std::size_t Rows>
       rund::AccelSpectrum(refs.data(), refs.size(), desc),
   };
   const auto kernel = rund::node::accel::CompileAccelKernel(
-      context,
-      rund::AccelGraph{.nodes = nodes.data(),
-                       .node_count = nodes.size(),
-                       .scalar = scalar,
-                       .domain = rund::kernel::ComputeDomain::Fixed,
-                       .fixed_format = test::FixedFormatForLane(scalar),
-});
+      context, rund::AccelGraph{
+                   .nodes = nodes.data(),
+                   .node_count = nodes.size(),
+                   .scalar = scalar,
+                   .domain = rund::kernel::ComputeDomain::Fixed,
+                   .fixed_format = test::FixedFormatForLane(scalar),
+               });
   if (!kernel.check.ok) {
     return false;
   }
@@ -336,46 +338,49 @@ template <typename Value, std::size_t Rows>
       rund::AccelRunBinding{.buffer = &status,
                             .role = rund::kernel::BufferRole::Write},
   };
-  const auto evidence = rund::node::accel::RunAccelKernel(
-      context, kernel,
-      rund::AccelRun{.bindings = bindings.data(),
-                     .binding_count = bindings.size(),
-                     .tile_count = Rows * batches,
-                     .fresh_evidence = true,
-});
+  const auto evidence =
+      rund::node::accel::RunAccelKernel(context, kernel,
+                                        rund::AccelRun{
+                                            .bindings = bindings.data(),
+                                            .binding_count = bindings.size(),
+                                            .tile_count = Rows * batches,
+                                            .fresh_evidence = true,
+                                        });
   const rund::kernel::SpectrumPlan plan = rund::kernel::PlanSpectrum(desc);
   std::array<Value, value_count> expected{};
   std::array<rund::kernel::u32, batches> expected_status{};
   const rund::kernel::SpectrumResult reference = [&] {
     if constexpr (sizeof(Value) == sizeof(rund::kernel::i64)) {
-      return rund::kernel::ReferenceSpectrumI64(
-          matrix.data(), expected.data(), nullptr, expected_status.data(), plan);
+      return rund::kernel::ReferenceSpectrumI64(matrix.data(), expected.data(),
+                                                nullptr, expected_status.data(),
+                                                plan);
     } else {
-      return rund::kernel::ReferenceSpectrumI32(
-          matrix.data(), expected.data(), nullptr, expected_status.data(), plan);
+      return rund::kernel::ReferenceSpectrumI32(matrix.data(), expected.data(),
+                                                nullptr, expected_status.data(),
+                                                plan);
     }
   }();
   std::array<Value, value_count> actual{};
   std::array<rund::kernel::u32, batches> actual_status{};
   const bool downloaded =
-      rund::node::accel::DownloadAccelBuffer(
-          context, values, actual.data(), actual.size() * sizeof(Value))
+      rund::node::accel::DownloadAccelBuffer(context, values, actual.data(),
+                                             actual.size() * sizeof(Value))
           .ok &&
       rund::node::accel::DownloadAccelBuffer(
           context, status, actual_status.data(),
           actual_status.size() * sizeof(rund::kernel::u32))
           .ok;
   if (!plan.ok || !reference.ok || reference.failed_batches != 0u ||
-      !evidence.ok || evidence.dispatch_count != 1u ||
-      evidence.failed_batches != 0u || !downloaded ||
+      !evidence.outcome.ok || evidence.run.work.dispatch_count != 1u ||
+      evidence.outcome.failed_batches != 0u || !downloaded ||
       actual_status != expected_status || actual != expected) {
     std::cerr << "spectrum dense mismatch device="
-              << pick.backend_info.device_name << " op="
-              << static_cast<int>(op) << " bytes=" << sizeof(Value)
-              << " plan=" << plan.ok << " reference=" << reference.ok
+              << pick.backend_info.device_name << " op=" << static_cast<int>(op)
+              << " bytes=" << sizeof(Value) << " plan=" << plan.ok
+              << " reference=" << reference.ok
               << " reference_failed=" << reference.failed_batches
-              << " evidence=" << evidence.ok
-              << " evidence_failed=" << evidence.failed_batches
+              << " evidence=" << evidence.outcome.ok
+              << " evidence_failed=" << evidence.outcome.failed_batches
               << " downloaded=" << downloaded << '\n';
     for (std::size_t index = 0u; index < batches; ++index) {
       std::cerr << "status[" << index << "]=" << actual_status[index]
@@ -396,36 +401,48 @@ template <typename Value, std::size_t Rows>
 } // namespace
 
 [[nodiscard]] bool BackendRunsSpectrum(const rund::AccelDevice &pick) {
-  const bool dense =
-      pick.api != rund::AccelApi::Vulkan ||
-      (RunSpectrumDense<rund::kernel::i32, 9u>(
-           pick, rund::kernel::SpectrumOp::Eigen) &&
-       RunSpectrumDense<rund::kernel::i32, 9u>(
-           pick, rund::kernel::SpectrumOp::SVD) &&
-       RunSpectrumDense<rund::kernel::i64, 9u>(
-           pick, rund::kernel::SpectrumOp::Eigen) &&
-       RunSpectrumDense<rund::kernel::i64, 9u>(
-           pick, rund::kernel::SpectrumOp::SVD));
+  const bool dense = pick.api != rund::AccelApi::Vulkan ||
+                     (RunSpectrumDense<rund::kernel::i32, 9u>(
+                          pick, rund::kernel::SpectrumOp::Eigen) &&
+                      RunSpectrumDense<rund::kernel::i32, 9u>(
+                          pick, rund::kernel::SpectrumOp::SVD) &&
+                      RunSpectrumDense<rund::kernel::i64, 9u>(
+                          pick, rund::kernel::SpectrumOp::Eigen) &&
+                      RunSpectrumDense<rund::kernel::i64, 9u>(
+                          pick, rund::kernel::SpectrumOp::SVD));
   return dense &&
-         RunSpectrum<rund::kernel::i32, 2u>(pick, rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrum<rund::kernel::i32, 3u>(pick, rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrum<rund::kernel::i32, 9u>(pick, rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrum<rund::kernel::i32, 2u>(pick, rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrum<rund::kernel::i32, 3u>(pick, rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrum<rund::kernel::i32, 9u>(pick, rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrumVectors<rund::kernel::i32, 3u>(pick,
-                                                   rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrumVectors<rund::kernel::i32, 3u>(pick,
-                                                   rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrum<rund::kernel::i64, 2u>(pick, rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrum<rund::kernel::i64, 3u>(pick, rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrum<rund::kernel::i64, 9u>(pick, rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrum<rund::kernel::i64, 2u>(pick, rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrum<rund::kernel::i64, 3u>(pick, rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrum<rund::kernel::i64, 9u>(pick, rund::kernel::SpectrumOp::SVD) &&
-         RunSpectrumVectors<rund::kernel::i64, 3u>(pick,
-                                                   rund::kernel::SpectrumOp::Eigen) &&
-         RunSpectrumVectors<rund::kernel::i64, 3u>(pick, rund::kernel::SpectrumOp::SVD);
+         RunSpectrum<rund::kernel::i32, 2u>(pick,
+                                            rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrum<rund::kernel::i32, 3u>(pick,
+                                            rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrum<rund::kernel::i32, 9u>(pick,
+                                            rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrum<rund::kernel::i32, 2u>(pick,
+                                            rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrum<rund::kernel::i32, 3u>(pick,
+                                            rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrum<rund::kernel::i32, 9u>(pick,
+                                            rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrumVectors<rund::kernel::i32, 3u>(
+             pick, rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrumVectors<rund::kernel::i32, 3u>(
+             pick, rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrum<rund::kernel::i64, 2u>(pick,
+                                            rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrum<rund::kernel::i64, 3u>(pick,
+                                            rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrum<rund::kernel::i64, 9u>(pick,
+                                            rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrum<rund::kernel::i64, 2u>(pick,
+                                            rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrum<rund::kernel::i64, 3u>(pick,
+                                            rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrum<rund::kernel::i64, 9u>(pick,
+                                            rund::kernel::SpectrumOp::SVD) &&
+         RunSpectrumVectors<rund::kernel::i64, 3u>(
+             pick, rund::kernel::SpectrumOp::Eigen) &&
+         RunSpectrumVectors<rund::kernel::i64, 3u>(
+             pick, rund::kernel::SpectrumOp::SVD);
 }
 
 [[nodiscard]] bool SpectrumRejectsInvalidShape(const rund::AccelDevice &pick) {
@@ -449,21 +466,23 @@ template <typename Value, std::size_t Rows>
   const std::array<rund::AccelGraphNode, 1u> nodes{
       rund::AccelSpectrum(
           refs.data(), refs.size(),
-          rund::kernel::SpectrumDesc{.op = rund::kernel::SpectrumOp::Eigen,
-                             .domain = rund::kernel::SpectrumDomain::SymmetricReal,
-                             .vectors = rund::kernel::SpectrumVectors::ValuesOnly,
-                             .rows = 2u,
-                             .cols = 3u,
-                             .max_iterations = 8u}),
+          rund::kernel::SpectrumDesc{
+              .op = rund::kernel::SpectrumOp::Eigen,
+              .domain = rund::kernel::SpectrumDomain::SymmetricReal,
+              .vectors = rund::kernel::SpectrumVectors::ValuesOnly,
+              .rows = 2u,
+              .cols = 3u,
+              .max_iterations = 8u}),
   };
   const auto kernel = rund::node::accel::CompileAccelKernel(
-      context, rund::AccelGraph{.nodes = nodes.data(),
-                                .node_count = nodes.size(),
-                                .scalar = rund::kernel::ComputeScalar::Lane32,
-                                .domain = rund::kernel::ComputeDomain::Fixed,
-                                .fixed_format = test::FixedFormatForLane(
-                                    rund::kernel::ComputeScalar::Lane32),
-});
+      context, rund::AccelGraph{
+                   .nodes = nodes.data(),
+                   .node_count = nodes.size(),
+                   .scalar = rund::kernel::ComputeScalar::Lane32,
+                   .domain = rund::kernel::ComputeDomain::Fixed,
+                   .fixed_format = test::FixedFormatForLane(
+                       rund::kernel::ComputeScalar::Lane32),
+               });
   return !kernel.check.ok;
 }
 

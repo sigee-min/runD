@@ -40,7 +40,8 @@ using runtime_detail::RuntimeActiveScope;
     return LifecycleFail(ReasonCode::RuntimeIdRequired, state_->lifecycle);
   }
   if (options.telemetry.level() != ::rund::telemetry::Level::Basic &&
-      options.telemetry.level() != ::rund::telemetry::Level::Detail) {
+      options.telemetry.level() != ::rund::telemetry::Level::Detail &&
+      options.telemetry.level() != ::rund::telemetry::Level::Trace) {
     return LifecycleFail(ReasonCode::TelemetryLevelInvalid, state_->lifecycle);
   }
   if (!runtime_detail::HostReplayStorageValid(options.replay.storage)) {
@@ -69,6 +70,7 @@ using runtime_detail::RuntimeActiveScope;
     compute_host = std::make_shared<runtime_detail::ComputeHostState>();
     compute_host->workers = options.workers;
     compute_host->task_capacity = scheduler.task_capacity;
+    compute_host->telemetry_level = options.telemetry.level();
     compute_host->compile_resources = options.compile;
     compute_host->worker_capacity.assign(compute_host->workers, 1000u);
     compute_host->task_slots.configure(compute_host->task_capacity);
@@ -115,17 +117,20 @@ using runtime_detail::RuntimeActiveScope;
     };
     if (options.telemetry) {
       compute_host->emit_context = this;
-      compute_host->emit = [](void *const raw, const compute::Status &status,
-                              const compute::Stats &stats) noexcept {
-        auto *const runtime = static_cast<Runtime *>(raw);
-        if (runtime == nullptr) {
-          return;
-        }
-        ::rund::telemetry::Event event =
-            ::rund::telemetry::detail::ComputeEvent(
-                stats, status.code(), ::rund::telemetry::Level::Detail);
-        runtime->emit(std::move(event));
-      };
+      compute_host->emit =
+          [](void *const raw, const compute::Status &status,
+             const compute::telemetry::Profile &profile) noexcept {
+            auto *const runtime = static_cast<Runtime *>(raw);
+            if (runtime == nullptr) {
+              return;
+            }
+            const ::rund::telemetry::Level level =
+                runtime->state_->telemetry.level();
+            ::rund::telemetry::Event event =
+                ::rund::telemetry::detail::ProjectEvent(profile, status.code(),
+                                                        level);
+            runtime->emit(std::move(event));
+          };
     }
     if (!compute_host->scheduler.Configure(
             std::move(scheduler),
@@ -162,22 +167,21 @@ using runtime_detail::RuntimeActiveScope;
 
 Runtime::ScopeAdmission Runtime::enter_scope() {
   if (RuntimeActive(this)) {
-    return ScopeAdmission{
-        .status = LifecycleFail(ReasonCode::RuntimeReentryForbidden,
-                                ObserveLifecycle(*this))};
+    return ScopeAdmission{.status =
+                              LifecycleFail(ReasonCode::RuntimeReentryForbidden,
+                                            ObserveLifecycle(*this))};
   }
   std::lock_guard<std::mutex> lock(state_->mutex);
   if (!Runnable(state_->lifecycle) ||
       !static_cast<bool>(state_->resources.worker_backend) ||
       state_->compute_host == nullptr) {
-    return ScopeAdmission{
-        .status = LifecycleFail(ReasonCode::RuntimeScopeNotStarted,
-                                state_->lifecycle)};
+    return ScopeAdmission{.status =
+                              LifecycleFail(ReasonCode::RuntimeScopeNotStarted,
+                                            state_->lifecycle)};
   }
   if (state_->scope_active) {
-    return ScopeAdmission{
-        .status =
-            LifecycleFail(ReasonCode::RuntimeScopeBusy, state_->lifecycle)};
+    return ScopeAdmission{.status = LifecycleFail(ReasonCode::RuntimeScopeBusy,
+                                                  state_->lifecycle)};
   }
   const std::shared_ptr<runtime_detail::ComputeHostState> host =
       state_->compute_host;

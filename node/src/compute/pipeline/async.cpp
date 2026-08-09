@@ -4,10 +4,13 @@
 #include <rund/counter.hpp>
 
 #include "../backend.hpp"
+#include "../device/info.hpp"
 #include "../job/local.hpp"
 #include "../stats.hpp"
 #include "../status.hpp"
+#include "../terminal.hpp"
 #include "claim.hpp"
+#include "run/memory.hpp"
 #include "run/result.hpp"
 
 #include <algorithm>
@@ -16,6 +19,120 @@
 
 namespace rund::compute::detail {
 namespace {
+
+[[nodiscard]] TerminalObservation
+observe_pipeline_terminal_locked(PipelineState &state, const Status status,
+                                 const std::uint64_t frame_bytes,
+                                 const bool capture_profile) noexcept {
+  ::rund::detail::counter::Release(state.frame_current, frame_bytes);
+  if (!capture_profile) {
+    return TerminalObservationAccess::from_stats(status, state.stats);
+  }
+  if (state.publication != nullptr) {
+    std::lock_guard publication_lock{state.publication->gate};
+    synchronize_pipeline_observation_epoch(state, *state.publication);
+    state.stats.publication.generation = state.publication->generation;
+  }
+  const MemoryStats memory = pipeline_memory_view_locked(state).summary;
+  return TerminalObservationAccess::from_profile(
+      status, device_info_owner(state.device), state.stats, memory);
+}
+
+[[nodiscard]] Status cancel_pipeline_locked(PipelineState &state) noexcept {
+  if (state.phase != PipelinePhase::Running) {
+    return state.failure == Reason::Cancelled ? Status::fail(Reason::Cancelled)
+           : state.phase == PipelinePhase::Poisoned
+               ? Status::fail(Reason::PipelinePoisoned)
+               : Status::fail(Reason::AlreadyCompleted);
+  }
+  publish_pipeline_terminal(
+      state,
+      PipelineTerminal{
+          .reason = Reason::Cancelled,
+          .verified = state.verified,
+          .failed_step = state.verified,
+          .failure_step_known = state.failure_step_known,
+          .writes_possible = state.writes_possible || state.backend_submitted,
+          .publication_suppressed = state.device->backend == Backend::Cpu ||
+                                    !state.backend_submitted});
+  return Status::fail(Reason::Cancelled);
+}
+
+[[nodiscard]] Status fail_pipeline_locked(PipelineState &state,
+                                          const Status failure) noexcept {
+  if (state.phase == PipelinePhase::Running) {
+    publish_pipeline_terminal(
+        state,
+        PipelineTerminal{
+            .reason = failure.reason(),
+            .verified = state.verified,
+            .failed_step = state.verified,
+            .failure_step_known = state.failure_step_known,
+            .writes_possible = state.writes_possible || state.backend_submitted,
+            .publication_suppressed = state.device->backend == Backend::Cpu ||
+                                      !state.backend_submitted});
+  }
+  return Status::fail(failure.reason());
+}
+
+[[nodiscard]] Status complete_cpu_pipeline_locked(PipelineState &state) {
+  if (state.phase != PipelinePhase::Running ||
+      state.verified != state.steps.size()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  state.stats.command_submits = 0u;
+  const Status published = publish_cpu_pipeline(state);
+  if (!published) {
+    publish_pipeline_terminal(
+        state,
+        PipelineTerminal{.reason = published.reason(),
+                         .verified = state.verified,
+                         .failed_step =
+                             state.steps.empty() ? 0u : state.steps.size() - 1u,
+                         .failure_step_known = !state.steps.empty(),
+                         .writes_possible = true,
+                         .publication_suppressed = false});
+    return published;
+  }
+  publish_pipeline_terminal(state, PipelineTerminal{});
+  return Status::success();
+}
+
+[[nodiscard]] Status finish_pipeline_locked(
+    PipelineState &state,
+    const node::accel::detail::PreparedPipelineEvidence &evidence) noexcept {
+  if (state.phase != PipelinePhase::Running) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  const DeviceOps *const ops = state.device->ops;
+  if (ops == nullptr) {
+    publish_pipeline_terminal(
+        state,
+        PipelineTerminal{.reason = Reason::AccelProgramInvalid,
+                         .verified = state.verified,
+                         .failed_step = state.verified,
+                         .failure_step_known = state.failure_step_known,
+                         .writes_possible =
+                             state.writes_possible || state.backend_submitted,
+                         .publication_suppressed = !state.backend_submitted});
+    return Status::fail(Reason::AccelProgramInvalid);
+  }
+  const PipelineOutcome outcome = finish_accel_pipeline(state, evidence);
+  if (!outcome.status) {
+    publish_pipeline_terminal(
+        state,
+        PipelineTerminal{
+            .reason = outcome.status.reason(),
+            .verified = outcome.verified,
+            .failed_step = outcome.failed_step,
+            .failure_step_known = outcome.failure_step_known,
+            .writes_possible = outcome.writes_possible || outcome.submitted,
+            .publication_suppressed = outcome.publication_suppressed});
+    return outcome.status;
+  }
+  publish_pipeline_terminal(state, PipelineTerminal{});
+  return Status::success();
+}
 
 [[nodiscard]] PipelineWindow *
 pipeline_window(PipelineState &state, const PipelineStep &step) noexcept {
@@ -207,23 +324,21 @@ Status cancel_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
     return Status::fail(Reason::PipelineInvalid);
   }
   std::lock_guard lock{state->gate};
-  if (state->phase != PipelinePhase::Running) {
-    return state->failure == Reason::Cancelled ? Status::fail(Reason::Cancelled)
-           : state->phase == PipelinePhase::Poisoned
-               ? Status::fail(Reason::PipelinePoisoned)
-               : Status::fail(Reason::AlreadyCompleted);
+  return cancel_pipeline_locked(*state);
+}
+
+TerminalObservation
+cancel_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
+                         const std::uint64_t frame_bytes,
+                         const bool capture_profile) noexcept {
+  if (!valid_pipeline(state)) {
+    return TerminalObservationAccess::from_stats(
+        Status::fail(Reason::PipelineInvalid));
   }
-  publish_pipeline_terminal(
-      *state,
-      PipelineTerminal{
-          .reason = Reason::Cancelled,
-          .verified = state->verified,
-          .failed_step = state->verified,
-          .failure_step_known = state->failure_step_known,
-          .writes_possible = state->writes_possible || state->backend_submitted,
-          .publication_suppressed = state->device->backend == Backend::Cpu ||
-                                    !state->backend_submitted});
-  return Status::fail(Reason::Cancelled);
+  std::lock_guard lock{state->gate};
+  const Status status = cancel_pipeline_locked(*state);
+  return observe_pipeline_terminal_locked(*state, status, frame_bytes,
+                                          capture_profile);
 }
 
 Status fail_pipeline(const std::shared_ptr<PipelineState> &state,
@@ -232,20 +347,21 @@ Status fail_pipeline(const std::shared_ptr<PipelineState> &state,
     return Status::fail(Reason::PipelineInvalid);
   }
   std::lock_guard lock{state->gate};
-  if (state->phase == PipelinePhase::Running) {
-    publish_pipeline_terminal(
-        *state,
-        PipelineTerminal{.reason = failure.reason(),
-                         .verified = state->verified,
-                         .failed_step = state->verified,
-                         .failure_step_known = state->failure_step_known,
-                         .writes_possible =
-                             state->writes_possible || state->backend_submitted,
-                         .publication_suppressed =
-                             state->device->backend == Backend::Cpu ||
-                             !state->backend_submitted});
+  return fail_pipeline_locked(*state, failure);
+}
+
+TerminalObservation
+fail_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
+                       const Status failure, const std::uint64_t frame_bytes,
+                       const bool capture_profile) noexcept {
+  if (!valid_pipeline(state)) {
+    return TerminalObservationAccess::from_stats(
+        Status::fail(Reason::PipelineInvalid));
   }
-  return Status::fail(failure.reason());
+  std::lock_guard lock{state->gate};
+  const Status status = fail_pipeline_locked(*state, failure);
+  return observe_pipeline_terminal_locked(*state, status, frame_bytes,
+                                          capture_profile);
 }
 
 std::size_t
@@ -470,32 +586,28 @@ complete_cpu_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
     return Status::fail(Reason::PipelineInvalid);
   }
   std::lock_guard lock{state->gate};
-  if (state->phase != PipelinePhase::Running ||
-      state->verified != state->steps.size()) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
-  state->stats.command_submits = 0u;
-  const Status published = publish_cpu_pipeline(*state);
-  if (!published) {
-    publish_pipeline_terminal(
-        *state, PipelineTerminal{.reason = published.reason(),
-                                 .verified = state->verified,
-                                 .failed_step = state->steps.empty()
-                                                    ? 0u
-                                                    : state->steps.size() - 1u,
-                                 .failure_step_known = !state->steps.empty(),
-                                 .writes_possible = true,
-                                 .publication_suppressed = false});
-    return published;
-  }
-  publish_pipeline_terminal(*state, PipelineTerminal{});
-  return Status::success();
+  return complete_cpu_pipeline_locked(*state);
 }
 
-Status submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
-                          std::shared_ptr<void> lifetime,
-                          const PipelineCompletion completion,
-                          void *const user) noexcept {
+TerminalObservation
+complete_cpu_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
+                               const std::uint64_t frame_bytes,
+                               const bool capture_profile) noexcept {
+  if (!valid_pipeline(state)) {
+    return TerminalObservationAccess::from_stats(
+        Status::fail(Reason::PipelineInvalid));
+  }
+  std::lock_guard lock{state->gate};
+  const Status status = complete_cpu_pipeline_locked(*state);
+  return observe_pipeline_terminal_locked(*state, status, frame_bytes,
+                                          capture_profile);
+}
+
+Status
+submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
+                   std::shared_ptr<void> lifetime,
+                   const PipelineCompletion completion, void *const user,
+                   const node::accel::detail::KernelTiming timing) noexcept {
   if (!valid_pipeline(state) || completion == nullptr || user == nullptr ||
       state->device->backend == Backend::Cpu) {
     return Status::fail(Reason::PipelineInvalid);
@@ -513,11 +625,11 @@ Status submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
     if (state->active_step_count == 0u) {
       node::accel::detail::PreparedPipelineEvidence empty{};
       empty.check = {true, "ok"};
-      empty.shared.backend = state->device->backend == Backend::Metal
-                                 ? rund::AccelApi::Metal
-                                 : rund::AccelApi::Vulkan;
-      empty.shared.ok = true;
-      empty.shared.reason = "ok";
+      empty.shared.identity.backend = state->device->backend == Backend::Metal
+                                          ? rund::AccelApi::Metal
+                                          : rund::AccelApi::Vulkan;
+      empty.shared.outcome.ok = true;
+      empty.shared.outcome.reason = "ok";
       lock.unlock();
       completion(user, std::move(empty));
       return Status::success();
@@ -528,9 +640,11 @@ Status submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
     if (!prepared->ok) {
       return Status::fail(Reason::PipelineInvalid);
     }
+    state->dispatch_timing =
+        timing == node::accel::detail::KernelTiming::Dispatch;
   }
   const rund::AccelCheck submitted = ops->submit_pipeline(
-      *state->device, *prepared, std::move(lifetime), completion, user);
+      *state->device, *prepared, std::move(lifetime), completion, user, timing);
   std::lock_guard lock{state->gate};
   if (!submitted.ok) {
     return Status::fail(
@@ -547,37 +661,21 @@ Status finish_pipeline_on(
     return Status::fail(Reason::PipelineInvalid);
   }
   std::lock_guard lock{state->gate};
-  if (state->phase != PipelinePhase::Running) {
-    return Status::fail(Reason::PipelineInvalid);
+  return finish_pipeline_locked(*state, evidence);
+}
+
+TerminalObservation finish_pipeline_terminal_on(
+    const std::shared_ptr<PipelineState> &state,
+    node::accel::detail::PreparedPipelineEvidence &&evidence,
+    const std::uint64_t frame_bytes, const bool capture_profile) noexcept {
+  if (!valid_pipeline(state)) {
+    return TerminalObservationAccess::from_stats(
+        Status::fail(Reason::PipelineInvalid));
   }
-  const DeviceOps *const ops = state->device->ops;
-  if (ops == nullptr) {
-    publish_pipeline_terminal(
-        *state,
-        PipelineTerminal{.reason = Reason::AccelProgramInvalid,
-                         .verified = state->verified,
-                         .failed_step = state->verified,
-                         .failure_step_known = state->failure_step_known,
-                         .writes_possible =
-                             state->writes_possible || state->backend_submitted,
-                         .publication_suppressed = !state->backend_submitted});
-    return Status::fail(Reason::AccelProgramInvalid);
-  }
-  const PipelineOutcome outcome = finish_accel_pipeline(*state, evidence);
-  if (!outcome.status) {
-    publish_pipeline_terminal(
-        *state,
-        PipelineTerminal{
-            .reason = outcome.status.reason(),
-            .verified = outcome.verified,
-            .failed_step = outcome.failed_step,
-            .failure_step_known = outcome.failure_step_known,
-            .writes_possible = outcome.writes_possible || outcome.submitted,
-            .publication_suppressed = outcome.publication_suppressed});
-    return outcome.status;
-  }
-  publish_pipeline_terminal(*state, PipelineTerminal{});
-  return Status::success();
+  std::lock_guard lock{state->gate};
+  const Status status = finish_pipeline_locked(*state, evidence);
+  return observe_pipeline_terminal_locked(*state, status, frame_bytes,
+                                          capture_profile);
 }
 
 void record_pipeline_frame(const std::shared_ptr<PipelineState> &state,
@@ -592,15 +690,6 @@ void record_pipeline_frame(const std::shared_ptr<PipelineState> &state,
   ::rund::detail::counter::Accumulate(state->frame_bytes, bytes);
   ::rund::detail::counter::Accumulate(state->frame_reused, reused ? bytes : 0u);
   state->frame_budget = std::max(state->frame_budget, budget);
-}
-
-void release_pipeline_frame(const std::shared_ptr<PipelineState> &state,
-                            const std::uint64_t bytes) noexcept {
-  if (state == nullptr) {
-    return;
-  }
-  std::lock_guard lock{state->gate};
-  ::rund::detail::counter::Release(state->frame_current, bytes);
 }
 
 } // namespace rund::compute::detail

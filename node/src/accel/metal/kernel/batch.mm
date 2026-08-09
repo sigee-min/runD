@@ -44,10 +44,10 @@ void finish_general(MetalAdapter &adapter,
         static_cast<MetalKernelResources *>(entries[index].prepared->get());
     dispatches = ::rund::detail::counter::SaturatingAdd(
         dispatches, resources->dispatch_count);
-    stats.reset_command_count = ::rund::detail::counter::SaturatingAdd(
-        stats.reset_command_count, resources->reset_count);
-    stats.reset_bytes = ::rund::detail::counter::SaturatingAdd(
-        stats.reset_bytes, resources->reset_bytes);
+    stats.run.work.reset_command_count = ::rund::detail::counter::SaturatingAdd(
+        stats.run.work.reset_command_count, resources->reset_count);
+    stats.run.work.reset_bytes = ::rund::detail::counter::SaturatingAdd(
+        stats.run.work.reset_bytes, resources->reset_bytes);
     results[index] = FinishMetalSteps(adapter, *resources);
     if (entries[index].stats != nullptr) {
       SetResetStats(*entries[index].stats, results[index].ok,
@@ -65,7 +65,7 @@ rund::AccelCheck
 RunPreparedMetalBatch(const std::span<const BackendBatchEntry> entries,
                       const std::span<rund::AccelCheck> results,
                       std::shared_ptr<void> &owner, rund::RuntimeStats &stats) {
-  stats = rund::RuntimeStats{.ok = true, .reason = "ok"};
+  stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
   @autoreleasepool {
     if (entries.empty() || entries.size() != results.size() ||
         entries.front().run == nullptr ||
@@ -141,10 +141,10 @@ RunPreparedMetalBatch(const std::span<const BackendBatchEntry> entries,
                        dispatches, batch);
       }
     }
-    stats.dispatch_count = batch.ok ? dispatches : 0u;
+    stats.run.work.dispatch_count = batch.ok ? dispatches : 0u;
     if (!batch.ok) {
-      stats.reset_command_count = 0u;
-      stats.reset_bytes = 0u;
+      stats.run.work.reset_command_count = 0u;
+      stats.run.work.reset_bytes = 0u;
     }
     return batch;
   }
@@ -155,7 +155,7 @@ rund::AccelCheck
 RunPreparedMetalBatch(const std::span<const BackendBatchEntry>,
                       const std::span<rund::AccelCheck> results,
                       std::shared_ptr<void> &, rund::RuntimeStats &stats) {
-  stats = rund::RuntimeStats{.ok = true, .reason = "ok"};
+  stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
   const rund::AccelCheck failure{false, "accel_metal_unavailable"};
   std::fill(results.begin(), results.end(), failure);
   return failure;

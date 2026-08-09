@@ -27,14 +27,14 @@ bool CompactRejectsCapacityInsufficient(
     return false;
   }
   const rund::AccelEvidence evidence = compact::Run(ctx, flags.size());
-  const bool physical_dispatches = evidence.dispatch_count == 0u;
+  const bool physical_dispatches = evidence.run.work.dispatch_count == 0u;
   return primitive::EvidenceReason(evidence,
                                    "compute_compact_capacity_insufficient") &&
          physical_dispatches &&
-         evidence.original_dispatch_count == ctx.plan.pass_count &&
-         evidence.final_dispatch_count == ctx.plan.pass_count &&
-         evidence.host_to_device_bytes == 0u &&
-         evidence.device_to_host_bytes == 0u;
+         evidence.run.work.original_dispatch_count == ctx.plan.pass_count &&
+         evidence.run.work.final_dispatch_count == ctx.plan.pass_count &&
+         evidence.run.transfer.host_to_device_bytes == 0u &&
+         evidence.run.transfer.device_to_host_bytes == 0u;
 }
 
 } // namespace node_accel_contract

@@ -30,18 +30,14 @@ OperationBackend(const compute_detail::Operation &operation) noexcept;
 OperationWorkers(const compute_detail::Operation &operation) noexcept;
 [[nodiscard]] compute::Status
 ReserveOperation(const compute_detail::Operation &operation) noexcept;
-[[nodiscard]] compute::Stats
-OperationEvidence(const compute_detail::Operation &operation) noexcept;
 void RecordOperationFrame(const compute_detail::Operation &operation,
                           std::uint64_t bytes, bool reused,
                           std::uint64_t budget) noexcept;
-void ReleaseOperationFrame(const compute_detail::Operation &operation,
-                           std::uint64_t bytes) noexcept;
-[[nodiscard]] compute::Status
+[[nodiscard]] compute::detail::TerminalObservation
 FinishOperation(compute_detail::TaskState &task,
                 compute::Status failure) noexcept;
-void Complete(compute_detail::TaskState *task, const compute::Status &status,
-              const compute::Stats &stats = {}) noexcept;
+void Complete(compute_detail::TaskState *task,
+              compute::detail::TerminalObservation observation) noexcept;
 
 [[nodiscard]] task::Task<void>
 RunCpuCoordinator(compute_detail::TaskState *task);

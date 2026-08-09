@@ -30,6 +30,7 @@ namespace rund_node_test_pipeline {
   std::size_t callbacks = 0u;
   std::uint64_t execution_submits = 0u;
   std::uint64_t feedback_bytes = 0u;
+  std::uint64_t profile_feedback_bytes = 0u;
   Reason final_write_reason = Reason::Ok;
   const Status completed = host_feedback(
       *prepared, iterations, [&](HostIteration &iteration) noexcept -> Status {
@@ -60,8 +61,26 @@ namespace rund_node_test_pipeline {
         }
         status = iteration.write(
             *input, std::span<const std::int32_t>{observed[callbacks - 1u]});
+        if (!status) {
+          return status;
+        }
         feedback_bytes += iteration.write_stats().bytes;
-        return status;
+        const auto profile = iteration.profile();
+        const std::uint64_t bytes = seed.size() * sizeof(std::int32_t);
+        if (!profile || profile->execution().host_write_bytes != bytes ||
+            profile->execution().uploaded_bytes !=
+                (backend == Backend::Cpu ? 0u : bytes) ||
+            profile->execution().transfer_submissions.host_to_device !=
+                (backend == Backend::Vulkan ? 1u : 0u) ||
+            (backend == Backend::Vulkan &&
+             (profile->memory().staging.cumulative < bytes ||
+              profile->execution().buffer_allocations +
+                      profile->execution().buffer_reuses ==
+                  0u))) {
+          return Status::fail(Reason::CompletionInvalid);
+        }
+        profile_feedback_bytes += profile->execution().host_write_bytes;
+        return Status::success();
       });
 
   constexpr std::array<std::array<std::int32_t, seed.size()>, iterations>
@@ -76,6 +95,7 @@ namespace rund_node_test_pipeline {
       final_write_reason != Reason::AlreadyCompleted ||
       feedback_bytes !=
           (iterations - 1u) * seed.size() * sizeof(std::int32_t) ||
+      profile_feedback_bytes != feedback_bytes ||
       (backend != Backend::Cpu && execution_submits != iterations) ||
       (backend == Backend::Cpu && execution_submits != 0u)) {
     return 3;

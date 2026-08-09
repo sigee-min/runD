@@ -46,7 +46,8 @@ RejectLookup(const rund::AccelDevice &, const rund::kernel::ResidentBufferRef &,
 }
 
 [[nodiscard]] rund::RuntimeStats Stats(const rund::AccelDevice &) {
-  return rund::RuntimeStats{.reason = "accel_buffer_backend_unavailable"};
+  return rund::RuntimeStats{
+      .outcome = {.reason = "accel_buffer_backend_unavailable"}};
 }
 
 void Reset(const rund::AccelDevice &) {}

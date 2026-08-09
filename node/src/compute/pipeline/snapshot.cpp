@@ -9,6 +9,7 @@
 #include "claim.hpp"
 #include "local.hpp"
 #include "state.hpp"
+#include "transfer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -88,51 +89,6 @@ valid_snapshot_layout(const StateSnapshotState &snapshot) noexcept {
   }
   PipelineStatePair &pair = state.state_pairs[index];
   return (state.parity == 0u ? pair.first : pair.second).get();
-}
-
-template <typename Transfer>
-void record_staging(PipelineState &state, const Transfer &transfer) noexcept {
-  state.read_staging_bytes = ::rund::detail::counter::SaturatingAdd(
-      state.read_staging_bytes, transfer.staging_bytes);
-  state.read_staging_reused = ::rund::detail::counter::SaturatingAdd(
-      state.read_staging_reused, transfer.staging_reused_bytes);
-  state.read_staging_peak =
-      std::max(state.read_staging_peak, transfer.staging_peak_bytes);
-  state.read_staging_budget =
-      std::max(state.read_staging_budget, transfer.staging_budget);
-  ::rund::detail::counter::Accumulate(state.stats.buffer_allocations,
-                                      transfer.buffer_allocations);
-  ::rund::detail::counter::Accumulate(state.stats.buffer_reuses,
-                                      transfer.buffer_reuses);
-  ::rund::detail::counter::Accumulate(state.stats.command_submits,
-                                      transfer.command_submits);
-}
-
-void record_download(PipelineState &state, const std::size_t bytes,
-                     const DownloadResult &transfer,
-                     const std::size_t events = 1u) noexcept {
-  record_staging(state, transfer);
-  ::rund::detail::counter::Accumulate(state.stats.readback_ns,
-                                      transfer.readback_ns);
-  ::rund::detail::counter::Accumulate(state.stats.download_events,
-                                      bytes == 0u ? 0u : events);
-  ::rund::detail::counter::Accumulate(state.stats.downloaded_bytes, bytes);
-  state.read_transfer_bytes =
-      ::rund::detail::counter::SaturatingAdd(state.read_transfer_bytes, bytes);
-  state.read_transfer_peak =
-      std::max(state.read_transfer_peak, static_cast<std::uint64_t>(bytes));
-  record_transfer(*state.device, bytes);
-}
-
-void record_upload(PipelineState &state, const std::size_t bytes,
-                   const UploadResult &transfer) noexcept {
-  record_staging(state, transfer);
-  ::rund::detail::counter::Accumulate(state.stats.uploaded_bytes, bytes);
-  state.read_transfer_bytes =
-      ::rund::detail::counter::SaturatingAdd(state.read_transfer_bytes, bytes);
-  state.read_transfer_peak =
-      std::max(state.read_transfer_peak, static_cast<std::uint64_t>(bytes));
-  record_transfer(*state.device, bytes);
 }
 
 [[nodiscard]] Status snapshot_shape(const PipelinePublicationState &publication,
@@ -253,7 +209,8 @@ void record_upload(PipelineState &state, const std::size_t bytes,
     if (!transfer.payload_hash_valid) {
       return Status::fail(Reason::TransferInvalid);
     }
-    record_download(state, snapshot.byte_count, transfer, downloads.size());
+    record_pipeline_download(state, snapshot.byte_count, transfer,
+                             downloads.size());
     transfer_count = std::max<std::uint64_t>(1u, transfer.command_submits);
   }
   snapshot.hash = snapshot_hash(snapshot);
@@ -335,6 +292,7 @@ restore_host_snapshot_locked(PipelineState &state,
         record_transfer(*state.device, field.bytes);
       }
     }
+    record_pipeline_transfer(state, copied);
   } else {
     std::array<UploadRequest, PipelineLeafCapacity * 2u> upload_storage{};
     std::size_t upload_count = 0u;
@@ -374,7 +332,7 @@ restore_host_snapshot_locked(PipelineState &state,
         for (const UploadRequest upload : uploads) {
           copied = ::rund::detail::counter::SaturatingAdd(copied, upload.bytes);
         }
-        record_upload(state, copied, transfer);
+        record_pipeline_upload(state, copied, transfer);
       }
     }
   }
@@ -424,6 +382,10 @@ snapshot_pipeline_state(const std::shared_ptr<PipelineState> &state) noexcept {
         Reason::PipelineInvalid);
   }
   std::lock_guard pipeline_lock{state->gate};
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Result<std::shared_ptr<StateSnapshotState>>::fail(
+        Reason::ProfileBusy);
+  }
   if (state->publication == nullptr) {
     return Result<std::shared_ptr<StateSnapshotState>>::fail(
         Reason::PipelineInvalid);
@@ -490,6 +452,10 @@ latest_pipeline_state(const std::shared_ptr<PipelineState> &state) noexcept {
         Reason::PipelineInvalid);
   }
   std::lock_guard pipeline_lock{state->gate};
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Result<std::shared_ptr<PipelinePublicationState>>::fail(
+        Reason::ProfileBusy);
+  }
   if (state->publication == nullptr) {
     return Result<std::shared_ptr<PipelinePublicationState>>::fail(
         Reason::PipelineInvalid);
@@ -520,6 +486,10 @@ make_snapshot_storage(const std::shared_ptr<PipelineState> &state,
         Reason::PipelineInvalid);
   }
   std::lock_guard pipeline_lock{state->gate};
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Result<std::shared_ptr<SnapshotStorageState>>::fail(
+        Reason::ProfileBusy);
+  }
   if (state->publication == nullptr) {
     return Result<std::shared_ptr<SnapshotStorageState>>::fail(
         Reason::PipelineInvalid);
@@ -571,6 +541,9 @@ Status snapshot_pipeline_into(
   std::unique_lock pipeline_lock{state->gate, std::try_to_lock};
   if (!pipeline_lock.owns_lock()) {
     return Status::fail(Reason::PipelineBusy);
+  }
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Status::fail(Reason::ProfileBusy);
   }
   if (state->publication == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
@@ -636,6 +609,9 @@ Status restore_pipeline_state(
     return Status::fail(Reason::PipelineInvalid);
   }
   std::lock_guard pipeline_lock{state->gate};
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Status::fail(Reason::ProfileBusy);
+  }
   if (state->publication == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -652,6 +628,9 @@ Status restore_pipeline_state(
   std::unique_lock pipeline_lock{state->gate, std::try_to_lock};
   if (!pipeline_lock.owns_lock()) {
     return Status::fail(Reason::PipelineBusy);
+  }
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Status::fail(Reason::ProfileBusy);
   }
   if (state->publication == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
@@ -680,6 +659,9 @@ Status restore_pipeline_state(
   std::unique_lock pipeline_lock{state->gate, std::try_to_lock};
   if (!pipeline_lock.owns_lock()) {
     return Status::fail(Reason::PipelineBusy);
+  }
+  if (state->samples != PipelineState::SampleState::Inactive) {
+    return Status::fail(Reason::ProfileBusy);
   }
   const std::shared_ptr<PipelinePublicationState> target = state->publication;
   if (target == nullptr) {
@@ -846,8 +828,9 @@ Status restore_pipeline_state(
           std::span<const CopyRequest>{copy_storage.data(), copy_count});
       restored = result.status;
       copy_commands = result.command_submits;
-      ::rund::detail::counter::Accumulate(state->stats.command_submits,
-                                          result.command_submits);
+      ::rund::detail::counter::Accumulate(
+          state->stats.transfer_submissions.device_to_device,
+          result.command_submits);
     }
   }
   if (restored) {

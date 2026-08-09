@@ -1457,12 +1457,24 @@ Memory observation is explicit and allocation-free. `Program::memory()`,
 `Job::memory()`, and `Device::memory()` return a fixed-size
 `MemoryStats` snapshot. Its host, coroutine-frame, tile, resident, staging,
 device, and transfer categories are independent dimensions rather than an
-additive total. Each category has current, peak, cumulative, reused, and budget
-bytes. In particular, resident describes the logical byte extent kept bound by
-the Job, while host/device describe the physical SDK-owned storage. Node-native
-Compute attributes the actual coordinator coroutine-frame extent and arena
-reuse to the same Job; a completed task returns frame current to zero without
-discarding peak or cumulative history.
+additive total. Every category has the same fixed `MemoryCounter` value shape,
+but a zero coordinate is unavailable when that category has no matching
+producer. Resident Buffer rows describe the checked logical byte extent kept
+bound by the owner; for a Buffer this is exactly its checked allocation request.
+Their paired Host rows on CPU or Device rows on accelerators describe the
+Buffer owner's recorded committed storage charge, including exposed alignment
+or reused capacity. It is not process RSS, OS committed pages, Metal physical
+residency, or Vulkan physical-page commitment. Those physical-residency
+coordinates have no producer and remain unavailable rather than being inferred
+from the storage charge. `Device::memory()` uses the same split: Resident is
+the live requested/logical Buffer extent and Host or Device is the live
+committed storage charge. Host/Metadata instead describes runD's logical
+retained object and container extent and does not guess allocator rounding.
+Node-native Compute attributes the actual coordinator coroutine-frame extent
+and arena reuse to the same Job; a completed task returns frame current to zero
+without discarding peak or cumulative history. `MemorySnapshot::summary` is the
+same `MemoryStats` value returned by `memory()`; detail rows are only its bounded
+owner decomposition, not a second public ledger.
 
 Resident `CpuGraphRun` intermediate buffers are Job-owned resident storage, not
 tile scratch. `Job::memory()` therefore includes them in resident and physical
@@ -1565,16 +1577,22 @@ memory ownership. A live snapshot has a concrete backend, a concrete scope,
 and `available()` true.
 
 `memory()` itself performs no readback and does not mutate execution evidence.
-Transfer current is zero outside an active operation, while cumulative records
-the bytes moved by explicit resident setup, `write()`, and `read()`. Resident
-setup transfers the caller payload exactly once into the active input set. For
-inputs `i`, its transfer byte count is
+Transfer current is zero, while cumulative records the bytes moved by explicit
+resident setup, successful Buffer or resident-Job writes, Pipeline
+host-iteration writes and snapshots, and reads. Job and Pipeline snapshots
+contain only their scoped traffic; Device contains the matching backend-wide
+traffic. A rejected or zero-byte transfer contributes nothing. Resident setup
+transfers the caller payload exactly once into the active input set. For inputs
+`i`, its transfer byte count is
 `sum(count_i * element_bytes_i)`, even though the Job retains both active and
 inactive input storage. A zero budget means no byte budget was configured for
-that scope. Program and
-Job-owned fixed allocations report their committed extent as both
-current and budget; accelerator backend device and transfer categories report
-the frozen device-capability byte limit. Backend-private
+that scope. Program and Job-owned fixed allocations report their retained
+extent as both current and budget. Accelerator backend Device reports the
+frozen device-storage capability as its budget. Transfer has no configured
+traffic budget and publishes only peak single-transfer bytes and cumulative
+traffic bytes; current, reused, and budget remain zero, so
+`memory_usage(MemoryCategory::Transfer)` is valid but unavailable.
+Backend-private
 transient staging remains distinct from resident storage and is reported only
 when its allocator exposes a measured byte extent; allocation counts are never
 misreported as bytes.
@@ -1732,7 +1750,7 @@ tile, dispatch, command-submit, buffer-allocation, kernel-time, and
 submit/wait evidence. The sink runs
 under the Session reentry guard before the task is externally complete and
 before its task slot is released. Selection cost, inactive projection, and
-Basic/Detail parity are owned by the
+Basic/Detail/Trace policy and supported-route semantic parity are owned by the
 [Telemetry contract](../../node/docs/contracts/telemetry.md).
 
 The projection additionally carries buffer reuse, the saturating sum of this
@@ -1787,6 +1805,11 @@ View for a dense-only primitive;
 execution can therefore report several dispatches in one submit. A prepared
 multi-step graph reports its physical execution submissions separately from a
 later explicit readback copy.
+`transfer_submissions::{host_to_device,device_to_host,device_to_device}` owns
+those three copy directions, and `host_write_bytes` records successful
+Pipeline host writes in the latest execution epoch. The same backend-produced
+upload receipt supplies staging extent/reuse and buffer allocation/reuse;
+payload bytes are never used to guess a submission or allocation.
 `reset_bytes` counts payload initialized by exact first-write frontiers;
 `reset_commands` counts the physical reset operations consumed by that run.
 They are execution evidence, unlike the canonical compile-time
@@ -1833,31 +1856,66 @@ The public telemetry values can therefore treat `UINT64_MAX` consistently
 as non-exact source evidence.
 
 CPU reports its applicable dispatch, worker, tile, SIMD, graph, output-read,
-and host-allocation values. Accelerator-only fields are zero on CPU. Such zero
-means unavailable or not applicable, not a measured zero-duration accelerator
-event. Likewise, `kernel_samples == 0` makes `kernel_ns` unavailable; backend
-timings are local diagnostic evidence and are never a portable speedup claim.
+and host-allocation values. At Session `Level::Trace`, CPU additionally folds
+one steady-clock interval per submitted worker-backend pass into `kernel_ns`;
+`kernel_samples` is the exact number of those completed intervals. Other CPU
+timing fields and accelerator-only fields remain zero. Such zero means
+unavailable or not applicable, not a measured zero-duration accelerator event.
+Likewise, `kernel_samples == 0` makes `kernel_ns` unavailable; backend timings
+are local diagnostic evidence and are never a portable speedup claim.
 `kernel_timing_available()` is the stateless check for that sample condition;
 it stores no second availability flag.
 
-### Job profile
+Metal and Vulkan implement accelerator Trace for standalone Jobs and prepared
+Pipelines when their immutable device capability exposes the required counter
+or timestamp source. Both publish one completed sample per actual dispatch and
+retain lazy cold resources in the existing prepared memory owner. Metal uses a
+sample command followed by a resolve-only command; Vulkan executes a lazily
+recorded timestamped secondary in one submission. Basic requests no accelerator
+timestamp query, Detail adds no per-dispatch query, and unsupported Trace fails
+before queue admission with `TelemetryTraceUnavailable`. Exact ownership,
+submission counts, stage-boundary fallback, retry, and warm-zero rules are
+owned by the [Telemetry contract](../../node/docs/contracts/telemetry.md).
 
-`Job::profile()` captures one owning `telemetry::Profile` from the Job that
-owns the execution. The profile exposes its exact snapshots only through the
+### Execution profile
+
+`Job::profile()` and the zero-argument `Pipeline::profile()` capture one
+`telemetry::Profile` from the execution owner. The profile exposes its exact
+snapshots only through the
 read-only `device()`, `execution()`, and `memory()` accessors; derived accessors
 read those snapshots each time and store no mirrored counter or classification.
-Device identity is the Program's selected device, execution is the Job's latest
-successful or failed run evidence, and memory always has `MemoryScope::Job`.
+Device identity is the selected Device, execution is the owner's latest
+successful or failed run evidence, and memory is respectively
+`MemoryScope::Job` or `MemoryScope::Pipeline`.
 Before the first run, execution contains the selected backend and zero
-counters. An invalid or moved-from Job fails with `compute_profile_invalid`.
-A queued, running, or input-writing Job fails with `compute_profile_busy`;
-capture never substitutes backend-only zero counters for an in-flight run.
+counters. An invalid or moved-from owner fails with `compute_profile_invalid`.
+An active owner fails with `compute_profile_busy`; capture never substitutes
+backend-only zero counters for an in-flight run.
 
-Capture creates the immutable owning `DeviceInfo` string snapshot, then copies
-the fixed-size `Stats` and `MemoryStats` values while holding the Job state
-gate. Prepared accelerator memory uses one serialized meter snapshot rather
-than five independently sampled atomics, so all fields belong to one epoch and
-`current <= peak` remains invariant under concurrent completions.
+An explicit Pipeline sample cohort is opened with `begin_samples()` and closed
+with `end_samples()`. Its two counters remain inside the existing
+`Stats::pipeline` projection: `sampled_runs` counts accepted terminals and
+`clean_runs` counts successful terminals with zero construction, Buffer or
+descriptor acquisition, transfer, cache lookup or mutation, capacity
+rejection, readback, and observation work during the cohort.
+`samples_clean(K)` requires exact non-saturated
+equality of both counters with `K`. A terminal Profile captured after the
+cohort therefore proves all `K` invocations without observing any invocation
+inside the timed interval. Typed writes retain the Pipeline gate through their
+physical transfer and evidence publication, so a concurrent cohort close
+returns `compute_profile_busy` rather than crossing the mutation.
+Checkpoint acquisition or storage construction, snapshot materialization, and
+restore are likewise excluded from an active cohort with
+`compute_profile_busy` before allocation, transfer, or publication mutation.
+
+Device open constructs one immutable owning `DeviceInfo`; Profile capture
+retains that owner without rebuilding or copying its strings. Capture copies
+the fixed-size `Stats` and `MemoryStats` values while holding the Job or
+Pipeline state gate, so both values belong to one observation epoch. Device
+and prepared-accelerator memory each use their existing serialized owner when
+projecting a snapshot, preserving `current <= peak <= cumulative` under
+concurrent allocation, release, and completion. A warm capture performs no
+heap allocation.
 After capture, every `Rate` or `Share` accessor is `O(1)`, `memory_usage()`
 selects one of seven fixed categories, and `largest_time()` performs exactly
 seven candidate comparisons. No derived accessor allocates or mutates the raw
@@ -1887,14 +1945,15 @@ sample were observed, and `submit_wait_ns > kernel_ns`, the exact raw-counter
 predicate reports `SubmitOverhead -> BatchJobs`; it does not mislabel
 submission cost as graph work. Equality, missing submission/sample evidence,
 and kernel-dominated work retain `ReduceGraphBound`. Raw kernel and submit/wait
-durations are projected into a Session Event only at Detail. This is a
+durations are projected into a Session Event at Detail or Trace. Trace changes
+collection granularity, not this projection or the aggregate counter owner.
+This is a
 recommendation to amortize the observed per-submit interval across independent
 resident Jobs, not a promise that batching removes queue contention or
 dependency work.
-The support `compute/telemetry.hpp` boundary forward-declares the finding
-result; the sole direct Compute entry completes it. Internal Job and Profile
-translation units therefore do not inherit the finding template body merely
-to state `Profile::findings()`.
+The compiled `ProjectEvent(Profile, Code, Level)` function is the sole Compute
+Event projection. Session emission and `Profile::findings()` both use it; no
+consumer reinterprets a bare `Stats` snapshot into an Event.
 An unknown forged `MemoryCategory` fails with
 `compute_profile_memory_category_invalid`; it is not reinterpreted as zero
 budget or another category.

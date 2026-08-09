@@ -477,8 +477,8 @@ void PrintObservation(const Backend backend, const bool materialize,
   PrintUnsigned(observed.plan_current_rss_after);
   PrintUnsigned(observed.plan_rss_before);
   PrintUnsigned(observed.plan_rss_after);
-  PrintUnsigned(
-      NonnegativeDelta(observed.plan_rss_after, observed.plan_rss_before));
+  PrintUnsigned(::rund::detail::counter::Delta(observed.plan_rss_before,
+                                               observed.plan_rss_after));
   PrintUnsigned(observed.short_budget_checked ? 1u : 0u);
   PrintUnsigned(observed.short_budget_rejected ? 1u : 0u);
   PrintUnsigned(observed.short_budget_no_allocation ? 1u : 0u);
@@ -496,8 +496,8 @@ void PrintObservation(const Backend backend, const bool materialize,
   PrintUnsigned(observed.prepare_current_rss_after);
   PrintUnsigned(observed.prepare_rss_before);
   PrintUnsigned(observed.prepare_rss_after);
-  PrintUnsigned(NonnegativeDelta(observed.prepare_rss_after,
-                                 observed.prepare_rss_before));
+  PrintUnsigned(::rund::detail::counter::Delta(observed.prepare_rss_before,
+                                               observed.prepare_rss_after));
   PrintUnsigned(observed.prepare_host_allocation_count);
   PrintUnsigned(observed.prepare_host_allocation_bytes);
   PrintUnsigned(observed.prepare_rss_within_committed_peak ? 1u : 0u);

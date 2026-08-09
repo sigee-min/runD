@@ -30,10 +30,10 @@ ObserveVulkanPipelineTemplate(const void *prepared) noexcept;
 [[nodiscard]] rund::AccelCheck
 RunVulkanResources(const rund::AccelDevice &pick,
                    const std::shared_ptr<void> &prepared);
-[[nodiscard]] rund::AccelCheck
-SubmitVulkanResources(const rund::AccelDevice &pick,
-                      const std::shared_ptr<void> &prepared,
-                      KernelCompletion completion, void *user) noexcept;
+[[nodiscard]] rund::AccelCheck SubmitVulkanResources(
+    const rund::AccelDevice &pick, const std::shared_ptr<void> &prepared,
+    KernelCompletion completion, void *user, PreparedMemoryMeter *memory,
+    KernelTiming timing) noexcept;
 [[nodiscard]] rund::AccelCheck
 SeedPreparedVulkanPipelineGeneration(const std::shared_ptr<void> &prepared,
                                      std::uint32_t generation) noexcept;

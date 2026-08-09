@@ -30,6 +30,13 @@ static_assert(std::copy_constructible<StateSnapshot>);
 static_assert(std::copy_constructible<LatestDeviceState>);
 static_assert(!std::copy_constructible<SnapshotStorage>);
 static_assert(std::is_nothrow_move_constructible_v<SnapshotStorage>);
+static_assert(std::same_as<decltype(std::declval<Pipeline &>().begin_samples()),
+                           rund::compute::Status>);
+static_assert(std::same_as<decltype(std::declval<Pipeline &>().end_samples()),
+                           rund::compute::Status>);
+static_assert(std::same_as<decltype(std::declval<rund::compute::PipelineStats>()
+                                        .samples_clean(1u)),
+                           bool>);
 static_assert(std::same_as<decltype(std::declval<rund::Session &>().compute(
                                std::declval<Pipeline &>())),
                            rund::compute::Request>);

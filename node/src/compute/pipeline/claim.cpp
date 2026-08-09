@@ -1,5 +1,6 @@
 #include "claim.hpp"
 #include "local.hpp"
+#include "sample.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -195,6 +196,22 @@ void publish_pipeline_terminal(PipelineState &state,
   const bool succeeded = terminal.reason == Reason::Ok && publication_matches;
   const Reason reason =
       publication_matches ? terminal.reason : Reason::CompletionInvalid;
+  if (state.samples != PipelineState::SampleState::Inactive) {
+    const bool clean = succeeded &&
+                       state.samples == PipelineState::SampleState::Clean &&
+                       pipeline_sample_is_clean(state.stats);
+    const auto increment = [](std::uint32_t &value) noexcept {
+      if (value != std::numeric_limits<std::uint32_t>::max()) {
+        ++value;
+      }
+    };
+    increment(state.stats.pipeline.sampled_runs);
+    if (clean) {
+      increment(state.stats.pipeline.clean_runs);
+    } else {
+      state.samples = PipelineState::SampleState::Dirty;
+    }
+  }
   state.failure = reason;
   state.failure_step_known = !succeeded && terminal.failure_step_known;
   state.stats.pipeline.verified_step_count =

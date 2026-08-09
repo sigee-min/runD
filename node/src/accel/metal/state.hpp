@@ -93,6 +93,8 @@ struct MetalAdapter {
   std::atomic<bool> fault_source_library_publish_once{false};
   std::atomic<bool> fault_named_pipeline_publish_once{false};
   std::atomic<bool> fault_device_lost_once{false};
+  std::atomic<bool> fault_trace_unavailable_once{false};
+  std::atomic<bool> fault_trace_resolve_device_lost_once{false};
 
   MetalAdapter();
   MetalAdapter(const MetalAdapter &) = delete;

@@ -4,17 +4,13 @@
 
 namespace rund::telemetry::detail {
 
-Event ComputeEvent(const compute::Stats &stats, const compute::Code code,
-                   const Level level) noexcept {
-  const bool timing_available =
-      stats.kernel_samples != 0u || stats.shader_compile_ns != 0u ||
-      stats.spirv_compile_ns != 0u || stats.pipeline_create_ns != 0u ||
-      stats.descriptor_setup_ns != 0u || stats.submit_wait_ns != 0u ||
-      stats.readback_ns != 0u;
-  const bool detailed = level == Level::Detail && timing_available;
+Event ProjectEvent(const compute::telemetry::Profile &profile,
+                   const compute::Code code, const Level level) noexcept {
+  const compute::Stats &stats = profile.execution();
+  const bool detailed = level == Level::Detail || level == Level::Trace;
   Event event{
       .source = Source::Compute,
-      .level = detailed ? Level::Detail : Level::Basic,
+      .level = detailed ? level : Level::Basic,
       .compute =
           {
               .backend = stats.backend,
@@ -25,6 +21,12 @@ Event ComputeEvent(const compute::Stats &stats, const compute::Code code,
               .tiles = stats.tile_count,
               .dispatches = stats.dispatches,
               .command_submits = stats.command_submits,
+              .host_to_device_submits =
+                  stats.transfer_submissions.host_to_device,
+              .device_to_host_submits =
+                  stats.transfer_submissions.device_to_host,
+              .device_to_device_submits =
+                  stats.transfer_submissions.device_to_device,
               .buffer_allocations = stats.buffer_allocations,
               .buffer_reuses = stats.buffer_reuses,
               .copied_bytes = ::rund::detail::counter::SaturatingAdd(
@@ -43,18 +45,14 @@ Event ComputeEvent(const compute::Stats &stats, const compute::Code code,
   if (detailed) {
     event.detail.prepare_ns = ::rund::detail::counter::SaturatingAdd(
         ::rund::detail::counter::SaturatingAdd(stats.shader_compile_ns,
-                                             stats.spirv_compile_ns),
+                                               stats.spirv_compile_ns),
         ::rund::detail::counter::SaturatingAdd(stats.pipeline_create_ns,
-                                             stats.descriptor_setup_ns));
+                                               stats.descriptor_setup_ns));
     event.detail.work_ns =
         stats.submit_wait_ns != 0u ? stats.submit_wait_ns : stats.kernel_ns;
     event.detail.finish_ns = stats.readback_ns;
   }
   return event;
-}
-
-Findings ComputeFindings(const compute::Stats &stats) noexcept {
-  return ComputeEvent(stats, compute::Code::Ok, Level::Detail).findings();
 }
 
 } // namespace rund::telemetry::detail

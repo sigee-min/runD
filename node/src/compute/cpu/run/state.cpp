@@ -203,10 +203,9 @@ valid_route_plan(const std::shared_ptr<ProgramState> &program,
   std::size_t write_count = 0u;
   for (const CpuRuntimeStep &step : graph.runtime->steps) {
     const auto *const map = std::get_if<CpuRuntimeMap>(&step);
-    if (map != nullptr &&
-        (!add_count(map_count, 1u) ||
-         !add_count(read_count, map->inputs.size()) ||
-         !add_count(write_count, map->outputs.size()))) {
+    if (map != nullptr && (!add_count(map_count, 1u) ||
+                           !add_count(read_count, map->inputs.size()) ||
+                           !add_count(write_count, map->outputs.size()))) {
       return false;
     }
   }
@@ -462,8 +461,7 @@ make_cpu_graph_storage(const std::shared_ptr<ProgramState> &program,
   if (plan.program == nullptr) {
     return Result<std::shared_ptr<CpuGraphStorage>>::success(nullptr);
   }
-  if (prepared_arena == nullptr ||
-      !prepared_arena->supports(plan.execution)) {
+  if (prepared_arena == nullptr || !prepared_arena->supports(plan.execution)) {
     return Result<std::shared_ptr<CpuGraphStorage>>::fail(
         Reason::CpuRuntimeInvalid);
   }
@@ -499,8 +497,7 @@ make_cpu_graph_storage(const std::shared_ptr<ProgramState> &program,
             .simd_count = map_plan->workers,
         };
         if (!map || !add_bytes(map_bytes, map_plan->bytes) ||
-            !merge_cpu_execution_storage_plan(execution_plan,
-                                            map_execution)) {
+            !merge_cpu_execution_storage_plan(execution_plan, map_execution)) {
           return Result<std::shared_ptr<CpuGraphStorage>>::fail(
               map ? Reason::ProgramCapacity : map.reason());
         }
@@ -515,9 +512,9 @@ make_cpu_graph_storage(const std::shared_ptr<ProgramState> &program,
           return Result<std::shared_ptr<CpuGraphStorage>>::fail(
               collective_plan.reason());
         }
-        auto collective = make_collective_run(
-            *graph_program.collectives[index], *collective_plan,
-            storage->prepared_arena.get());
+        auto collective = make_collective_run(*graph_program.collectives[index],
+                                              *collective_plan,
+                                              storage->prepared_arena.get());
         const CpuExecutionStoragePlan collective_execution{
             .tiles = collective_plan->tiles,
             .collective_total_count = collective_plan->tile_count,
@@ -528,7 +525,7 @@ make_cpu_graph_storage(const std::shared_ptr<ProgramState> &program,
         if (!collective ||
             !add_bytes(collective_bytes, collective_plan->bytes) ||
             !merge_cpu_execution_storage_plan(execution_plan,
-                                            collective_execution)) {
+                                              collective_execution)) {
           return Result<std::shared_ptr<CpuGraphStorage>>::fail(
               collective ? Reason::ProgramCapacity : collective.reason());
         }
@@ -569,11 +566,12 @@ make_cpu_graph_storage(const std::shared_ptr<ProgramState> &program,
         collective_count != plan.collective_count ||
         storage->collectives.size() != plan.collective_count ||
         scratch_count != plan.scratch_count || map_bytes != plan.maps ||
-        collective_bytes != plan.collectives || execution_plan != plan.execution) {
+        collective_bytes != plan.collectives ||
+        execution_plan != plan.execution) {
       return Result<std::shared_ptr<CpuGraphStorage>>::fail(
           Reason::CpuRuntimeInvalid);
     }
-    const CpuRetainedMemory observed =
+    const CpuStorageBytes observed =
         cpu_graph_storage_private_memory(storage.get());
     if (observed.host != plan.private_total.host ||
         observed.tile != plan.private_total.tile) {
@@ -738,7 +736,7 @@ Status materialize_cpu_run(
   const auto route_plan = plan_cpu_run_route(program);
   if (!storage_plan || !route_plan) {
     return Status::fail(storage_plan ? route_plan.reason()
-                                    : storage_plan.reason());
+                                     : storage_plan.reason());
   }
   if (route_plan->program == nullptr) {
     return run.graph == nullptr ? Status::success()
@@ -789,8 +787,7 @@ Status materialize_cpu_run(
     return Status::fail(Reason::CpuRuntimeInvalid);
   }
   if (storage == nullptr || storage->program != program->cpu_graph.get() ||
-      prepared_arena == nullptr ||
-      storage->prepared_arena != prepared_arena ||
+      prepared_arena == nullptr || storage->prepared_arena != prepared_arena ||
       route_slice.map_count != plan.map_count ||
       route_slice.read_count != plan.read_count ||
       route_slice.write_count != plan.write_count) {

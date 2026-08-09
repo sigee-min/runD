@@ -61,8 +61,8 @@ bool PublicBufferApiRoundTripsAndReportsStatsWhenAvailable(
   namespace fix = node_accel_contract::buffer;
   if (!pick.check.ok || pick.api != rund::AccelApi::Metal) {
     const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(pick);
-    return !stats.ok &&
-           std::string_view{stats.reason} == "accel_buffer_backend_unavailable";
+    return !stats.outcome.ok && std::string_view{stats.outcome.reason} ==
+                                    "accel_buffer_backend_unavailable";
   }
 
   rund::node::accel::ResetRuntimeStats(pick);
@@ -80,10 +80,10 @@ bool PublicBufferApiRoundTripsAndReportsStatsWhenAvailable(
       pick, buffer, output.data(), sizeof(output));
   const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(pick);
 
-  return upload.ok && download.ok && input == output && stats.ok &&
-         stats.buffer_allocation_count >= 1u &&
-         stats.host_to_device_bytes == sizeof(input) &&
-         stats.device_to_host_bytes == sizeof(output);
+  return upload.ok && download.ok && input == output && stats.outcome.ok &&
+         stats.run.allocations.buffer_allocation_count >= 1u &&
+         stats.run.transfer.host_to_device_bytes == sizeof(input) &&
+         stats.run.transfer.device_to_host_bytes == sizeof(output);
 }
 
 } // namespace node_accel_contract

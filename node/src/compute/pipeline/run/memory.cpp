@@ -4,10 +4,9 @@
 #include "../../backend.hpp"
 #include "../../memory/cpu.hpp"
 #include "../../memory/local.hpp"
-#include "../claim.hpp"
 #include "../local.hpp"
 #include "../state.hpp"
-#include "clock.hpp"
+#include "memory.hpp"
 
 #include <rund/counter.hpp>
 
@@ -86,32 +85,24 @@ prepared_memory(const node::accel::detail::PreparedMemory memory) noexcept {
                        .budget = memory.budget};
 }
 
-struct MemoryView final {
-  MemoryStats summary{};
-  MemoryStats shared{};
-  BufferMemory scratch{};
-  std::uint64_t metadata{};
-  std::uint64_t referenced_resource_bytes{};
-  node::accel::detail::PreparedPipelineMemory prepared{};
-};
-
-[[nodiscard]] MemoryCounter without(const MemoryCounter total,
-                                    const MemoryCounter part) noexcept {
+[[nodiscard]] MemoryCounter
+remaining_memory(const MemoryCounter total, const MemoryCounter part) noexcept {
   return MemoryCounter{
       .current =
-          total.current >= part.current ? total.current - part.current : 0u,
-      .peak = total.peak >= part.peak ? total.peak - part.peak : 0u,
-      .cumulative = total.cumulative >= part.cumulative
-                        ? total.cumulative - part.cumulative
-                        : 0u,
-      .reused = total.reused >= part.reused ? total.reused - part.reused : 0u,
-      .budget = total.budget >= part.budget ? total.budget - part.budget : 0u,
+          ::rund::detail::counter::Remaining(total.current, part.current),
+      .peak = ::rund::detail::counter::Remaining(total.peak, part.peak),
+      .cumulative =
+          ::rund::detail::counter::Remaining(total.cumulative, part.cumulative),
+      .reused = ::rund::detail::counter::Remaining(total.reused, part.reused),
+      .budget = ::rund::detail::counter::Remaining(total.budget, part.budget),
   };
 }
 
-[[nodiscard]] MemoryView
-measure(const PipelineState &state,
-        const std::span<PipelineStepProfile> profiles = {}) noexcept {
+} // namespace
+
+PipelineMemoryView pipeline_memory_view_locked(
+    const PipelineState &state,
+    const std::span<PipelineStepProfile> profiles) noexcept {
   MemoryStats shared{
       .backend = state.device->backend,
       .scope = MemoryScope::Pipeline,
@@ -120,9 +111,8 @@ measure(const PipelineState &state,
                              .cumulative = state.frame_bytes,
                              .reused = state.frame_reused,
                              .budget = state.frame_budget},
-      .transfer = MemoryCounter{.peak = state.read_transfer_peak,
-                                .cumulative = state.read_transfer_bytes,
-                                .budget = device_budget(state.device)},
+      .transfer = MemoryCounter{.peak = state.transfer_peak,
+                                .cumulative = state.transfer_bytes},
   };
   std::uint64_t metadata = base_host_bytes(state);
   shared.host = fixed_memory(metadata);
@@ -192,7 +182,7 @@ measure(const PipelineState &state,
     invalid_shared_owners = true;
   }
   if (shared_cpu_arena != nullptr) {
-    CpuRetainedMemory cpu = cpu_prepared_arena_memory(shared_cpu_arena);
+    CpuStorageBytes cpu = cpu_prepared_arena_memory(shared_cpu_arena);
     cpu.host = add_cpu_memory_bytes(cpu.host, sizeof(CpuPreparedArena));
     ::rund::detail::counter::Accumulate(metadata, cpu.host);
     merge_memory(shared.host, fixed_memory(cpu.host));
@@ -205,8 +195,7 @@ measure(const PipelineState &state,
     if (storage == nullptr) {
       continue;
     }
-    const CpuRetainedMemory cpu =
-        cpu_graph_storage_private_memory(storage.get());
+    const CpuStorageBytes cpu = cpu_graph_storage_private_memory(storage.get());
     ::rund::detail::counter::Accumulate(metadata, cpu.host);
     merge_memory(shared.host, fixed_memory(cpu.host));
     merge_memory(shared.tile, fixed_memory(cpu.tile));
@@ -279,15 +268,13 @@ measure(const PipelineState &state,
                  fixed_memory(owned_buffers.physical, owned_buffers.reused));
   }
   shared.staging.cumulative = ::rund::detail::counter::SaturatingAdd(
-      shared.staging.cumulative, state.read_staging_bytes);
+      shared.staging.cumulative, state.staging_bytes);
   shared.staging.reused = ::rund::detail::counter::SaturatingAdd(
-      shared.staging.reused, state.read_staging_reused);
-  shared.staging.budget =
-      std::max(shared.staging.budget, state.read_staging_budget);
-  shared.staging.peak =
-      std::max(shared.staging.peak,
-               ::rund::detail::counter::SaturatingAdd(shared.staging.current,
-                                                      state.read_staging_peak));
+      shared.staging.reused, state.staging_reused);
+  shared.staging.budget = std::max(shared.staging.budget, state.staging_budget);
+  shared.staging.peak = std::max(
+      shared.staging.peak, ::rund::detail::counter::SaturatingAdd(
+                               shared.staging.current, state.staging_peak));
 
   std::array<const JobArena *, PipelineRouteCapacity> measured_arenas{};
   std::size_t measured_arena_count = 0u;
@@ -452,15 +439,15 @@ measure(const PipelineState &state,
                                           resource.bytes);
     }
   }
-  return MemoryView{.summary = memory,
-                    .shared = shared,
-                    .scratch = scratch,
-                    .metadata = metadata,
-                    .referenced_resource_bytes = referenced_resource_bytes,
-                    .prepared = prepared};
+  return PipelineMemoryView{
+      .summary = memory,
+      .shared = shared,
+      .scratch = scratch,
+      .metadata = metadata,
+      .referenced_resource_bytes = referenced_resource_bytes,
+      .prepared = prepared,
+  };
 }
-
-} // namespace
 
 MemoryStats
 pipeline_memory(const std::shared_ptr<PipelineState> &state) noexcept {
@@ -468,7 +455,7 @@ pipeline_memory(const std::shared_ptr<PipelineState> &state) noexcept {
     return {};
   }
   std::lock_guard lock{state->gate};
-  return measure(*state).summary;
+  return pipeline_memory_view_locked(*state).summary;
 }
 
 MemorySnapshot
@@ -479,7 +466,7 @@ pipeline_memory_snapshot(const std::shared_ptr<PipelineState> &state,
     return writer.finish();
   }
   std::lock_guard lock{state->gate};
-  const MemoryView view = measure(*state);
+  const PipelineMemoryView view = pipeline_memory_view_locked(*state);
   const MemoryStats &summary = view.summary;
   SnapshotWriter writer{summary, entries};
   const std::uint64_t metadata = view.metadata;
@@ -487,9 +474,10 @@ pipeline_memory_snapshot(const std::shared_ptr<PipelineState> &state,
              fixed_memory(metadata));
   if (state->device->backend == Backend::Cpu &&
       summary.host.current > metadata) {
-    writer.add(
-        MemoryCategory::Host, MemoryUse::Internal, 0u,
-        fixed_memory(summary.host.current - metadata, summary.host.reused));
+    writer.add(MemoryCategory::Host, MemoryUse::Internal, 0u,
+               fixed_memory(::rund::detail::counter::Remaining(
+                                summary.host.current, metadata),
+                            summary.host.reused));
   } else if (state->device->backend != Backend::Cpu) {
     const MemoryCounter native_host = prepared_memory(view.prepared.host);
     if (native_host.current != 0u || native_host.cumulative != 0u) {
@@ -498,7 +486,7 @@ pipeline_memory_snapshot(const std::shared_ptr<PipelineState> &state,
   }
   if (summary.resident.current != 0u) {
     const MemoryCounter scratch = fixed_memory(view.scratch.resident);
-    const MemoryCounter internal = without(summary.resident, scratch);
+    const MemoryCounter internal = remaining_memory(summary.resident, scratch);
     if (internal.current != 0u || internal.cumulative != 0u) {
       writer.add(MemoryCategory::Resident, MemoryUse::Internal, 0u, internal);
     }
@@ -509,7 +497,7 @@ pipeline_memory_snapshot(const std::shared_ptr<PipelineState> &state,
   if (summary.device.current != 0u) {
     const MemoryCounter scratch =
         fixed_memory(view.scratch.physical, view.scratch.reused);
-    const MemoryCounter internal = without(summary.device, scratch);
+    const MemoryCounter internal = remaining_memory(summary.device, scratch);
     if (internal.current != 0u || internal.cumulative != 0u) {
       writer.add(MemoryCategory::Device, MemoryUse::Internal, 0u, internal);
     }
@@ -533,50 +521,6 @@ pipeline_memory_snapshot(const std::shared_ptr<PipelineState> &state,
                summary.transfer);
   }
   return writer.finish();
-}
-
-Result<PipelineProfileSnapshot>
-pipeline_profile(const std::shared_ptr<PipelineState> &state,
-                 const std::span<PipelineStepProfile> steps) noexcept {
-  if (!valid_pipeline(state)) {
-    return Result<PipelineProfileSnapshot>::fail(Reason::ProfileInvalid);
-  }
-  std::unique_lock lock{state->gate, std::try_to_lock};
-  if (!lock.owns_lock() || state->phase == PipelinePhase::Running) {
-    return Result<PipelineProfileSnapshot>::fail(Reason::ProfileBusy);
-  }
-  if (state->profile == nullptr) {
-    return Result<PipelineProfileSnapshot>::fail(Reason::ProfileUnavailable);
-  }
-  if (state->publication != nullptr) {
-    std::lock_guard publication_lock{state->publication->gate};
-    synchronize_pipeline_observation_epoch(*state, *state->publication);
-    state->stats.publication.generation = state->publication->generation;
-  }
-  const std::uint64_t started = pipeline_clock();
-  const std::span<PipelineStepProfile> canonical{state->profile->steps.data(),
-                                                 state->steps.size()};
-  const MemoryView view = measure(*state, canonical);
-  const std::size_t written = std::min(steps.size(), canonical.size());
-  std::copy_n(canonical.begin(), written, steps.begin());
-  PipelineProfileSnapshot snapshot{
-      .execution = state->stats,
-      .memory = view.summary,
-      .shared_memory = view.shared,
-      .referenced_resource_bytes = view.referenced_resource_bytes,
-      .instrumentation_command_count =
-          state->profile->instrumentation_command_count,
-      .instrumentation_byte_count = state->profile->instrumentation_byte_count,
-      .written = written,
-      .total = canonical.size(),
-  };
-  const std::uint64_t finished = pipeline_clock();
-  snapshot.observation =
-      StepTiming{.duration_ns = finished >= started ? finished - started : 0u,
-                 .sample_count = 1u,
-                 .clock = StepClock::HostSteady,
-                 .relation = StepTimingRelation::Exclusive};
-  return Result<PipelineProfileSnapshot>::success(snapshot);
 }
 
 } // namespace rund::compute::detail

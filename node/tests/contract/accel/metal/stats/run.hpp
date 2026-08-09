@@ -56,11 +56,13 @@ MetalRepeatedStagedRunsReportWarmRuntimeStats(const rund::AccelDevice &pick) {
   const std::uint64_t expected_host_to_device_bytes =
       (plan.param_bytes + plan.input_bytes_per_tile * plan.tile_count) * 2u;
   return work.first == work.expected && work.second == work.expected &&
-         stats.dispatch_count != 0u && stats.pipeline_compile_count != 0u &&
-         stats.pipeline_cache_hit_count >= 1u &&
-         stats.buffer_reuse_hit_count != 0u &&
-         stats.host_to_device_bytes == expected_host_to_device_bytes &&
-         stats.device_to_host_bytes >=
+         stats.runtime.run.work.dispatch_count != 0u &&
+         stats.runtime.run.allocations.pipeline_compile_count != 0u &&
+         stats.runtime.run.allocations.pipeline_cache_hit_count >= 1u &&
+         stats.runtime.run.allocations.buffer_reuse_hit_count != 0u &&
+         stats.runtime.run.transfer.host_to_device_bytes ==
+             expected_host_to_device_bytes &&
+         stats.runtime.run.transfer.device_to_host_bytes >=
              plan.output_bytes_per_tile * plan.tile_count * 2u;
 }
 

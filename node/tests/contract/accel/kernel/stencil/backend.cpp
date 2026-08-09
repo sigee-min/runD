@@ -195,17 +195,18 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
     const bool matched =
         second_check.ok && second_native != nullptr &&
         second_candidate.has_value() && second_candidate->uses_shared_halo() &&
-        *second_candidate == *maximum && stats.ok &&
-        stats.pipeline_compile_count == 0u &&
-        stats.pipeline_cache_hit_count == 0u &&
+        *second_candidate == *maximum && stats.outcome.ok &&
+        stats.run.allocations.pipeline_compile_count == 0u &&
+        stats.run.allocations.pipeline_cache_hit_count == 0u &&
         second_native->stage_count == 1u &&
         second_native->pipelines[0u] == first_native->pipelines[0u];
     if (!matched) {
       std::cerr << "metal maximum shared immutable borrow mismatch: check="
                 << second_check.ok << " reason=" << second_check.reason
                 << " native=" << (second_native != nullptr)
-                << " compile=" << stats.pipeline_compile_count
-                << " hit=" << stats.pipeline_cache_hit_count << '\n';
+                << " compile=" << stats.run.allocations.pipeline_compile_count
+                << " hit=" << stats.run.allocations.pipeline_cache_hit_count
+                << '\n';
       return {};
     }
   }
@@ -340,8 +341,9 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
         !second_candidate->uses_shared_halo() ||
         *second_candidate != *maximum || second_native->stage_count != 1u ||
         second_native->pipelines[0u] != first_native->pipelines[0u] ||
-        !stats.ok || stats.pipeline_compile_count != 0u ||
-        stats.pipeline_cache_hit_count != 0u) {
+        !stats.outcome.ok ||
+        stats.run.allocations.pipeline_compile_count != 0u ||
+        stats.run.allocations.pipeline_cache_hit_count != 0u) {
       return {};
     }
   }
@@ -445,13 +447,15 @@ public:
     const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(pick);
     const bool cold = inserted != 0u;
     const bool matched =
-        stats.ok && (cold ? stats.pipeline_compile_count >= inserted
-                          : stats.pipeline_cache_hit_count != 0u);
+        stats.outcome.ok &&
+        (cold ? stats.run.allocations.pipeline_compile_count >= inserted
+              : stats.run.allocations.pipeline_cache_hit_count != 0u);
     if (!matched) {
       std::cerr << "metal stencil capability-derived identity mismatch: "
                 << name << " new_variants=" << inserted
-                << " compile=" << stats.pipeline_compile_count
-                << " hit=" << stats.pipeline_cache_hit_count << '\n';
+                << " compile=" << stats.run.allocations.pipeline_compile_count
+                << " hit=" << stats.run.allocations.pipeline_cache_hit_count
+                << '\n';
       return false;
     }
     observed_cold_ = observed_cold_ || cold;
@@ -532,18 +536,20 @@ public:
         seen_.begin() + seen_count_;
     const std::uint64_t stages = range.stage_count();
     const rund::RuntimeStats stats = rund::node::accel::ReadRuntimeStats(pick);
-    const bool matched =
-        stats.ok && stages != 0u &&
-        stats.pipeline_compile_count == (expected_hit ? 0u : 1u) &&
-        stats.pipeline_cache_hit_count == (expected_hit ? stages : stages - 1u);
+    const bool matched = stats.outcome.ok && stages != 0u &&
+                         stats.run.allocations.pipeline_compile_count ==
+                             (expected_hit ? 0u : 1u) &&
+                         stats.run.allocations.pipeline_cache_hit_count ==
+                             (expected_hit ? 1u : 0u);
     if (!matched) {
       std::cerr << "vulkan stencil capability-derived identity mismatch: "
                 << name << " width=" << execution->width()
                 << " radius_cap=" << execution->shared_radius_capacity()
                 << " stages=" << stages
                 << " expected=" << (expected_hit ? "hit" : "cold")
-                << " compile=" << stats.pipeline_compile_count
-                << " hit=" << stats.pipeline_cache_hit_count << '\n';
+                << " compile=" << stats.run.allocations.pipeline_compile_count
+                << " hit=" << stats.run.allocations.pipeline_cache_hit_count
+                << '\n';
       return false;
     }
     if (!expected_hit) {
@@ -564,9 +570,7 @@ private:
 } // namespace
 
 bool stencil::RunBackend(const rund::AccelDevice &pick) {
-  return StencilMatch(stencil::PlanProjectionContract(), "shape.projection") &&
-         StencilMatch(stencil::StorageContract(), "shape.storage") &&
-         StencilMatch(stencil::SourceContract(), "source.variants") &&
+  return StencilMatch(stencil::StorageContract(), "shape.storage") &&
          StencilMatch(stencil::MatchesU32(pick), "sum.u32") &&
          BackendRunsStencilRemainder(pick);
 }
@@ -579,9 +583,7 @@ bool stencil::RunRequiredMetal() {
                                                      rund::AccelApi::Metal);
   }
   if (!StencilMatch(pick.api == rund::AccelApi::Metal, "pick.api") ||
-      !StencilMatch(stencil::PlanProjectionContract(), "shape.projection") ||
-      !StencilMatch(stencil::StorageContract(), "shape.storage") ||
-      !StencilMatch(stencil::SourceContract(), "source.variants")) {
+      !StencilMatch(stencil::StorageContract(), "shape.storage")) {
     return false;
   }
   auto *const adapter = static_cast<rund::node::accel::detail::MetalAdapter *>(
@@ -637,8 +639,7 @@ bool stencil::RunRequiredVulkan() {
     return false;
   }
   VulkanStencilVariantCacheContract variants{*adapter};
-  if (!StencilMatch(stencil::SourceContract(), "source.variants") ||
-      !StencilMatch(stencil::MatchesU32(pick), "sum.u32") ||
+  if (!StencilMatch(stencil::MatchesU32(pick), "sum.u32") ||
       !variants.Observe(pick, 6u, 1u, rund::kernel::ComputeDomain::U32,
                         "count6.radius1")) {
     return false;

@@ -23,8 +23,8 @@ namespace node_accel_contract {
     return false;
   }
 
-  const rund::RuntimeStats evidence{
-      .dispatch_count = 1u, .ok = true, .reason = "ok"};
+  const rund::RuntimeStats evidence{.run = {.work = {.dispatch_count = 1u}},
+                                    .outcome = {.ok = true, .reason = "ok"}};
   const rund::RuntimeStats evidence_before = evidence;
   const rund::kernel::ComputePlan plan_before = plan;
 
@@ -35,14 +35,14 @@ namespace node_accel_contract {
   }
 
   rund::RuntimeStats missing = evidence;
-  missing.ok = false;
+  missing.outcome.ok = false;
   choice = rund::node::accel::ChooseRun(plan, missing, policy);
   if (choice.use_accel ||
       !policy_case::ReasonIs(choice.reason, "accel_run_evidence_missing")) {
     return false;
   }
 
-  rund::RuntimeStats empty{.ok = true, .reason = "ok"};
+  rund::RuntimeStats empty{.outcome = {.ok = true, .reason = "ok"}};
   choice = rund::node::accel::ChooseRun(plan, empty, policy);
   if (choice.use_accel ||
       !policy_case::ReasonIs(choice.reason, "accel_run_evidence_missing")) {
@@ -69,7 +69,8 @@ namespace node_accel_contract {
          policy_case::ReasonIs(vulkan_choice.reason, "ok") &&
          policy_case::RuntimeStatsEqual(evidence, evidence_before) &&
          policy_case::RuntimeStatsEqual(
-             empty, rund::RuntimeStats{.ok = true, .reason = "ok"}) &&
+             empty,
+             rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}}) &&
          plan.tile_count == plan_before.tile_count &&
          plan.dispatch_count == plan_before.dispatch_count &&
          plan.dispatch_window_tiles == plan_before.dispatch_window_tiles &&

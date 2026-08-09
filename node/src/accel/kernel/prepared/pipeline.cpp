@@ -3416,11 +3416,12 @@ PrepareKernelPipeline(const rund::AccelContext &context,
     return reject_pipeline(failure, reason);
   }
   PreparedPipelineFailure backend_failure{};
+  PreparedPipelineMemory backend_memory{};
   const rund::AccelCheck built = pipeline->ops->prepare_pipeline(
       batch_templates, expanded.commands, expanded.barriers,
       expanded.transducers, expanded.aggregates, publications, registry,
-      pipeline->status, profile_steps, pipeline->backend, pipeline->memory,
-      backend_failure);
+      pipeline->status, profile_steps, pipeline->backend, backend_memory,
+      &pipeline->memory, backend_failure);
   if (!built.ok) {
     if (backend_failure.stage == PreparedPipelineFailureStage::Unknown) {
       failure.stage(PreparedPipelineFailureStage::Unknown);
@@ -3437,11 +3438,12 @@ PrepareKernelPipeline(const rund::AccelContext &context,
   const std::uint64_t common_host_bytes =
       sizeof(prepared::PipelineState) +
       pipeline->size * sizeof(std::shared_ptr<prepared::RunState>);
-  accumulate_memory(pipeline->memory.host,
+  accumulate_memory(backend_memory.host,
                     PreparedMemory{.current = common_host_bytes,
                                    .peak = common_host_bytes,
                                    .cumulative = common_host_bytes,
                                    .budget = common_host_bytes});
+  pipeline->memory.add(backend_memory);
   budget_transaction.commit();
   return PreparedKernelPipeline{
       .owner = std::static_pointer_cast<void>(pipeline),
@@ -3467,7 +3469,7 @@ PreparedPipelineMemory ReadPreparedKernelPipelineMemory(
     const PreparedKernelPipeline &prepared) noexcept {
   const auto *const pipeline =
       static_cast<const prepared::PipelineState *>(prepared.owner.get());
-  return prepared.ok && pipeline != nullptr ? pipeline->memory
+  return prepared.ok && pipeline != nullptr ? pipeline->memory.read()
                                             : PreparedPipelineMemory{};
 }
 

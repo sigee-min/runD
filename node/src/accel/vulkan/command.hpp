@@ -39,10 +39,12 @@ void EncodeVulkanComputeToComputeBarrier(VkCommandBuffer command_buffer);
                                         VulkanBuffer &staging,
                                         std::shared_ptr<void> target = {});
 [[nodiscard]] bool SubmitVulkanCommand(VulkanAdapter &adapter,
-                                       KernelCompletion completion, void *user);
-[[nodiscard]] bool SubmitVulkanExternal(
-    VulkanAdapter &adapter, VkCommandBuffer command, VkFence fence,
-    KernelCompletion completion, void *user);
+                                       KernelCompletion completion, void *user,
+                                       bool collect_timestamp = true);
+[[nodiscard]] bool SubmitVulkanExternal(VulkanAdapter &adapter,
+                                        VkCommandBuffer command, VkFence fence,
+                                        KernelCompletion completion, void *user,
+                                        bool collect_timing = true);
 
 [[nodiscard]] rund::AccelCheck SubmitVulkanEncodedResources(
     VulkanAdapter &adapter, const std::shared_ptr<void> &resources,

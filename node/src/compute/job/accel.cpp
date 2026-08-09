@@ -199,7 +199,7 @@ finish_accel(const std::shared_ptr<JobState> &state,
   const Stats stats =
       stats_from_evidence(state->program->device->backend, evidence,
                           state->program->graph_info.read_bytes);
-  if (!evidence.ok) {
+  if (!evidence.outcome.ok) {
     {
       std::lock_guard lock{state->gate};
       if (state->terminal != nullptr) {
@@ -207,7 +207,7 @@ finish_accel(const std::shared_ptr<JobState> &state,
       }
     }
     return Result<RunState>::fail(
-        project_reason(evidence.reason, Reason::BackendFailed));
+        project_reason(evidence.outcome.reason, Reason::BackendFailed));
   }
   RunState run{};
   run.program = state->program;
@@ -303,10 +303,11 @@ Result<RunState> run_job_accel(const std::shared_ptr<JobState> &state) {
                                      accel->context, state->prepared));
 }
 
-Status submit_job_accel(const std::shared_ptr<JobState> &state,
-                        std::shared_ptr<void> lifetime,
-                        const JobCompletion completion,
-                        void *const user) noexcept {
+Status
+submit_job_accel(const std::shared_ptr<JobState> &state,
+                 std::shared_ptr<void> lifetime, const JobCompletion completion,
+                 void *const user,
+                 const node::accel::detail::KernelTiming timing) noexcept {
   if (state == nullptr || state->program == nullptr ||
       state->program->device == nullptr || state->program->accel == nullptr ||
       state->outputs.empty() || !state->prepared.ok || completion == nullptr) {
@@ -325,7 +326,8 @@ Status submit_job_accel(const std::shared_ptr<JobState> &state,
   run.completion = completion;
   run.user = user;
   const rund::AccelCheck submitted = node::accel::detail::SubmitPreparedKernel(
-      accel->context, state->prepared, run.lifetime, CompleteAccel, &run);
+      accel->context, state->prepared, run.lifetime, CompleteAccel, &run,
+      timing);
   if (submitted.ok) {
     return Status::success();
   }

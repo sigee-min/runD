@@ -12,12 +12,15 @@
 #include "src/accel/metal/buffer/owner.hpp"
 #include "src/accel/metal/kernel/local.hpp"
 #include "src/accel/metal/kernel/pipeline/build.hpp"
+#include "src/accel/metal/kernel/pipeline/source.hpp"
 #include "src/accel/metal/kernel/template_memory.hpp"
+#include "src/accel/source/hash.hpp"
 
 #import <Metal/Metal.h>
 
 #include <limits>
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace rund::node::accel::detail {
@@ -198,6 +201,22 @@ struct RetryCalibrationProbe final {
 }
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+[[nodiscard]] bool ExactMetalPipelineSourceContract() {
+  using namespace rund::node::accel::detail;
+  const std::string_view status = MetalPipelineStatusSource();
+  const std::string_view telemetry = MetalPipelineTelemetrySourceText();
+  const std::string source = MetalPipelineSource();
+  const std::string_view combined{source};
+  return status.size() == 29009u &&
+         SourceHash(status) == 0x305873dc4ce58800ull &&
+         telemetry.size() == 13640u &&
+         SourceHash(telemetry) == 0x7ff59fa4d21f30c8ull &&
+         combined.size() == 42649u &&
+         SourceHash(combined) == 0x466a4391d2c7c441ull &&
+         combined.substr(0u, status.size()) == status &&
+         combined.substr(status.size()) == telemetry;
+}
+
 [[nodiscard]] bool ExactMetalIcbDescriptorContract() {
   using namespace rund::node::accel::detail;
   @autoreleasepool {
@@ -229,6 +248,10 @@ struct RetryCalibrationProbe final {
 [[nodiscard]] bool MetalTemplateMemoryContract() {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   using namespace rund::node::accel::detail;
+
+  if (!ExactMetalPipelineSourceContract()) {
+    return false;
+  }
 
   const auto make_map = [] {
     auto prepared = std::make_shared<MetalMapTemplateResources>();

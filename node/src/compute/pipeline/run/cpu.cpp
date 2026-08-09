@@ -100,6 +100,9 @@ void accumulate(Stats &total, const Stats &value,
                 const std::uint64_t overflow_ordinal,
                 const bool control) noexcept {
   ::rund::detail::counter::Accumulate(total.dispatches, value.dispatches);
+  ::rund::detail::counter::Accumulate(total.kernel_ns, value.kernel_ns);
+  ::rund::detail::counter::Accumulate(total.kernel_samples,
+                                      value.kernel_samples);
   ::rund::detail::counter::Accumulate(total.internal_roundtrip_bytes,
                                       value.internal_roundtrip_bytes);
   ::rund::detail::counter::Accumulate(total.reset_bytes, value.reset_bytes);

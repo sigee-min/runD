@@ -80,7 +80,7 @@ MultiWriteResidentRunMatches(const rund::AccelContext &context) {
                                             .tile_count = count,
                                             .fresh_evidence = true,
                                         });
-  if (!run.ok || run.device_to_host_bytes != 0u) {
+  if (!run.outcome.ok || run.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
   std::array<rund::kernel::i32, count> plus_host{};
@@ -169,13 +169,15 @@ WindowedResidentRunMatches(const rund::AccelContext &context) {
       context, kernel, RunRequest(bindings, tile_count, true));
   const rund::RuntimeStats after_run =
       rund::node::accel::ReadRuntimeStats(context.pick);
-  if (!run.ok || run.dispatch_count == 0u ||
-      run.dispatch_count > expected_dispatch_count ||
-      run.original_dispatch_count != expected_dispatch_count ||
-      run.final_dispatch_count == 0u ||
-      run.final_dispatch_count > run.original_dispatch_count ||
-      run.dispatch_count != run.final_dispatch_count ||
-      run.device_to_host_bytes != 0u || after_run.device_to_host_bytes != 0u) {
+  if (!run.outcome.ok || run.run.work.dispatch_count == 0u ||
+      run.run.work.dispatch_count > expected_dispatch_count ||
+      run.run.work.original_dispatch_count != expected_dispatch_count ||
+      run.run.work.final_dispatch_count == 0u ||
+      run.run.work.final_dispatch_count >
+          run.run.work.original_dispatch_count ||
+      run.run.work.dispatch_count != run.run.work.final_dispatch_count ||
+      run.run.transfer.device_to_host_bytes != 0u ||
+      after_run.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
 

@@ -3,6 +3,7 @@
 #include "../../../../src/accel/kernel/memory.hpp"
 #include "../../../../src/compute/cpu/graph.hpp"
 #include "../../../../src/compute/job/state.hpp"
+#include "../../../../src/compute/memory/local.hpp"
 #include <rund/counter.hpp>
 
 #include <array>
@@ -14,7 +15,22 @@
 
 namespace rund_node_memory_contract {
 
-[[nodiscard]] bool ValidStats(const rund::compute::MemoryStats &stats) noexcept {
+template <class Meter>
+concept HasCurrent = requires(Meter &meter) { meter.current; };
+template <class Meter>
+concept HasReused = requires(Meter &meter) { meter.reused; };
+template <class Meter>
+concept HasBudget = requires(Meter &meter) { meter.budget; };
+
+static_assert(HasCurrent<rund::compute::detail::AllocationMeter>);
+static_assert(HasReused<rund::compute::detail::AllocationMeter>);
+static_assert(!HasBudget<rund::compute::detail::AllocationMeter>);
+static_assert(!HasCurrent<rund::compute::detail::TrafficMeter>);
+static_assert(!HasReused<rund::compute::detail::TrafficMeter>);
+static_assert(!HasBudget<rund::compute::detail::TrafficMeter>);
+
+[[nodiscard]] bool
+ValidStats(const rund::compute::MemoryStats &stats) noexcept {
   return ValidCounter(stats.host) && ValidCounter(stats.frame) &&
          ValidCounter(stats.tile) && ValidCounter(stats.resident) &&
          ValidCounter(stats.staging) && ValidCounter(stats.device) &&
@@ -26,7 +42,37 @@ namespace rund_node_memory_contract {
   std::uint64_t scalar = kCounterMaximum - 1u;
   ::rund::detail::counter::Accumulate(scalar, 2u);
   ::rund::detail::counter::Release(scalar, 4u);
-  if (scalar != kCounterMaximum) {
+  if (scalar != kCounterMaximum ||
+      ::rund::detail::counter::Remaining(kCounterMaximum, kCounterMaximum) !=
+          kCounterMaximum) {
+    return false;
+  }
+
+  AllocationMeter allocation{};
+  allocation.current = 11u;
+  allocation.peak = 13u;
+  allocation.cumulative = 17u;
+  allocation.reused = 5u;
+  const rund::compute::MemoryCounter allocation_memory =
+      allocation_meter_memory(allocation);
+  TrafficMeter traffic{};
+  traffic.peak = 19u;
+  traffic.cumulative = 23u;
+  const rund::compute::MemoryCounter traffic_memory =
+      traffic_meter_memory(traffic);
+  if (allocation_memory.current != 11u || allocation_memory.peak != 13u ||
+      allocation_memory.cumulative != 17u || allocation_memory.reused != 5u ||
+      allocation_memory.budget != 0u || traffic_memory.current != 0u ||
+      traffic_memory.peak != 19u || traffic_memory.cumulative != 23u ||
+      traffic_memory.reused != 0u || traffic_memory.budget != 0u) {
+    return false;
+  }
+  auto owner = std::make_shared<BufferState>();
+  owner->bytes = 3u;
+  owner->physical_bytes = 7u;
+  const BufferMemory owner_memory = measure_buffer(owner);
+  if (owner_memory.resident != 3u || owner_memory.physical != 7u ||
+      owner_memory.reused != 0u) {
     return false;
   }
 

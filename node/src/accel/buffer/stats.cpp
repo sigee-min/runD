@@ -11,7 +11,8 @@ rund::RuntimeStats ReadRuntimeStats(const rund::AccelDevice &pick) {
   const std::shared_ptr<detail::PickToken> token = detail::AdmitPick(pick);
   return token != nullptr
              ? detail::ReadBackendStats(token)
-             : rund::RuntimeStats{.reason = "accel_buffer_backend_unavailable"};
+             : rund::RuntimeStats{
+                   .outcome = {.reason = "accel_buffer_backend_unavailable"}};
 }
 
 void ResetRuntimeStats(const rund::AccelDevice &pick) {

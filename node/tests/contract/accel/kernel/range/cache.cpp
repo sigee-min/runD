@@ -83,9 +83,9 @@ static_assert(AffineIdentityContract());
   RecordMetalUncachedLibraryCompile(adapter, 17u);
   RecordMetalUncachedPipelineCompile(adapter, 23u);
   return adapter.stats.library_compile_count == 1u &&
-         adapter.stats.shader_compile_ns == 17u &&
-         adapter.stats.pipeline_compile_count == 1u &&
-         adapter.stats.pipeline_create_ns == 23u &&
+         adapter.stats.runtime.run.time.shader_compile_ns == 17u &&
+         adapter.stats.runtime.run.allocations.pipeline_compile_count == 1u &&
+         adapter.stats.runtime.run.time.pipeline_create_ns == 23u &&
          adapter.source_libraries.empty() && adapter.named_pipelines.empty();
 }
 
@@ -98,16 +98,16 @@ static_assert(AffineIdentityContract());
       PublishMetalNamedPipeline(adapter, "range.contract", first, 11u);
   if (inserted.status != MetalNamedPipelinePublishStatus::Inserted ||
       inserted.pipeline != first || adapter.named_pipelines.size() != 1u ||
-      adapter.stats.pipeline_compile_count != 1u ||
-      adapter.stats.pipeline_create_ns != 11u) {
+      adapter.stats.runtime.run.allocations.pipeline_compile_count != 1u ||
+      adapter.stats.runtime.run.time.pipeline_create_ns != 11u) {
     return false;
   }
   const MetalNamedPipelinePublishResult existing =
       PublishMetalNamedPipeline(adapter, "range.contract", contender, 17u);
   if (existing.status != MetalNamedPipelinePublishStatus::Existing ||
       existing.pipeline != first || adapter.named_pipelines.size() != 1u ||
-      adapter.stats.pipeline_compile_count != 1u ||
-      adapter.stats.pipeline_create_ns != 11u) {
+      adapter.stats.runtime.run.allocations.pipeline_compile_count != 1u ||
+      adapter.stats.runtime.run.time.pipeline_create_ns != 11u) {
     return false;
   }
   adapter.fault_named_pipeline_publish_once.store(true,
@@ -116,8 +116,8 @@ static_assert(AffineIdentityContract());
       adapter, "range.capacity", std::make_shared<int>(3), 23u);
   return failed.status == MetalNamedPipelinePublishStatus::Failed &&
          failed.pipeline == nullptr && adapter.named_pipelines.size() == 1u &&
-         adapter.stats.pipeline_compile_count == 1u &&
-         adapter.stats.pipeline_create_ns == 11u;
+         adapter.stats.runtime.run.allocations.pipeline_compile_count == 1u &&
+         adapter.stats.runtime.run.time.pipeline_create_ns == 11u;
 }
 
 [[nodiscard]] bool MetalSourcePublicationIsTransactional() {
@@ -139,7 +139,7 @@ static_assert(AffineIdentityContract());
       failed.library != nullptr || adapter.source_libraries.size() != 1u ||
       adapter.source_libraries.front().library != baseline_owner ||
       adapter.stats.library_compile_count != 2u ||
-      adapter.stats.shader_compile_ns != 12u ||
+      adapter.stats.runtime.run.time.shader_compile_ns != 12u ||
       adapter.stats.library_cache_hit_count != 0u ||
       std::string_view{adapter.last_error} != "compute_pipeline_capacity") {
     return false;
@@ -152,7 +152,7 @@ static_assert(AffineIdentityContract());
       inserted.library != inserted_owner ||
       adapter.source_libraries.size() != 2u ||
       adapter.stats.library_compile_count != 3u ||
-      adapter.stats.shader_compile_ns != 23u ||
+      adapter.stats.runtime.run.time.shader_compile_ns != 23u ||
       adapter.stats.library_cache_hit_count != 0u) {
     return false;
   }
@@ -163,7 +163,7 @@ static_assert(AffineIdentityContract());
          existing.library == inserted_owner &&
          adapter.source_libraries.size() == 2u &&
          adapter.stats.library_compile_count == 4u &&
-         adapter.stats.shader_compile_ns == 36u &&
+         adapter.stats.runtime.run.time.shader_compile_ns == 36u &&
          adapter.stats.library_cache_hit_count == 1u;
 }
 
@@ -185,7 +185,7 @@ static_assert(AffineIdentityContract());
   if (failed.status != MetalNamedPipelinePublishStatus::Failed ||
       failed.pipeline != nullptr || !adapter.named_pipelines.empty() ||
       adapter.source_libraries.size() != 1u ||
-      adapter.stats.pipeline_compile_count != 0u) {
+      adapter.stats.runtime.run.allocations.pipeline_compile_count != 0u) {
     return false;
   }
   // This is the CompileMetalRange caller's exact failed-publication
@@ -204,9 +204,9 @@ static_assert(AffineIdentityContract());
          adapter.named_pipelines.size() == 1u &&
          adapter.stats.library_compile_count == 1u &&
          adapter.stats.library_cache_hit_count == 1u &&
-         adapter.stats.shader_compile_ns == 11u &&
-         adapter.stats.pipeline_compile_count == 2u &&
-         adapter.stats.pipeline_create_ns == 30u;
+         adapter.stats.runtime.run.time.shader_compile_ns == 11u &&
+         adapter.stats.runtime.run.allocations.pipeline_compile_count == 2u &&
+         adapter.stats.runtime.run.time.pipeline_create_ns == 30u;
 }
 
 bool CacheContract() {

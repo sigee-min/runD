@@ -81,6 +81,7 @@ Status start_pipeline(PipelineState &state) noexcept {
   state.failure_step_known = false;
   state.writes_possible = false;
   state.backend_submitted = false;
+  state.dispatch_timing = false;
   state.failure = Reason::Ok;
   state.phase = PipelinePhase::Running;
   return Status::success();

@@ -41,12 +41,12 @@ ScanThenMapPreservesInternalRoundtrip(const rund::AccelDevice &pick) {
                                             .tile_count = scan_stream::kCount,
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok ||
-      evidence.internal_producer_consumer_roundtrip_bytes !=
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.internal_producer_consumer_roundtrip_bytes !=
           scan_stream::kCount * sizeof(rund::kernel::u32) * 2u ||
-      evidence.external_producer_consumer_roundtrip_bytes != 0u ||
-      evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+      evidence.run.transfer.external_producer_consumer_roundtrip_bytes != 0u ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
 

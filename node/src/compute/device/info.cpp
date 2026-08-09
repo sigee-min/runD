@@ -66,7 +66,57 @@ void append(std::string &text, const std::string_view label,
   return Result<DeviceInfo>::fail(Reason::DeviceInfoInvalid);
 }
 
+[[nodiscard]] Result<DeviceInfo> make_device_info(const DeviceState &state) {
+  switch (state.backend) {
+  case Backend::Unavailable:
+    return invalid();
+  case Backend::Cpu: {
+    const CpuDeviceState *const cpu = cpu_device(state);
+    if (cpu == nullptr || !cpu->caps || !cpu->workers ||
+        strategy_name(cpu->caps.strategy).empty()) {
+      return invalid();
+    }
+    return Result<DeviceInfo>::success(cpu_info(state, *cpu));
+  }
+  case Backend::Metal:
+  case Backend::Vulkan: {
+    const AccelDeviceState *const accel = accel_device(state);
+    if (accel == nullptr) {
+      return invalid();
+    }
+    const rund::AccelBackendInfo &source = accel->pick.backend_info;
+    return Result<DeviceInfo>::success(DeviceInfo{
+        .backend = state.backend,
+        .name = source.device_name,
+        .driver = source.driver_name,
+        .driver_details = source.driver_info,
+        .storage_alignment = source.storage_alignment,
+        .storage_bytes = source.storage_bytes,
+    });
+  }
+  }
+  return invalid();
+}
+
 } // namespace
+
+Status initialize_device_info(DeviceState &state) noexcept {
+  try {
+    auto info = make_device_info(state);
+    if (!info) {
+      return Status::fail(info.reason());
+    }
+    state.info = std::make_shared<const DeviceInfo>(std::move(*info));
+    return Status::success();
+  } catch (const std::bad_alloc &) {
+    return Status::fail(Reason::DeviceInfoCapacity);
+  }
+}
+
+std::shared_ptr<const DeviceInfo>
+device_info_owner(const std::shared_ptr<DeviceState> &state) noexcept {
+  return state == nullptr ? nullptr : state->info;
+}
 
 Result<DeviceInfo>
 snapshot_device_info(const std::shared_ptr<DeviceState> &state) noexcept {
@@ -75,35 +125,12 @@ snapshot_device_info(const std::shared_ptr<DeviceState> &state) noexcept {
   }
 
   try {
-    switch (state->backend) {
-    case Backend::Unavailable:
-      return invalid();
-    case Backend::Cpu: {
-      const CpuDeviceState *const cpu = cpu_device(*state);
-      if (cpu == nullptr || !cpu->caps || !cpu->workers ||
-          strategy_name(cpu->caps.strategy).empty()) {
-        return invalid();
-      }
-      return Result<DeviceInfo>::success(cpu_info(*state, *cpu));
+    if (state->info != nullptr) {
+      return Result<DeviceInfo>::success(*state->info);
     }
-    case Backend::Metal:
-    case Backend::Vulkan: {
-      const AccelDeviceState *const accel = accel_device(*state);
-      if (accel == nullptr) {
-        return invalid();
-      }
-      const rund::AccelBackendInfo &source = accel->pick.backend_info;
-      return Result<DeviceInfo>::success(DeviceInfo{
-          .backend = state->backend,
-          .name = source.device_name,
-          .driver = source.driver_name,
-          .driver_details = source.driver_info,
-          .storage_alignment = source.storage_alignment,
-          .storage_bytes = source.storage_bytes,
-      });
-    }
-    }
-    return invalid();
+    // Test-local and internal manually assembled states remain inspectable;
+    // every successfully opened public Device owns the cached branch above.
+    return make_device_info(*state);
   } catch (const std::bad_alloc &) {
     return Result<DeviceInfo>::fail(Reason::DeviceInfoCapacity);
   }

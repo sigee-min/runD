@@ -135,6 +135,62 @@ using namespace rund::node::accel::detail;
   return true;
 }
 
+[[nodiscard]] bool StableSourceByteContract() {
+  struct SourceCase final {
+    RangeOp operation;
+    ComputeDomain domain;
+    RangePath path;
+    u32 shared_radius_capacity;
+    std::uint64_t metal_bytes;
+    std::uint64_t metal_hash;
+    std::uint64_t vulkan_bytes;
+    std::uint64_t vulkan_hash;
+  };
+  constexpr std::array cases{
+      SourceCase{RangeOp::Sum, ComputeDomain::U32, RangePath::Direct, 0u, 5782u,
+                 5241732093872250891ull, 1860u, 15946521728726338142ull},
+      SourceCase{RangeOp::Minimum, ComputeDomain::I32, RangePath::SharedHalo,
+                 64u, 11048u, 13934788009075350063ull, 3193u,
+                 5710807108626550770ull},
+      SourceCase{RangeOp::Sum, ComputeDomain::U32, RangePath::PrefixDifference,
+                 0u, 11880u, 16150613125859792719ull, 3739u,
+                 12968811649224947642ull},
+      SourceCase{RangeOp::Maximum, ComputeDomain::I64,
+                 RangePath::BlockPrefixSuffix, 0u, 7504u,
+                 4882305884707311087ull, 2493u, 14217763674358663737ull},
+  };
+  for (const SourceCase &entry : cases) {
+    const RangePlan metal_plan = range::PlanSourceVariant(
+        RangeSource::Metal, entry.operation, entry.domain, 64u,
+        entry.shared_radius_capacity, entry.path);
+    if (!metal_plan.ok()) {
+      return false;
+    }
+    const std::string metal = MetalRangeSource(range::RequireExec(metal_plan));
+    if (metal.size() != entry.metal_bytes ||
+        SourceHash(metal) != entry.metal_hash ||
+        metal.find("stencil") != std::string::npos) {
+      return false;
+    }
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+    const RangePlan vulkan_plan = range::PlanSourceVariant(
+        RangeSource::Vulkan, entry.operation, entry.domain, 64u,
+        entry.shared_radius_capacity, entry.path);
+    if (!vulkan_plan.ok()) {
+      return false;
+    }
+    const std::string vulkan =
+        VulkanRangeSource(range::RequireExec(vulkan_plan));
+    if (vulkan.size() != entry.vulkan_bytes ||
+        SourceHash(vulkan) != entry.vulkan_hash ||
+        vulkan.find("stencil") != std::string::npos) {
+      return false;
+    }
+#endif
+  }
+  return true;
+}
+
 } // namespace
 
 [[nodiscard]] bool SignedSourcesCarryDomainOrder() {
@@ -259,7 +315,8 @@ using namespace rund::node::accel::detail;
 
 bool SourceContract() {
   return AffineSourceContract() && SignedSourcesCarryDomainOrder() &&
-         SourcesCarryLinearFamilies();
+         SourcesCarryLinearFamilies() && StableSourceByteContract() &&
+         SharedHaloSourceContract();
 }
 
 } // namespace node_accel_contract::range

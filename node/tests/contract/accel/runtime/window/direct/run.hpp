@@ -31,17 +31,20 @@ namespace node_accel_contract::runtime::window::direct {
   const auto stats = rund::node::accel::ReadRuntimeStats(pick);
   const bool metal_used_one_output_buffer =
       pick.api != rund::AccelApi::Metal ||
-      stats.buffer_allocation_count + stats.buffer_reuse_hit_count == 1u;
+      stats.run.allocations.buffer_allocation_count +
+              stats.run.allocations.buffer_reuse_hit_count ==
+          1u;
   const auto download = rund::node::accel::DownloadBuffer(
       pick, buffers.output, work.out.data(), sizeof(work.out));
-  const bool matches = stats.ok && stats.dispatch_count == 1u &&
-                       metal_used_one_output_buffer && download.ok &&
-                       work.out == work.expected;
+  const bool matches =
+      stats.outcome.ok && stats.run.work.dispatch_count == 1u &&
+      metal_used_one_output_buffer && download.ok && work.out == work.expected;
   if (!matches) {
-    std::cerr << "resident window mismatch: stats_ok=" << stats.ok
-              << " dispatch=" << stats.dispatch_count
-              << " allocations=" << stats.buffer_allocation_count
-              << " reuse=" << stats.buffer_reuse_hit_count
+    std::cerr << "resident window mismatch: stats_ok=" << stats.outcome.ok
+              << " dispatch=" << stats.run.work.dispatch_count
+              << " allocations="
+              << stats.run.allocations.buffer_allocation_count
+              << " reuse=" << stats.run.allocations.buffer_reuse_hit_count
               << " download=" << download.reason << '\n';
   }
   return matches;

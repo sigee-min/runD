@@ -287,12 +287,12 @@ namespace {
       collective_index != storage_plan.collective_count) {
     return 16;
   }
-  const CpuRetainedMemory observed_storage =
+  const CpuStorageBytes observed_storage =
       cpu_graph_storage_memory(storage.value().get());
   const CpuStorageBytes arena_payload = cpu_prepared_arena_payload(arena_plan);
-  const std::uint64_t expected_storage_host =
-      storage_plan.private_total.host + arena_payload.host +
-      sizeof(CpuPreparedArena);
+  const std::uint64_t expected_storage_host = storage_plan.private_total.host +
+                                              arena_payload.host +
+                                              sizeof(CpuPreparedArena);
   const std::uint64_t expected_storage_tile =
       storage_plan.private_total.tile + arena_payload.tile;
   if (observed_storage.host != expected_storage_host ||
@@ -301,9 +301,9 @@ namespace {
   }
   std::vector<std::shared_ptr<BufferState>> workspace(program->chunks.size());
   CpuRun run{};
-  const auto materialized = materialize_cpu_run(
-      run, program, workspace, storage.value(), route_plan, *arena,
-      route_slice);
+  const auto materialized =
+      materialize_cpu_run(run, program, workspace, storage.value(), route_plan,
+                          *arena, route_slice);
   if (!materialized || run.graph == nullptr ||
       run.graph->maps.size() != route_plan.map_count) {
     return 6;

@@ -16,6 +16,7 @@
 #include "local.hpp"
 #include "reset.hpp"
 #include "reset_source.hpp"
+#include "trace.hpp"
 
 #include <kernel/program/compute/artifact.hpp>
 #include <kernel/program/compute/model.hpp>
@@ -180,40 +181,33 @@ PrepareResetCommands(VulkanAdapter &adapter, VulkanKernelResources &resources) {
 }
 
 [[nodiscard]] rund::AccelCheck
-BeginVulkanSteps(VulkanAdapter &adapter, VulkanKernelResources &resources) {
+BeginVulkanSteps(VulkanAdapter &adapter, VulkanKernelResources &resources,
+                 const bool collect_timestamp) {
   if (!EnsureVulkanCommandResources(adapter) || !BeginVulkanCommand(adapter)) {
     return rund::AccelCheck{false, VulkanLastError(&adapter)};
   }
-  BeginVulkanTimestampSpan(adapter, adapter.command_buffer);
+  if (collect_timestamp) {
+    BeginVulkanTimestampSpan(adapter, adapter.command_buffer);
+  }
   const rund::AccelCheck encoded = ExecuteVulkanKernel(adapter, resources);
   if (!encoded.ok) {
     CancelVulkanCommand(adapter);
   } else {
-    EndVulkanTimestampSpan(adapter, adapter.command_buffer);
+    if (collect_timestamp) {
+      EndVulkanTimestampSpan(adapter, adapter.command_buffer);
+    }
   }
   return encoded;
 }
 
 [[nodiscard]] rund::AccelCheck
 RunVulkanSteps(VulkanAdapter &adapter, VulkanKernelResources &resources) {
-  const rund::AccelCheck encoded = BeginVulkanSteps(adapter, resources);
+  const rund::AccelCheck encoded = BeginVulkanSteps(adapter, resources, true);
   if (!encoded.ok) {
     return encoded;
   }
   if (!SubmitVulkanCommand(adapter)) {
     return rund::AccelCheck{false, VulkanLastError(&adapter)};
-  }
-  return rund::AccelCheck{true, "ok"};
-}
-
-[[nodiscard]] rund::AccelCheck
-SubmitVulkanSteps(VulkanAdapter &adapter, VulkanKernelResources &resources) {
-  if (resources.size() == 0u) {
-    return rund::AccelCheck{false, "accel_vulkan_command_unavailable"};
-  }
-  const rund::AccelCheck encoded = BeginVulkanSteps(adapter, resources);
-  if (!encoded.ok) {
-    return encoded;
   }
   return rund::AccelCheck{true, "ok"};
 }
@@ -230,12 +224,20 @@ void CompleteVulkanPrepared(void *const raw, KernelResult submitted) noexcept {
     return;
   }
   VulkanKernelResources &resources = *claim.owner;
+  const bool trace_active = resources.trace_active;
+  resources.trace_active = false;
   if (submitted.check.ok && resources.adapter != nullptr) {
     std::lock_guard lock{resources.adapter->mutex};
-    submitted.check =
-        FinishVulkanSteps(*resources.adapter, resources, &submitted.stats);
+    if (trace_active) {
+      submitted.check = FoldVulkanDispatchTrace(
+          *resources.adapter, resources.trace, submitted.stats);
+    }
+    if (submitted.check.ok) {
+      submitted.check =
+          FinishVulkanSteps(*resources.adapter, resources, &submitted.stats);
+    }
   }
-  submitted.stats.dispatch_count =
+  submitted.stats.run.work.dispatch_count =
       submitted.check.ok ? resources.dispatch_count : 0u;
   SetResetStats(submitted.stats, submitted.check.ok, resources.reset_count,
                 resources.reset_bytes);
@@ -251,6 +253,7 @@ void DestroyPreparedVulkanKernelResources(void *const raw) {
   if (adapter != nullptr) {
     std::lock_guard<std::mutex> lock{adapter->mutex};
     DestroyVulkanKernelCommand(*adapter, *resources);
+    DestroyVulkanDispatchTrace(*adapter, resources->trace);
     resources->release();
     for (const VulkanCollectiveDescriptorLease &lease :
          resources->descriptor_leases) {
@@ -516,7 +519,9 @@ rund::AccelCheck RunVulkanResources(const rund::AccelDevice &pick,
 rund::AccelCheck SubmitVulkanResources(const rund::AccelDevice &pick,
                                        const std::shared_ptr<void> &prepared,
                                        const KernelCompletion completion,
-                                       void *const user) noexcept {
+                                       void *const user,
+                                       PreparedMemoryMeter *const memory,
+                                       const KernelTiming timing) noexcept {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   auto *const resources = static_cast<VulkanKernelResources *>(prepared.get());
   if (resources == nullptr || resources->size() == 0u ||
@@ -536,11 +541,38 @@ rund::AccelCheck SubmitVulkanResources(const rund::AccelDevice &pick,
   rund::AccelCheck submitted{};
   {
     std::lock_guard lock{adapter->mutex};
-    submitted = SubmitVulkanSteps(*adapter, *resources);
-    if (submitted.ok &&
-        !SubmitVulkanCommand(*adapter, CompleteVulkanPrepared, &state)) {
+    if (timing == KernelTiming::Dispatch) {
+      submitted = EnsureVulkanDispatchTrace(*adapter, *resources, memory);
+      if (!submitted.ok) {
+        submission::Cancel(state);
+        return submitted;
+      }
+    }
+    const bool collect_timestamp = timing == KernelTiming::Submission;
+    if (!EnsureVulkanCommandResources(*adapter) ||
+        !BeginVulkanCommand(*adapter)) {
+      submitted = rund::AccelCheck{false, VulkanLastError(adapter)};
+    } else if (timing == KernelTiming::Dispatch) {
+      submitted = EncodeVulkanDispatchTrace(*adapter, *resources);
+      if (!submitted.ok) {
+        CancelVulkanCommand(*adapter);
+      }
+    } else {
+      if (collect_timestamp) {
+        BeginVulkanTimestampSpan(*adapter, adapter->command_buffer);
+      }
+      submitted = ExecuteVulkanKernel(*adapter, *resources);
+      if (!submitted.ok) {
+        CancelVulkanCommand(*adapter);
+      } else if (collect_timestamp) {
+        EndVulkanTimestampSpan(*adapter, adapter->command_buffer);
+      }
+    }
+    if (submitted.ok && !SubmitVulkanCommand(*adapter, CompleteVulkanPrepared,
+                                             &state, collect_timestamp)) {
       submitted = rund::AccelCheck{false, VulkanLastError(adapter)};
     }
+    resources->trace_active = submitted.ok && timing == KernelTiming::Dispatch;
   }
   if (!submitted.ok) {
     submission::Cancel(state);
@@ -552,6 +584,8 @@ rund::AccelCheck SubmitVulkanResources(const rund::AccelDevice &pick,
   (void)prepared;
   (void)completion;
   (void)user;
+  (void)memory;
+  (void)timing;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

@@ -33,8 +33,8 @@ bool RejectsDuplicateIndex(const rund::AccelDevice &pick) {
                                         });
   return resources.plan.ok && resources.kernel.check.ok &&
          fix::EvidenceReason(evidence, "compute_scatter_duplicate_index") &&
-         evidence.host_to_device_bytes == 0u &&
-         evidence.device_to_host_bytes == 0u;
+         evidence.run.transfer.host_to_device_bytes == 0u &&
+         evidence.run.transfer.device_to_host_bytes == 0u;
 }
 
 } // namespace node_accel_contract::scatter

@@ -52,14 +52,17 @@ template <typename T>
                                             .tile_count = input.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     std::fprintf(stderr,
                  "scan run failed: api=%u reason=%s upload=%llu download=%llu "
                  "width=%zu\n",
-                 static_cast<unsigned>(pick.api), evidence.reason,
-                 static_cast<unsigned long long>(evidence.host_to_device_bytes),
-                 static_cast<unsigned long long>(evidence.device_to_host_bytes),
+                 static_cast<unsigned>(pick.api), evidence.outcome.reason,
+                 static_cast<unsigned long long>(
+                     evidence.run.transfer.host_to_device_bytes),
+                 static_cast<unsigned long long>(
+                     evidence.run.transfer.device_to_host_bytes),
                  sizeof(T));
     return false;
   }

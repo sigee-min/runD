@@ -4,7 +4,9 @@ set(NODE_TEST_COMPUTE_COMMON_SOURCES
 
 set(NODE_TEST_COMPUTE_SOURCES
   tests/contract/compute/numeric.cpp
-  tests/contract/compute/telemetry.cpp
+  tests/contract/compute/telemetry/contract.cpp
+  tests/contract/compute/telemetry/profile.cpp
+  tests/contract/compute/telemetry/projection.cpp
   tests/contract/compute/fixed/value.cpp
   tests/contract/compute/result.cpp
   tests/contract/compute/error.cpp
@@ -65,6 +67,8 @@ set(NODE_TEST_COMPUTE_ACCEL_SOURCES
 # unmapped support sources global. One row may name multiple cases when they
 # deliberately share one fixture authority.
 list(APPEND RUND_NODE_TEST_COMPANION_ROWS
+  "tests/contract/compute/telemetry/profile.cpp|compute.telemetry"
+  "tests/contract/compute/telemetry/projection.cpp|compute.telemetry"
   "tests/contract/compute/cpu/view.cpp|compute.cpu-tiles"
   "tests/contract/compute/map/local/model.cpp|compute.map"
   "tests/contract/compute/map/canonical.cpp|compute.map"
@@ -102,7 +106,8 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/metal.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/admission.cpp|compute.pipeline"
-  "tests/contract/compute/pipeline/profile.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/profile/steps.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/profile/samples.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/range/introspection.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/range/resident.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/repeat.cpp|compute.pipeline"
@@ -114,8 +119,25 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/chain.cpp|compute.window"
   "tests/contract/compute/window/freeze.cpp|compute.window"
   "tests/contract/compute/window/matrix.cpp|compute.window"
-  "tests/contract/compute/window/nested.cpp|compute.window"
-  "tests/contract/compute/window/output.cpp|compute.window"
+  "tests/contract/compute/window/nested/contract.cpp|compute.window"
+  "tests/contract/compute/window/nested/control.cpp|compute.window"
+  "tests/contract/compute/window/nested/evidence.cpp|compute.window"
+  "tests/contract/compute/window/nested/execution.cpp|compute.window"
+  "tests/contract/compute/window/nested/failure.cpp|compute.window"
+  "tests/contract/compute/window/nested/fixture.cpp|compute.window"
+  "tests/contract/compute/window/nested/identity.cpp|compute.window"
+  "tests/contract/compute/window/nested/oracle.cpp|compute.window"
+  "tests/contract/compute/window/nested/plan.cpp|compute.window"
+  "tests/contract/compute/window/nested/program.cpp|compute.window"
+  "tests/contract/compute/window/output/contract.cpp|compute.window"
+  "tests/contract/compute/window/output/control.cpp|compute.window"
+  "tests/contract/compute/window/output/execution.cpp|compute.window"
+  "tests/contract/compute/window/output/failure.cpp|compute.window"
+  "tests/contract/compute/window/output/model.cpp|compute.window"
+  "tests/contract/compute/window/output/ordinary.cpp|compute.window"
+  "tests/contract/compute/window/output/publication.cpp|compute.window"
+  "tests/contract/compute/window/output/publication_mutation.cpp|compute.window"
+  "tests/contract/compute/window/output/subview.cpp|compute.window"
   "tests/contract/compute/window/parity.cpp|compute.window"
   "tests/contract/compute/window/plan.cpp|compute.window"
   "tests/contract/compute/window/terminal.cpp|compute.window"
@@ -225,7 +247,8 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/metal.cpp
   tests/contract/compute/pipeline/memory.cpp
   tests/contract/compute/pipeline/admission.cpp
-  tests/contract/compute/pipeline/profile.cpp
+  tests/contract/compute/pipeline/profile/steps.cpp
+  tests/contract/compute/pipeline/profile/samples.cpp
   tests/contract/compute/pipeline/range/introspection.cpp
   tests/contract/compute/pipeline/range/resident.cpp
   tests/contract/compute/pipeline/repeat.cpp
@@ -238,8 +261,25 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/chain.cpp
   tests/contract/compute/window/freeze.cpp
   tests/contract/compute/window/matrix.cpp
-  tests/contract/compute/window/nested.cpp
-  tests/contract/compute/window/output.cpp
+  tests/contract/compute/window/nested/contract.cpp
+  tests/contract/compute/window/nested/control.cpp
+  tests/contract/compute/window/nested/evidence.cpp
+  tests/contract/compute/window/nested/execution.cpp
+  tests/contract/compute/window/nested/failure.cpp
+  tests/contract/compute/window/nested/fixture.cpp
+  tests/contract/compute/window/nested/identity.cpp
+  tests/contract/compute/window/nested/oracle.cpp
+  tests/contract/compute/window/nested/plan.cpp
+  tests/contract/compute/window/nested/program.cpp
+  tests/contract/compute/window/output/contract.cpp
+  tests/contract/compute/window/output/control.cpp
+  tests/contract/compute/window/output/execution.cpp
+  tests/contract/compute/window/output/failure.cpp
+  tests/contract/compute/window/output/model.cpp
+  tests/contract/compute/window/output/ordinary.cpp
+  tests/contract/compute/window/output/publication.cpp
+  tests/contract/compute/window/output/publication_mutation.cpp
+  tests/contract/compute/window/output/subview.cpp
   tests/contract/compute/window/parity.cpp
   tests/contract/compute/window/plan.cpp
   tests/contract/compute/window/terminal.cpp

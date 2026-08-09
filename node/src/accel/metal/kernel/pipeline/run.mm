@@ -1,5 +1,7 @@
 #include "state.hpp"
 
+#include "../trace/submit.hpp"
+
 #include "../../../kernel/reset/stats.hpp"
 #include "../../../kernel/telemetry.hpp"
 #include "../../pipeline/named.hpp"
@@ -10,11 +12,49 @@
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+namespace {
+
+[[nodiscard]] rund::AccelCheck
+EnsureMetalPipelineDispatchTrace(MetalSequence &sequence) noexcept {
+  if (sequence.trace.available()) {
+    return rund::AccelCheck{true, "ok"};
+  }
+  if (sequence.adapter != nullptr &&
+      sequence.adapter->fault_trace_unavailable_once.exchange(
+          false, std::memory_order_relaxed)) {
+    return rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
+  }
+  if (sequence.memory_meter == nullptr || sequence.adapter == nullptr) {
+    return rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
+  }
+  MetalDispatchTrace candidate{};
+  PrepareMetalDispatchTrace(
+      (__bridge id<MTLDevice>)sequence.adapter->device.get(),
+      sequence.dispatch_count, candidate);
+  if (!candidate.available()) {
+    return rund::AccelCheck{false, candidate.reason};
+  }
+  const std::uint64_t retained = candidate.retained_bytes();
+  sequence.trace = std::move(candidate);
+  sequence.memory_meter->add_device(PreparedMemory{.current = retained,
+                                                   .peak = retained,
+                                                   .cumulative = retained,
+                                                   .budget = retained});
+  sequence.retained_bytes =
+      ::rund::detail::counter::SaturatingAdd(sequence.retained_bytes, retained);
+  return rund::AccelCheck{true, "ok"};
+}
+
+} // namespace
+
 [[nodiscard]] bool
 ValidMetalSequence(const MetalSequence *const sequence) noexcept {
   return sequence != nullptr && sequence->adapter != nullptr &&
          ((sequence->command_count == 0u && sequence->command_chunks.empty()) ||
           (sequence->command_count != 0u && !sequence->command_chunks.empty() &&
+           sequence->trace_commands.size() == sequence->dispatch_count &&
+           !sequence->trace_commands.empty() &&
+           sequence->trace_commands.back() < sequence->command_count &&
            sequence->control != nil &&
            sequence->warm.owns(sequence->residency, sequence->command_chunks) &&
            (sequence->direct_aggregate || sequence->guard_zero != nil) &&
@@ -34,9 +74,59 @@ ValidMetalSequence(const MetalSequence *const sequence) noexcept {
 
 [[nodiscard]] rund::AccelCheck
 EncodeMetalWarmSubmission(MetalAdapter &adapter, const MetalWarmSubmission warm,
-                          CommandRun &command) {
+                          const std::span<const std::uint64_t> trace_commands,
+                          CommandRun &command,
+                          MetalDispatchTrace *const trace) {
   if (warm.chunks == nullptr || warm.chunk_count == 0u) {
     return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
+  }
+  if (trace != nullptr &&
+      trace->sampling == MetalTraceSampling::StageBoundary) {
+    id<MTLCommandQueue> const queue =
+        (__bridge id<MTLCommandQueue>)adapter.queue.get();
+    command.buffer =
+        queue == nil ? nil : [queue commandBufferWithUnretainedReferences];
+    if (command.buffer == nil) {
+      return rund::AccelCheck{false, "accel_metal_command_unavailable"};
+    }
+    BeginMetalDispatchTrace((__bridge id<MTLDevice>)adapter.device.get(),
+                            *trace);
+    std::uint64_t global_command = 0u;
+    std::size_t trace_index = 0u;
+    for (NSUInteger chunk_index = 0u; chunk_index < warm.chunk_count;
+         ++chunk_index) {
+      const MetalIcbChunk &chunk = warm.chunks[chunk_index];
+      if (!chunk.valid() || (chunk_index == 0u && chunk.barrier_before())) {
+        trace->failed = true;
+        return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
+      }
+      for (NSUInteger index = 0u; index < chunk.command_count; ++index) {
+        const bool sampled = trace_index < trace_commands.size() &&
+                             trace_commands[trace_index] == global_command;
+        id<MTLComputeCommandEncoder> const encoder =
+            sampled ? OpenMetalTraceStageEncoder(command.buffer, *trace)
+                    : [command.buffer computeCommandEncoder];
+        if (encoder == nil) {
+          return rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
+        }
+        if (warm.resource_count != 0u) {
+          [encoder useResources:warm.resources
+                          count:warm.resource_count
+                          usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+        }
+        [encoder executeCommandsInBuffer:chunk.commands
+                               withRange:NSMakeRange(index, 1u)];
+        [encoder endEncoding];
+        if (sampled) {
+          ++trace_index;
+        }
+        ++global_command;
+      }
+    }
+    return trace_index == trace_commands.size() &&
+                   SealMetalDispatchTrace(command.buffer, *trace)
+               ? rund::AccelCheck{true, "ok"}
+               : rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
   }
   const rund::AccelCheck ready =
       OpenCommand<ResourceRefs::Borrowed>(adapter, command);
@@ -48,10 +138,24 @@ EncodeMetalWarmSubmission(MetalAdapter &adapter, const MetalWarmSubmission warm,
                             count:warm.resource_count
                             usage:MTLResourceUsageRead | MTLResourceUsageWrite];
   }
-  const rund::AccelCheck encoded = EncodeMetalPipelineIcbChunks(
-      command.encoder, warm.chunks, warm.chunk_count);
+  if (trace != nullptr) {
+    BeginMetalDispatchTrace((__bridge id<MTLDevice>)adapter.device.get(),
+                            *trace);
+  }
+  const rund::AccelCheck encoded =
+      trace == nullptr
+          ? EncodeMetalPipelineIcbChunks(command.encoder, warm.chunks,
+                                         warm.chunk_count)
+          : EncodeMetalPipelineIcbTrace(command.encoder, warm.chunks,
+                                        warm.chunk_count, trace_commands,
+                                        *trace);
   CloseCommand(command);
-  return encoded;
+  if (!encoded.ok || trace == nullptr) {
+    return encoded;
+  }
+  return SealMetalDispatchTrace(command.buffer, *trace)
+             ? encoded
+             : rund::AccelCheck{false, "compute_telemetry_trace_unavailable"};
 }
 
 [[nodiscard]] bool
@@ -122,9 +226,23 @@ void CompleteMetalSequence(void *const raw, KernelResult result) noexcept {
     return;
   }
   MetalSequence *const sequence = claim.owner;
+  if (sequence->trace_active) {
+    sequence->trace_active = false;
+    if (result.check.ok) {
+      result.check = FoldMetalDispatchTrace(
+          sequence->trace,
+          (__bridge id<MTLDevice>)sequence->adapter->device.get(),
+          result.stats);
+      if (result.check.ok) {
+        RecordMetalDispatchTrace(*sequence->adapter,
+                                 result.stats.run.time.accel_kernel_ns,
+                                 result.stats.run.time.accel_timestamp_count);
+      }
+    }
+  }
   result.pipeline.submitted = true;
   result.pipeline.control_command_count = sequence->control_command_count;
-  result.pipeline.control_ns = result.stats.command_submit_wait_ns;
+  result.pipeline.control_ns = result.stats.run.time.command_submit_wait_ns;
   if (result.check.ok && !ObserveMetalControl(*sequence, result.pipeline)) {
     result.check = rund::AccelCheck{false, "accel_metal_buffer_unavailable"};
   }
@@ -134,7 +252,8 @@ void CompleteMetalSequence(void *const raw, KernelResult result) noexcept {
   if (result.check.ok) {
     ProjectTelemetry(result.pipeline.control, result.stats);
   }
-  result.stats.dispatch_count = result.check.ok ? sequence->dispatch_count : 0u;
+  result.stats.run.work.dispatch_count =
+      result.check.ok ? sequence->dispatch_count : 0u;
   SetResetStats(result.stats, result.check.ok, sequence->reset_count,
                 sequence->reset_bytes);
   if (result.check.ok) {
@@ -168,10 +287,9 @@ SeedPreparedMetalPipelineGeneration(const std::shared_ptr<void> &prepared,
   }
 }
 
-rund::AccelCheck
-SubmitPreparedMetalPipeline(const std::shared_ptr<void> &prepared,
-                            const KernelCompletion completion_fn,
-                            void *const user) noexcept {
+rund::AccelCheck SubmitPreparedMetalPipeline(
+    const std::shared_ptr<void> &prepared, const KernelCompletion completion_fn,
+    void *const user, const KernelTiming timing) noexcept {
   @autoreleasepool {
     auto *const pipeline = static_cast<MetalSequence *>(prepared.get());
     if (!ValidMetalSequence(pipeline) || completion_fn == nullptr ||
@@ -179,24 +297,46 @@ SubmitPreparedMetalPipeline(const std::shared_ptr<void> &prepared,
       return rund::AccelCheck{false, "accel_kernel_run_invalid"};
     }
     if (EmptyMetalSequence(*pipeline)) {
-      completion_fn(user, KernelResult{.check = rund::AccelCheck{true, "ok"},
-                                       .stats = rund::RuntimeStats{
-                                           .ok = true, .reason = "ok"}});
+      completion_fn(user,
+                    KernelResult{.check = rund::AccelCheck{true, "ok"},
+                                 .stats = rund::RuntimeStats{
+                                     .outcome = {.ok = true, .reason = "ok"}}});
       return rund::AccelCheck{true, "ok"};
     }
     submission::State<MetalSequence> &state = pipeline->submission;
-    if (!submission::Begin(state, *pipeline, completion_fn, user)) {
-      return rund::AccelCheck{false, "compute_pipeline_busy"};
+    {
+      std::lock_guard lock{state.mutex};
+      if (state.active()) {
+        return rund::AccelCheck{false, "compute_pipeline_busy"};
+      }
+      if (timing == KernelTiming::Dispatch) {
+        const rund::AccelCheck traced =
+            EnsureMetalPipelineDispatchTrace(*pipeline);
+        if (!traced.ok) {
+          return traced;
+        }
+      }
+      state.owner = pipeline;
+      state.completion = completion_fn;
+      state.user = user;
     }
     CommandRun command{};
+    MetalDispatchTrace *const trace =
+        timing == KernelTiming::Dispatch ? &pipeline->trace : nullptr;
     const rund::AccelCheck ready =
-        EncodeMetalWarmSubmission(*pipeline->adapter, pipeline->warm, command);
+        EncodeMetalWarmSubmission(*pipeline->adapter, pipeline->warm,
+                                  pipeline->trace_commands, command, trace);
+    pipeline->trace_active = ready.ok && trace != nullptr;
     const rund::AccelCheck submitted =
-        ready.ok
-            ? QueueCommand(*pipeline->adapter, (__bridge void *)command.buffer,
-                           CompleteMetalSequence, &state)
-            : ready;
+        !ready.ok ? ready
+        : trace != nullptr
+            ? QueueMetalDispatchTrace(*pipeline->adapter, command.buffer,
+                                      *trace, CompleteMetalSequence, &state)
+            : QueueCommand(*pipeline->adapter, (__bridge void *)command.buffer,
+                           CompleteMetalSequence, &state,
+                           timing == KernelTiming::Submission);
     if (!submitted.ok) {
+      pipeline->trace_active = false;
       submission::Cancel(state);
     }
     return submitted;

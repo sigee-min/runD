@@ -401,16 +401,27 @@ the task mutex; handle retirement arbitrates exactly one blocking join. Both
 clocks may be in progress independently and neither is a projection of the
 other.
 
-Terminal Compute status and statistics cross the source-private synchronous
-telemetry projection by constant reference. The completion owner writes the
-durable `TaskState` result once; there is no intermediate by-value callback
-adapter or second statistics snapshot. The callback cannot retain either
-reference beyond the call. On the checked arm64/libc++ ABI,
-`compute::PipelineStats` is 184 bytes, `compute::Stats` is 632 bytes, and
-`compute::Status` is 24 bytes. The reference boundary carries
-two addresses and performs zero logical `Stats` or `Status` payload copies per
-completion. Event shape, callback ordering, and Basic/Detail selection are
-owned by [Telemetry](./telemetry.md).
+Terminal Compute publication uses one source-private transient handoff. A Job
+or Pipeline finish holds that owner's existing gate while it applies the
+terminal state, releases the coordinator-frame current gauge, and captures the
+terminal evidence. The owner gate is released only after that capture, so a
+concurrent submission cannot publish a later run between finish and evidence.
+The handoff is exclusive: without a telemetry sink it contains `Status` and
+`Stats`; with a sink it contains `Status` and one `Profile`, whose embedded
+`Stats` and `MemoryStats` are the sole evidence values for that arm. There is
+no simultaneous standalone Stats/Memory mirror.
+
+The sink-disabled arm performs no Profile or memory projection; in particular,
+Pipeline completion does not traverse steps or workspaces. Both arms allocate
+zero storage and take no global lock. Runtime `Complete` consumes the handoff
+without re-reading the reusable Job or Pipeline, writes the durable `TaskState`
+result once, and passes the handoff's status and Profile to telemetry by
+constant reference. The callback cannot retain either reference beyond the
+call. `runtime.compute-terminal` places a concurrent Job and Pipeline
+resubmission barrier between finish and `Complete` and proves that both the
+task result and emitted Profile retain the earlier terminal epoch. Event shape,
+callback ordering, and Basic/Detail/Trace selection are owned by
+[Telemetry](./telemetry.md).
 
 Compute task and CPU worker-batch reuse share one `SlotSet` implementation.
 The Compute-host mutex serializes object-vector growth; one atomic bitmap is

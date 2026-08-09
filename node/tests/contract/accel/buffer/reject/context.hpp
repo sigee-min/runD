@@ -41,9 +41,9 @@ RejectsContextForgery(const rund::AccelDevice &pick, const rund::Buffer &buffer,
       !CheckReason(rund::node::accel::UploadBuffer(null_context, buffer,
                                                    data.data(), sizeof(data)),
                    "accel_buffer_backend_unavailable") ||
-      rund::node::accel::ReadRuntimeStats(null_context).ok ||
+      rund::node::accel::ReadRuntimeStats(null_context).outcome.ok ||
       std::string_view{
-          rund::node::accel::ReadRuntimeStats(null_context).reason} !=
+          rund::node::accel::ReadRuntimeStats(null_context).outcome.reason} !=
           "accel_buffer_backend_unavailable") {
     return false;
   }
@@ -54,7 +54,7 @@ RejectsContextForgery(const rund::AccelDevice &pick, const rund::Buffer &buffer,
   return CheckReason(rund::node::accel::DownloadBuffer(
                          mixed_pick, buffer, data.data(), sizeof(data)),
                      "accel_buffer_backend_unavailable") &&
-         !rund::node::accel::ReadRuntimeStats(mixed_pick).ok;
+         !rund::node::accel::ReadRuntimeStats(mixed_pick).outcome.ok;
 }
 
 } // namespace node_accel_contract::buffer

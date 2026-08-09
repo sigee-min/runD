@@ -80,8 +80,9 @@ struct PipelineState final {
   // command stream and every route resource that views them.
   std::shared_ptr<void> templates{};
   PreparedPipelineStatusLayout status{};
+  mutable PreparedPipelineMemoryMeter memory{};
+  // Backend resources may view the memory meter and must die first.
   std::shared_ptr<void> backend{};
-  PreparedPipelineMemory memory{};
   PipelineSubmission submission{};
   EvidenceCounts counts{};
   std::size_t size{};

@@ -23,10 +23,6 @@ whose profile, identity, metric, or unit disagrees.
 
 - `tools/measure/scheduler/run`
 - `tools/measure/compute/run`
-- `tools/measure/compute/run --resident <cpu|metal|vulkan>`
-- `tools/measure/compute/run --sort <cpu|metal|vulkan>`
-- `tools/measure/compute/run --bulk <cpu|metal|vulkan>`
-- `tools/measure/compute/run --pipeline <metal|vulkan>`
 - `tools/measure/flow/run`
 - `tools/measure/graph/services/run`
 - `tools/measure/telemetry/run`
@@ -34,6 +30,9 @@ whose profile, identity, metric, or unit disagrees.
   perform the Release median admission.
 - `tools/measure/build/run [build [target]]`
 
-Measurement commands consume the installed Release SDK and never edit the
-baseline. A passing upper bound is regression evidence, not a speedup claim.
-See [Method](./method.md) for the complete acceptance and publication contract.
+These argument-free measurement commands consume the installed Release SDK and
+never edit the baseline. Compute options such as `--resident`, `--sort`,
+`--bulk`, and `--pipeline` build current-source diagnostics and cannot publish
+Release baseline evidence. A passing upper bound is regression evidence, not a
+speedup claim. See [Method](./method.md) for the complete acceptance and
+publication contract.

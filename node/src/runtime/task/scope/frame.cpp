@@ -102,7 +102,7 @@ Runtime::run_scope(const ::rund::replay::detail::scope::Plan &plan,
                    ::rund::replay::detail::scope::Timing *const outer_timing) {
   const bool detail_enabled =
       state_->telemetry &&
-      state_->telemetry.level() == ::rund::telemetry::Level::Detail;
+      state_->telemetry.level() != ::rund::telemetry::Level::Basic;
   std::optional<::rund::replay::detail::scope::Timing> local_timing{};
   if (outer_timing == nullptr) {
     local_timing.emplace(detail_enabled);
@@ -205,9 +205,8 @@ Runtime::TaskScopeFrame::TaskScopeFrame(
     : previous_(Scheduler::Active()), scheduler_(scheduler),
       lifetime_(std::move(lifetime)), control_(control) {
   if (scheduler_ == nullptr || lifetime_ == nullptr) {
-    code_ = scheduler_ == nullptr
-                ? ReasonCode::NodeRuntimeMissing
-                : ReasonCode::TaskInvalid;
+    code_ = scheduler_ == nullptr ? ReasonCode::NodeRuntimeMissing
+                                  : ReasonCode::TaskInvalid;
     return;
   }
   Scheduler::SetActive(static_cast<Scheduler *>(scheduler_));

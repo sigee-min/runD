@@ -51,11 +51,13 @@ template <typename T>
                                             .tile_count = input.size(),
                                             .fresh_evidence = true,
                                         });
-  if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
-      evidence.device_to_host_bytes != 0u) {
+  if (!evidence.outcome.ok ||
+      evidence.run.transfer.host_to_device_bytes != 0u ||
+      evidence.run.transfer.device_to_host_bytes != 0u) {
     std::cerr << "reduce execute failed op=" << static_cast<unsigned>(op)
-              << " block=" << block_size << " reason=" << evidence.reason
-              << " submits=" << evidence.command_submit_count << '\n';
+              << " block=" << block_size
+              << " reason=" << evidence.outcome.reason
+              << " submits=" << evidence.run.work.command_submit_count << '\n';
     return false;
   }
 

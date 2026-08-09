@@ -99,7 +99,8 @@ RunPreparedKernelBatch(const rund::AccelContext &context,
     ops = candidate;
     states[index] = state;
     prepared::Accumulate(counts, *state);
-    job_stats[index] = rund::RuntimeStats{.ok = true, .reason = "ok"};
+    job_stats[index] =
+        rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
     entries[index] = BackendBatchEntry{.run = &state->bound.run,
                                        .prepared = &state->backend,
                                        .stats = &job_stats[index]};
@@ -118,24 +119,26 @@ RunPreparedKernelBatch(const rund::AccelContext &context,
 
   start(user);
 
-  rund::RuntimeStats stats{.ok = true, .reason = "ok"};
+  rund::RuntimeStats stats{.outcome = {.ok = true, .reason = "ok"}};
   const rund::AccelCheck ran = ops->run_batch(
       std::span<const BackendBatchEntry>{entries.data(), runs.size()},
       std::span<rund::AccelCheck>{checks.data(), runs.size()}, workspace,
       stats);
   const rund::AccelCheck batch =
-      !stats.ok ? rund::AccelCheck{false, stats.reason} : ran;
+      !stats.outcome.ok ? rund::AccelCheck{false, stats.outcome.reason} : ran;
 
   for (std::size_t index = 0u; index < runs.size(); ++index) {
     const prepared::RunState &state = *states[index];
     const rund::AccelCheck check =
-        !stats.ok ? rund::AccelCheck{false, stats.reason} : checks[index];
+        !stats.outcome.ok ? rund::AccelCheck{false, stats.outcome.reason}
+                          : checks[index];
     rund::RuntimeStats &local = job_stats[index];
-    local.dispatch_count = check.ok ? state.dispatch.final_dispatch_count : 0u;
+    local.run.work.dispatch_count =
+        check.ok ? state.dispatch.final_dispatch_count : 0u;
     if (!check.ok) {
       SetResetStats(local, false, 0u, 0u);
     }
-    jobs[index] = EvidenceFromStats(
+    jobs[index] = BuildKernelEvidence(
         context, state.execution, local, state.dispatch.original_dispatch_count,
         state.dispatch.final_dispatch_count, check.ok, check.reason,
         state.roundtrip.internal_bytes, state.roundtrip.external_bytes,

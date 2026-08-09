@@ -14,9 +14,9 @@ enum class PipelineNestedPhaseSourceLanguage {
   Vulkan,
 };
 
-// Device sources receive named constants from the same checked host codec.
-// Source files retain backend-specific algorithms, but no longer assign their
-// own numeric meaning to None/Seed/Action/Fold or the Vulkan preflight bit.
+// Device sources receive named constants from the checked host codec. Source
+// files own backend algorithms while this emitter owns the shared numeric
+// meaning of None/Seed/Action/Fold and the Vulkan preflight bit.
 template <typename Sink>
 [[nodiscard]] bool EmitPipelineNestedPhaseContract(
     Sink &sink,

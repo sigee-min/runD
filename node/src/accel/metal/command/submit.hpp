@@ -10,9 +10,9 @@ namespace rund::node::accel::detail {
 [[nodiscard]] rund::AccelCheck WaitCommand(MetalAdapter &adapter,
                                            void *command_buffer,
                                            rund::RuntimeStats *stats = nullptr);
-[[nodiscard]] rund::AccelCheck QueueCommand(MetalAdapter &adapter,
-                                            void *command_buffer,
-                                            KernelCompletion completion,
-                                            void *user) noexcept;
+[[nodiscard]] rund::AccelCheck
+QueueCommand(MetalAdapter &adapter, void *command_buffer,
+             KernelCompletion completion, void *user,
+             bool collect_timestamp = true) noexcept;
 
 } // namespace rund::node::accel::detail
