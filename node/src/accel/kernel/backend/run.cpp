@@ -112,8 +112,16 @@ namespace {
     return true;
   }
   case rund::kernel::NodeKind::Stencil: {
-    StencilBinds bindings{};
-    if (!BuildStencilBinds(step, run_binds, bindings)) {
+    RangeBinds bindings{};
+    if (!BuildRangeBinds(step, run_binds, bindings)) {
+      return false;
+    }
+    out = std::move(bindings);
+    return true;
+  }
+  case rund::kernel::NodeKind::Window: {
+    RangeBinds bindings{};
+    if (!BuildRangeBinds(step, run_binds, bindings)) {
       return false;
     }
     out = std::move(bindings);

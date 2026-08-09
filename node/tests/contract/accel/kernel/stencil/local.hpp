@@ -127,7 +127,11 @@ PlanStencilSourceVariant(
       backend, SourcePlanWidthMask(physical_shape.width()),
       physical_shape.width(), shared_bytes == 0u ? 0u : kRangeSharedReserve,
       shared_bytes == 0u ? 0u : shared_bytes * kRangeSharedReserve,
-      std::numeric_limits<rund::kernel::u32>::max(), support);
+      std::numeric_limits<rund::kernel::u32>::max(),
+      backend == RangeSource::Vulkan
+          ? std::numeric_limits<rund::kernel::u32>::max()
+          : std::numeric_limits<rund::kernel::u64>::max(),
+      support);
   if (!capabilities.has_value()) {
     return RangePlan::rejected("compute_range_aggregate_capabilities_invalid");
   }

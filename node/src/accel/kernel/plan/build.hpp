@@ -75,6 +75,19 @@ BuildPrimitivePlan(const KernelExecution &, const KernelExecutionStep &step,
   return planned;
 }
 
+template <typename Active>
+[[nodiscard]] PlannedStep
+BuildRangePrimitivePlan(const KernelExecution &,
+                        const KernelExecutionStep &step, const rund::AccelRun &,
+                        std::uint64_t) {
+  const auto &active = step.operation.get<Active>();
+  PlannedStep planned{};
+  AdoptPlanStatus(planned, active.plan.ok && active.range.ok(),
+                  active.plan.ok ? active.range.reason() : active.plan.reason);
+  AdoptPassCount(planned, active.range.stage_count());
+  return planned;
+}
+
 inline constexpr GraphKindTable<PlanBuilder> kPlanBuilder{{
     nullptr,
     BuildMapPlan,
@@ -89,7 +102,7 @@ inline constexpr GraphKindTable<PlanBuilder> kPlanBuilder{{
     BuildPrimitivePlan<operation::Scatter>,
     BuildPrimitivePlan<operation::Partition>,
     BuildPrimitivePlan<operation::SegmentedScan>,
-    BuildPrimitivePlan<operation::Stencil>,
+    BuildRangePrimitivePlan<operation::Stencil>,
     BuildPrimitivePlan<operation::Histogram>,
     BuildPrimitivePlan<operation::SegmentedReduce>,
     BuildPrimitivePlan<operation::Transform>,
@@ -98,6 +111,7 @@ inline constexpr GraphKindTable<PlanBuilder> kPlanBuilder{{
     BuildPrimitivePlan<operation::Solve>,
     BuildPrimitivePlan<operation::Spectrum>,
     BuildPrimitivePlan<operation::ScatterReduce>,
+    BuildRangePrimitivePlan<operation::Window>,
 }};
 
 [[nodiscard]] inline PlanBuilder

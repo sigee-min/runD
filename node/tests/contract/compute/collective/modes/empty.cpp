@@ -181,7 +181,7 @@ template <class T>
         }
         continue;
       }
-      if (window || window.error() != "compute_stencil_count_zero") {
+      if (window || window.error() != "compute_window_count_zero") {
         std::fprintf(
             stderr,
             "compute modes exact empty window rejection mismatch "
@@ -193,6 +193,53 @@ template <class T>
       }
     }
     ++edge_index;
+  }
+
+  for (const Window operation : {Window::Sum, Window::Min, Window::Max}) {
+    auto pool_target = flow_on(backend, Target::cpu(2u));
+    auto pool = std::move(pool_target)
+                    .template input<T>(0u)
+                    .branch([=](auto values) {
+                      return values.pool(PoolSpec{.op = operation,
+                                                  .width = 1u,
+                                                  .stride = 1u,
+                                                  .edge = WindowEdge::Clip,
+                                                  .tail = PoolTail::Keep});
+                    })
+                    .compile();
+    if (operation == Window::Sum) {
+      if (!pool) {
+        std::fprintf(stderr,
+                     "compute modes empty pool compile backend=%u width=%zu "
+                     "reason=%.*s\n",
+                     static_cast<unsigned>(backend), sizeof(T),
+                     static_cast<int>(pool.error().size()),
+                     pool.error().data());
+        return false;
+      }
+      auto job = pool->resident(empty);
+      if (!job || !job->run()) {
+        std::fprintf(stderr,
+                     "compute modes empty pool run backend=%u width=%zu\n",
+                     static_cast<unsigned>(backend), sizeof(T));
+        return false;
+      }
+      auto output = job->read();
+      if (!output || !output->empty()) {
+        std::fprintf(stderr,
+                     "compute modes empty pool output backend=%u width=%zu\n",
+                     static_cast<unsigned>(backend), sizeof(T));
+        return false;
+      }
+    } else if (pool || pool.error() != "compute_window_count_zero") {
+      std::fprintf(stderr,
+                   "compute modes empty pool rejection backend=%u width=%zu "
+                   "operation=%u reason=%.*s\n",
+                   static_cast<unsigned>(backend), sizeof(T),
+                   static_cast<unsigned>(operation),
+                   static_cast<int>(pool.error().size()), pool.error().data());
+      return false;
+    }
   }
 
   std::array<T, 1u> input{Zero<T>()};

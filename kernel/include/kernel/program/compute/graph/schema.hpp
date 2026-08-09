@@ -125,6 +125,7 @@ enum class NodeKind : u8 {
   Solve = 19u,
   Spectrum = 20u,
   ScatterReduce = 21u,
+  Window = 22u,
 };
 
 [[nodiscard]] constexpr bool NodeKindValid(const NodeKind kind) noexcept {
@@ -136,7 +137,8 @@ enum class NodeKind : u8 {
          kind == NodeKind::Histogram || kind == NodeKind::SegmentedReduce ||
          kind == NodeKind::Transform || kind == NodeKind::Matrix ||
          kind == NodeKind::Factor || kind == NodeKind::Solve ||
-         kind == NodeKind::Spectrum || kind == NodeKind::ScatterReduce;
+         kind == NodeKind::Spectrum || kind == NodeKind::ScatterReduce ||
+         kind == NodeKind::Window;
 }
 
 enum class GraphValueKind : u8 {

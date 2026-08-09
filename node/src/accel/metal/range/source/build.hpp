@@ -18,34 +18,46 @@ namespace rund::node::accel::detail {
 }
 
 [[nodiscard]] inline const char *
-MetalRangeDirectUpdate(const RangeOp op) noexcept {
+MetalRangeIdentity(const RangeOp op, const std::string_view suffix) noexcept {
   if (op == RangeOp::Minimum) {
-    return "    value = min(value, min(input[left], input[right]));\n";
+    if (suffix == "u32") {
+      return "0xffffffffu";
+    }
+    if (suffix == "u64") {
+      return "0xfffffffffffffffful";
+    }
+    if (suffix == "i32") {
+      return "2147483647";
+    }
+    return "9223372036854775807l";
   }
-  if (op == RangeOp::Maximum) {
-    return "    value = max(value, max(input[left], input[right]));\n";
+  if (suffix == "i32") {
+    return "(-2147483647 - 1)";
   }
-  return "    value += input[left] + input[right];\n";
+  if (suffix == "i64") {
+    return "(-9223372036854775807l - 1l)";
+  }
+  return suffix == "u64" ? "0ul" : "0u";
 }
 
 [[nodiscard]] inline const char *
-MetalRangeSharedUpdate(const RangeOp op) noexcept {
+MetalRangeUpdate(const RangeOp op, const bool saturating) noexcept {
   if (op == RangeOp::Minimum) {
-    return "      value = min(value, min(tile[center - step], "
-           "tile[center + step]));\n";
+    return "      value = min(value, sample);\n";
   }
   if (op == RangeOp::Maximum) {
-    return "      value = max(value, max(tile[center - step], "
-           "tile[center + step]));\n";
+    return "      value = max(value, sample);\n";
   }
-  return "      value += tile[center - step] + tile[center + step];\n";
+  return saturating ? "      value = rund_range_add_sat(value, sample);\n"
+                    : "      value += sample;\n";
 }
 
 template <typename Sink>
-inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
-                                   const RangeGpuShape shape,
-                                   const char *const type,
-                                   const char *const suffix) {
+inline void
+AppendMetalRangeKernel(Sink &source, const RangeOp op,
+                       const RangeBoundary boundary, const bool saturating,
+                       const RangeGpuShape shape, const char *const type,
+                       const char *const suffix) {
   source += "kernel void rund_range_";
   source += MetalRangeOpName(op);
   source += "_";
@@ -73,17 +85,17 @@ inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
   source += "ul;\n";
   if (shape.uses_shared_halo()) {
     source +=
-        R"MSL(  const ulong active_lanes = group_base >= params.element_count
+        R"MSL(  const ulong active_lanes = group_base >= params.input_count
                                  ? 0ul
-                                 : min(params.element_count - group_base, )MSL";
+                                 : min(params.input_count - group_base, )MSL";
     (void)source.decimal(shape.width());
     source += R"MSL(ul);
   const ulong group_end = group_base + active_lanes;
-    const uint left_inputs = uint(min(group_base, params.radius));
-    const uint right_inputs = group_end >= params.element_count
+    const uint left_inputs = uint(min(group_base, params.padding));
+    const uint right_inputs = group_end >= params.input_count
                                   ? 0u
-                                  : uint(min(params.element_count - group_end,
-                                             params.radius));
+                                  : uint(min(params.input_count - group_end,
+                                             params.padding));
     if (ulong(tid) < active_lanes) {
       const )MSL";
     source += type;
@@ -92,14 +104,14 @@ inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
     (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + tid] = center_value;
       if (left_inputs == 0u && tid == 0u) {
-        for (uint slot = 0u; ulong(slot) < params.radius; ++slot) {
+        for (uint slot = 0u; ulong(slot) < params.padding; ++slot) {
           tile[)MSL";
     (void)source.decimal(shape.shared_radius_capacity());
-    source += R"MSL(u - uint(params.radius) + slot] = center_value;
+    source += R"MSL(u - uint(params.padding) + slot] = center_value;
         }
       }
       if (right_inputs == 0u && ulong(tid) + 1ul == active_lanes) {
-        for (uint slot = 0u; ulong(slot) < params.radius; ++slot) {
+        for (uint slot = 0u; ulong(slot) < params.padding; ++slot) {
           tile[)MSL";
     (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + uint(active_lanes) + slot] = center_value;
@@ -114,12 +126,12 @@ inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
       tile[)MSL";
     (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u - left_inputs + tid] = left_value;
-      if (tid == 0u && ulong(left_inputs) < params.radius) {
+      if (tid == 0u && ulong(left_inputs) < params.padding) {
         for (uint slot = 0u;
-             ulong(slot) < params.radius - ulong(left_inputs); ++slot) {
+             ulong(slot) < params.padding - ulong(left_inputs); ++slot) {
           tile[)MSL";
     (void)source.decimal(shape.shared_radius_capacity());
-    source += R"MSL(u - uint(params.radius) + slot] = left_value;
+    source += R"MSL(u - uint(params.padding) + slot] = left_value;
         }
       }
     }
@@ -130,8 +142,8 @@ inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
       tile[)MSL";
     (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + uint(active_lanes) + tid] = right_value;
-      if (tid + 1u == right_inputs && ulong(right_inputs) < params.radius) {
-        for (uint slot = right_inputs; ulong(slot) < params.radius; ++slot) {
+      if (tid + 1u == right_inputs && ulong(right_inputs) < params.padding) {
+        for (uint slot = right_inputs; ulong(slot) < params.padding; ++slot) {
           tile[)MSL";
     (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + uint(active_lanes) + slot] = right_value;
@@ -144,12 +156,16 @@ inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
     const uint center = )MSL";
     (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + tid;
+    const uint first = center - uint(params.padding);
     )MSL";
     source += type;
-    source += R"MSL( value = tile[center];
-    for (uint step = 1u; ulong(step) <= params.radius; ++step) {
+    source += R"MSL( value = tile[first];
+    for (ulong slot = 1ul; slot < params.window_size; ++slot) {
+      const )MSL";
+    source += type;
+    source += R"MSL( sample = tile[first + uint(slot)];
 )MSL";
-    source += MetalRangeSharedUpdate(op);
+    source += MetalRangeUpdate(op, saturating);
     source += R"MSL(    }
     output[i] = value;
   }
@@ -157,18 +173,67 @@ inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
     return;
   }
   source += R"MSL(  const ulong i = group_base + ulong(tid);
-  if (i >= params.element_count) { return; }
+  if (i >= params.output_count) { return; }
+  const ulong anchor = i * params.stride;
   )MSL";
   source += type;
-  source += R"MSL( value = input[i];
-  for (ulong step = 1ul; step <= params.radius; ++step) {
-    const ulong left = i < step ? 0ul : i - step;
-    const ulong right =
-        i + step >= params.element_count ? params.element_count - 1ul
-                                         : i + step;
+  source += R"MSL( value = )MSL";
+  source += type;
+  source += R"MSL((0);
+  bool seeded = false;
+  for (ulong slot = 0ul; slot < params.window_size; ++slot) {
+    ulong input_index = 0ul;
+    bool valid = true;
+    if (slot < params.padding) {
+      const ulong delta = params.padding - slot;
+      if (anchor < delta) {
 )MSL";
-  source += MetalRangeDirectUpdate(op);
-  source += R"MSL(  }
+  if (boundary == RangeBoundary::Clamp) {
+    source += "        input_index = 0ul;\n";
+  } else {
+    source += "        valid = false;\n";
+  }
+  source += R"MSL(      } else {
+        input_index = anchor - delta;
+)MSL";
+  if (boundary == RangeBoundary::Clamp) {
+    source += R"MSL(        if (input_index >= params.input_count) {
+          input_index = params.input_count - 1ul;
+        }
+)MSL";
+  } else {
+    source += R"MSL(        if (input_index >= params.input_count) {
+          valid = false;
+        }
+)MSL";
+  }
+  source += R"MSL(      }
+    } else {
+      const ulong delta = slot - params.padding;
+      if (anchor >= params.input_count ||
+          delta >= params.input_count - anchor) {
+)MSL";
+  if (boundary == RangeBoundary::Clamp) {
+    source += "        input_index = params.input_count - 1ul;\n";
+  } else {
+    source += "        valid = false;\n";
+  }
+  source += R"MSL(      } else {
+        input_index = anchor + delta;
+      }
+    }
+    if (!valid) { continue; }
+    const )MSL";
+  source += type;
+  source += R"MSL( sample = input[input_index];
+    if (!seeded) {
+      value = sample;
+      seeded = true;
+    } else {
+)MSL";
+  source += MetalRangeUpdate(op, saturating);
+  source += R"MSL(    }
+  }
   output[i] = value;
 }
 )MSL";
@@ -181,6 +246,7 @@ MetalRangeStageValue(const RangeStageKind stage) noexcept {
 
 template <typename Sink>
 inline void AppendMetalPrefixDifferenceKernel(Sink &source,
+                                              const RangeBoundary boundary,
                                               const RangeGpuShape shape,
                                               const char *const type,
                                               const char *const suffix) {
@@ -276,22 +342,39 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
     return;
   }
   const ulong i = group_base + ulong(tid);
-  if (i >= params.element_count) { return; }
-  const ulong left = i < params.radius ? 0ul : i - params.radius;
-  const ulong right = min(params.element_count - 1ul, i + params.radius);
+  if (i >= params.output_count) { return; }
+  const ulong anchor = i * params.stride;
+  const ulong left = anchor < params.padding ? 0ul : anchor - params.padding;
+  const ulong right_width = params.window_size - params.padding;
+  const ulong right =
+      anchor >= params.input_count
+          ? params.input_count - 1ul
+          : (right_width >= params.input_count - anchor
+                 ? params.input_count - 1ul
+                 : anchor + right_width - 1ul);
   )MSL";
   source += type;
   source += R"MSL( value = scratch0[right];
   if (left != 0ul) { value -= scratch0[left - 1ul]; }
-  if (i < params.radius) { value += )MSL";
-  source += type;
-  source += R"MSL((params.radius - i) * input[0]; }
-  if (i + params.radius >= params.element_count) {
-    value += )MSL";
-  source += type;
-  source += R"MSL((i + params.radius - (params.element_count - 1ul)) *
-             input[params.element_count - 1ul];
+  )MSL";
+  if (boundary == RangeBoundary::Clamp) {
+    source += R"MSL(  const ulong left_missing =
+      anchor < params.padding ? params.padding - anchor : 0ul;
+  const ulong right_missing =
+      anchor >= params.input_count
+          ? anchor - params.input_count + right_width
+          : (right_width > params.input_count - anchor
+                 ? right_width - (params.input_count - anchor)
+                 : 0ul);
+  if (left_missing != 0ul) { value += )MSL";
+    source += type;
+    source += R"MSL((left_missing * input[0]); }
+  if (right_missing != 0ul) { value += )MSL";
+    source += type;
+    source += R"MSL((right_missing * input[params.input_count - 1ul]); }
+)MSL";
   }
+  source += R"MSL(
   output[i] = value;
 }
 )MSL";
@@ -299,9 +382,11 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
 
 template <typename Sink>
 inline void AppendMetalBlockPrefixSuffixKernel(Sink &source, const RangeOp op,
+                                               const RangeBoundary boundary,
                                                const RangeGpuShape shape,
                                                const char *const type,
-                                               const char *const suffix) {
+                                               const char *const suffix,
+                                               const char *const identity) {
   source += "kernel void rund_range_";
   source += MetalRangeOpName(op);
   source += "_";
@@ -329,17 +414,22 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source, const RangeOp op,
   (void)source.decimal(MetalRangeStageValue(RangeStageKind::BlockPrefixSuffix));
   source += R"MSL(u) {
     if (base >= params.stage_aux_count) { return; }
-    const ulong window = params.radius * 2ul + 1ul;
+    const ulong window = params.window_size;
     const ulong begin = base * window;
     const ulong end = min(begin + window, params.stage_element_count);
     for (ulong index = begin; index < end; ++index) {
       const )MSL";
   source += type;
-  source += R"MSL( value = index < params.radius
-          ? input[0]
-          : (index - params.radius < params.element_count
-                 ? input[index - params.radius]
-                 : input[params.element_count - 1ul]);
+  source += R"MSL( value = index < params.padding
+          ? )MSL";
+  source += boundary == RangeBoundary::Clamp ? "input[0]" : identity;
+  source += R"MSL(
+          : (index - params.padding < params.input_count
+                 ? input[index - params.padding]
+                 : )MSL";
+  source += boundary == RangeBoundary::Clamp ? "input[params.input_count - 1ul]"
+                                             : identity;
+  source += R"MSL();
       if (index == begin) { forward_values[index] = value; }
       else { forward_values[index] = )MSL";
   source += op == RangeOp::Minimum ? "min" : "max";
@@ -349,11 +439,16 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source, const RangeOp op,
       const ulong index = cursor - 1ul;
       const )MSL";
   source += type;
-  source += R"MSL( value = index < params.radius
-          ? input[0]
-          : (index - params.radius < params.element_count
-                 ? input[index - params.radius]
-                 : input[params.element_count - 1ul]);
+  source += R"MSL( value = index < params.padding
+          ? )MSL";
+  source += boundary == RangeBoundary::Clamp ? "input[0]" : identity;
+  source += R"MSL(
+          : (index - params.padding < params.input_count
+                 ? input[index - params.padding]
+                 : )MSL";
+  source += boundary == RangeBoundary::Clamp ? "input[params.input_count - 1ul]"
+                                             : identity;
+  source += R"MSL();
       if (index + 1ul == end) { backward_values[index] = value; }
       else { backward_values[index] = )MSL";
   source += op == RangeOp::Minimum ? "min" : "max";
@@ -363,11 +458,12 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source, const RangeOp op,
     return;
   }
   const ulong i = base;
-  if (i >= params.element_count) { return; }
-  const ulong right = i + params.radius * 2ul;
+  if (i >= params.output_count) { return; }
+  const ulong left = i * params.stride;
+  const ulong right = left + params.window_size - 1ul;
   output[i] = )MSL";
   source += op == RangeOp::Minimum ? "min" : "max";
-  source += R"MSL((backward_values[i], forward_values[right]);
+  source += R"MSL((backward_values[left], forward_values[right]);
 }
 )MSL";
 }
@@ -385,8 +481,11 @@ EmitMetalRangeSource(Sink &sink, const RangeExec &execution) noexcept(
 using namespace metal;
 
 struct RangeParams {
-  ulong element_count;
-  ulong radius;
+  ulong input_count;
+  ulong output_count;
+  ulong window_size;
+  ulong stride;
+  ulong padding;
   ulong stage_element_count;
   ulong stage_aux_count;
   uint stage;
@@ -394,29 +493,63 @@ struct RangeParams {
 };
 
 )MSL";
+  if (execution.saturating_sum()) {
+    source +=
+        R"MSL(inline int rund_range_add_sat(const int left, const int right) {
+  if (right > 0 && left > 2147483647 - right) { return 2147483647; }
+  if (right < 0 && left < (-2147483647 - 1) - right) {
+    return (-2147483647 - 1);
+  }
+  return left + right;
+}
+
+inline long rund_range_add_sat(const long left, const long right) {
+  if (right > 0l && left > 9223372036854775807l - right) {
+    return 9223372036854775807l;
+  }
+  if (right < 0l && left < (-9223372036854775807l - 1l) - right) {
+    return (-9223372036854775807l - 1l);
+  }
+  return left + right;
+}
+
+)MSL";
+  }
   if (candidate == RangePath::PrefixDifference) {
     if (op != RangeOp::Sum) {
       return false;
     }
-    AppendMetalPrefixDifferenceKernel(source, shape, "uint", "u32");
-    AppendMetalPrefixDifferenceKernel(source, shape, "ulong", "u64");
-    AppendMetalPrefixDifferenceKernel(source, shape, "uint", "i32");
-    AppendMetalPrefixDifferenceKernel(source, shape, "ulong", "i64");
+    const RangeBoundary boundary = execution.plan().shape().boundary();
+    AppendMetalPrefixDifferenceKernel(source, boundary, shape, "uint", "u32");
+    AppendMetalPrefixDifferenceKernel(source, boundary, shape, "ulong", "u64");
+    AppendMetalPrefixDifferenceKernel(source, boundary, shape, "uint", "i32");
+    AppendMetalPrefixDifferenceKernel(source, boundary, shape, "ulong", "i64");
   } else if (candidate == RangePath::BlockPrefixSuffix) {
     if (op == RangeOp::Sum) {
       return false;
     }
-    AppendMetalBlockPrefixSuffixKernel(source, op, shape, "uint", "u32");
-    AppendMetalBlockPrefixSuffixKernel(source, op, shape, "ulong", "u64");
-    AppendMetalBlockPrefixSuffixKernel(source, op, shape, "int", "i32");
-    AppendMetalBlockPrefixSuffixKernel(source, op, shape, "long", "i64");
+    const RangeBoundary boundary = execution.plan().shape().boundary();
+    AppendMetalBlockPrefixSuffixKernel(source, op, boundary, shape, "uint",
+                                       "u32", MetalRangeIdentity(op, "u32"));
+    AppendMetalBlockPrefixSuffixKernel(source, op, boundary, shape, "ulong",
+                                       "u64", MetalRangeIdentity(op, "u64"));
+    AppendMetalBlockPrefixSuffixKernel(source, op, boundary, shape, "int",
+                                       "i32", MetalRangeIdentity(op, "i32"));
+    AppendMetalBlockPrefixSuffixKernel(source, op, boundary, shape, "long",
+                                       "i64", MetalRangeIdentity(op, "i64"));
   } else {
-    AppendMetalRangeKernel(source, op, shape, "uint", "u32");
-    AppendMetalRangeKernel(source, op, shape, "ulong", "u64");
-    AppendMetalRangeKernel(source, op, shape,
-                           op == RangeOp::Sum ? "uint" : "int", "i32");
-    AppendMetalRangeKernel(source, op, shape,
-                           op == RangeOp::Sum ? "ulong" : "long", "i64");
+    const RangeBoundary boundary = execution.plan().shape().boundary();
+    const bool saturating = execution.saturating_sum();
+    AppendMetalRangeKernel(source, op, boundary, saturating, shape,
+                           saturating ? "int" : "uint", "u32");
+    AppendMetalRangeKernel(source, op, boundary, saturating, shape,
+                           saturating ? "long" : "ulong", "u64");
+    AppendMetalRangeKernel(source, op, boundary, saturating, shape,
+                           op == RangeOp::Sum && !saturating ? "uint" : "int",
+                           "i32");
+    AppendMetalRangeKernel(source, op, boundary, saturating, shape,
+                           op == RangeOp::Sum && !saturating ? "ulong" : "long",
+                           "i64");
   }
   return source.valid();
 }

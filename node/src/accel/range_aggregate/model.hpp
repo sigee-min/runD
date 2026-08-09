@@ -24,6 +24,7 @@ enum class RangeOp : std::uint8_t {
 
 enum class RangeBoundary : std::uint8_t {
   Clamp,
+  Clip,
 };
 
 enum class RangeLaw : std::uint8_t {
@@ -60,6 +61,7 @@ enum class RangePlanKind : std::uint8_t {
 enum class RangeStageKind : std::uint8_t {
   Direct,
   SharedHalo,
+  PrefixSequential,
   PrefixBlock,
   PrefixSummary,
   PrefixFixup,
@@ -100,6 +102,7 @@ inline constexpr std::uint8_t kRangeKnownWidthMask =
     kRangeWidth64Bit | kRangeWidth128Bit | kRangeWidth256Bit;
 inline constexpr std::array<rund::kernel::u32, 3u> kRangeWidths{64u, 128u,
                                                                 256u};
+inline constexpr rund::kernel::u32 kRangeCpuBlockWidth = 64u;
 // This is an integer shared-memory reserve policy, not a claim about physical
 // resident workgroups.  Backends feed the actual per-workgroup limit into the
 // capability value and the planner requires q * declared shared bytes to fit.
@@ -121,7 +124,7 @@ public:
   make(const RangeOp operation, const rund::kernel::ComputeDomain domain,
        const RangeLaw arithmetic_law) noexcept {
     return KnownOperation(operation) && KnownDomain(domain) &&
-                   CompatibleArithmeticLaw(operation, arithmetic_law)
+                   CompatibleArithmeticLaw(operation, domain, arithmetic_law)
                ? std::optional<RangeTraits>{RangeTraits{operation, domain,
                                                         arithmetic_law}}
                : std::nullopt;
@@ -195,7 +198,7 @@ public:
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     return KnownOperation(operation_) && KnownDomain(domain_) &&
-           CompatibleArithmeticLaw(operation_, arithmetic_law_);
+           CompatibleArithmeticLaw(operation_, domain_, arithmetic_law_);
   }
 
 private:
@@ -216,10 +219,14 @@ private:
 
   [[nodiscard]] static constexpr bool
   CompatibleArithmeticLaw(const RangeOp operation,
+                          const rund::kernel::ComputeDomain domain,
                           const RangeLaw arithmetic_law) noexcept {
     if (operation == RangeOp::Sum) {
       return arithmetic_law == RangeLaw::ModuloWidth ||
-             arithmetic_law == RangeLaw::Saturating;
+             (arithmetic_law == RangeLaw::Saturating &&
+              (domain == rund::kernel::ComputeDomain::I32 ||
+               domain == rund::kernel::ComputeDomain::I64 ||
+               domain == rund::kernel::ComputeDomain::Fixed));
     }
     return (operation == RangeOp::Minimum || operation == RangeOp::Maximum) &&
            arithmetic_law == RangeLaw::OrderOnly;
@@ -240,19 +247,52 @@ class RangeShape final {
 public:
   RangeShape() = delete;
 
+  // Output q aggregates K logical positions beginning at q*S-P. Clamp
+  // repeats an endpoint outside [0,N); Clip excludes those positions. P<K
+  // makes the first window intersect the input; the checked last-start test
+  // below makes every intervening window intersect as well.
+  [[nodiscard]] static constexpr std::optional<RangeShape>
+  affine(const RangeTraits traits, const RangeBoundary boundary,
+         const rund::kernel::u64 input_count,
+         const rund::kernel::u64 output_count,
+         const rund::kernel::u64 window_size, const rund::kernel::u64 stride,
+         const rund::kernel::u64 padding,
+         const rund::kernel::u32 element_bytes) noexcept {
+    const rund::kernel::u128 last_anchor =
+        static_cast<rund::kernel::u128>(
+            output_count == 0u ? 0u : output_count - 1u) *
+        stride;
+    if (!traits.valid() || !KnownBoundary(boundary) || input_count == 0u ||
+        output_count == 0u || window_size == 0u || stride == 0u ||
+        padding >= window_size ||
+        last_anchor > std::numeric_limits<rund::kernel::u64>::max() ||
+        last_anchor >= static_cast<rund::kernel::u128>(input_count) + padding ||
+        (element_bytes != 4u && element_bytes != 8u) ||
+        !DomainWidthMatches(traits.domain(), element_bytes) ||
+        input_count >
+            std::numeric_limits<rund::kernel::u64>::max() / element_bytes ||
+        output_count >
+            std::numeric_limits<rund::kernel::u64>::max() / element_bytes) {
+      return std::nullopt;
+    }
+    return RangeShape{traits,      boundary, input_count, output_count,
+                      window_size, stride,   padding,     element_bytes};
+  }
+
   [[nodiscard]] static constexpr std::optional<RangeShape>
   window(const RangeTraits traits, const RangeBoundary boundary,
          const rund::kernel::u64 element_count, const rund::kernel::u64 radius,
          const rund::kernel::u32 element_bytes) noexcept {
-    if (!traits.valid() || boundary != RangeBoundary::Clamp ||
-        element_count == 0u || radius == 0u || radius > element_count ||
-        (element_bytes != 4u && element_bytes != 8u) ||
-        !DomainWidthMatches(traits.domain(), element_bytes) ||
-        element_count >
-            std::numeric_limits<rund::kernel::u64>::max() / element_bytes) {
+    rund::kernel::u64 twice_radius = 0u;
+    rund::kernel::u64 window_size = 0u;
+    if (boundary != RangeBoundary::Clamp || radius == 0u ||
+        radius > element_count ||
+        !rund::kernel::checked::mul(radius, 2u, twice_radius) ||
+        !rund::kernel::checked::add(twice_radius, 1u, window_size)) {
       return std::nullopt;
     }
-    return RangeShape{traits, boundary, element_count, radius, element_bytes};
+    return affine(traits, boundary, element_count, element_count, window_size,
+                  1u, radius, element_bytes);
   }
 
   [[nodiscard]] constexpr const RangeTraits &traits() const noexcept {
@@ -264,11 +304,51 @@ public:
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 element_count() const noexcept {
-    return element_count_;
+    return input_count_;
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 radius() const noexcept {
-    return radius_;
+    return padding_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 input_count() const noexcept {
+    return input_count_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 output_count() const noexcept {
+    return output_count_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 window_size() const noexcept {
+    return window_size_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 stride() const noexcept {
+    return stride_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 padding() const noexcept {
+    return padding_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 right_extent() const noexcept {
+    return window_size_ - padding_ - 1u;
+  }
+
+  [[nodiscard]] constexpr std::optional<rund::kernel::u64>
+  affine_span() const noexcept {
+    rund::kernel::u64 last_anchor = 0u;
+    rund::kernel::u64 span = 0u;
+    return rund::kernel::checked::mul(output_count_ - 1u, stride_,
+                                      last_anchor) &&
+                   rund::kernel::checked::add(last_anchor, window_size_, span)
+               ? std::optional<rund::kernel::u64>{span}
+               : std::nullopt;
+  }
+
+  [[nodiscard]] constexpr bool centered_clamp() const noexcept {
+    return boundary_ == RangeBoundary::Clamp && input_count_ == output_count_ &&
+           stride_ == 1u && right_extent() == padding_;
   }
 
   [[nodiscard]] constexpr rund::kernel::u32 element_bytes() const noexcept {
@@ -276,19 +356,25 @@ public:
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 payload_bytes() const noexcept {
-    return element_count_ * element_bytes_;
+    return input_count_ * element_bytes_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 output_bytes() const noexcept {
+    return output_count_ * element_bytes_;
   }
 
   [[nodiscard]] constexpr bool valid() const noexcept {
-    return traits_.valid() && boundary_ == RangeBoundary::Clamp &&
-           element_count_ != 0u && radius_ != 0u && radius_ <= element_count_ &&
-           (element_bytes_ == 4u || element_bytes_ == 8u) &&
-           DomainWidthMatches(traits_.domain(), element_bytes_) &&
-           element_count_ <=
-               std::numeric_limits<rund::kernel::u64>::max() / element_bytes_;
+    return affine(traits_, boundary_, input_count_, output_count_, window_size_,
+                  stride_, padding_, element_bytes_)
+        .has_value();
   }
 
 private:
+  [[nodiscard]] static constexpr bool
+  KnownBoundary(const RangeBoundary boundary) noexcept {
+    return boundary == RangeBoundary::Clamp || boundary == RangeBoundary::Clip;
+  }
+
   [[nodiscard]] static constexpr bool
   DomainWidthMatches(const rund::kernel::ComputeDomain domain,
                      const rund::kernel::u32 element_bytes) noexcept {
@@ -304,17 +390,24 @@ private:
   }
 
   constexpr RangeShape(const RangeTraits traits, const RangeBoundary boundary,
-                       const rund::kernel::u64 element_count,
-                       const rund::kernel::u64 radius,
+                       const rund::kernel::u64 input_count,
+                       const rund::kernel::u64 output_count,
+                       const rund::kernel::u64 window_size,
+                       const rund::kernel::u64 stride,
+                       const rund::kernel::u64 padding,
                        const rund::kernel::u32 element_bytes) noexcept
-      : traits_(traits), boundary_(boundary), element_count_(element_count),
-        radius_(radius), element_bytes_(element_bytes) {}
+      : traits_(traits), boundary_(boundary), element_bytes_(element_bytes),
+        input_count_(input_count), output_count_(output_count),
+        window_size_(window_size), stride_(stride), padding_(padding) {}
 
   RangeTraits traits_;
   RangeBoundary boundary_;
-  rund::kernel::u64 element_count_;
-  rund::kernel::u64 radius_;
   rund::kernel::u32 element_bytes_;
+  rund::kernel::u64 input_count_;
+  rund::kernel::u64 output_count_;
+  rund::kernel::u64 window_size_;
+  rund::kernel::u64 stride_;
+  rund::kernel::u64 padding_;
 };
 
 class RangeCaps final {
@@ -324,6 +417,8 @@ public:
   [[nodiscard]] static constexpr RangeCaps unavailable() noexcept {
     return RangeCaps{RangeCapsKind::Unavailable,
                      RangeSource::Unavailable,
+                     0u,
+                     0u,
                      0u,
                      0u,
                      0u,
@@ -340,6 +435,23 @@ public:
                      0u,
                      0u,
                      0u,
+                     std::numeric_limits<rund::kernel::u64>::max(),
+                     std::numeric_limits<rund::kernel::u64>::max(),
+                     RangeSupportBit(RangeSupport::Direct) |
+                         RangeSupportBit(RangeSupport::PrefixDifference) |
+                         RangeSupportBit(RangeSupport::BlockPrefixSuffix)};
+  }
+
+  [[nodiscard]] static constexpr RangeCaps cpu_reference() noexcept {
+    return RangeCaps{RangeCapsKind::Cpu,
+                     RangeSource::Cpu,
+                     0u,
+                     0u,
+                     0u,
+                     0u,
+                     0u,
+                     std::numeric_limits<rund::kernel::u64>::max(),
+                     std::numeric_limits<rund::kernel::u64>::max(),
                      RangeSupportBit(RangeSupport::Direct)};
   }
 
@@ -349,6 +461,23 @@ public:
       const rund::kernel::u32 shared_memory_occupancy_budget,
       const rund::kernel::u64 shared_memory_limit,
       const rund::kernel::u64 maximum_group_count,
+      const rund::kernel::u64 maximum_storage_element_count,
+      const std::uint8_t supported_candidates) noexcept {
+    return gpu(source_variant, legal_width_mask, maximum_threads_per_workgroup,
+               shared_memory_occupancy_budget, shared_memory_limit,
+               maximum_group_count, maximum_storage_element_count,
+               std::numeric_limits<rund::kernel::u64>::max(),
+               supported_candidates);
+  }
+
+  [[nodiscard]] static constexpr std::optional<RangeCaps>
+  gpu(const RangeSource source_variant, const std::uint8_t legal_width_mask,
+      const rund::kernel::u32 maximum_threads_per_workgroup,
+      const rund::kernel::u32 shared_memory_occupancy_budget,
+      const rund::kernel::u64 shared_memory_limit,
+      const rund::kernel::u64 maximum_group_count,
+      const rund::kernel::u64 maximum_storage_element_count,
+      const rund::kernel::u64 maximum_storage_binding_bytes,
       const std::uint8_t supported_candidates) noexcept {
     const RangeCaps capabilities{RangeCapsKind::Gpu,
                                  source_variant,
@@ -357,6 +486,8 @@ public:
                                  shared_memory_occupancy_budget,
                                  shared_memory_limit,
                                  maximum_group_count,
+                                 maximum_storage_element_count,
+                                 maximum_storage_binding_bytes,
                                  supported_candidates};
     return capabilities.valid() ? std::optional<RangeCaps>{capabilities}
                                 : std::nullopt;
@@ -393,7 +524,15 @@ public:
     return disposition_ == RangeCapsKind::Cpu &&
            source_variant_ == RangeSource::Cpu && legal_width_mask_ == 0u &&
            maximum_threads_per_workgroup_ == 0u && maximum_group_count_ == 0u &&
-           supported_candidates_ == RangeSupportBit(RangeSupport::Direct);
+           maximum_storage_element_count_ ==
+               std::numeric_limits<rund::kernel::u64>::max() &&
+           maximum_storage_binding_bytes_ ==
+               std::numeric_limits<rund::kernel::u64>::max() &&
+           (supported_candidates_ == RangeSupportBit(RangeSupport::Direct) ||
+            supported_candidates_ ==
+                (RangeSupportBit(RangeSupport::Direct) |
+                 RangeSupportBit(RangeSupport::PrefixDifference) |
+                 RangeSupportBit(RangeSupport::BlockPrefixSuffix)));
   }
 
   [[nodiscard]] constexpr std::uint8_t legal_width_mask() const noexcept {
@@ -420,6 +559,16 @@ public:
     return maximum_group_count_;
   }
 
+  [[nodiscard]] constexpr rund::kernel::u64
+  maximum_storage_element_count() const noexcept {
+    return maximum_storage_element_count_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64
+  maximum_storage_binding_bytes() const noexcept {
+    return maximum_storage_binding_bytes_;
+  }
+
   [[nodiscard]] constexpr std::uint8_t supported_candidates() const noexcept {
     return supported_candidates_;
   }
@@ -433,11 +582,16 @@ public:
     }
     const bool gpu_variant = source_variant_ == RangeSource::Metal ||
                              source_variant_ == RangeSource::Vulkan;
+    const bool source_index_limit =
+        source_variant_ != RangeSource::Vulkan ||
+        maximum_storage_element_count_ <=
+            std::numeric_limits<rund::kernel::u32>::max();
     return disposition_ == RangeCapsKind::Gpu && gpu_variant &&
-           legal_width_mask_ != 0u &&
+           source_index_limit && legal_width_mask_ != 0u &&
            (legal_width_mask_ & ~kRangeKnownWidthMask) == 0u &&
            maximum_threads_per_workgroup_ >= 64u &&
-           maximum_group_count_ != 0u &&
+           maximum_group_count_ != 0u && maximum_storage_element_count_ != 0u &&
+           maximum_storage_binding_bytes_ != 0u &&
            (supported_candidates_ & RangeSupportBit(RangeSupport::Direct)) !=
                0u &&
            (supported_candidates_ & ~kRangeKnownSupportMask) == 0u;
@@ -451,6 +605,8 @@ private:
                       const rund::kernel::u32 shared_memory_occupancy_budget,
                       const rund::kernel::u64 shared_memory_limit,
                       const rund::kernel::u64 maximum_group_count,
+                      const rund::kernel::u64 maximum_storage_element_count,
+                      const rund::kernel::u64 maximum_storage_binding_bytes,
                       const std::uint8_t supported_candidates) noexcept
       : disposition_(disposition), source_variant_(source_variant),
         legal_width_mask_(legal_width_mask),
@@ -458,6 +614,8 @@ private:
         shared_memory_occupancy_budget_(shared_memory_occupancy_budget),
         shared_memory_limit_(shared_memory_limit),
         maximum_group_count_(maximum_group_count),
+        maximum_storage_element_count_(maximum_storage_element_count),
+        maximum_storage_binding_bytes_(maximum_storage_binding_bytes),
         supported_candidates_(supported_candidates) {}
 
   RangeCapsKind disposition_;
@@ -467,6 +625,8 @@ private:
   rund::kernel::u32 shared_memory_occupancy_budget_;
   rund::kernel::u64 shared_memory_limit_;
   rund::kernel::u64 maximum_group_count_;
+  rund::kernel::u64 maximum_storage_element_count_;
+  rund::kernel::u64 maximum_storage_binding_bytes_;
   std::uint8_t supported_candidates_;
 };
 
@@ -904,6 +1064,10 @@ public:
     return selection().candidate;
   }
 
+  [[nodiscard]] constexpr RangeSource source_variant() const noexcept {
+    return selection().source_variant;
+  }
+
   [[nodiscard]] constexpr const RangeCost &cost() const noexcept {
     return selection().cost;
   }
@@ -920,11 +1084,11 @@ public:
     if (disposition == RangePath::Direct) {
       return RangeStagePlan{.disposition = RangeStageKind::Direct,
                             .level = 0u,
-                            .element_count = selected.shape.element_count(),
+                            .element_count = selected.shape.output_count(),
                             .groups =
                                 selected.candidate.width() == 0u
                                     ? 1u
-                                    : Groups(selected.shape.element_count(),
+                                    : Groups(selected.shape.output_count(),
                                              selected.candidate.width()),
                             .width = selected.candidate.width()};
     }
@@ -937,10 +1101,30 @@ public:
                             .width = selected.candidate.width()};
     }
     if (disposition == RangePath::BlockPrefixSuffix) {
+      if (selected.source_variant == RangeSource::Cpu) {
+        const std::optional<rund::kernel::u64> span =
+            selected.shape.affine_span();
+        assert(span.has_value());
+        return index == 0u
+                   ? RangeStagePlan{.disposition =
+                                        RangeStageKind::BlockPrefixSuffix,
+                                    .level = 0u,
+                                    .element_count = *span,
+                                    .groups = 1u,
+                                    .width = 0u}
+                   : RangeStagePlan{.disposition = RangeStageKind::BlockWindow,
+                                    .level = 0u,
+                                    .element_count =
+                                        selected.shape.output_count(),
+                                    .groups = 1u,
+                                    .width = 0u};
+      }
       if (index == 0u) {
-        const rund::kernel::u64 padded =
-            selected.shape.element_count() + 2u * selected.shape.radius();
-        const rund::kernel::u64 window = 2u * selected.shape.radius() + 1u;
+        const std::optional<rund::kernel::u64> span =
+            selected.shape.affine_span();
+        assert(span.has_value());
+        const rund::kernel::u64 padded = *span;
+        const rund::kernel::u64 window = selected.shape.window_size();
         const rund::kernel::u64 blocks = Groups(padded, window);
         return RangeStagePlan{.disposition = RangeStageKind::BlockPrefixSuffix,
                               .level = 0u,
@@ -951,12 +1135,27 @@ public:
       }
       return RangeStagePlan{.disposition = RangeStageKind::BlockWindow,
                             .level = 0u,
-                            .element_count = selected.shape.element_count(),
-                            .groups = Groups(selected.shape.element_count(),
+                            .element_count = selected.shape.output_count(),
+                            .groups = Groups(selected.shape.output_count(),
                                              selected.candidate.width()),
                             .width = selected.candidate.width()};
     }
 
+    if (selected.source_variant == RangeSource::Cpu) {
+      return index == 0u
+                 ? RangeStagePlan{.disposition =
+                                      RangeStageKind::PrefixSequential,
+                                  .level = 0u,
+                                  .element_count = selected.shape.input_count(),
+                                  .groups = 1u,
+                                  .width = 0u}
+                 : RangeStagePlan{.disposition = RangeStageKind::PrefixWindow,
+                                  .level = 0u,
+                                  .element_count =
+                                      selected.shape.output_count(),
+                                  .groups = 1u,
+                                  .width = 0u};
+    }
     const RangePrefixExec prefix = PlanRangePrefixTree(
         selected.shape.element_count(), selected.candidate.width(),
         selected.shape.element_bytes(),
@@ -967,8 +1166,8 @@ public:
     }
     return RangeStagePlan{.disposition = RangeStageKind::PrefixWindow,
                           .level = 0u,
-                          .element_count = selected.shape.element_count(),
-                          .groups = Groups(selected.shape.element_count(),
+                          .element_count = selected.shape.output_count(),
+                          .groups = Groups(selected.shape.output_count(),
                                            selected.candidate.width()),
                           .width = selected.candidate.width()};
   }
@@ -991,6 +1190,7 @@ public:
             .first_stage = 0u,
             .last_stage = static_cast<std::uint8_t>(selected.stage_count - 1u)};
       }
+      assert(selected.source_variant != RangeSource::Cpu);
       const RangePrefixExec prefix = PlanRangePrefixTree(
           selected.shape.element_count(), selected.candidate.width(),
           selected.shape.element_bytes(),
@@ -999,9 +1199,9 @@ public:
              selected.temporary_count == prefix.temporary_count() + 1u);
       return prefix.temporary(index - 1u);
     }
-    const rund::kernel::u64 bytes =
-        (selected.shape.element_count() + 2u * selected.shape.radius()) *
-        selected.shape.element_bytes();
+    const std::optional<rund::kernel::u64> span = selected.shape.affine_span();
+    assert(span.has_value());
+    const rund::kernel::u64 bytes = *span * selected.shape.element_bytes();
     return RangeTempReq{.role = index == 0u ? RangeTempRole::ForwardValues
                                             : RangeTempRole::BackwardValues,
                         .ordinal = 0u,
@@ -1033,14 +1233,15 @@ private:
 
   [[nodiscard]] static constexpr RangePlan
   selected(const RangeShape shape, const RangeCandidate candidate,
-           const RangeCost cost, const std::size_t stage_count,
-           const std::size_t temporary_count,
+           const RangeSource source_variant, const RangeCost cost,
+           const std::size_t stage_count, const std::size_t temporary_count,
            const std::uint8_t legal_candidate_count,
            const std::uint8_t pareto_candidate_count,
            const RangeIdentity source_identity,
            const RangeIdentity execution_identity) noexcept {
     return RangePlan{shape,
                      candidate,
+                     source_variant,
                      cost,
                      stage_count,
                      temporary_count,
@@ -1053,6 +1254,7 @@ private:
   struct Selection final {
     RangeShape shape;
     RangeCandidate candidate;
+    RangeSource source_variant{};
     RangeCost cost{};
     std::size_t stage_count{};
     std::size_t temporary_count{};
@@ -1081,17 +1283,18 @@ private:
       : disposition_(disposition), reason_(reason) {}
 
   constexpr RangePlan(const RangeShape shape, const RangeCandidate candidate,
-                      const RangeCost cost, const std::size_t stage_count,
+                      const RangeSource source_variant, const RangeCost cost,
+                      const std::size_t stage_count,
                       const std::size_t temporary_count,
                       const std::uint8_t legal_candidate_count,
                       const std::uint8_t pareto_candidate_count,
                       const RangeIdentity source_identity,
                       const RangeIdentity execution_identity) noexcept
       : disposition_(RangePlanKind::Selected),
-        selection_(Selection{shape, candidate, cost, stage_count,
-                             temporary_count, legal_candidate_count,
-                             pareto_candidate_count, source_identity,
-                             execution_identity}),
+        selection_(Selection{shape, candidate, source_variant, cost,
+                             stage_count, temporary_count,
+                             legal_candidate_count, pareto_candidate_count,
+                             source_identity, execution_identity}),
         reason_("ok") {}
 
   RangePlanKind disposition_;

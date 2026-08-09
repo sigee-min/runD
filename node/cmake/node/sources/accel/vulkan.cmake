@@ -129,6 +129,8 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/range/source.cpp
   src/accel/vulkan/stencil/execute.cpp
   src/accel/vulkan/stencil/finish.cpp
+  src/accel/vulkan/window/execute.cpp
+  src/accel/vulkan/window/finish.cpp
   src/accel/vulkan/scan/descriptor.cpp
   src/accel/vulkan/scan/execute.cpp
   src/accel/vulkan/scan/execute/buffers.cpp

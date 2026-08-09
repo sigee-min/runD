@@ -428,7 +428,8 @@ primitive_pass_count(const KernelExecutionStep &step) noexcept {
   case rund::kernel::NodeKind::ScatterReduce:
     return step.operation.get<operation::ScatterReduce>().plan.pass_count;
   case rund::kernel::NodeKind::Stencil:
-    return step.operation.get<operation::Stencil>().range.stage_count();
+  case rund::kernel::NodeKind::Window:
+    return RangePlanFor(step.operation)->stage_count();
   case rund::kernel::NodeKind::Transform:
     return step.operation.get<operation::Transform>().plan.pass_count;
   case rund::kernel::NodeKind::Matrix:

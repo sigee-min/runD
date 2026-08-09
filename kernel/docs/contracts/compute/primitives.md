@@ -458,6 +458,57 @@ Stencil rejection reasons are contract vocabulary:
 | Input/output byte arithmetic overflow | `compute_stencil_bytes_overflow` |
 | Missing CPU reference input or output pointer | `compute_stencil_buffer_invalid` |
 
+## Window Primitive
+
+`WindowDesc`, `WindowPlan`, `WindowHash`, `WindowResult`, `HashWindow(...)`,
+`PlanWindow(...)`, and `ReferenceWindow{I32,U32,I64,U64,FixedI32,FixedI64}`
+are the kernel-owned semantic authority for one-dimensional affine range
+aggregation. Output `j` aggregates `K = window_size` logical positions
+beginning at `j * stride - pad_left`. `Clamp` repeats the nearest endpoint;
+`Clip` excludes an out-of-range logical position, which is equivalent to the
+operation identity for `Sum`, `Min`, and `Max`.
+
+Planning is pure and deterministic. Nonempty descriptors require nonzero
+input and output counts, nonzero `K` and stride, `pad_left < K`, and a final
+logical window start below the input count. `K` may exceed the input count;
+this is required for centered clamp windows whose radius reaches or exceeds
+half the input length. The planner checks the final anchor product and both
+input/output byte extents in `u64`. The canonical no-work descriptor is
+`Sum` with `input_count == output_count == 0`; it records zero bytes and zero
+passes. Extrema have no empty-input result and reject that shape.
+
+Every descriptor freezes its signed, unsigned, or fixed domain and storage
+width. Non-fixed descriptors carry an absent fixed format. Fixed descriptors
+carry a complete format and every stored `Sum` combine applies its declared
+`Saturate` or modulo-width `Wrap` policy. Fixed extrema compare stored signed
+values. The descriptor hash includes the operation, storage class, boundary,
+domain, complete fixed format, and all five affine geometry fields. Runtime
+values, backend capability, algorithm candidate, scratch placement, and
+timing are not semantic identity inputs.
+
+The reference helpers traverse outputs and slots in ascending order and
+implement the frozen boundary and arithmetic laws exactly. They allocate no
+temporary storage. Backend range-algorithm selection and physical scratch
+placement are Node-owned execution concerns and do not create a second
+kernel semantic plan.
+
+Window rejection reasons are contract vocabulary:
+
+| Gate | Stable reason |
+| --- | --- |
+| Default-constructed or non-admitted plan/reference value | `compute_window_invalid` |
+| Unknown operation | `compute_window_op_unsupported` |
+| Unknown boundary | `compute_window_boundary_unsupported` |
+| Unknown storage width | `compute_window_element_unsupported` |
+| Domain/storage-width mismatch | `compute_window_domain_unsupported` |
+| Invalid or unexpected fixed format | `compute_window_fixed_invalid` / `compute_window_fixed_unexpected` |
+| Zero window size, stride, or invalid left padding | `compute_window_size_invalid` / `compute_window_stride_invalid` / `compute_window_padding_invalid` |
+| Only one of input/output count is zero | `compute_window_count_invalid` |
+| Empty Min/Max input | `compute_window_count_zero` |
+| Last anchor overflow or a last window disjoint from input | `compute_window_shape_invalid` |
+| Input/output byte extent overflow | `compute_window_bytes_overflow` |
+| Missing nonempty CPU reference input or output | `compute_window_buffer_invalid` |
+
 ## Sort Primitive
 
 `SortDesc`, `SortPlan`, `SortHash`,

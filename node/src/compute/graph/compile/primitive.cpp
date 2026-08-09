@@ -1,5 +1,7 @@
 #include "local.hpp"
 
+#include "../../../accel/range_aggregate/plan.hpp"
+#include "../../../accel/window/shape.hpp"
 #include "../../backend.hpp"
 #include "../../cpu/graph.hpp"
 
@@ -19,6 +21,7 @@
 #include <kernel/program/compute/spectrum/plan.hpp>
 #include <kernel/program/compute/stencil/plan.hpp>
 #include <kernel/program/compute/transform/plan.hpp>
+#include <kernel/program/compute/window/plan.hpp>
 
 #include <limits>
 #include <memory>
@@ -66,6 +69,18 @@ namespace {
   case Primitive::Stencil:
     runtime.plan = kernel::PlanStencil(primitive.node.stencil);
     break;
+  case Primitive::Window:
+    runtime.plan = kernel::PlanWindow(primitive.node.window);
+    if (const auto *const semantic =
+            std::get_if<kernel::WindowPlan>(&runtime.plan);
+        semantic != nullptr && semantic->ok) {
+      const auto shape = node::accel::detail::WindowRangeShape(*semantic);
+      if (shape.has_value()) {
+        runtime.range = node::accel::detail::PlanRange(
+            *shape, node::accel::detail::RangeCaps::cpu());
+      }
+    }
+    break;
   case Primitive::Transform:
     runtime.plan = kernel::PlanTransform(primitive.node.transform);
     break;
@@ -88,6 +103,10 @@ namespace {
                            : prepared.reason;
       },
       runtime.plan);
+  if (reason == nullptr && runtime.kind == Primitive::Window &&
+      (!runtime.range.has_value() || !runtime.range->ok())) {
+    return Status::fail(Reason::LoweringInvalid);
+  }
   return reason == nullptr
              ? Status::success()
              : Status::fail(project_reason(reason, Reason::LoweringInvalid));

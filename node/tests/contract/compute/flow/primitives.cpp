@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -94,16 +95,15 @@ struct Values final {};
   using namespace rund::compute;
   const std::array<std::int32_t, 4u> input{1, 2, 3, 4};
   const std::vector<std::int32_t> expected{2, 4, 6, 8};
-  auto program =
-      Target()
-          .map<std::int32_t>("identity-source", input.size(),
-                             [](auto value) { return value * 2; })
-          .branch([](auto values) {
-            const auto identity = values.map(
-                "identity-output", [](auto value) { return value; });
-            return outputs(values, identity);
-          })
-          .compile();
+  auto program = Target()
+                     .map<std::int32_t>("identity-source", input.size(),
+                                        [](auto value) { return value * 2; })
+                     .branch([](auto values) {
+                       const auto identity = values.map(
+                           "identity-output", [](auto value) { return value; });
+                       return outputs(values, identity);
+                     })
+                     .compile();
   if (!program) {
     std::fprintf(stderr, "identity projection compile reason=%.*s\n",
                  static_cast<int>(program.error().size()),
@@ -137,7 +137,7 @@ struct Values final {};
   const std::array<std::uint64_t, 4u> side{4u, 3u, 2u, 1u};
 
   auto result =
-      on(Target::cpu(2u), input)
+      on(rund::compute::Target::cpu(2u), input)
           .combine("pair-sum", side,
                    [](auto left, auto right) { return left + right; })
           .pipe([](auto values) {
@@ -193,21 +193,22 @@ struct Values final {};
   using namespace rund::compute;
   const std::array<std::int32_t, 4u> source{10, 20, 30, 40};
   const std::array<std::uint32_t, 4u> indices{2u, 99u, 1u, 0u};
-  auto program =
-      on(Target::cpu(2u))
-          .input<std::int32_t>(source.size())
-          .zip_input<std::uint32_t>(indices.size())
-          .branch([](auto values, auto requested) {
-            auto active = requested.filter(
-                [](auto index) { return index != std::uint32_t{99}; });
-            return values.gather(active);
-          })
-          .compile();
+  auto program = on(Target::cpu(2u))
+                     .input<std::int32_t>(source.size())
+                     .zip_input<std::uint32_t>(indices.size())
+                     .branch([](auto values, auto requested) {
+                       auto active = requested.filter([](auto index) {
+                         return index != std::uint32_t{99};
+                       });
+                       return values.gather(active);
+                     })
+                     .compile();
   if (!program) {
     return 1;
   }
   const auto backend = program->backend();
-  if (!backend || *backend != Backend::Cpu) return 1;
+  if (!backend || *backend != Backend::Cpu)
+    return 1;
   const auto fingerprint = program->graph().fingerprint;
   const std::size_t nodes = program->graph().nodes.size();
   const std::size_t resources = program->graph().resources.size();
@@ -217,8 +218,7 @@ struct Values final {};
   }
   const std::array<std::uint32_t, 4u> invalid{2u, 9u, 1u, 0u};
   auto rejected = program->run(source, invalid);
-  return !rejected &&
-                 rejected.error() == "compute_gather_index_out_of_range" &&
+  return !rejected && rejected.error() == "compute_gather_index_out_of_range" &&
                  *backend == Backend::Cpu &&
                  program->graph().fingerprint == fingerprint &&
                  program->graph().nodes.size() == nodes &&
@@ -231,15 +231,14 @@ struct Values final {};
   using namespace rund::compute;
   const std::array<std::int32_t, 6u> source{10, 20, 30, 40, 50, 60};
   const std::array<std::uint32_t, 4u> indices{5u, 1u, 3u, 0u};
-  auto program =
-      on(Target::cpu(2u))
-          .input<std::int32_t>(source.size())
-          .zip_input<std::uint32_t>(indices.size())
-          .branch([](auto values, auto requested) {
-            return values.gather(requested).map(
-                "indexed-map", [](auto value) { return value + 7; });
-          })
-          .compile();
+  auto program = on(Target::cpu(2u))
+                     .input<std::int32_t>(source.size())
+                     .zip_input<std::uint32_t>(indices.size())
+                     .branch([](auto values, auto requested) {
+                       return values.gather(requested).map(
+                           "indexed-map", [](auto value) { return value + 7; });
+                     })
+                     .compile();
   if (!program) {
     return 1;
   }
@@ -253,14 +252,12 @@ struct Values final {};
     return 2;
   }
   auto output = program->run(source, indices);
-  if (!output ||
-      *output != std::vector<std::int32_t>{67, 27, 47, 17}) {
+  if (!output || *output != std::vector<std::int32_t>{67, 27, 47, 17}) {
     return 3;
   }
   const std::array<std::uint32_t, 4u> invalid{5u, 6u, 3u, 0u};
   auto rejected = program->run(source, invalid);
-  return !rejected &&
-                 rejected.error() == "compute_gather_index_out_of_range"
+  return !rejected && rejected.error() == "compute_gather_index_out_of_range"
              ? 0
              : 4;
 }
@@ -276,11 +273,14 @@ struct Values final {};
                      return input.scatter_reduce(targets, 2u, Reduce::Sum);
                    })
                    .compile();
-  if (!exact) return 1;
+  if (!exact)
+    return 1;
   const auto exact_backend = exact->backend();
-  if (!exact_backend || *exact_backend != Backend::Cpu) return 1;
+  if (!exact_backend || *exact_backend != Backend::Cpu)
+    return 1;
   auto reduced = exact->run(values, indices);
-  if (!reduced || *reduced != std::vector<std::int32_t>{16, 20}) return 2;
+  if (!reduced || *reduced != std::vector<std::int32_t>{16, 20})
+    return 2;
 
   const std::array<std::uint32_t, 4u> invalid_indices{0u, 2u, 0u, 1u};
   auto invalid = exact->run(values, invalid_indices);
@@ -290,18 +290,18 @@ struct Values final {};
     return 3;
   }
 
-  auto bounded =
-      on(Target::cpu(2u))
-          .input<Bounded<std::int32_t>>(values.size())
-          .branch([](auto input) {
-            auto targets = input.indices().map(
-                "scatter-reduce-target", [](auto ordinal) {
-                  return ordinal & std::uint32_t{1};
-                });
-            return input.scatter_reduce(targets, 2u, Reduce::Sum);
-          })
-          .compile();
-  if (!bounded) return 4;
+  auto bounded = on(Target::cpu(2u))
+                     .input<Bounded<std::int32_t>>(values.size())
+                     .branch([](auto input) {
+                       auto targets = input.indices().map(
+                           "scatter-reduce-target", [](auto ordinal) {
+                             return ordinal & std::uint32_t{1};
+                           });
+                       return input.scatter_reduce(targets, 2u, Reduce::Sum);
+                     })
+                     .compile();
+  if (!bounded)
+    return 4;
   const std::array<std::uint32_t, 1u> overflow_count{5u};
   auto overflow = bounded->run(values, overflow_count);
   const auto bounded_backend = bounded->backend();
@@ -310,18 +310,17 @@ struct Values final {};
     return 5;
   }
 
-  auto bounded_sort =
-      on(Target::cpu(2u))
-          .input<Bounded<std::int32_t>>(values.size())
-          .branch([](auto input) { return input.sort(); })
-          .compile();
-  if (!bounded_sort) return 6;
+  auto bounded_sort = on(Target::cpu(2u))
+                          .input<Bounded<std::int32_t>>(values.size())
+                          .branch([](auto input) { return input.sort(); })
+                          .compile();
+  if (!bounded_sort)
+    return 6;
   const auto fingerprint = bounded_sort->graph().fingerprint;
   const std::size_t nodes = bounded_sort->graph().nodes.size();
   const std::size_t resources = bounded_sort->graph().resources.size();
   auto sort_overflow = bounded_sort->run(values, overflow_count);
-  if (sort_overflow ||
-      sort_overflow.error() != "compute_workset_overflow" ||
+  if (sort_overflow || sort_overflow.error() != "compute_workset_overflow" ||
       bounded_sort->graph().fingerprint != fingerprint ||
       bounded_sort->graph().nodes.size() != nodes ||
       bounded_sort->graph().resources.size() != resources) {
@@ -329,9 +328,7 @@ struct Values final {};
   }
   constexpr std::array<std::uint32_t, 1u> full_count{values.size()};
   auto sorted = bounded_sort->run(values, full_count);
-  return sorted && *sorted == std::vector<std::int32_t>{5, 7, 11, 13}
-             ? 0
-             : 8;
+  return sorted && *sorted == std::vector<std::int32_t>{5, 7, 11, 13} ? 0 : 8;
 }
 
 [[nodiscard]] int CheckBoundedCollectiveRepeat() {
@@ -341,8 +338,7 @@ struct Values final {};
       on(Target::cpu(2u))
           .input<std::uint32_t>(input.size())
           .branch([](auto values) {
-            auto active =
-                values.filter([](auto value) { return value != 0u; });
+            auto active = values.filter([](auto value) { return value != 0u; });
             return active.template unroll<2u>(
                 [](auto work) { return work.sort(); },
                 [](auto value) { return value == std::uint32_t{99}; });
@@ -355,14 +351,15 @@ struct Values final {};
     return 1;
   }
   auto job = program->resident(input);
-  if (!job) return 2;
+  if (!job)
+    return 2;
   const Status ran = job->run();
-  if (!ran) return 3;
+  if (!ran)
+    return 3;
   const Stats stats = job->stats();
   auto output = job->read();
   if (!output || *output != std::vector<std::uint32_t>{1u, 2u, 3u} ||
-      stats.backend != Backend::Cpu ||
-      stats.control.iteration_count != 2u ||
+      stats.backend != Backend::Cpu || stats.control.iteration_count != 2u ||
       stats.control.skipped_iteration_count != 0u) {
     return 4;
   }
@@ -371,16 +368,17 @@ struct Values final {};
       on(rund::compute::Target::cpu(2u))
           .input<std::uint32_t>(input.size())
           .branch([](auto values) {
-            auto active =
-                values.filter([](auto value) { return value != 0u; });
+            auto active = values.filter([](auto value) { return value != 0u; });
             return active.template unroll<2u>(
                 [](auto work) { return work.scan(Scan::InclusiveSum); },
                 [](auto value) { return value == std::uint32_t{99}; });
           })
           .compile();
-  if (!scan_program) return 5;
+  if (!scan_program)
+    return 5;
   auto scan_job = scan_program->resident(input);
-  if (!scan_job || !scan_job->run()) return 6;
+  if (!scan_job || !scan_job->run())
+    return 6;
   const Stats scan_stats = scan_job->stats();
   auto scan_output = scan_job->read();
   return scan_output &&
@@ -397,19 +395,18 @@ struct Values final {};
   constexpr std::array<std::uint32_t, 1u> overflow_count{5u};
   constexpr std::array<std::uint32_t, 1u> full_count{values.size()};
 
-  auto scan = on(Target::cpu(2u))
-                  .input<Bounded<std::int32_t>>(values.size())
-                  .branch([](auto input) {
-                    return input.scan(Scan::InclusiveSum);
-                  })
-                  .compile();
-  if (!scan) return 1;
+  auto scan =
+      on(Target::cpu(2u))
+          .input<Bounded<std::int32_t>>(values.size())
+          .branch([](auto input) { return input.scan(Scan::InclusiveSum); })
+          .compile();
+  if (!scan)
+    return 1;
   const auto scan_fingerprint = scan->graph().fingerprint;
   const std::size_t scan_nodes = scan->graph().nodes.size();
   const std::size_t scan_resources = scan->graph().resources.size();
   auto rejected_scan = scan->run(values, overflow_count);
-  if (rejected_scan ||
-      rejected_scan.error() != "compute_workset_overflow" ||
+  if (rejected_scan || rejected_scan.error() != "compute_workset_overflow" ||
       scan->graph().fingerprint != scan_fingerprint ||
       scan->graph().nodes.size() != scan_nodes ||
       scan->graph().resources.size() != scan_resources) {
@@ -420,7 +417,8 @@ struct Values final {};
     return 3;
   }
   auto scan_job = scan->resident(values, full_count);
-  if (!scan_job || !scan_job->run()) return 4;
+  if (!scan_job || !scan_job->run())
+    return 4;
   const Status rejected_scan_write = scan_job->write(values, overflow_count);
   auto retained_scan = scan_job->read();
   if (rejected_scan_write ||
@@ -442,7 +440,8 @@ struct Values final {};
             return input.scatter_reduce(input, 2u, Reduce::Sum);
           })
           .compile();
-  if (!scatter_reduce) return 6;
+  if (!scatter_reduce)
+    return 6;
   const auto scatter_fingerprint = scatter_reduce->graph().fingerprint;
   const std::size_t scatter_nodes = scatter_reduce->graph().nodes.size();
   const std::size_t scatter_resources =
@@ -456,9 +455,7 @@ struct Values final {};
     return 7;
   }
   auto scattered = scatter_reduce->run(targets, full_count);
-  return scattered && *scattered == std::vector<std::uint32_t>{0u, 2u}
-             ? 0
-             : 8;
+  return scattered && *scattered == std::vector<std::uint32_t>{0u, 2u} ? 0 : 8;
 }
 
 [[nodiscard]] int CheckGroup() {
@@ -564,6 +561,151 @@ struct Values final {};
   }
 }
 
+[[nodiscard]] int CheckPoolSurface() {
+  using namespace rund::compute;
+  const auto rejected = [](const PoolSpec options,
+                           const std::string_view reason) {
+    auto program =
+        Target()
+            .input<std::int32_t>(5u)
+            .branch([=](auto values) { return values.pool(options); })
+            .compile();
+    return !program && program.error() == reason;
+  };
+  if (!rejected(PoolSpec{.op = static_cast<Window>(0xffu)},
+                "compute_window_op_unsupported") ||
+      !rejected(PoolSpec{.edge = static_cast<WindowEdge>(0xffu)},
+                "compute_window_edge_unsupported") ||
+      !rejected(PoolSpec{.tail = static_cast<PoolTail>(0xffu)},
+                "compute_graph_primitive_invalid") ||
+      !rejected(PoolSpec{.width = 0u}, "compute_window_zero") ||
+      !rejected(PoolSpec{.stride = 0u}, "compute_window_zero") ||
+      !rejected(PoolSpec{.width = 6u}, "compute_graph_shape_mismatch")) {
+    return 1;
+  }
+  const auto rejected_window = [](const std::size_t count,
+                                  const WindowSpec options,
+                                  const std::string_view reason) {
+    auto program =
+        Target()
+            .input<std::int32_t>(count)
+            .branch([=](auto values) { return values.window(options); })
+            .compile();
+    return !program && program.error() == reason;
+  };
+  if (!rejected_window(5u, WindowSpec{.radius = 0u},
+                       "compute_window_radius_invalid") ||
+      !rejected_window(5u, WindowSpec{.radius = 6u},
+                       "compute_window_radius_invalid")) {
+    return 2;
+  }
+  if constexpr (std::numeric_limits<std::size_t>::max() >
+                std::numeric_limits<std::uint32_t>::max()) {
+    constexpr std::size_t oversized =
+        static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()) +
+        1u;
+    auto overflow = Target()
+                        .map<std::int32_t>("window-count-overflow", oversized,
+                                           [](auto value) { return value; })
+                        .filter([](auto value) { return value != 0; })
+                        .branch([](auto values) {
+                          return values.window(WindowSpec{.radius = 1u});
+                        })
+                        .compile();
+    if (overflow || overflow.error() != "compute_window_count_overflow") {
+      return 2;
+    }
+  }
+  auto empty_pool = Target()
+                        .input<std::int32_t>(0u)
+                        .branch([](auto values) {
+                          return values.pool(PoolSpec{
+                              .op = static_cast<Window>(0xffu), .width = 1u});
+                        })
+                        .compile();
+  auto empty_window =
+      Target()
+          .input<std::int32_t>(0u)
+          .branch([](auto values) {
+            return values.window(
+                WindowSpec{.op = static_cast<Window>(0xffu), .radius = 1u});
+          })
+          .compile();
+  if (empty_pool || empty_window ||
+      empty_pool.error() != "compute_window_op_unsupported" ||
+      empty_window.error() != "compute_window_op_unsupported") {
+    return 3;
+  }
+
+  const auto q_matches = [](const std::size_t count, const std::size_t width,
+                            const std::size_t stride,
+                            const std::size_t drop_count,
+                            const std::size_t keep_count) {
+    auto program =
+        Target()
+            .input<std::int32_t>(count)
+            .branch([=](auto values) {
+              return outputs(values.pool(PoolSpec{.width = width,
+                                                  .stride = stride,
+                                                  .tail = PoolTail::Drop}),
+                             values.pool(PoolSpec{.width = width,
+                                                  .stride = stride,
+                                                  .tail = PoolTail::Keep}));
+            })
+            .compile();
+    return program && program->template output_size<0u>() == drop_count &&
+           program->template output_size<1u>() == keep_count;
+  };
+  if (!q_matches(5u, 5u, 1u, 1u, 5u) || !q_matches(5u, 3u, 7u, 1u, 1u) ||
+      !q_matches(10u, 4u, 3u, 3u, 4u) || !q_matches(10u, 4u, 2u, 4u, 5u)) {
+    return 4;
+  }
+
+  constexpr PoolSpec keep_clip{
+      .op = Window::Sum,
+      .width = 3u,
+      .stride = 2u,
+      .edge = WindowEdge::Clip,
+      .tail = PoolTail::Keep,
+  };
+  constexpr PoolSpec drop_clip{
+      .op = Window::Sum,
+      .width = keep_clip.width,
+      .stride = keep_clip.stride,
+      .edge = keep_clip.edge,
+      .tail = PoolTail::Drop,
+  };
+  auto program =
+      Target()
+          .input<std::int32_t>(5u)
+          .branch([=](auto values) {
+            return outputs(values.pool(keep_clip), values.pool(drop_clip));
+          })
+          .compile();
+  const std::array<std::uint64_t, 2u> expected_counts{3u, 2u};
+  if (!program || program->template output_size<0u>() != 3u ||
+      program->template output_size<1u>() != 2u ||
+      program->graph().nodes.size() != expected_counts.size()) {
+    return 5;
+  }
+  for (std::size_t index = 0u; index < expected_counts.size(); ++index) {
+    const graph::Node &node = program->graph().nodes[index];
+    if (node.operation != graph::Operation::Window ||
+        node.elements != expected_counts[index] || node.accesses.size() != 2u ||
+        node.accesses[0u].element_count != 5u ||
+        node.accesses[1u].element_count != expected_counts[index]) {
+      return 5;
+    }
+  }
+  const std::array<std::int32_t, 5u> input{1, 2, 3, 4, 5};
+  auto output = program->run(input);
+  return output &&
+                 std::get<0>(*output) == std::vector<std::int32_t>{6, 12, 5} &&
+                 std::get<1>(*output) == std::vector<std::int32_t>{6, 12}
+             ? 0
+             : 6;
+}
+
 } // namespace
 
 int RunComputeFlowPrimitivesContract() {
@@ -602,6 +744,9 @@ int RunComputeFlowPrimitivesContract() {
   }
   if (const int result = CheckGroupCapacity(); result != 0) {
     return 90 + result;
+  }
+  if (const int result = CheckPoolSurface(); result != 0) {
+    return 100 + result;
   }
   return 0;
 }

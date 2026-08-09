@@ -18,6 +18,7 @@
 #include <kernel/program/compute/spectrum/model.hpp>
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
+#include <kernel/program/compute/window/model.hpp>
 
 #include "../range_aggregate/model.hpp"
 
@@ -67,7 +68,7 @@ using ScatterReduce =
               rund::kernel::ScatterReduceDesc, rund::kernel::ScatterReducePlan>;
 
 // Stencil has two deliberately separate plans: the kernel plan remains the
-// device-neutral semantic authority, while the frozen RangeAggregate plan
+// device-neutral semantic authority, while the frozen Range plan
 // owns the capability-derived physical algorithm, stages, and scratch roles.
 // Neither can be absent from an admitted retained operation.
 class Stencil final {
@@ -89,6 +90,26 @@ public:
 
 static_assert(std::is_nothrow_move_constructible_v<Stencil>);
 static_assert(std::is_nothrow_move_assignable_v<Stencil>);
+
+class Window final {
+public:
+  static constexpr auto kind = rund::kernel::NodeKind::Window;
+
+  Window() = delete;
+
+  constexpr Window(rund::kernel::WindowDesc descriptor,
+                   rund::kernel::WindowPlan semantic_plan,
+                   RangePlan aggregate_plan) noexcept
+      : desc(std::move(descriptor)), plan(std::move(semantic_plan)),
+        range(std::move(aggregate_plan)) {}
+
+  rund::kernel::WindowDesc desc;
+  rund::kernel::WindowPlan plan;
+  RangePlan range;
+};
+
+static_assert(std::is_nothrow_move_constructible_v<Window>);
+static_assert(std::is_nothrow_move_assignable_v<Window>);
 using Transform =
     Primitive<rund::kernel::NodeKind::Transform, rund::kernel::TransformDesc,
               rund::kernel::TransformPlan>;
@@ -114,7 +135,7 @@ class Operation {
                    operation::Partition, operation::Reduce, operation::Scatter,
                    operation::ScatterReduce, operation::Stencil,
                    operation::Transform, operation::Matrix, operation::Factor,
-                   operation::Solve, operation::Spectrum>;
+                   operation::Solve, operation::Spectrum, operation::Window>;
 
 public:
   Operation() = default;
@@ -146,5 +167,26 @@ private:
 
 static_assert(std::is_nothrow_move_constructible_v<Operation>);
 static_assert(std::is_nothrow_move_assignable_v<Operation>);
+
+[[nodiscard]] inline RangePlan *RangePlanFor(Operation &value) noexcept {
+  if (value.kind() == rund::kernel::NodeKind::Stencil) {
+    return &value.get<operation::Stencil>().range;
+  }
+  if (value.kind() == rund::kernel::NodeKind::Window) {
+    return &value.get<operation::Window>().range;
+  }
+  return nullptr;
+}
+
+[[nodiscard]] inline const RangePlan *
+RangePlanFor(const Operation &value) noexcept {
+  if (value.kind() == rund::kernel::NodeKind::Stencil) {
+    return &value.get<operation::Stencil>().range;
+  }
+  if (value.kind() == rund::kernel::NodeKind::Window) {
+    return &value.get<operation::Window>().range;
+  }
+  return nullptr;
+}
 
 } // namespace rund::node::accel::detail

@@ -18,8 +18,8 @@ Implementation authority:
   algorithm/capability/cost selector
 - `/node/src/accel/range_aggregate/execution.hpp` as the generic `RangeParams`
   host parameter ABI owner
-- `/node/src/accel/stencil/shape.{hpp,cpp}` as the sole Stencil semantic
-  projection, descriptor, dispatch, and resident-span owner
+- `/node/src/accel/stencil/shape.{hpp,cpp}` as the sole Stencil-to-Range
+  semantic projection and resident-span validation owner
 - `/node/src/accel/primitive/shape.hpp`
 - `/node/src/accel/cpu/stencil.cpp`
 - `/node/src/accel/metal/stencil*`
@@ -27,7 +27,8 @@ Implementation authority:
 - `/node/src/accel/collective*`
 - `/node/src/accel/graph.cpp`
 - `/node/src/accel/graph/collective/{bindings.hpp,defaults.cpp,desc.cpp,kind.cpp}`
-- `/node/src/accel/kernel/bindings/stencil.cpp`
+- `/node/src/accel/kernel/bindings/range.cpp` for the shared physical
+  two-buffer `RangeBinds`
 - `/node/src/accel/kernel/plan/{compute,count,step}.cpp`
 - `/node/src/accel/kernel/backend/run.cpp` for the canonical bound-step view
 
@@ -99,7 +100,7 @@ and public result/error mapping to that executor.
 `RangeParams` carries the immutable logical window plus the active stage:
 
 ```text
-element_count, radius,
+input_count, output_count, window_size, stride, padding,
 stage_element_count, stage_aux_count,
 stage, reserved
 ```
@@ -145,12 +146,12 @@ becomes visible until its pipeline owner is valid.
 
 The RangeAggregate source identity contains backend source class, family,
 workgroup width, shared capacity, operation, domain, arithmetic law, boundary,
-and element width. The execution identity additionally contains `N`, `r`, the
-complete stage graph, temporary requirements, and exact modeled cost. Metal
-pipeline labels and Vulkan artifact/source matching consume the source identity;
-manifest reservation, immutable-template reuse, parameter dispatch, and scratch
-placement consume `RangeExec`. A pipeline is reusable only when that complete
-source identity matches.
+and element width. The execution identity additionally contains `N`, `Q`, `K`,
+`S`, `P`, the complete stage graph, temporary requirements, and exact modeled
+cost. Metal pipeline labels and Vulkan artifact/source matching consume the
+source identity; manifest reservation, immutable-template reuse, parameter
+dispatch, and scratch placement consume `RangeExec`. A pipeline is reusable
+only when that complete source identity matches.
 
 The stencil contract verifies Direct, SharedHalo, PrefixDifference, and
 BlockPrefixSuffix results against the unchanged CPU reference across tails,

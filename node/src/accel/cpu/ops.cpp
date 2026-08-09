@@ -56,7 +56,7 @@ rund::node::accel::AccelMemoryStats Memory(const rund::AccelDevice &) noexcept {
 }
 
 [[nodiscard]] RangeCaps CpuRangeCaps(const rund::AccelDevice &) noexcept {
-  return RangeCaps::cpu();
+  return RangeCaps::cpu_reference();
 }
 
 const BackendOps Operations{

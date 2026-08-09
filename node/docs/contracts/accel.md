@@ -30,6 +30,7 @@ the product Compute surface.
 - [Segmented Reduce](./accel/segmented/reduce.md)
 - [Sort](./accel/sort.md)
 - [Stencil](./accel/stencil.md)
+- [Window](./accel/window.md)
 
 Implementation authority is `/node/src/accel`. Public value authority is
 `/accel/include/accel`; Node must not mirror those types. Verification authority
@@ -79,13 +80,14 @@ is `/node/tests/contract/accel` and the registered cases under
   and publish backend evidence, but do not repeat its semantic reason table.
   Unknown nonzero words fail closed with the primitive's `*_invalid` reason;
   they can never produce a failed result carrying `ok` as its reason.
-- Gather, Histogram, Partition, Scatter, Segmented Scan, and Stencil each own
-  one backend-neutral host parameter model under their domain directory.
-  Metal and Vulkan local headers include that model directly and contain no
-  declaration, alias, or re-export of the parameter type. Their shader-language
-  declarations remain backend artifacts, but the source contract checks every
-  field name, order, and width against the C++ model's exhaustive
-  `sizeof`, `alignof`, and `offsetof` assertions.
+- Gather, Histogram, Partition, Scatter, and Segmented Scan each own one
+  backend-neutral host parameter model under their domain directory. Stencil
+  and Window instead consume the single primitive-neutral `RangeParams` model
+  under RangeAggregate. Metal and Vulkan local headers include the owning model
+  directly and contain no declaration, alias, or re-export of the parameter
+  type. Their shader-language declarations remain backend artifacts, but the
+  source contract checks every field name, order, and width against the C++
+  model's exhaustive `sizeof`, `alignof`, and `offsetof` assertions.
 
 ## Verification
 

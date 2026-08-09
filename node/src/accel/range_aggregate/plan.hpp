@@ -113,6 +113,70 @@ struct CandidateEvaluation final {
   std::size_t temporary_count{};
 };
 
+struct BoundaryTraffic final {
+  rund::kernel::u128 valid_samples{};
+  rund::kernel::u64 left_affected{};
+  rund::kernel::u64 right_affected{};
+  rund::kernel::u64 left_prefix_reads{};
+};
+
+[[nodiscard]] constexpr std::optional<BoundaryTraffic>
+AffineBoundaryTraffic(const RangeShape &shape) noexcept {
+  const rund::kernel::u64 output_count = shape.output_count();
+  const rund::kernel::u64 stride = shape.stride();
+  const rund::kernel::u64 padding = shape.padding();
+  const rund::kernel::u64 right_extent = shape.right_extent();
+  const rund::kernel::u64 left_affected =
+      std::min(output_count, padding / stride + static_cast<rund::kernel::u64>(
+                                                    padding % stride != 0u));
+  const rund::kernel::u64 right_first =
+      right_extent >= shape.input_count()
+          ? 0u
+          : std::min(
+                output_count,
+                (shape.input_count() - right_extent) / stride +
+                    static_cast<rund::kernel::u64>(
+                        (shape.input_count() - right_extent) % stride != 0u));
+  const rund::kernel::u64 right_affected = output_count - right_first;
+  const rund::kernel::u64 first_positive_left =
+      std::min(output_count, padding / stride + 1u);
+
+  rund::kernel::u128 all_samples = 0u;
+  rund::kernel::u128 left_missing = 0u;
+  rund::kernel::u128 right_missing = 0u;
+  rund::kernel::u128 anchor_sum = 0u;
+  if (!Multiply(output_count, shape.window_size(), all_samples) ||
+      !Multiply(left_affected, padding, left_missing) ||
+      !Multiply(static_cast<rund::kernel::u128>(left_affected) *
+                    (left_affected == 0u ? 0u : left_affected - 1u) / 2u,
+                stride, anchor_sum) ||
+      left_missing < anchor_sum) {
+    return std::nullopt;
+  }
+  left_missing -= anchor_sum;
+
+  const rund::kernel::u128 first_right_missing =
+      right_affected == 0u
+          ? 0u
+          : static_cast<rund::kernel::u128>(right_first) * stride +
+                right_extent + 1u - shape.input_count();
+  if (!Multiply(right_affected, first_right_missing, right_missing) ||
+      !Multiply(static_cast<rund::kernel::u128>(right_affected) *
+                    (right_affected == 0u ? 0u : right_affected - 1u) / 2u,
+                stride, anchor_sum) ||
+      !Add(right_missing, anchor_sum, right_missing) ||
+      !Add(left_missing, right_missing, anchor_sum) ||
+      anchor_sum >= all_samples) {
+    return std::nullopt;
+  }
+  return BoundaryTraffic{
+      .valid_samples = all_samples - anchor_sum,
+      .left_affected = left_affected,
+      .right_affected = right_affected,
+      .left_prefix_reads = output_count - first_positive_left,
+  };
+}
+
 [[nodiscard]] constexpr bool
 AppendStage(CandidateEvaluation &evaluation, const RangeCaps &capabilities,
             const RangeStageKind disposition, const std::uint8_t level,
@@ -120,6 +184,7 @@ AppendStage(CandidateEvaluation &evaluation, const RangeCaps &capabilities,
             const rund::kernel::u64 groups, const rund::kernel::u32 width,
             bool &overflow) noexcept {
   if (evaluation.stage_count == evaluation.stages.size() ||
+      element_count > capabilities.maximum_storage_element_count() ||
       !FitsGroups(capabilities, groups)) {
     return false;
   }
@@ -149,8 +214,11 @@ AppendTemporary(CandidateEvaluation &evaluation, const RangeTempRole role,
                 const std::uint8_t ordinal, const rund::kernel::u64 bytes,
                 const rund::kernel::u64 alignment,
                 const std::uint8_t first_stage, const std::uint8_t last_stage,
-                bool &overflow) noexcept {
+                const RangeCaps &capabilities, bool &overflow) noexcept {
   if (evaluation.temporary_count == evaluation.temporaries.size()) {
+    return false;
+  }
+  if (bytes > capabilities.maximum_storage_binding_bytes()) {
     return false;
   }
   rund::kernel::u64 scratch = 0u;
@@ -174,32 +242,35 @@ AppendTemporary(CandidateEvaluation &evaluation, const RangeTempRole role,
 BuildDirect(const RangeShape &shape, const RangeCaps &capabilities,
             const RangeCandidate candidate, bool &overflow) noexcept {
   CandidateEvaluation evaluation{candidate};
-  rund::kernel::u128 twice_radius = 0u;
-  rund::kernel::u128 window = 0u;
-  rund::kernel::u128 read_elements = 0u;
-  if (!Multiply(shape.radius(), 2u, twice_radius) ||
-      !Add(twice_radius, 1u, window) ||
-      !Multiply(shape.element_count(), window, read_elements) ||
-      !AccumulateBytes(evaluation.cost.global_read_bytes, read_elements,
+  const std::optional<BoundaryTraffic> traffic = AffineBoundaryTraffic(shape);
+  if (!traffic.has_value()) {
+    overflow = true;
+    return std::nullopt;
+  }
+  const rund::kernel::u128 read_elements =
+      shape.boundary() == RangeBoundary::Clamp
+          ? static_cast<rund::kernel::u128>(shape.output_count()) *
+                shape.window_size()
+          : traffic->valid_samples;
+  if (!AccumulateBytes(evaluation.cost.global_read_bytes, read_elements,
                        shape.element_bytes()) ||
-      !AccumulateBytes(evaluation.cost.global_write_bytes,
-                       shape.element_count(), shape.element_bytes()) ||
-      !Multiply(shape.element_count(), twice_radius,
-                evaluation.cost.combine_ops)) {
+      !AccumulateBytes(evaluation.cost.global_write_bytes, shape.output_count(),
+                       shape.element_bytes()) ||
+      !Add(evaluation.cost.combine_ops, read_elements - shape.output_count(),
+           evaluation.cost.combine_ops)) {
     overflow = true;
     return std::nullopt;
   }
 
   const bool cpu = candidate.width() == 0u;
   const rund::kernel::u64 groups =
-      cpu ? 1u : Groups(shape.element_count(), candidate.width());
+      cpu ? 1u : Groups(shape.output_count(), candidate.width());
   if (!AppendStage(evaluation, capabilities, RangeStageKind::Direct, 0u,
-                   shape.element_count(), groups, candidate.width(),
-                   overflow)) {
+                   shape.output_count(), groups, candidate.width(), overflow)) {
     return std::nullopt;
   }
   if (cpu) {
-    evaluation.cost.launched_lanes = shape.element_count();
+    evaluation.cost.launched_lanes = shape.output_count();
   }
   return evaluation;
 }
@@ -207,12 +278,13 @@ BuildDirect(const RangeShape &shape, const RangeCaps &capabilities,
 [[nodiscard]] constexpr std::optional<CandidateEvaluation>
 BuildSharedHalo(const RangeShape &shape, const RangeCaps &capabilities,
                 const RangeCandidate candidate, bool &overflow) noexcept {
-  if (candidate.radius_capacity() < shape.radius()) {
+  if (!shape.centered_clamp() ||
+      candidate.radius_capacity() < shape.padding()) {
     return std::nullopt;
   }
   CandidateEvaluation evaluation{candidate};
   const rund::kernel::u64 groups =
-      Groups(shape.element_count(), candidate.width());
+      Groups(shape.output_count(), candidate.width());
   if (!FitsGroups(capabilities, groups)) {
     return std::nullopt;
   }
@@ -225,15 +297,15 @@ BuildSharedHalo(const RangeShape &shape, const RangeCaps &capabilities,
   }
   evaluation.cost.shared_bytes = shared_bytes;
 
-  rund::kernel::u128 read_elements = shape.element_count();
+  rund::kernel::u128 read_elements = shape.input_count();
   if (groups > 1u) {
     rund::kernel::u128 group_term = 0u;
     rund::kernel::u128 halo = 0u;
     const rund::kernel::u64 tail =
-        shape.element_count() - (groups - 1u) * candidate.width();
+        shape.input_count() - (groups - 1u) * candidate.width();
     if (!Multiply(groups, 2u, group_term) || group_term < 3u ||
-        !Multiply(group_term - 3u, shape.radius(), halo) ||
-        !Add(halo, std::min<rund::kernel::u64>(shape.radius(), tail), halo) ||
+        !Multiply(group_term - 3u, shape.padding(), halo) ||
+        !Add(halo, std::min<rund::kernel::u64>(shape.padding(), tail), halo) ||
         !Add(read_elements, halo, read_elements)) {
       overflow = true;
       return std::nullopt;
@@ -242,14 +314,13 @@ BuildSharedHalo(const RangeShape &shape, const RangeCaps &capabilities,
   rund::kernel::u128 twice_radius = 0u;
   if (!AccumulateBytes(evaluation.cost.global_read_bytes, read_elements,
                        shape.element_bytes()) ||
-      !AccumulateBytes(evaluation.cost.global_write_bytes,
-                       shape.element_count(), shape.element_bytes()) ||
-      !Multiply(shape.radius(), 2u, twice_radius) ||
-      !Multiply(shape.element_count(), twice_radius,
+      !AccumulateBytes(evaluation.cost.global_write_bytes, shape.output_count(),
+                       shape.element_bytes()) ||
+      !Multiply(shape.padding(), 2u, twice_radius) ||
+      !Multiply(shape.output_count(), twice_radius,
                 evaluation.cost.combine_ops) ||
       !AppendStage(evaluation, capabilities, RangeStageKind::SharedHalo, 0u,
-                   shape.element_count(), groups, candidate.width(),
-                   overflow)) {
+                   shape.output_count(), groups, candidate.width(), overflow)) {
     overflow = true;
     return std::nullopt;
   }
@@ -264,6 +335,45 @@ BuildPrefixDifference(const RangeShape &shape, const RangeCaps &capabilities,
     return std::nullopt;
   }
   CandidateEvaluation evaluation{candidate};
+  if (capabilities.cpu_only()) {
+    const std::optional<BoundaryTraffic> traffic = AffineBoundaryTraffic(shape);
+    if (!traffic.has_value() ||
+        !AppendTemporary(evaluation, RangeTempRole::PrefixValues, 0u,
+                         shape.payload_bytes(), shape.element_bytes(), 0u, 1u,
+                         capabilities, overflow) ||
+        !AppendStage(evaluation, capabilities, RangeStageKind::PrefixSequential,
+                     0u, shape.input_count(), 1u, 0u, overflow) ||
+        !AppendStage(evaluation, capabilities, RangeStageKind::PrefixWindow, 0u,
+                     shape.output_count(), 1u, 0u, overflow)) {
+      return std::nullopt;
+    }
+    const rund::kernel::u128 endpoint_reads =
+        shape.boundary() == RangeBoundary::Clamp
+            ? static_cast<rund::kernel::u128>(traffic->left_affected) +
+                  traffic->right_affected
+            : 0u;
+    rund::kernel::u128 output_reads = 0u;
+    if (!Add(shape.output_count(), traffic->left_prefix_reads, output_reads) ||
+        !Add(output_reads, endpoint_reads, output_reads) ||
+        !AccumulateBytes(evaluation.cost.global_read_bytes, shape.input_count(),
+                         shape.element_bytes()) ||
+        !AccumulateBytes(evaluation.cost.global_read_bytes, output_reads,
+                         shape.element_bytes()) ||
+        !AccumulateBytes(evaluation.cost.global_write_bytes,
+                         shape.input_count(), shape.element_bytes()) ||
+        !AccumulateBytes(evaluation.cost.global_write_bytes,
+                         shape.output_count(), shape.element_bytes()) ||
+        !Accumulate(evaluation.cost.combine_ops, shape.input_count() - 1u) ||
+        !Accumulate(evaluation.cost.combine_ops, endpoint_reads) ||
+        !Accumulate(evaluation.cost.inverse_ops, traffic->left_prefix_reads) ||
+        !Accumulate(evaluation.cost.scale_ops, endpoint_reads) ||
+        !Add(shape.input_count(), shape.output_count(),
+             evaluation.cost.launched_lanes)) {
+      overflow = true;
+      return std::nullopt;
+    }
+    return evaluation;
+  }
   const rund::kernel::u64 local_shared =
       static_cast<rund::kernel::u64>(candidate.width()) * shape.element_bytes();
   if (!SharedBudgetFits(capabilities, local_shared)) {
@@ -280,7 +390,7 @@ BuildPrefixDifference(const RangeShape &shape, const RangeCaps &capabilities,
   if (!AppendTemporary(evaluation, RangeTempRole::PrefixValues, 0u,
                        shape.payload_bytes(), shape.element_bytes(), 0u,
                        static_cast<std::uint8_t>(hierarchy.stage_count()),
-                       overflow)) {
+                       capabilities, overflow)) {
     return std::nullopt;
   }
 
@@ -314,7 +424,7 @@ BuildPrefixDifference(const RangeShape &shape, const RangeCaps &capabilities,
           found = AppendTemporary(evaluation, temporary.role, temporary.ordinal,
                                   temporary.bytes, temporary.alignment,
                                   temporary.first_stage, temporary.last_stage,
-                                  overflow) &&
+                                  capabilities, overflow) &&
                   AccumulateBytes(evaluation.cost.global_write_bytes,
                                   stage.groups, shape.element_bytes());
           break;
@@ -345,23 +455,28 @@ BuildPrefixDifference(const RangeShape &shape, const RangeCaps &capabilities,
   }
 
   const rund::kernel::u64 output_groups =
-      Groups(shape.element_count(), candidate.width());
-  const rund::kernel::u64 left_prefix_reads =
-      shape.radius() < shape.element_count()
-          ? shape.element_count() - shape.radius() - 1u
-          : 0u;
+      Groups(shape.output_count(), candidate.width());
+  const std::optional<BoundaryTraffic> traffic = AffineBoundaryTraffic(shape);
+  if (!traffic.has_value()) {
+    overflow = true;
+    return std::nullopt;
+  }
+  const rund::kernel::u64 left_prefix_reads = traffic->left_prefix_reads;
   rund::kernel::u128 output_reads = 0u;
-  rund::kernel::u128 endpoint_reads = 0u;
-  if (!Multiply(shape.radius(), 2u, endpoint_reads) ||
-      !Add(shape.element_count(), left_prefix_reads, output_reads) ||
+  const rund::kernel::u128 endpoint_reads =
+      shape.boundary() == RangeBoundary::Clamp
+          ? static_cast<rund::kernel::u128>(traffic->left_affected) +
+                traffic->right_affected
+          : 0u;
+  if (!Add(shape.output_count(), left_prefix_reads, output_reads) ||
       !Add(output_reads, endpoint_reads, output_reads) ||
       !AppendStage(evaluation, capabilities, RangeStageKind::PrefixWindow, 0u,
-                   shape.element_count(), output_groups, candidate.width(),
+                   shape.output_count(), output_groups, candidate.width(),
                    overflow) ||
       !AccumulateBytes(evaluation.cost.global_read_bytes, output_reads,
                        shape.element_bytes()) ||
-      !AccumulateBytes(evaluation.cost.global_write_bytes,
-                       shape.element_count(), shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes, shape.output_count(),
+                       shape.element_bytes()) ||
       !Accumulate(evaluation.cost.inverse_ops, left_prefix_reads) ||
       !Accumulate(evaluation.cost.scale_ops, endpoint_reads) ||
       !Accumulate(evaluation.cost.combine_ops, endpoint_reads)) {
@@ -379,21 +494,22 @@ BuildBlockPrefixSuffix(const RangeShape &shape, const RangeCaps &capabilities,
       !shape.traits().idempotent() || !shape.traits().ordered()) {
     return std::nullopt;
   }
-  rund::kernel::u64 twice_radius = 0u;
-  rund::kernel::u64 window = 0u;
   rund::kernel::u64 padded = 0u;
-  if (!rund::kernel::checked::mul(shape.radius(), 2u, twice_radius) ||
-      !rund::kernel::checked::add(twice_radius, 1u, window) ||
-      !rund::kernel::checked::add(shape.element_count(), twice_radius,
-                                  padded)) {
+  const std::optional<rund::kernel::u64> span = shape.affine_span();
+  if (!span.has_value()) {
     overflow = true;
     return std::nullopt;
   }
+  padded = *span;
+  if (padded > capabilities.maximum_storage_element_count()) {
+    return std::nullopt;
+  }
+  const rund::kernel::u64 window = shape.window_size();
   const rund::kernel::u64 blocks =
       padded / window + static_cast<rund::kernel::u64>(padded % window != 0u);
   const rund::kernel::u64 prepare_groups = Groups(blocks, candidate.width());
   const rund::kernel::u64 output_groups =
-      Groups(shape.element_count(), candidate.width());
+      Groups(shape.output_count(), candidate.width());
   if (!FitsGroups(capabilities, prepare_groups) ||
       !FitsGroups(capabilities, output_groups)) {
     return std::nullopt;
@@ -406,28 +522,49 @@ BuildBlockPrefixSuffix(const RangeShape &shape, const RangeCaps &capabilities,
 
   CandidateEvaluation evaluation{candidate};
   if (!AppendTemporary(evaluation, RangeTempRole::ForwardValues, 0u,
-                       value_bytes, shape.element_bytes(), 0u, 1u, overflow) ||
+                       value_bytes, shape.element_bytes(), 0u, 1u, capabilities,
+                       overflow) ||
       !AppendTemporary(evaluation, RangeTempRole::BackwardValues, 0u,
-                       value_bytes, shape.element_bytes(), 0u, 1u, overflow) ||
-      !AppendStage(evaluation, capabilities, RangeStageKind::BlockPrefixSuffix,
-                   0u, padded, prepare_groups, candidate.width(), overflow) ||
-      !AppendStage(evaluation, capabilities, RangeStageKind::BlockWindow, 0u,
-                   shape.element_count(), output_groups, candidate.width(),
+                       value_bytes, shape.element_bytes(), 0u, 1u, capabilities,
+                       overflow)) {
+    return std::nullopt;
+  }
+
+  const bool cpu = capabilities.source_variant() == RangeSource::Cpu;
+  const rund::kernel::u64 execution_prepare_groups = cpu ? 1u : prepare_groups;
+  const rund::kernel::u64 execution_output_groups = cpu ? 1u : output_groups;
+  const rund::kernel::u32 execution_width = cpu ? 0u : candidate.width();
+  const rund::kernel::u64 prepared_input_elements =
+      shape.boundary() == RangeBoundary::Clamp
+          ? padded
+          : std::min(shape.input_count(), padded - shape.padding());
+  if (!AppendStage(evaluation, capabilities, RangeStageKind::BlockPrefixSuffix,
+                   0u, padded, execution_prepare_groups, execution_width,
                    overflow) ||
+      !AppendStage(evaluation, capabilities, RangeStageKind::BlockWindow, 0u,
+                   shape.output_count(), execution_output_groups,
+                   execution_width, overflow) ||
+      !AccumulateBytes(
+          evaluation.cost.global_read_bytes,
+          static_cast<rund::kernel::u128>(prepared_input_elements) * 2u,
+          shape.element_bytes()) ||
       !AccumulateBytes(evaluation.cost.global_read_bytes,
-                       static_cast<rund::kernel::u128>(padded) * 2u,
-                       shape.element_bytes()) ||
-      !AccumulateBytes(evaluation.cost.global_read_bytes,
-                       static_cast<rund::kernel::u128>(shape.element_count()) *
+                       static_cast<rund::kernel::u128>(shape.output_count()) *
                            2u,
                        shape.element_bytes()) ||
       !AccumulateBytes(evaluation.cost.global_write_bytes,
                        static_cast<rund::kernel::u128>(padded) * 2u,
                        shape.element_bytes()) ||
-      !AccumulateBytes(evaluation.cost.global_write_bytes,
-                       shape.element_count(), shape.element_bytes()) ||
+      !AccumulateBytes(evaluation.cost.global_write_bytes, shape.output_count(),
+                       shape.element_bytes()) ||
       !AccumulateProduct(evaluation.cost.combine_ops, padded - blocks, 2u) ||
-      !Accumulate(evaluation.cost.combine_ops, shape.element_count())) {
+      !Accumulate(evaluation.cost.combine_ops, shape.output_count())) {
+    overflow = true;
+    return std::nullopt;
+  }
+  if (cpu &&
+      (!AccumulateProduct(evaluation.cost.launched_lanes, padded, 2u) ||
+       !Accumulate(evaluation.cost.launched_lanes, shape.output_count()))) {
     overflow = true;
     return std::nullopt;
   }
@@ -526,7 +663,7 @@ SourceIdentity(const RangeShape &shape, const RangeCaps &capabilities,
                const RangeCandidate candidate) noexcept {
   IdentityBuilder identity{};
   identity.add(0x72616e67652d7372ull); // "range-sr"
-  identity.add(1u);
+  identity.add(3u);
   identity.add(static_cast<std::uint8_t>(capabilities.source_variant()));
   identity.add(static_cast<std::uint8_t>(candidate.disposition()));
   identity.add(candidate.width());
@@ -547,8 +684,11 @@ ExecutionIdentity(const RangeShape &shape,
   identity.add(0x72616e67652d6578ull); // "range-ex"
   identity.add(source_identity.hi);
   identity.add(source_identity.lo);
-  identity.add(shape.element_count());
-  identity.add(shape.radius());
+  identity.add(shape.input_count());
+  identity.add(shape.output_count());
+  identity.add(shape.window_size());
+  identity.add(shape.stride());
+  identity.add(shape.padding());
   identity.add(evaluation.stage_count);
   for (std::size_t index = 0u; index < evaluation.stage_count; ++index) {
     const RangeStagePlan &stage = evaluation.stages[index];
@@ -594,6 +734,10 @@ PlanRange(const RangeShape &shape, const RangeCaps &capabilities) noexcept {
             ? "compute_range_aggregate_capabilities_invalid"
             : "compute_range_aggregate_unavailable");
   }
+  if (shape.input_count() > capabilities.maximum_storage_element_count() ||
+      shape.output_count() > capabilities.maximum_storage_element_count()) {
+    return RangePlan::rejected("compute_range_aggregate_candidate_unavailable");
+  }
 
   std::array<std::optional<CandidateEvaluation>, kRangeCandidateCap>
       evaluations{};
@@ -606,8 +750,28 @@ PlanRange(const RangeShape &shape, const RangeCaps &capabilities) noexcept {
   };
 
   if (capabilities.cpu_only()) {
-    append(BuildDirect(shape, capabilities, RangeCandidate::direct_cpu(),
-                       saw_overflow));
+    if (capabilities.supports(RangeSupport::Direct)) {
+      append(BuildDirect(shape, capabilities, RangeCandidate::direct_cpu(),
+                         saw_overflow));
+    }
+    if (capabilities.supports(RangeSupport::PrefixDifference) &&
+        shape.traits().invertible()) {
+      const std::optional<RangeCandidate> candidate =
+          RangeCandidate::prefix_difference(kRangeCpuBlockWidth);
+      if (candidate.has_value()) {
+        append(BuildPrefixDifference(shape, capabilities, *candidate,
+                                     saw_overflow));
+      }
+    }
+    if (capabilities.supports(RangeSupport::BlockPrefixSuffix) &&
+        shape.traits().idempotent() && shape.traits().ordered()) {
+      const std::optional<RangeCandidate> candidate =
+          RangeCandidate::block_prefix_suffix(kRangeCpuBlockWidth);
+      if (candidate.has_value()) {
+        append(BuildBlockPrefixSuffix(shape, capabilities, *candidate,
+                                      saw_overflow));
+      }
+    }
   } else {
     for (const rund::kernel::u32 width : kRangeWidths) {
       if (!capabilities.supports_width(width)) {
@@ -690,7 +854,8 @@ PlanRange(const RangeShape &shape, const RangeCaps &capabilities) noexcept {
       SourceIdentity(shape, capabilities, choice.candidate);
   const RangeIdentity execution_identity =
       ExecutionIdentity(shape, choice, source_identity);
-  return RangePlan::selected(shape, choice.candidate, choice.cost,
+  return RangePlan::selected(shape, choice.candidate,
+                             capabilities.source_variant(), choice.cost,
                              choice.stage_count, choice.temporary_count,
                              static_cast<std::uint8_t>(evaluation_count),
                              static_cast<std::uint8_t>(pareto_count),

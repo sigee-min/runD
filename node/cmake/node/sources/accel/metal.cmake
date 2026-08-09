@@ -95,6 +95,8 @@ list(APPEND NODE_SOURCES
   src/accel/metal/range/source.cpp
   src/accel/metal/stencil/execute.mm
   src/accel/metal/stencil/finish.mm
+  src/accel/metal/window/execute.mm
+  src/accel/metal/window/finish.mm
   src/accel/metal/scan/encode/buffers.mm
   src/accel/metal/scan/encode/flags.mm
   src/accel/metal/scan/encode/state.mm

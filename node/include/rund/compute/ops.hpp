@@ -26,6 +26,11 @@ enum class WindowEdge : unsigned char {
   Clip,
 };
 
+enum class PoolTail : unsigned char {
+  Drop,
+  Keep,
+};
+
 enum class Direction : unsigned char {
   Forward,
   Inverse,
@@ -72,6 +77,14 @@ struct WindowSpec final {
   Window op{Window::Sum};
   std::size_t radius{1};
   WindowEdge edge{WindowEdge::Clamp};
+};
+
+struct PoolSpec final {
+  Window op{Window::Sum};
+  std::size_t width{2};
+  std::size_t stride{2};
+  WindowEdge edge{WindowEdge::Clip};
+  PoolTail tail{PoolTail::Drop};
 };
 
 struct MatrixShape final {

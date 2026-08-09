@@ -7,6 +7,7 @@
 namespace rund::compute::detail {
 
 [[nodiscard]] Status run_stencil(PrimitiveContext &context);
+[[nodiscard]] Status run_window(PrimitiveContext &context);
 [[nodiscard]] Status run_transform(PrimitiveContext &context);
 [[nodiscard]] Status run_matrix(PrimitiveContext &context);
 [[nodiscard]] Status run_factor(PrimitiveContext &context);

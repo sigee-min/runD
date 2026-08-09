@@ -14,3 +14,4 @@
 #include <accel/graph/factory/primitive/spectrum/node.hpp>
 #include <accel/graph/factory/primitive/stencil.hpp>
 #include <accel/graph/factory/primitive/transform/node.hpp>
+#include <accel/graph/factory/primitive/window.hpp>

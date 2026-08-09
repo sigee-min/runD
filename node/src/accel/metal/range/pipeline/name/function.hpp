@@ -7,7 +7,7 @@
                                                   : "sum";
   std::string name = "rund_range_";
   name += operation;
-  name += execution.signed_extrema() ? "_i" : "_u";
+  name += execution.signed_values() ? "_i" : "_u";
   name += execution.wide_elements() ? "64" : "32";
   return name;
 }

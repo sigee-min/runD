@@ -215,6 +215,16 @@ VulkanKernelOpsFor(const rund::kernel::NodeKind kind) noexcept {
         .failure = nullptr,
         .pipeline_capture_demand = nullptr,
     };
+  case rund::kernel::NodeKind::Window:
+    return VulkanKernelOps{
+        .prepare = PrepareVulkanWindowStep,
+        .encode = EncodeVulkanWindow,
+        .finish = FinishVulkanWindow,
+        .pipeline_status = NoVulkanPipelineStatus,
+        .pipeline_telemetry = nullptr,
+        .failure = nullptr,
+        .pipeline_capture_demand = nullptr,
+    };
   default:
     return VulkanNumericOpsFor(kind);
   }

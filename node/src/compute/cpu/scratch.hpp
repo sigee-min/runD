@@ -19,6 +19,10 @@ enum class CpuPrimitiveScratchShape : std::uint8_t {
   SpectrumEigen,
   SpectrumSvdValues,
   SpectrumSvdVectors,
+  RangeI32,
+  RangeU32,
+  RangeI64,
+  RangeU64,
 };
 
 // Frozen request descriptor shared by Pipeline preflight and the allocator.

@@ -6,6 +6,7 @@
 #include "histogram.hpp"
 #include "matrix.hpp"
 #include "partition.hpp"
+#include "range.hpp"
 #include "reduce.hpp"
 #include "scan.hpp"
 #include "scatter.hpp"
@@ -13,7 +14,6 @@
 #include "solve.hpp"
 #include "sort.hpp"
 #include "spectrum.hpp"
-#include "stencil.hpp"
 #include "step.hpp"
 #include "transform.hpp"
 
@@ -61,9 +61,8 @@ struct KernelExecutionStep;
                                            const RunBinds &run_binds,
                                            ScatterReduceBinds &out);
 
-[[nodiscard]] bool BuildStencilBinds(const KernelExecutionStep &step,
-                                     const RunBinds &run_binds,
-                                     StencilBinds &out);
+[[nodiscard]] bool BuildRangeBinds(const KernelExecutionStep &step,
+                                   const RunBinds &run_binds, RangeBinds &out);
 
 [[nodiscard]] bool BuildTransformBinds(const KernelExecutionStep &step,
                                        const RunBinds &run_binds,

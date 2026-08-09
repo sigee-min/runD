@@ -8,7 +8,7 @@
 namespace rund::node::accel::detail {
 
 inline constexpr std::size_t kGraphKindSlotCount =
-    static_cast<std::size_t>(rund::kernel::NodeKind::ScatterReduce) + 1u;
+    static_cast<std::size_t>(rund::kernel::NodeKind::Window) + 1u;
 
 template <typename T> using GraphKindTable = std::array<T, kGraphKindSlotCount>;
 

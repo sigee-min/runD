@@ -110,8 +110,8 @@ pointer/count facts; they store no dynamic allocation and carry no node,
 backend, OS, filesystem, clock, Metal, Vulkan, Foundation, or driver state.
 Graph nodes are typed as `Map`, `Scan`, `SegmentedScan`,
 `SegmentedReduce`, `Sort`, `Compact`, `Gather`, `Histogram`, `Partition`,
-`Reduce`, `Scatter`, `Stencil`, `Transform`, `Matrix`, `Factor`, `Solve`, or
-`Spectrum`. Reserved numeric kind slots `5` through `7` are invalid and are
+`Reduce`, `Scatter`, `Stencil`, `Window`, `Transform`, `Matrix`, `Factor`,
+`Solve`, or `Spectrum`. Reserved numeric kind slots `5` through `7` are invalid and are
 not admitted node kinds. `Map`
 nodes carry the checked map operation hash and no primitive fields. Collective
 nodes carry primitive hash, element count, and no map operation hash; detailed

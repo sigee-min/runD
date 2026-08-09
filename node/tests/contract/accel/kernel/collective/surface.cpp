@@ -25,6 +25,9 @@ int RunAccelKernelCollectiveSurfaceContract() {
   TEST_ASSERT(RequiredVulkanRunsScatter());
   TEST_ASSERT(RequiredMetalRunsStencil());
   TEST_ASSERT(RequiredVulkanRunsStencil());
+  TEST_ASSERT(WindowProjectionContract());
+  TEST_ASSERT(RequiredMetalRunsWindow());
+  TEST_ASSERT(RequiredVulkanRunsWindow());
   return 0;
 }
 

@@ -14,6 +14,7 @@
 #include "../../../segmented/vulkan.hpp"
 #include "../../../sort.hpp"
 #include "../../../stencil.hpp"
+#include "../../../window.hpp"
 #include "../../map/api.hpp"
 #include "../../numeric.hpp"
 #include "../../scan/kernel/local.hpp"
@@ -65,11 +66,11 @@ PrepareVulkanScanStep(const rund::AccelDevice &pick, const BoundStep &step,
   return check;
 }
 
-[[nodiscard]] inline rund::AccelCheck
-PrepareVulkanSegmentedStep(const rund::AccelDevice &pick, const BoundStep &step,
-                           const KernelPreparationMode mode,
-                           const VulkanKernelImmutablePipelines *const pipelines,
-                           std::shared_ptr<void> &resources) {
+[[nodiscard]] inline rund::AccelCheck PrepareVulkanSegmentedStep(
+    const rund::AccelDevice &pick, const BoundStep &step,
+    const KernelPreparationMode mode,
+    const VulkanKernelImmutablePipelines *const pipelines,
+    std::shared_ptr<void> &resources) {
   (void)mode;
   const SegmentedScanBinds *const bindings = BindingsFor<SegmentedScanBinds>(
       step, rund::kernel::NodeKind::SegmentedScan);
@@ -153,11 +154,11 @@ PrepareVulkanGatherStep(const rund::AccelDevice &pick, const BoundStep &step,
                                    resources, pipelines);
 }
 
-[[nodiscard]] inline rund::AccelCheck
-PrepareVulkanHistogramStep(const rund::AccelDevice &pick, const BoundStep &step,
-                           const KernelPreparationMode mode,
-                           const VulkanKernelImmutablePipelines *const pipelines,
-                           std::shared_ptr<void> &resources) {
+[[nodiscard]] inline rund::AccelCheck PrepareVulkanHistogramStep(
+    const rund::AccelDevice &pick, const BoundStep &step,
+    const KernelPreparationMode mode,
+    const VulkanKernelImmutablePipelines *const pipelines,
+    std::shared_ptr<void> &resources) {
   (void)mode;
   const HistogramBinds *const bindings =
       BindingsFor<HistogramBinds>(step, rund::kernel::NodeKind::Histogram);
@@ -182,11 +183,11 @@ PrepareVulkanHistogramStep(const rund::AccelDevice &pick, const BoundStep &step,
                                           resources, pipelines);
 }
 
-[[nodiscard]] inline rund::AccelCheck
-PrepareVulkanPartitionStep(const rund::AccelDevice &pick, const BoundStep &step,
-                           const KernelPreparationMode mode,
-                           const VulkanKernelImmutablePipelines *const pipelines,
-                           std::shared_ptr<void> &resources) {
+[[nodiscard]] inline rund::AccelCheck PrepareVulkanPartitionStep(
+    const rund::AccelDevice &pick, const BoundStep &step,
+    const KernelPreparationMode mode,
+    const VulkanKernelImmutablePipelines *const pipelines,
+    std::shared_ptr<void> &resources) {
   (void)mode;
   const PartitionBinds *const bindings =
       BindingsFor<PartitionBinds>(step, rund::kernel::NodeKind::Partition);

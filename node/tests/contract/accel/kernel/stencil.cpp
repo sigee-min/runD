@@ -79,7 +79,7 @@ VulkanStencilRangePlan(const rund::AccelDevice &pick,
   static_assert(vulkan_range.ok());
   const std::string vulkan = rund::node::accel::detail::VulkanRangeSource(
       stencil::RequireRangeExec(vulkan_range));
-  if (vulkan.find("int value = int(range_tile[center])") == std::string::npos) {
+  if (vulkan.find("int value = range_tile[first]") == std::string::npos) {
     return false;
   }
 #endif
@@ -134,15 +134,18 @@ static_assert(RangeDispatchIsExact());
   constexpr auto shared_capabilities = RangeCaps::gpu(
       RangeSource::Vulkan, kRangeWidth128Bit, 128u, 4u,
       (128u + 2u * 7u) * 8u * 4u, std::numeric_limits<rund::kernel::u32>::max(),
-      direct_shared);
+      std::numeric_limits<rund::kernel::u32>::max(), direct_shared);
   constexpr auto direct_capabilities =
       RangeCaps::gpu(RangeSource::Metal, kRangeWidth128Bit, 128u, 0u, 0u,
-                     std::numeric_limits<rund::kernel::u32>::max(), direct);
+                     std::numeric_limits<rund::kernel::u32>::max(),
+                     std::numeric_limits<rund::kernel::u64>::max(), direct);
   constexpr auto prefix_capabilities = RangeCaps::gpu(
       RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
-      std::numeric_limits<rund::kernel::u32>::max(), direct_prefix);
+      std::numeric_limits<rund::kernel::u32>::max(),
+      std::numeric_limits<rund::kernel::u64>::max(), direct_prefix);
   constexpr auto block_capabilities = RangeCaps::gpu(
       RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+      std::numeric_limits<rund::kernel::u32>::max(),
       std::numeric_limits<rund::kernel::u32>::max(), direct_block);
   constexpr auto sum_u64 =
       RangeTraits::sum_modulo(rund::kernel::ComputeDomain::U64);
@@ -227,7 +230,7 @@ static_assert(RangePlanProjectionIsExact());
       .usage = rund::kernel::kResidentUsageWrite,
   };
   const std::shared_ptr<void> owner = std::make_shared<int>(1);
-  const StencilBinds bindings{
+  const RangeBinds bindings{
       .input = &input,
       .input_handle = &owner,
       .output = &output,
@@ -419,7 +422,7 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
            .ok) {
     return {};
   }
-  const StencilBinds bindings{
+  const RangeBinds bindings{
       .input = &fixture.input.resident,
       .input_handle = &input_handle,
       .output = &fixture.output.resident,
@@ -603,7 +606,7 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
       .radius = maximum->shared_radius_capacity(),
   };
   const rund::kernel::StencilPlan plan = rund::kernel::PlanStencil(desc);
-  const StencilBinds bindings{
+  const RangeBinds bindings{
       .input = &fixture.input.resident,
       .input_handle = &input_handle,
       .output = &fixture.output.resident,
@@ -748,7 +751,7 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
         vulkan_barrier == std::string::npos ||
         vulkan_guard == std::string::npos ||
         vulkan.find("for (uint64_t step = uint64_t(1);") != std::string::npos ||
-        vulkan_u32.find("uint value = range_tile[center];") ==
+        vulkan_u32.find("uint value = range_tile[first];") ==
             std::string::npos ||
         vulkan_u32.find("uint64_t value") != std::string::npos ||
         vulkan_u32.find("uint64_t(range_tile[center - step])") !=
@@ -779,7 +782,9 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
       MetalRangeSource(stencil::RequireRangeExec(metal_direct_range));
   if (metal_direct.find("threadgroup uint tile[") != std::string::npos ||
       metal_direct.find("threadgroup_barrier") != std::string::npos ||
-      metal_direct.find("for (ulong step = 1ul;") == std::string::npos) {
+      metal_direct.find(
+          "for (ulong slot = 0ul; slot < params.window_size; ++slot)") ==
+          std::string::npos) {
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
@@ -799,7 +804,8 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
   }
   if (vulkan_direct.find("shared uint range_tile[") != std::string::npos ||
       vulkan_direct.find("barrier();") != std::string::npos ||
-      vulkan_direct.find("for (uint64_t step = uint64_t(1);") ==
+      vulkan_direct.find(
+          "for (uint64_t slot = uint64_t(0); slot < params.window_size;") ==
           std::string::npos ||
       vulkan_direct.size() != direct_upper) {
     return false;
@@ -853,11 +859,10 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
           std::string::npos ||
       metal_block_source.find("device int* forward_values [[buffer(3)]],") ==
           std::string::npos ||
-      metal_block_source.find(
-          "const ulong window = params.radius * 2ul + 1ul;") ==
+      metal_block_source.find("const ulong window = params.window_size;") ==
           std::string::npos ||
       metal_block_source.find("backward_values[index]") == std::string::npos ||
-      metal_block_source.find("output[i] = min(backward_values[i], "
+      metal_block_source.find("output[i] = min(backward_values[left], "
                               "forward_values[right]);") == std::string::npos) {
     return false;
   }
@@ -892,10 +897,9 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
           "value -= scratch0_values[uint(left - uint64_t(1))];") ==
           std::string::npos ||
       vulkan_block_source.find("#define value_type int") == std::string::npos ||
-      vulkan_block_source.find(
-          "const uint64_t window = params.radius * uint64_t(2) + "
-          "uint64_t(1);") == std::string::npos ||
-      vulkan_block_source.find("scratch1_values[uint(block)]") ==
+      vulkan_block_source.find("const uint64_t window = params.window_size;") ==
+          std::string::npos ||
+      vulkan_block_source.find("scratch1_values[uint(left)]") ==
           std::string::npos ||
       !VulkanRangeSourceMatches(stencil::RequireRangeExec(vulkan_prefix),
                                 vulkan_prefix_source,

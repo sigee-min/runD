@@ -1,7 +1,7 @@
 #pragma once
 
-#include <accel/graph/value.hpp>
 #include <accel/graph/node.hpp>
+#include <accel/graph/value.hpp>
 
 #include "../../context/shared.hpp"
 #include "../admission.hpp"
@@ -66,12 +66,16 @@ AdmitSegmentedReduceNode(const rund::AccelGraphNode &node,
                                           GraphCompileNode &compile_data);
 [[nodiscard]] const char *AdmitScatterNode(const rund::AccelGraphNode &node,
                                            GraphCompileNode &compile_data);
-[[nodiscard]] const char *AdmitScatterReduceNode(
-    const rund::AccelGraphNode &node, GraphCompileNode &compile_data);
+[[nodiscard]] const char *
+AdmitScatterReduceNode(const rund::AccelGraphNode &node,
+                       GraphCompileNode &compile_data);
 [[nodiscard]] const char *AdmitStencilNode(const rund::AccelGraphNode &node,
                                            const ContextAdmission &admission,
                                            rund::kernel::ComputeDomain domain,
                                            GraphCompileNode &compile_data);
+[[nodiscard]] const char *AdmitWindowNode(const rund::AccelGraphNode &node,
+                                          const ContextAdmission &admission,
+                                          GraphCompileNode &compile_data);
 [[nodiscard]] const char *AdmitTransformNode(const rund::AccelGraphNode &node,
                                              GraphCompileNode &compile_data);
 [[nodiscard]] const char *AdmitMatrixNode(const rund::AccelGraphNode &node,

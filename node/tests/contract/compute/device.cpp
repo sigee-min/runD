@@ -175,6 +175,11 @@ CpuInfoMatches(const rund::compute::detail::DeviceState &state,
       Case{Primitive::Stencil,
            {.mode = 0xffu},
            "compute_stencil_op_unsupported"},
+      Case{Primitive::Window, {.mode = 0xffu}, "compute_window_op_unsupported"},
+      Case{Primitive::Window,
+           {.mode = static_cast<std::uint32_t>(rund::compute::Window::Sum),
+            .extra = 0xffu},
+           "compute_window_boundary_unsupported"},
       Case{Primitive::Transform,
            {.mode = 0xffu},
            "compute_transform_direction_unsupported"},
@@ -199,6 +204,14 @@ CpuInfoMatches(const rund::compute::detail::DeviceState &state,
         graph_primitive(graph, entry.primitive, args, entry.options);
     if (output.value != 0u || graph == nullptr || graph->status ||
         graph->status.error() != entry.reason) {
+      std::fprintf(
+          stderr,
+          "unknown primitive option mismatch primitive=%u "
+          "expected=%.*s actual=%.*s output=%u\n",
+          static_cast<unsigned>(entry.primitive),
+          static_cast<int>(entry.reason.size()), entry.reason.data(),
+          graph == nullptr ? 0 : static_cast<int>(graph->status.error().size()),
+          graph == nullptr ? "" : graph->status.error().data(), output.value);
       return false;
     }
   }

@@ -45,16 +45,15 @@ public:
        const bool external) noexcept {
     if (source.id == 0u || source.bytes == 0u ||
         source.usage != rund::kernel::kResidentUsageWrite ||
-        handle == nullptr ||
-        !range.valid() || range.end() > source.bytes ||
+        handle == nullptr || !range.valid() || range.end() > source.bytes ||
         source.offset_bytes != range.offset() ||
         source.element_bytes != range.element() ||
         source.stride_bytes != range.stride() ||
         source.count != range.count()) {
       return std::nullopt;
     }
-    return BoundReset{source, std::move(handle), range, binding, step, last,
-                      external};
+    return BoundReset{source, std::move(handle), range, binding, step,
+                      last,   external};
   }
 
   [[nodiscard]] rund::kernel::ResidentBufferRef ref() const noexcept {
@@ -108,7 +107,7 @@ struct ResetSpan final {
 using BoundBindings =
     std::variant<StepBinds, ScanBinds, CompactBinds, SegmentedScanBinds,
                  SegmentedReduceBinds, SortBinds, GatherBinds, HistogramBinds,
-                 PartitionBinds, ReduceBinds, ScatterBinds, StencilBinds,
+                 PartitionBinds, ReduceBinds, ScatterBinds, RangeBinds,
                  ScatterReduceBinds, TransformBinds, MatrixBinds, FactorBinds,
                  SolveBinds, SpectrumBinds>;
 
@@ -185,8 +184,8 @@ struct BackendTemplateRouteDemand final {
   }
 
   [[nodiscard]] constexpr bool valid() const noexcept {
-    return owner_count != 0u &&
-           (route_copies == 1u || route_copies == 2u) && capacity != 0u &&
+    return owner_count != 0u && (route_copies == 1u || route_copies == 2u) &&
+           capacity != 0u &&
            static_cast<std::uint64_t>(owner_count) * route_copies == capacity;
   }
 };
@@ -309,8 +308,8 @@ struct BackendWindow final {
     return false;
   }
 
-  [[nodiscard]] constexpr bool nested_phase(
-      rund::compute::PipelineNestedPhase &out) const noexcept {
+  [[nodiscard]] constexpr bool
+  nested_phase(rund::compute::PipelineNestedPhase &out) const noexcept {
     return ProjectBackendWindowPhase(phase, out);
   }
 };

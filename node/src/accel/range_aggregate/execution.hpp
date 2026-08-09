@@ -87,7 +87,8 @@ static_assert(std::is_trivially_copyable_v<RangeGpuShape>);
 
 [[nodiscard]] constexpr std::optional<RangeGpuShape>
 RangeGpuShapeFor(const RangePlan &plan) noexcept {
-  if (!plan.ok()) {
+  if (!plan.ok() || (plan.source_variant() != RangeSource::Metal &&
+                     plan.source_variant() != RangeSource::Vulkan)) {
     return std::nullopt;
   }
   const RangeCandidate &candidate = plan.candidate();
@@ -115,23 +116,48 @@ public:
     const RangeStagePlan stage = plan.stage(index);
     std::uint64_t auxiliary = stage.groups;
     if (stage.disposition == RangeStageKind::BlockPrefixSuffix) {
-      const std::uint64_t window = plan.shape().radius() * 2u + 1u;
+      const std::uint64_t window = plan.shape().window_size();
       auxiliary = window == 0u ? 0u
                                : stage.element_count / window +
                                      static_cast<std::uint64_t>(
                                          stage.element_count % window != 0u);
     }
-    return RangeParams{plan.shape().element_count(), plan.shape().radius(),
-                       stage.element_count, auxiliary,
+    return RangeParams{plan.shape().input_count(),
+                       plan.shape().output_count(),
+                       plan.shape().window_size(),
+                       plan.shape().stride(),
+                       plan.shape().padding(),
+                       stage.element_count,
+                       auxiliary,
                        static_cast<rund::kernel::u32>(stage.disposition)};
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 element_count() const noexcept {
-    return element_count_;
+    return input_count_;
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 radius() const noexcept {
-    return radius_;
+    return padding_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 input_count() const noexcept {
+    return input_count_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 output_count() const noexcept {
+    return output_count_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 window_size() const noexcept {
+    return window_size_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 stride() const noexcept {
+    return stride_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 padding() const noexcept {
+    return padding_;
   }
 
   [[nodiscard]] constexpr rund::kernel::u64
@@ -148,17 +174,24 @@ public:
   }
 
 private:
-  constexpr RangeParams(const rund::kernel::u64 element_count,
-                        const rund::kernel::u64 radius,
+  constexpr RangeParams(const rund::kernel::u64 input_count,
+                        const rund::kernel::u64 output_count,
+                        const rund::kernel::u64 window_size,
+                        const rund::kernel::u64 stride,
+                        const rund::kernel::u64 padding,
                         const rund::kernel::u64 stage_element_count,
                         const rund::kernel::u64 stage_aux_count,
                         const rund::kernel::u32 stage) noexcept
-      : element_count_(element_count), radius_(radius),
+      : input_count_(input_count), output_count_(output_count),
+        window_size_(window_size), stride_(stride), padding_(padding),
         stage_element_count_(stage_element_count),
         stage_aux_count_(stage_aux_count), stage_(stage), reserved_(0u) {}
 
-  rund::kernel::u64 element_count_;
-  rund::kernel::u64 radius_;
+  rund::kernel::u64 input_count_;
+  rund::kernel::u64 output_count_;
+  rund::kernel::u64 window_size_;
+  rund::kernel::u64 stride_;
+  rund::kernel::u64 padding_;
   rund::kernel::u64 stage_element_count_;
   rund::kernel::u64 stage_aux_count_;
   rund::kernel::u32 stage_;
@@ -167,7 +200,7 @@ private:
 
 static_assert(std::is_standard_layout_v<RangeParams>);
 static_assert(std::is_trivially_copyable_v<RangeParams>);
-static_assert(sizeof(RangeParams) == 40u);
+static_assert(sizeof(RangeParams) == 64u);
 static_assert(alignof(RangeParams) == alignof(rund::kernel::u64));
 
 class RangeTempSlot final {
@@ -252,6 +285,10 @@ public:
 
   [[nodiscard]] static constexpr std::optional<RangeExec>
   from(const RangePlan &plan) noexcept {
+    if (!plan.ok() || (plan.source_variant() != RangeSource::Metal &&
+                       plan.source_variant() != RangeSource::Vulkan)) {
+      return std::nullopt;
+    }
     const std::optional<RangeGpuShape> shape = RangeGpuShapeFor(plan);
     if (!shape.has_value() || plan.stage_count() == 0u ||
         plan.stage_count() > kRangeStageCap) {
@@ -304,6 +341,15 @@ public:
            plan().shape().traits().signed_domain();
   }
 
+  [[nodiscard]] constexpr bool saturating_sum() const noexcept {
+    return operation() == RangeOp::Sum &&
+           arithmetic_law() == RangeLaw::Saturating;
+  }
+
+  [[nodiscard]] constexpr bool signed_values() const noexcept {
+    return signed_extrema() || saturating_sum();
+  }
+
   [[nodiscard]] constexpr RangePath candidate() const noexcept {
     return plan().candidate().disposition();
   }
@@ -344,12 +390,16 @@ public:
 
   [[nodiscard]] constexpr bool vulkan_dispatch_fits(
       const rund::kernel::u64 maximum_group_count) const noexcept {
-    if (plan().shape().element_count() >
-        std::numeric_limits<rund::kernel::u32>::max()) {
+    if (plan().shape().input_count() >
+            std::numeric_limits<rund::kernel::u32>::max() ||
+        plan().shape().output_count() >
+            std::numeric_limits<rund::kernel::u32>::max()) {
       return false;
     }
     for (std::size_t index = 0u; index < plan().stage_count(); ++index) {
-      if (!stage_dispatch_fits(index, maximum_group_count)) {
+      if (plan().stage(index).element_count >
+              std::numeric_limits<rund::kernel::u32>::max() ||
+          !stage_dispatch_fits(index, maximum_group_count)) {
         return false;
       }
     }
@@ -375,6 +425,7 @@ public:
     case RangeStageKind::Direct:
     case RangeStageKind::SharedHalo:
       return RangeScratch::none();
+    case RangeStageKind::PrefixSequential:
     case RangeStageKind::PrefixBlock:
       return RangeScratch::pair(
           slot(RangeTempRole::PrefixValues, 0u),

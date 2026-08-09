@@ -1425,6 +1425,9 @@ primitive/mode mapping is:
 | Primitive/mode | Arena descriptor | Arena Tile claim |
 | --- | --- | --- |
 | segmented scan/reduce, compact, gather, histogram, partition, reduce, stencil, matrix | none | `0` |
+| affine Window, Direct | none | `0` |
+| affine Window, PrefixDifference | `CpuRangeScratch<Lane>` with one populated span | `A_Lane(N)` |
+| affine Window, BlockPrefixSuffix | `CpuRangeScratch<Lane>` with forward/backward spans | `2*A_Lane(T)`, where `T=(Q-1)S+K` |
 | transform | lane-width twiddle span | `A_Lane(plan.twiddle_count * 2)` = `plan.workspace_bytes` |
 | sort/argsort U32 | U32 sort spans | `A_U32(count) + A_U32(count)` |
 | sort/argsort U64 | U64 sort spans | `A_U64(count) + A_U32(count)` |
@@ -1446,6 +1449,11 @@ typed shape, while reusable numeric slabs are component-wise maxima across
 serial primitives. Descriptor placement consumes a separately checked
 `max_align_t`-padded byte count; `primitive_object_payload_bytes` preserves
 the exact logical Host amount and never counts that padding as payload.
+For serial affine Windows, the four signed/unsigned lane pools independently
+retain the maximum requested element count rather than the sum of each
+Window's request. PrefixDifference binds `[N,0]`; BlockPrefixSuffix binds
+`[T,T]`. Both descriptors can therefore reuse the same typed pool without a
+second arena or a warm allocation.
 Transform tables are additive because their canonical twiddle values persist
 per descriptor, while their descriptors and tables still live inside the one
 mapping.

@@ -34,6 +34,7 @@ list(APPEND NODE_SOURCES
   src/accel/graph/admission/spectrum.cpp
   src/accel/graph/admission/stencil.cpp
   src/accel/graph/admission/transform.cpp
+  src/accel/graph/admission/window.cpp
   src/accel/graph/compile/append.cpp
   src/accel/graph/compile/base.cpp
   src/accel/graph/compile/buffers.cpp
@@ -56,6 +57,7 @@ list(APPEND NODE_SOURCES
   src/accel/graph/collective/bindings/spectrum.cpp
   src/accel/graph/collective/bindings/stencil.cpp
   src/accel/graph/collective/bindings/transform.cpp
+  src/accel/graph/collective/bindings/window.cpp
   src/accel/graph/collective/defaults.cpp
   src/accel/graph/collective/desc.cpp
   src/accel/graph/collective/kind.cpp
@@ -91,7 +93,7 @@ list(APPEND NODE_SOURCES
   src/accel/kernel/bindings/solve.cpp
   src/accel/kernel/bindings/sort.cpp
   src/accel/kernel/bindings/spectrum.cpp
-  src/accel/kernel/bindings/stencil.cpp
+  src/accel/kernel/bindings/range.cpp
   src/accel/kernel/bindings/step.cpp
   src/accel/kernel/bindings/transform.cpp
   src/accel/kernel/evidence.cpp
@@ -132,4 +134,5 @@ list(APPEND NODE_SOURCES
   src/accel/spectrum/shape.cpp
   src/accel/stencil/shape.cpp
   src/accel/transform/shape.cpp
+  src/accel/window/shape.cpp
 )

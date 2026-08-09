@@ -20,6 +20,7 @@ int RunAccelCpuContextKernelContract() {
   TEST_ASSERT(cpu::CpuContextRunsSegmentedScanThenMap(pick));
   TEST_ASSERT(cpu::CpuContextRunsSegmentedReduce(pick));
   TEST_ASSERT(cpu::CpuContextRunsSegmentedReduceRangeDefault(pick));
+  TEST_ASSERT(cpu::CpuContextRunsWindow(pick));
   TEST_ASSERT(cpu::CpuContextRejectsBadScanHash(pick));
   TEST_ASSERT(cpu::CpuContextRejectsForeignBuffer(pick));
   return 0;

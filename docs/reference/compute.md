@@ -649,7 +649,23 @@ value-domain carrier. Its active-count lineage reaches that U32 value stage
 through the same public `mask` owner, including from a 64-bit source count; the
 same-width-only internal `BoundaryMask` is not widened into a second conversion
 authority.
-`WindowSpec` carries operation, radius, and `WindowEdge`.
+`WindowSpec` is the centered rolling-aggregate adapter. It carries operation,
+radius, and `WindowEdge`; output `i` aggregates the logical interval
+`[i-radius,i+radius]`. Exact inputs lower this affine window directly through
+the Range execution substrate. Bounded inputs retain their resident-count
+composition because their output cardinality is not frozen at admission.
+
+`pool(PoolSpec)` is the exact-cardinality strided adapter over the same Range
+substrate. For input count `N`, width `K`, and stride `S`, output `j` starts at
+`jS`. `PoolTail::Drop` emits `1 + floor((N-K)/S)` complete windows;
+`PoolTail::Keep` emits `1 + floor((N-1)/S)` windows and applies the selected
+Clamp or Clip law to each trailing partial window. `K` and `S` are positive and
+`K <= N`. Pooling does not create a second arena or a second algorithm
+selector: its affine geometry is planned by the same Range planner and its
+temporary roles are placed by the Pipeline scratch planner.
+For an empty exact input, Sum produces the canonical empty output; Min and Max
+reject because their empty range has no public value.
+
 `group.values().window({..., .edge = WindowEdge::Clip}).ordered()` constructs
 segment IDs by canonical scan, gathers each fixed-distance neighbor, masks
 neighbors from another segment, and merges in left-to-right distance order.
@@ -667,7 +683,7 @@ inactive storage cannot affect a window result and no count readback occurs.
 
 An Exact source with physical count zero admits Window Sum for either edge mode
 as zero work and returns an empty sequence. Exact zero-count Window Min and Max
-reject with `compute_stencil_count_zero` because no element can define their
+reject with `compute_window_count_zero` because no element can define their
 result. A Bounded source whose resident logical count is zero retains nonzero
 physical capacity; all six operation/edge combinations succeed and return an
 empty logical sequence.

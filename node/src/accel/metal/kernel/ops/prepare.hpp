@@ -14,6 +14,7 @@
 #include "../../../segmented/reduce/metal.hpp"
 #include "../../../sort.hpp"
 #include "../../../stencil.hpp"
+#include "../../../window.hpp"
 #include "../../numeric.hpp"
 #include "../../runtime/map/api.hpp"
 #include "../../scan/kernel/local.hpp"
@@ -211,14 +212,27 @@ PrepareMetalScatterStep(const rund::AccelDevice &pick, const BoundStep &step,
 PrepareMetalStencilStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const MetalKernelImmutablePipelines *pipelines,
                         std::shared_ptr<void> &resources) {
-  const StencilBinds *const bindings =
-      BindingsFor<StencilBinds>(step, rund::kernel::NodeKind::Stencil);
+  const RangeBinds *const bindings =
+      BindingsFor<RangeBinds>(step, rund::kernel::NodeKind::Stencil);
   const auto *active = OperationFor<operation::Stencil>(step);
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalStencil(pick, active->desc, active->plan,
                                    step.planned->domain, *bindings,
                                    active->range, resources, pipelines);
+}
+
+[[nodiscard]] inline rund::AccelCheck
+PrepareMetalWindowStep(const rund::AccelDevice &pick, const BoundStep &step,
+                       const MetalKernelImmutablePipelines *pipelines,
+                       std::shared_ptr<void> &resources) {
+  const RangeBinds *const bindings =
+      BindingsFor<RangeBinds>(step, rund::kernel::NodeKind::Window);
+  const auto *active = OperationFor<operation::Window>(step);
+  return bindings == nullptr || active == nullptr
+             ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
+             : PrepareMetalWindow(pick, active->desc, active->plan, *bindings,
+                                  active->range, resources, pipelines);
 }
 
 #include "prepare/numeric.hpp"

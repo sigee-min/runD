@@ -20,13 +20,15 @@ int RunSegmentedScanContract();
 int RunSegmentedReduceContract();
 int RunSortContract();
 int RunStencilContract();
+int RunWindowContract();
 int RunNumericAlgebraContract();
 int RunComputeFixedArithmeticContract();
 
 } // namespace program_compute_contract
 
 int RunComputeModelContract() {
-  if (const int rc = program_compute_contract::RunComputePlanContract(); rc != 0) {
+  if (const int rc = program_compute_contract::RunComputePlanContract();
+      rc != 0) {
     return rc;
   }
   if (const int rc = program_compute_contract::RunGraphContract(); rc != 0) {
@@ -49,8 +51,10 @@ int RunComputeModelContract() {
   if (const int rc = program_compute_contract::RunSortContract(); rc != 0) {
     return rc;
   }
-  if (const int rc = program_compute_contract::RunStencilContract();
-      rc != 0) {
+  if (const int rc = program_compute_contract::RunStencilContract(); rc != 0) {
+    return rc;
+  }
+  if (const int rc = program_compute_contract::RunWindowContract(); rc != 0) {
     return rc;
   }
   if (const int rc = program_compute_contract::RunCompactContract(); rc != 0) {
@@ -63,7 +67,8 @@ int RunComputeModelContract() {
       rc != 0) {
     return rc;
   }
-  if (const int rc = program_compute_contract::RunPartitionContract(); rc != 0) {
+  if (const int rc = program_compute_contract::RunPartitionContract();
+      rc != 0) {
     return rc;
   }
   if (const int rc = program_compute_contract::RunReduceContract(); rc != 0) {
@@ -80,24 +85,31 @@ int RunComputeModelContract() {
       rc != 0) {
     return rc;
   }
-  if (const int rc = program_compute_contract::RunComputeFixedNonlinearFusionContract();
+  if (const int rc =
+          program_compute_contract::RunComputeFixedNonlinearFusionContract();
       rc != 0) {
     return rc;
   }
-  if (const int rc = program_compute_contract::RunComputeIrContract(); rc != 0) {
-    return rc;
-  }
-  if (const int rc = program_compute_contract::RunComputeDslContract(); rc != 0) {
-    return rc;
-  }
-  if (const int rc = program_compute_contract::RunComputeBackendLoweringContract();
+  if (const int rc = program_compute_contract::RunComputeIrContract();
       rc != 0) {
     return rc;
   }
-  if (const int rc = program_compute_contract::RunComputeFixedArithmeticContract(); rc != 0) {
+  if (const int rc = program_compute_contract::RunComputeDslContract();
+      rc != 0) {
     return rc;
   }
-  if (const int rc = program_compute_contract::RunComputeMetadataContract(); rc != 0) {
+  if (const int rc =
+          program_compute_contract::RunComputeBackendLoweringContract();
+      rc != 0) {
+    return rc;
+  }
+  if (const int rc =
+          program_compute_contract::RunComputeFixedArithmeticContract();
+      rc != 0) {
+    return rc;
+  }
+  if (const int rc = program_compute_contract::RunComputeMetadataContract();
+      rc != 0) {
     return rc;
   }
   return 0;

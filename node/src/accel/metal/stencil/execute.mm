@@ -18,7 +18,7 @@ namespace rund::node::accel::detail {
 rund::AccelCheck PrepareMetalStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan,
-    const rund::kernel::ComputeDomain domain, const StencilBinds &bindings,
+    const rund::kernel::ComputeDomain domain, const RangeBinds &bindings,
     const RangePlan &range, std::shared_ptr<void> &resources,
     const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
@@ -77,7 +77,7 @@ rund::AccelCheck ExecuteMetalStencil(const rund::AccelDevice &pick,
                                      const rund::kernel::StencilDesc &desc,
                                      const rund::kernel::StencilPlan &plan,
                                      const rund::kernel::ComputeDomain domain,
-                                     const StencilBinds &bindings,
+                                     const RangeBinds &bindings,
                                      const RangePlan &range) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   auto *const adapter = static_cast<MetalAdapter *>(pick.backend.context);

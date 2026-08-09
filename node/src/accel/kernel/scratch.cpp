@@ -182,6 +182,7 @@ scratch_requests(const Operation &operation,
   case rund::kernel::NodeKind::Histogram:
   case rund::kernel::NodeKind::Scatter:
   case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window:
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
   case rund::kernel::NodeKind::Factor:
@@ -521,10 +522,10 @@ KernelScratchPlan PlanKernelScratch(const rund::AccelContext &context,
   std::uint64_t backing_bytes = 0u;
   std::uint64_t payload_bytes = 0u;
   for (const KernelExecutionStep &step : execution.steps) {
-    if (step.operation.kind() == rund::kernel::NodeKind::Stencil) {
+    if (const RangePlan *const range = RangePlanFor(step.operation);
+        range != nullptr) {
       const KernelScratchBatchPlan batch =
-          PlanRangeScratch(step.operation.get<operation::Stencil>().range,
-                           alignment, page_bytes);
+          PlanRangeScratch(*range, alignment, page_bytes);
       if (!batch.ok()) {
         return KernelScratchPlan{.reason = batch.reason()};
       }

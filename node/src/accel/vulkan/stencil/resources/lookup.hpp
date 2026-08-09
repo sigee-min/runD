@@ -17,7 +17,7 @@ struct StencilBufferLookup {
 
 [[nodiscard]] StencilBufferLookup
 LookupStencilBuffers(const rund::AccelDevice &pick,
-                     const StencilBinds &bindings) {
+                     const RangeBinds &bindings) {
   StencilBufferLookup lookup{};
   VulkanResidentReq reqs[] = {
       {bindings.input, bindings.input_handle, &lookup.input},

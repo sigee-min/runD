@@ -6,97 +6,43 @@
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanRangeUpdate(
     Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
-    const bool signed_extrema,
-    const bool shared) noexcept(noexcept(sink.append(std::string_view{}))) {
-  if (shared) {
-    if (op == rund::node::accel::detail::RangeOp::Minimum) {
-      return sink.append(
-          signed_extrema
-              ? (wide ? "      value = min(value, "
-                        "min(int64_t(range_tile[center - step]), "
-                        "int64_t(range_tile[center + step])));\n"
-                      : "      value = min(value, min(int(range_tile[center "
-                        "- step]), int(range_tile[center + step])));\n")
-              : (wide ? "      value = min(value, "
-                        "min(uint64_t(range_tile[center - step]), "
-                        "uint64_t(range_tile[center + step])));\n"
-                      : "      value = min(value, min(range_tile[center - "
-                        "step], range_tile[center + step]));\n"));
-    }
-    if (op == rund::node::accel::detail::RangeOp::Maximum) {
-      return sink.append(
-          signed_extrema
-              ? (wide ? "      value = max(value, "
-                        "max(int64_t(range_tile[center - step]), "
-                        "int64_t(range_tile[center + step])));\n"
-                      : "      value = max(value, max(int(range_tile[center "
-                        "- step]), int(range_tile[center + step])));\n")
-              : (wide ? "      value = max(value, "
-                        "max(uint64_t(range_tile[center - step]), "
-                        "uint64_t(range_tile[center + step])));\n"
-                      : "      value = max(value, max(range_tile[center - "
-                        "step], range_tile[center + step]));\n"));
-    }
-    return sink.append(
-        wide ? "      value += uint64_t(range_tile[center - step]) + "
-               "uint64_t(range_tile[center + step]);\n"
-             : "      value += range_tile[center - step] + "
-               "range_tile[center + step];\n");
-  }
+    const bool saturating) noexcept(noexcept(sink.append(std::string_view{}))) {
+  (void)wide;
   if (op == rund::node::accel::detail::RangeOp::Minimum) {
-    return sink.append(
-        signed_extrema
-            ? (wide ? "    value = min(value, min(int64_t(input_values[left]), "
-                      "int64_t(input_values[right])));\n"
-                    : "    value = min(value, min(int(input_values[left]), "
-                      "int(input_values[right])));\n")
-            : (wide ? "    value = min(value, "
-                      "min(uint64_t(input_values[left]), "
-                      "uint64_t(input_values[right])));\n"
-                    : "    value = min(value, min(input_values[left], "
-                      "input_values[right]));\n"));
+    return sink.append("      value = min(value, item);\n");
   }
   if (op == rund::node::accel::detail::RangeOp::Maximum) {
-    return sink.append(
-        signed_extrema
-            ? (wide ? "    value = max(value, max(int64_t(input_values[left]), "
-                      "int64_t(input_values[right])));\n"
-                    : "    value = max(value, max(int(input_values[left]), "
-                      "int(input_values[right])));\n")
-            : (wide ? "    value = max(value, "
-                      "max(uint64_t(input_values[left]), "
-                      "uint64_t(input_values[right])));\n"
-                    : "    value = max(value, max(input_values[left], "
-                      "input_values[right]));\n"));
+    return sink.append("      value = max(value, item);\n");
   }
-  return sink.append(wide ? "    value += uint64_t(input_values[left]) + "
-                            "uint64_t(input_values[right]);\n"
-                          : "    value += input_values[left] + "
-                            "input_values[right];\n");
+  return sink.append(saturating
+                         ? "      value = rund_range_add_sat(value, item);\n"
+                         : "      value += item;\n");
 }
 
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanRangeSharedBody(
     Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
-    const bool signed_extrema,
+    const bool signed_values, const bool saturating,
     const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
+  const char *const scalar =
+      signed_values ? (wide ? "int64_t" : "int") : (wide ? "uint64_t" : "uint");
   if (!sink.append(R"glsl(  const uint64_t active_lanes =
-      group_base >= params.element_count
+      group_base >= params.input_count
           ? uint64_t(0)
-          : min(params.element_count - group_base, uint64_t()glsl") ||
+          : min(params.input_count - group_base, uint64_t()glsl") ||
       !backend_source_recipe::append_decimal(sink, shape.width()) ||
       !sink.append(R"glsl());
     const uint64_t group_end = group_base + active_lanes;
-    const uint left_inputs = uint(min(group_base, params.radius));
-    const uint right_inputs = group_end >= params.element_count
+    const uint left_inputs = uint(min(group_base, params.padding));
+    const uint right_inputs = group_end >= params.input_count
                                   ? 0u
-                                  : uint(min(params.element_count - group_end,
-                                             params.radius));
+                                  : uint(min(params.input_count - group_end,
+                                             params.padding));
     if (uint64_t(lane) < active_lanes) {
       const )glsl") ||
-      !sink.append(wide ? "uint64_t" : "uint") ||
+      !sink.append(scalar) ||
       !sink.append(
           R"glsl( center_value = input_values[uint(group_base + uint64_t(lane))];
       range_tile[)glsl") ||
@@ -104,15 +50,15 @@ template <typename Sink>
                                              shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u + lane] = center_value;
       if (left_inputs == 0u && lane == 0u) {
-        for (uint slot = 0u; uint64_t(slot) < params.radius; ++slot) {
+        for (uint slot = 0u; uint64_t(slot) < params.padding; ++slot) {
           range_tile[)glsl") ||
       !backend_source_recipe::append_decimal(sink,
                                              shape.shared_radius_capacity()) ||
-      !sink.append(R"glsl(u - uint(params.radius) + slot] = center_value;
+      !sink.append(R"glsl(u - uint(params.padding) + slot] = center_value;
         }
       }
       if (right_inputs == 0u && uint64_t(lane) + uint64_t(1) == active_lanes) {
-        for (uint slot = 0u; uint64_t(slot) < params.radius; ++slot) {
+        for (uint slot = 0u; uint64_t(slot) < params.padding; ++slot) {
           range_tile[)glsl") ||
       !backend_source_recipe::append_decimal(sink,
                                              shape.shared_radius_capacity()) ||
@@ -122,34 +68,34 @@ template <typename Sink>
     }
     if (lane < left_inputs) {
       const )glsl") ||
-      !sink.append(wide ? "uint64_t" : "uint") ||
+      !sink.append(scalar) ||
       !sink.append(
           R"glsl( left_value = input_values[uint(group_base - uint64_t(left_inputs) + uint64_t(lane))];
       range_tile[)glsl") ||
       !backend_source_recipe::append_decimal(sink,
                                              shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u - left_inputs + lane] = left_value;
-      if (lane == 0u && uint64_t(left_inputs) < params.radius) {
+      if (lane == 0u && uint64_t(left_inputs) < params.padding) {
         for (uint slot = 0u;
-             uint64_t(slot) < params.radius - uint64_t(left_inputs); ++slot) {
+             uint64_t(slot) < params.padding - uint64_t(left_inputs); ++slot) {
           range_tile[)glsl") ||
       !backend_source_recipe::append_decimal(sink,
                                              shape.shared_radius_capacity()) ||
-      !sink.append(R"glsl(u - uint(params.radius) + slot] = left_value;
+      !sink.append(R"glsl(u - uint(params.padding) + slot] = left_value;
         }
       }
     }
     if (lane < right_inputs) {
       const )glsl") ||
-      !sink.append(wide ? "uint64_t" : "uint") ||
+      !sink.append(scalar) ||
       !sink.append(
           R"glsl( right_value = input_values[uint(group_end + uint64_t(lane))];
       range_tile[)glsl") ||
       !backend_source_recipe::append_decimal(sink,
                                              shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + lane] = right_value;
-      if (lane + 1u == right_inputs && uint64_t(right_inputs) < params.radius) {
-        for (uint slot = right_inputs; uint64_t(slot) < params.radius; ++slot) {
+      if (lane + 1u == right_inputs && uint64_t(right_inputs) < params.padding) {
+        for (uint slot = right_inputs; uint64_t(slot) < params.padding; ++slot) {
           range_tile[)glsl") ||
       !backend_source_recipe::append_decimal(sink,
                                              shape.shared_radius_capacity()) ||
@@ -165,19 +111,17 @@ template <typename Sink>
                                              shape.shared_radius_capacity()) ||
       !sink.append("u + lane;\n") ||
       !sink.append(
-          signed_extrema
-              ? (wide ? "    int64_t value = int64_t(range_tile[center]);\n"
-                      : "    int value = int(range_tile[center]);\n")
-              : (wide ? "    uint64_t value = "
-                        "uint64_t(range_tile[center]);\n"
-                      : "    uint value = range_tile[center];\n")) ||
+          "    const uint first = center - uint(params.padding);\n    ") ||
+      !sink.append(scalar) || !sink.append(" value = range_tile[first];\n") ||
       !sink.append(
-          R"glsl(    for (uint step = 1u; uint64_t(step) <= params.radius; ++step) {
+          R"glsl(    for (uint64_t slot = uint64_t(1); slot < params.window_size; ++slot) {
+      const )glsl") ||
+      !sink.append(scalar) ||
+      !sink.append(R"glsl( item = range_tile[first + uint(slot)];
 )glsl") ||
-      !EmitVulkanRangeUpdate(sink, op, wide, signed_extrema, true) ||
-      !sink.append("    }\n    output_values[gid] = ") ||
-      !sink.append(wide ? "uint64_t(value)" : "uint(value)") ||
-      !sink.append(R"glsl(;
+      !EmitVulkanRangeUpdate(sink, op, wide, saturating) ||
+      !sink.append(R"glsl(    }
+    output_values[gid] = value;
 }
 )glsl")) {
     return false;
@@ -188,30 +132,75 @@ template <typename Sink>
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanRangeDirectBody(
     Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
-    const bool
-        signed_extrema) noexcept(noexcept(sink.append(std::string_view{}))) {
+    const bool signed_values, const bool saturating,
+    const rund::node::accel::detail::RangeBoundary
+        boundary) noexcept(noexcept(sink.append(std::string_view{}))) {
+  using namespace rund::node::accel::detail;
+  const char *const scalar =
+      signed_values ? (wide ? "int64_t" : "int") : (wide ? "uint64_t" : "uint");
   if (!sink.append(R"glsl(  const uint gid = uint(group_base + uint64_t(lane));
-  if (uint64_t(gid) >= params.element_count) { return; }
+  if (uint64_t(gid) >= params.output_count) { return; }
+  const uint64_t anchor = uint64_t(gid) * params.stride;
 )glsl") ||
-      !sink.append(
-          signed_extrema
-              ? (wide ? "  int64_t value = int64_t(input_values[gid]);\n"
-                      : "  int value = int(input_values[gid]);\n")
-              : (wide ? "  uint64_t value = uint64_t(input_values[gid]);\n"
-                      : "  uint value = input_values[gid];\n")) ||
-      !sink.append(
-          R"glsl(  for (uint64_t step = uint64_t(1); step <= params.radius; ++step) {
-    const uint left = uint64_t(gid) < step ? 0u : uint(uint64_t(gid) - step);
-    const uint right = uint64_t(gid) + step >= params.element_count ? uint(params.element_count - uint64_t(1)) : uint(uint64_t(gid) + step);
+      !sink.append("  ") || !sink.append(scalar) || !sink.append(" value = ") ||
+      !sink.append(scalar) || !sink.append(R"glsl((0);
+  bool seeded = false;
+  for (uint64_t slot = uint64_t(0); slot < params.window_size; ++slot) {
+    uint64_t input_index = uint64_t(0);
+    bool valid = true;
+    if (slot < params.padding) {
+      const uint64_t delta = params.padding - slot;
+      if (anchor < delta) {
 )glsl")) {
     return false;
   }
-  if (!EmitVulkanRangeUpdate(sink, op, wide, signed_extrema, false)) {
+  if (!sink.append(boundary == RangeBoundary::Clamp
+                       ? "        input_index = uint64_t(0);\n"
+                       : "        valid = false;\n") ||
+      !sink.append(R"glsl(      } else {
+        input_index = anchor - delta;
+)glsl") ||
+      !sink.append(boundary == RangeBoundary::Clamp
+                       ? R"glsl(        if (input_index >= params.input_count) {
+          input_index = params.input_count - uint64_t(1);
+        }
+)glsl"
+                       : R"glsl(        if (input_index >= params.input_count) {
+          valid = false;
+        }
+)glsl") ||
+      !sink.append(R"glsl(      }
+    } else {
+      const uint64_t delta = slot - params.padding;
+      if (anchor >= params.input_count ||
+          delta >= params.input_count - anchor) {
+)glsl") ||
+      !sink.append(
+          boundary == RangeBoundary::Clamp
+              ? "        input_index = params.input_count - uint64_t(1);\n"
+              : "        valid = false;\n") ||
+      !sink.append(R"glsl(      } else {
+        input_index = anchor + delta;
+      }
+    }
+    if (!valid) { continue; }
+    const )glsl") ||
+      !sink.append(scalar) ||
+      !sink.append(R"glsl( item = input_values[uint(input_index)];
+    if (!seeded) {
+      value = item;
+      seeded = true;
+    } else {
+)glsl") ||
+      !EmitVulkanRangeUpdate(sink, op, wide, saturating) ||
+      !sink.append(R"glsl(    }
+  }
+  output_values[gid] = value;
+}
+)glsl")) {
     return false;
   }
-  return sink.append("  }\n  output_values[gid] = ") &&
-         sink.append(wide ? "uint64_t(value)" : "uint(value)") &&
-         sink.append(";\n}\n");
+  return true;
 }
 
 [[nodiscard]] constexpr std::uint32_t VulkanRangeStageValue(
@@ -222,6 +211,7 @@ template <typename Sink>
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanPrefixDifferenceBody(
     Sink &sink, const bool wide,
+    const rund::node::accel::detail::RangeBoundary boundary,
     const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
@@ -301,28 +291,47 @@ template <typename Sink>
     return;
   }
   const uint64_t index = group_base + uint64_t(lane);
-  if (index >= params.element_count) { return; }
-  const uint64_t left = index < params.radius ? uint64_t(0)
-                                                : index - params.radius;
-  const uint64_t right = min(params.element_count - uint64_t(1),
-                             index + params.radius);
+  if (index >= params.output_count) { return; }
+  const uint64_t anchor = index * params.stride;
+  const uint64_t left = anchor < params.padding ? uint64_t(0)
+                                                 : anchor - params.padding;
+  const uint64_t right_width = params.window_size - params.padding;
+  const uint64_t right =
+      anchor >= params.input_count
+          ? params.input_count - uint64_t(1)
+          : (right_width >= params.input_count - anchor
+                 ? params.input_count - uint64_t(1)
+                 : anchor + right_width - uint64_t(1));
   )glsl") ||
       !sink.append(scalar) ||
       !sink.append(R"glsl( value = scratch0_values[uint(right)];
   if (left != uint64_t(0)) { value -= scratch0_values[uint(left - uint64_t(1))]; }
-  if (index < params.radius) {
-    value += )glsl") ||
-      !sink.append(scalar) ||
-      !sink.append(R"glsl((params.radius - index) * input_values[0u];
+  )glsl")) {
+    return false;
   }
-  if (index + params.radius >= params.element_count) {
+  if (boundary == RangeBoundary::Clamp &&
+      (!sink.append(R"glsl(  const uint64_t left_missing =
+      anchor < params.padding ? params.padding - anchor : uint64_t(0);
+  const uint64_t right_missing =
+      anchor >= params.input_count
+          ? anchor - params.input_count + right_width
+          : (right_width > params.input_count - anchor
+                 ? right_width - (params.input_count - anchor)
+                 : uint64_t(0));
+  if (left_missing != uint64_t(0)) {
     value += )glsl") ||
-      !sink.append(scalar) ||
-      !sink.append(
-          R"glsl((index + params.radius - (params.element_count - uint64_t(1))) *
-             input_values[uint(params.element_count - uint64_t(1))];
+       !sink.append(scalar) ||
+       !sink.append(R"glsl((left_missing * input_values[0u]);
   }
-  output_values[uint(index)] = value;
+  if (right_missing != uint64_t(0)) {
+    value += )glsl") ||
+       !sink.append(scalar) || !sink.append(R"glsl((right_missing *
+             input_values[uint(params.input_count - uint64_t(1))]);
+  }
+)glsl"))) {
+    return false;
+  }
+  if (!sink.append(R"glsl(  output_values[uint(index)] = value;
 }
 )glsl")) {
     return false;
@@ -333,11 +342,22 @@ template <typename Sink>
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanBlockPrefixSuffixBody(
     Sink &sink, const rund::node::accel::detail::RangeOp op,
+    const rund::node::accel::detail::RangeBoundary boundary, const bool wide,
+    const bool signed_values,
     const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   const char *const combine =
       op == rund::node::accel::detail::RangeOp::Minimum ? "min" : "max";
+  const char *const identity =
+      op == RangeOp::Minimum
+          ? (signed_values
+                 ? (wide ? "int64_t(0x7fffffffffffffffUL)" : "2147483647")
+                 : (wide ? "uint64_t(0xffffffffffffffffUL)" : "0xffffffffu"))
+          : (signed_values
+                 ? (wide ? "(-int64_t(0x7fffffffffffffffUL) - int64_t(1))"
+                         : "(-2147483647 - 1)")
+                 : (wide ? "uint64_t(0)" : "0u"));
   if (!sink.append(R"glsl(void main() {
   const uint64_t block = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
       !backend_source_recipe::append_decimal(sink, shape.width()) ||
@@ -347,15 +367,22 @@ template <typename Sink>
           sink, VulkanRangeStageValue(RangeStageKind::BlockPrefixSuffix)) ||
       !sink.append(R"glsl(u) {
     if (block >= params.stage_aux_count) { return; }
-    const uint64_t window = params.radius * uint64_t(2) + uint64_t(1);
+    const uint64_t window = params.window_size;
     const uint64_t begin = block * window;
     const uint64_t end = min(begin + window, params.stage_element_count);
     for (uint64_t index = begin; index < end; ++index) {
-      const value_type value = index < params.radius
-          ? input_values[0u]
-          : (index - params.radius < params.element_count
-                 ? input_values[uint(index - params.radius)]
-                 : input_values[uint(params.element_count - uint64_t(1))]);
+      const value_type value = index < params.padding
+          ? )glsl") ||
+      !sink.append(boundary == RangeBoundary::Clamp ? "input_values[0u]"
+                                                    : identity) ||
+      !sink.append(R"glsl(
+          : (index - params.padding < params.input_count
+                 ? input_values[uint(index - params.padding)]
+                 : )glsl") ||
+      !sink.append(boundary == RangeBoundary::Clamp
+                       ? "input_values[uint(params.input_count - uint64_t(1))]"
+                       : identity) ||
+      !sink.append(R"glsl();
       if (index == begin) { scratch0_values[uint(index)] = value; }
       else { scratch0_values[uint(index)] = )glsl") ||
       !sink.append(combine) ||
@@ -363,11 +390,18 @@ template <typename Sink>
     }
     for (uint64_t cursor = end; cursor > begin;) {
       const uint64_t index = cursor - uint64_t(1);
-      const value_type value = index < params.radius
-          ? input_values[0u]
-          : (index - params.radius < params.element_count
-                 ? input_values[uint(index - params.radius)]
-                 : input_values[uint(params.element_count - uint64_t(1))]);
+      const value_type value = index < params.padding
+          ? )glsl") ||
+      !sink.append(boundary == RangeBoundary::Clamp ? "input_values[0u]"
+                                                    : identity) ||
+      !sink.append(R"glsl(
+          : (index - params.padding < params.input_count
+                 ? input_values[uint(index - params.padding)]
+                 : )glsl") ||
+      !sink.append(boundary == RangeBoundary::Clamp
+                       ? "input_values[uint(params.input_count - uint64_t(1))]"
+                       : identity) ||
+      !sink.append(R"glsl();
       if (index + uint64_t(1) == end) { scratch1_values[uint(index)] = value; }
       else { scratch1_values[uint(index)] = )glsl") ||
       !sink.append(combine) ||
@@ -376,12 +410,13 @@ template <typename Sink>
     }
     return;
   }
-  if (block >= params.element_count) { return; }
-  const uint64_t right = block + params.radius * uint64_t(2);
+  if (block >= params.output_count) { return; }
+  const uint64_t left = block * params.stride;
+  const uint64_t right = left + params.window_size - uint64_t(1);
   output_values[uint(block)] = )glsl") ||
       !sink.append(combine) ||
       !sink.append(
-          R"glsl((scratch1_values[uint(block)], scratch0_values[uint(right)]);
+          R"glsl((scratch1_values[uint(left)], scratch0_values[uint(right)]);
 }
 )glsl")) {
     return false;
@@ -392,7 +427,8 @@ template <typename Sink>
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanRangeBody(
     Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
-    const bool signed_extrema,
+    const bool signed_values, const bool saturating,
+    const rund::node::accel::detail::RangeBoundary boundary,
     const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
@@ -404,7 +440,9 @@ template <typename Sink>
     return false;
   }
   if (shape.uses_shared_halo()) {
-    return EmitVulkanRangeSharedBody(sink, op, wide, signed_extrema, shape);
+    return EmitVulkanRangeSharedBody(sink, op, wide, signed_values, saturating,
+                                     shape);
   }
-  return EmitVulkanRangeDirectBody(sink, op, wide, signed_extrema);
+  return EmitVulkanRangeDirectBody(sink, op, wide, signed_values, saturating,
+                                   boundary);
 }

@@ -55,6 +55,7 @@ enum class Operation : unsigned char {
   Solve,
   Spectrum,
   ScatterReduce,
+  Window,
 };
 
 struct Resource final {

@@ -13,7 +13,7 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 [[nodiscard]] inline rund::AccelCheck
 LookupMetalStencilResidentBuffers(const rund::AccelDevice &pick,
-                                  const StencilBinds &bindings,
+                                  const RangeBinds &bindings,
                                   std::optional<MetalRangeBinds> &out) {
   out.reset();
   MetalResidentBufferResult input{};

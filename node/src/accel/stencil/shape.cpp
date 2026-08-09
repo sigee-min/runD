@@ -4,7 +4,7 @@ namespace rund::node::accel::detail {
 
 bool StencilShapeOk(const rund::kernel::StencilDesc &desc,
                     const rund::kernel::StencilPlan &plan,
-                    const StencilBinds &bindings) noexcept {
+                    const RangeBinds &bindings) noexcept {
   if (!rund::kernel::StencilPlanMatchesDesc(desc, plan) ||
       bindings.input_handle == nullptr || bindings.output_handle == nullptr) {
     return false;

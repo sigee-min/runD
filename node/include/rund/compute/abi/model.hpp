@@ -193,6 +193,7 @@ enum class Primitive : unsigned char {
   Solve,
   Spectrum,
   ScatterReduce,
+  Window,
 };
 
 [[nodiscard]] constexpr Reason

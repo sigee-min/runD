@@ -53,8 +53,8 @@ Reset(const BackendRun &run, const std::size_t step, std::size_t &cursor) {
                     static_cast<std::size_t>(range.element()));
       }
     }
-    bytes = ::rund::detail::counter::SaturatingAdd(
-        bytes, reset::Payload(range));
+    bytes =
+        ::rund::detail::counter::SaturatingAdd(bytes, reset::Payload(range));
     ++cursor;
   }
   if (cursor == begin) {
@@ -184,12 +184,19 @@ Reset(const BackendRun &run, const std::size_t step, std::size_t &cursor) {
   }
   case rund::kernel::NodeKind::Stencil: {
     const auto &active = step.operation.get<operation::Stencil>();
-    const StencilBinds *const source = BindingsFor<StencilBinds>(bound);
+    const RangeBinds *const source = BindingsFor<RangeBinds>(bound);
     if (source == nullptr) {
       return Invalid();
     }
     return ExecuteCpuStencil(pick, active.desc, active.plan, planned.domain,
                              *source);
+  }
+  case rund::kernel::NodeKind::Window: {
+    const auto &active = step.operation.get<operation::Window>();
+    const RangeBinds *const source = BindingsFor<RangeBinds>(bound);
+    return source == nullptr ? Invalid()
+                             : ExecuteCpuWindow(pick, active.desc, active.plan,
+                                                active.range, *source);
   }
   case rund::kernel::NodeKind::Transform: {
     const auto &active = step.operation.get<operation::Transform>();

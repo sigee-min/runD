@@ -3,7 +3,7 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include "../kernel/bindings/stencil.hpp"
+#include "../kernel/bindings/range.hpp"
 #include "../range_aggregate/model.hpp"
 #include <kernel/program/compute/stencil/model.hpp>
 
@@ -17,11 +17,11 @@ struct MetalKernelImmutablePipelines;
 [[nodiscard]] rund::AccelCheck ExecuteMetalStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings, const RangePlan &range);
+    const RangeBinds &bindings, const RangePlan &range);
 [[nodiscard]] rund::AccelCheck PrepareMetalStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings, const RangePlan &range,
+    const RangeBinds &bindings, const RangePlan &range,
     std::shared_ptr<void> &resources,
     const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck

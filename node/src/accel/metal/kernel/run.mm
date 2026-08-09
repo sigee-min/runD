@@ -109,7 +109,8 @@ AddAlignedMetalParameterBytes(std::uint64_t &target,
     out = 8u;
     break;
   case rund::kernel::NodeKind::Stencil:
-    out = RangeDescriptorCount(step.operation.get<operation::Stencil>().range);
+  case rund::kernel::NodeKind::Window:
+    out = RangeDescriptorCount(*RangePlanFor(step.operation));
     break;
   case rund::kernel::NodeKind::Transform:
     out = 6u;
@@ -224,6 +225,7 @@ PlanMetalStepControlShape(const KernelExecutionStep &step,
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
   case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window:
     break;
   case rund::kernel::NodeKind::Factor:
     valid = status(
@@ -419,13 +421,13 @@ MetalSegmentedReducePipelineSourceRecipe(
 }
 
 [[nodiscard]] MetalPipelineSourceRecipe
-MetalRangeSourceRecipe(const operation::Stencil &active) noexcept {
-  const std::optional<RangeExec> execution = RangeExec::from(active.range);
+MetalRangeSourceRecipe(const RangePlan &range) noexcept {
+  const std::optional<RangeExec> execution = RangeExec::from(range);
   std::uint64_t raw_upper = 0u;
   return execution.has_value() &&
                  MetalRangeSourceUpperBytes(*execution, raw_upper)
-             ? MetalSourceRecipe(0x6d6574616c73746eull, raw_upper, 4u,
-                                 active.range.stage_count())
+             ? MetalSourceRecipe(0x6d6574616c726e67ull, raw_upper, 4u,
+                                 range.stage_count())
              : MetalPipelineSourceRecipe{};
 }
 
@@ -554,6 +556,7 @@ MetalNumericPipelineSourceRecipe() noexcept {
     route = sizeof(MetalScatterReduceResources);
     break;
   case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window:
     route = sizeof(MetalRangeResources);
     break;
   case rund::kernel::NodeKind::Transform:
@@ -766,14 +769,15 @@ PreparedBackendManifest BuildMetalBackendManifest(
     }
     break;
   case rund::kernel::NodeKind::Stencil:
-    dimensions(1u, step.operation.get<operation::Stencil>().range.stage_count(),
-               1u);
-    if (!AddMetalPipelineSourceRecipe(
-            manifest,
-            MetalRangeSourceRecipe(step.operation.get<operation::Stencil>()))) {
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan &range = *RangePlanFor(step.operation);
+    dimensions(1u, range.stage_count(), 1u);
+    if (!AddMetalPipelineSourceRecipe(manifest,
+                                      MetalRangeSourceRecipe(range))) {
       return manifest;
     }
     break;
+  }
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
   case rund::kernel::NodeKind::Factor:

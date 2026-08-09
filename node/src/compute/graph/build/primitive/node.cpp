@@ -192,6 +192,29 @@ rund::AccelGraphNode make_node(const Primitive primitive,
                                   .radius = options.first,
                               });
   }
+  case Primitive::Window: {
+    const auto operation = window_op(options.mode);
+    const auto boundary = window_boundary(options.extra);
+    if (!operation || !boundary) {
+      return {};
+    }
+    return rund::AccelWindow(
+        nullptr, 0,
+        kernel::WindowDesc{
+            .op = *operation,
+            .element =
+                wide ? kernel::WindowElement::U64 : kernel::WindowElement::U32,
+            .boundary = *boundary,
+            .domain = domain,
+            .fixed_format =
+                fixed ? exact_primitive_format : kernel::ComputeFixedFormat{},
+            .input_count = count,
+            .output_count = options.fourth,
+            .window_size = options.first,
+            .stride = options.second,
+            .pad_left = options.third,
+        });
+  }
   case Primitive::Transform: {
     const auto direction = transform_direction(options.mode);
     if (!direction) {

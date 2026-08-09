@@ -43,6 +43,29 @@ std::optional<kernel::StencilOp> stencil_op(const std::uint32_t mode) noexcept {
   return std::nullopt;
 }
 
+std::optional<kernel::WindowOp> window_op(const std::uint32_t mode) noexcept {
+  switch (static_cast<Window>(mode)) {
+  case Window::Sum:
+    return kernel::WindowOp::Sum;
+  case Window::Min:
+    return kernel::WindowOp::Min;
+  case Window::Max:
+    return kernel::WindowOp::Max;
+  }
+  return std::nullopt;
+}
+
+std::optional<kernel::WindowBoundary>
+window_boundary(const std::uint32_t edge) noexcept {
+  switch (static_cast<WindowEdge>(edge)) {
+  case WindowEdge::Clamp:
+    return kernel::WindowBoundary::Clamp;
+  case WindowEdge::Clip:
+    return kernel::WindowBoundary::Clip;
+  }
+  return std::nullopt;
+}
+
 std::optional<kernel::FactorOp> factor_op(const std::uint32_t mode) noexcept {
   switch (static_cast<FactorOp>(mode)) {
   case FactorOp::Lu:
@@ -132,6 +155,13 @@ const char *unsupported(const Primitive primitive,
   case Primitive::Stencil:
     return stencil_op(options.mode) ? nullptr
                                     : "compute_stencil_op_unsupported";
+  case Primitive::Window:
+    if (!window_op(options.mode)) {
+      return "compute_window_op_unsupported";
+    }
+    return window_boundary(options.extra)
+               ? nullptr
+               : "compute_window_boundary_unsupported";
   case Primitive::Transform:
     return transform_direction(options.mode)
                ? nullptr

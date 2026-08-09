@@ -245,6 +245,13 @@ public:
     detail::flow_pick(state_, next.value_);
     return std::move(*this);
   }
+  [[nodiscard]] Flow &&pool(const PoolSpec options) && {
+    auto next =
+        StageRef<R, stage::Exact>{state_, detail::flow_value(state_)}.pool(
+            options);
+    detail::flow_pick(state_, next.value_);
+    return std::move(*this);
+  }
   [[nodiscard]] Flow<R(A...), stage::Matrix<>>
   matrix(const MatrixShape shape) && {
     detail::flow_matrix_view(state_, shape.rows, shape.cols, shape.batches);

@@ -394,6 +394,7 @@ PlanVulkanStepStructure(const KernelExecutionStep &step,
     route = sizeof(VulkanScatterReduceResources);
     break;
   case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window:
     route = sizeof(VulkanRangeResources);
     break;
   case rund::kernel::NodeKind::Transform:
@@ -711,6 +712,7 @@ VulkanBackendShape(const std::uint64_t alignment,
     manifest.telemetry_source_count = controlled ? 1u : 0u;
     break;
   case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window:
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
     break;
@@ -1187,16 +1189,17 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
     }
     break;
   }
-  case rund::kernel::NodeKind::Stencil: {
-    const auto &active = step.operation.get<operation::Stencil>();
-    const std::optional<RangeExec> execution = RangeExec::from(active.range);
+  case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan &range = *RangePlanFor(step.operation);
+    const std::optional<RangeExec> execution = RangeExec::from(range);
     if (!execution.has_value()) {
       return manifest;
     }
-    const std::uint64_t stage_count = active.range.stage_count();
+    const std::uint64_t stage_count = range.stage_count();
     const std::uint32_t descriptor_count = execution->descriptor_count();
     std::uint64_t descriptor_bindings = 0u;
-    if (!active.range.ok() || stage_count == 0u ||
+    if (!range.ok() || stage_count == 0u ||
         !rund::kernel::checked::mul(stage_count, descriptor_count,
                                     descriptor_bindings)) {
       return manifest;
@@ -1213,7 +1216,7 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
     if (!VulkanRangeSourceBytes(*execution, source_bytes) ||
         !AddPreparedBackendCacheDependency(
             manifest, PreparedBackendCacheDependency{
-                          .source_recipe = 0x76756c6b2e737465ull,
+                          .source_recipe = 0x76756c6b2e726e67ull,
                           .source_upper_bytes = source_bytes,
                           .pipeline_stage_count = stage_count,
                       })) {

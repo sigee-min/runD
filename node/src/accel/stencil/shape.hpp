@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../kernel/bindings/stencil.hpp"
+#include "../kernel/bindings/range.hpp"
 #include "../primitive/shape.hpp"
 #include "../range_aggregate/execution.hpp"
 
@@ -70,6 +70,6 @@ StencilRangePlanMatches(const rund::kernel::StencilPlan &semantic,
 
 [[nodiscard]] bool StencilShapeOk(const rund::kernel::StencilDesc &desc,
                                   const rund::kernel::StencilPlan &plan,
-                                  const StencilBinds &bindings) noexcept;
+                                  const RangeBinds &bindings) noexcept;
 
 } // namespace rund::node::accel::detail

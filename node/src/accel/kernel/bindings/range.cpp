@@ -1,11 +1,11 @@
 #include "local.hpp"
 
 #include "../../context/internal.hpp"
+
 namespace rund::node::accel::detail {
 
-bool BuildStencilBinds(const KernelExecutionStep& step,
-                       const RunBinds& run_binds,
-                       StencilBinds& out) {
+bool BuildRangeBinds(const KernelExecutionStep &step, const RunBinds &run_binds,
+                     RangeBinds &out) {
   if (!step.graph_binding_indices_ok ||
       step.graph_binding_indices.size() != 2u) {
     return false;
@@ -21,4 +21,4 @@ bool BuildStencilBinds(const KernelExecutionStep& step,
   return BindingReady(out.input_handle) && BindingReady(out.output_handle);
 }
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

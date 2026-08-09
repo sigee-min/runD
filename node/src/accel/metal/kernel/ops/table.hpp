@@ -80,6 +80,8 @@ MetalKernelOpsFor(const rund::kernel::NodeKind kind) noexcept {
             DescribeMetalScatterReducePipelineStatus};
   case rund::kernel::NodeKind::Stencil:
     return {PrepareMetalStencilStep, EncodeMetalStencil, FinishMetalStencil};
+  case rund::kernel::NodeKind::Window:
+    return {PrepareMetalWindowStep, EncodeMetalWindow, FinishMetalWindow};
   default:
     return MetalNumericOpsFor(kind);
   }

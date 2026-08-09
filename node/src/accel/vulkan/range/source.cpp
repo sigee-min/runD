@@ -39,20 +39,21 @@ EmitVulkanRangeSource(Sink &sink, const RangeExec &execution) noexcept(
   const bool range_scratch = candidate == RangePath::PrefixDifference ||
                              candidate == RangePath::BlockPrefixSuffix;
   const bool wide = execution.wide_elements();
-  const bool signed_extrema = execution.signed_extrema();
+  const bool signed_values = execution.signed_values();
   const RangeGpuShape shape = execution.shape();
   const char *const scalar =
-      candidate == RangePath::BlockPrefixSuffix && signed_extrema
-          ? (wide ? "int64_t" : "int")
-          : (wide ? "uint64_t" : "uint");
+      signed_values ? (wide ? "int64_t" : "int") : (wide ? "uint64_t" : "uint");
   if (!sink.append(R"glsl(#version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = )glsl") ||
       !backend_source_recipe::append_decimal(sink, shape.width()) ||
       !sink.append(R"glsl() in;
 layout(set = 0, binding = 0, std430) readonly buffer Params {
-  uint64_t element_count;
-  uint64_t radius;
+  uint64_t input_count;
+  uint64_t output_count;
+  uint64_t window_size;
+  uint64_t stride;
+  uint64_t padding;
   uint64_t stage_element_count;
   uint64_t stage_aux_count;
   uint stage;
@@ -94,22 +95,48 @@ layout(set = 0, binding = 4, std430) buffer Scratch1 {
     return false;
   }
   if (shape.uses_shared_halo() &&
-      (!sink.append("shared ") || !sink.append(wide ? "uint64_t" : "uint") ||
+      (!sink.append("shared ") || !sink.append(scalar) ||
        !sink.append(" range_tile[") ||
        !backend_source_recipe::append_decimal(
            sink, shape.shared_element_capacity()) ||
        !sink.append("];\n"))) {
     return false;
   }
+  if (execution.saturating_sum() &&
+      !sink.append(
+          R"glsl(int rund_range_add_sat(const int left, const int right) {
+  if (right > 0 && left > 2147483647 - right) { return 2147483647; }
+  if (right < 0 && left < (-2147483647 - 1) - right) {
+    return (-2147483647 - 1);
+  }
+  return left + right;
+}
+
+int64_t rund_range_add_sat(const int64_t left, const int64_t right) {
+  const int64_t maximum = int64_t(0x7fffffffffffffffUL);
+  const int64_t minimum = -maximum - int64_t(1);
+  if (right > int64_t(0) && left > maximum - right) { return maximum; }
+  if (right < int64_t(0) && left < minimum - right) { return minimum; }
+  return left + right;
+}
+
+)glsl")) {
+    return false;
+  }
   if (candidate == RangePath::PrefixDifference) {
     return op == RangeOp::Sum &&
-           EmitVulkanPrefixDifferenceBody(sink, wide, shape);
+           EmitVulkanPrefixDifferenceBody(
+               sink, wide, execution.plan().shape().boundary(), shape);
   }
   if (candidate == RangePath::BlockPrefixSuffix) {
     return op != RangeOp::Sum &&
-           EmitVulkanBlockPrefixSuffixBody(sink, op, shape);
+           EmitVulkanBlockPrefixSuffixBody(sink, op,
+                                           execution.plan().shape().boundary(),
+                                           wide, signed_values, shape);
   }
-  return EmitVulkanRangeBody(sink, op, wide, signed_extrema, shape);
+  return EmitVulkanRangeBody(sink, op, wide, signed_values,
+                             execution.saturating_sum(),
+                             execution.plan().shape().boundary(), shape);
 }
 
 } // namespace

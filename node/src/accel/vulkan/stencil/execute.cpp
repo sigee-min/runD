@@ -14,7 +14,7 @@ namespace rund::node::accel::detail {
 rund::AccelCheck PrepareVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan,
-    const rund::kernel::ComputeDomain domain, const StencilBinds &bindings,
+    const rund::kernel::ComputeDomain domain, const RangeBinds &bindings,
     const RangePlan &range, std::shared_ptr<void> &resources,
     const VulkanKernelImmutablePipelines *const pipelines) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
@@ -86,7 +86,7 @@ rund::AccelCheck ExecuteVulkanStencil(const rund::AccelDevice &pick,
                                       const rund::kernel::StencilDesc &desc,
                                       const rund::kernel::StencilPlan &plan,
                                       const rund::kernel::ComputeDomain domain,
-                                      const StencilBinds &bindings,
+                                      const RangeBinds &bindings,
                                       const RangePlan &range) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   return ExecuteVulkanDomainCollective(
@@ -95,7 +95,7 @@ rund::AccelCheck ExecuteVulkanStencil(const rund::AccelDevice &pick,
                const rund::kernel::StencilDesc &operation,
                const rund::kernel::StencilPlan &prepared,
                const rund::kernel::ComputeDomain active_domain,
-               const StencilBinds &resident, std::shared_ptr<void> &resources) {
+               const RangeBinds &resident, std::shared_ptr<void> &resources) {
         return PrepareVulkanStencil(device, operation, prepared, active_domain,
                                     resident, range, resources, nullptr);
       },

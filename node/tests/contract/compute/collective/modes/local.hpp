@@ -18,6 +18,9 @@ struct Hash final {
 struct DomainEvidence final {
   Hash modes{};
   Hash clip{};
+  Hash large_window{};
+  Hash pool{};
+  Hash pool_wrap{};
   Hash extrema{};
   Hash bounded{};
   Hash bounded_window{};

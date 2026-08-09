@@ -223,7 +223,8 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
     frozen->count = 3u;
     break;
   }
-  case rund::kernel::NodeKind::Stencil: {
+  case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window: {
     const auto *const raw =
         MetalPrimitiveResource<MetalRangeResources>(resource);
     if (raw == nullptr || raw->stage_count == 0u ||

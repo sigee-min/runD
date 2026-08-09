@@ -11,7 +11,7 @@ rund::AccelCheck ExecuteCpuStencil(const rund::AccelDevice &pick,
                                    const rund::kernel::StencilDesc &desc,
                                    const rund::kernel::StencilPlan &plan,
                                    const rund::kernel::ComputeDomain domain,
-                                   const StencilBinds &bindings) {
+                                   const RangeBinds &bindings) {
   if (!pick.check.ok || !StencilShapeOk(desc, plan, bindings)) {
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }

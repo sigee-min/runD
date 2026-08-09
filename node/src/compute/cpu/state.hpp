@@ -320,6 +320,11 @@ template <class Lane> struct CpuSpectrumSvdVectorsScratch final {
   std::span<kernel::u64> order;
 };
 
+template <class Lane> struct CpuRangeScratch final {
+  std::span<Lane> first;
+  std::span<Lane> second;
+};
+
 using CpuPrimitiveScratch = std::variant<
     std::monostate, CpuSortPrimitiveScratch<kernel::u32> *,
     CpuSortPrimitiveScratch<kernel::u64> *, CpuScatterPrimitiveScratch *,
@@ -337,7 +342,9 @@ using CpuPrimitiveScratch = std::variant<
     CpuSpectrumSvdValuesScratch<kernel::i32> *,
     CpuSpectrumSvdValuesScratch<kernel::i64> *,
     CpuSpectrumSvdVectorsScratch<kernel::i32> *,
-    CpuSpectrumSvdVectorsScratch<kernel::i64> *>;
+    CpuSpectrumSvdVectorsScratch<kernel::i64> *, CpuRangeScratch<kernel::i32> *,
+    CpuRangeScratch<kernel::u32> *, CpuRangeScratch<kernel::i64> *,
+    CpuRangeScratch<kernel::u64> *>;
 
 struct CpuGraphProgram final {
   ~CpuGraphProgram();

@@ -350,15 +350,13 @@ namespace {
                   reinterpret_cast<const kernel::u32 *>(port(0u).data),
                   reinterpret_cast<const kernel::u32 *>(port(1u).data),
                   reinterpret_cast<kernel::u32 *>(port(2u).data),
-                  plan.element_count, plan.output_count,
-                  scratch->keys.size())
+                  plan.element_count, plan.output_count, scratch->keys.size())
             : node::accel::detail::ExecuteLinearScatter(
                   *scratch,
                   reinterpret_cast<const kernel::u64 *>(port(0u).data),
                   reinterpret_cast<const kernel::u32 *>(port(1u).data),
                   reinterpret_cast<kernel::u64 *>(port(2u).data),
-                  plan.element_count, plan.output_count,
-                  scratch->keys.size());
+                  plan.element_count, plan.output_count, scratch->keys.size());
     check = rund::AccelCheck{result.ok, result.reason};
     break;
   }
@@ -448,6 +446,13 @@ namespace {
         run,       step_index,
         primitive, std::span<const RawCpuBuffer>{ports.data(), count}};
     return run_stencil(context);
+  }
+  case Primitive::Window: {
+    PrimitiveContext context{
+        job,       cpu,
+        run,       step_index,
+        primitive, std::span<const RawCpuBuffer>{ports.data(), count}};
+    return run_window(context);
   }
   case Primitive::Transform: {
     PrimitiveContext context{

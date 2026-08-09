@@ -11,6 +11,7 @@
 #include <kernel/program/compute/spectrum/model.hpp>
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
+#include <kernel/program/compute/window/model.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -26,6 +27,12 @@ scatter_reduce_op(std::uint32_t mode) noexcept;
 
 [[nodiscard]] std::optional<kernel::StencilOp>
 stencil_op(std::uint32_t mode) noexcept;
+
+[[nodiscard]] std::optional<kernel::WindowOp>
+window_op(std::uint32_t mode) noexcept;
+
+[[nodiscard]] std::optional<kernel::WindowBoundary>
+window_boundary(std::uint32_t edge) noexcept;
 
 [[nodiscard]] std::optional<kernel::FactorOp>
 factor_op(std::uint32_t mode) noexcept;

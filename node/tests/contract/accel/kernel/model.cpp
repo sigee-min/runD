@@ -65,8 +65,11 @@ namespace {
                    "    if (lane == 0u) { \\") &&
          OneLayout(MetalRangeSource(stencil::RequireRangeExec(stencil_range)),
                    "struct RangeParams {\n"
-                   "  ulong element_count;\n"
-                   "  ulong radius;\n"
+                   "  ulong input_count;\n"
+                   "  ulong output_count;\n"
+                   "  ulong window_size;\n"
+                   "  ulong stride;\n"
+                   "  ulong padding;\n"
                    "  ulong stage_element_count;\n"
                    "  ulong stage_aux_count;\n"
                    "  uint stage;\n"
@@ -127,8 +130,11 @@ namespace {
          OneLayout(
              VulkanRangeSource(stencil::RequireRangeExec(stencil_range)),
              "layout(set = 0, binding = 0, std430) readonly buffer Params {\n"
-             "  uint64_t element_count;\n"
-             "  uint64_t radius;\n"
+             "  uint64_t input_count;\n"
+             "  uint64_t output_count;\n"
+             "  uint64_t window_size;\n"
+             "  uint64_t stride;\n"
+             "  uint64_t padding;\n"
              "  uint64_t stage_element_count;\n"
              "  uint64_t stage_aux_count;\n"
              "  uint stage;\n"

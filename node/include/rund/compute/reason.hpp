@@ -40,17 +40,17 @@ namespace detail {
   }
   switch (category(reason)) {
   case Code::Invalid:
-    return value <= ordinal(Reason::PipelineTemporalDependency);
+    return value <= ordinal(Reason::WindowRadiusInvalid);
   case Code::Unsupported:
-    return value <= ordinal(Reason::BatchCpuUnsupported);
+    return value <= ordinal(Reason::WindowOpUnsupported);
   case Code::Unavailable:
     return value <= ordinal(Reason::ProfileUnavailable);
   case Code::Capacity:
-    return value <= ordinal(Reason::DevicePipelineMemoryCapacity);
+    return value <= ordinal(Reason::WindowCountOverflow);
   case Code::Compile:
     return value <= ordinal(Reason::ProgramCompileException);
   case Code::Binding:
-    return value <= ordinal(Reason::ScatterReduceCountOutOfRange);
+    return value <= ordinal(Reason::WindowCountZero);
   case Code::Transfer:
     return value <= ordinal(Reason::TransferInvalid);
   case Code::Execution:

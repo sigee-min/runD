@@ -46,6 +46,9 @@ template <class T>
 concept CanWindow =
     requires(T value) { std::move(value).window(rund::compute::WindowSpec{}); };
 template <class T>
+concept CanPool =
+    requires(T value) { std::move(value).pool(rund::compute::PoolSpec{}); };
+template <class T>
 concept CanStencil = requires(T value) {
   std::move(value).stencil(rund::compute::WindowSpec{});
 };
@@ -256,7 +259,7 @@ static_assert(std::same_as<
                    stage::Spectrum<SpectrumOp::Svd, SpectrumVectors::Thin>>>);
 static_assert(CanMap<Sequence> && CanFilter<Sequence> && CanScan<Sequence> &&
               CanReduce<Sequence> && CanSort<Sequence> && CanCount<Sequence> &&
-              CanMatrix<Sequence> && CanWindow<Sequence> &&
+              CanMatrix<Sequence> && CanWindow<Sequence> && CanPool<Sequence> &&
               !CanStencil<Sequence>);
 static_assert(!CanZeroMatrix<Sequence> && !CanOverflowMatrix<Sequence>);
 static_assert(!CanLu<FixedSequence> && !CanQr<FixedSequence> &&
@@ -264,7 +267,7 @@ static_assert(!CanLu<FixedSequence> && !CanQr<FixedSequence> &&
               !CanEigen<FixedSequence>);
 static_assert(CanMap<Bounded> && CanFilter<Bounded> && CanScan<Bounded> &&
               CanReduce<Bounded> && CanSort<Bounded> && CanCount<Bounded>);
-static_assert(!CanMatrix<Bounded> && !CanComplex<Bounded>);
+static_assert(!CanMatrix<Bounded> && !CanComplex<Bounded> && !CanPool<Bounded>);
 static_assert(CanMap<Scalar> && !CanFilter<Scalar> && !CanScan<Scalar> &&
               !CanReduce<Scalar> && !CanSort<Scalar> && !CanCount<Scalar> &&
               !CanMatrix<Scalar>);

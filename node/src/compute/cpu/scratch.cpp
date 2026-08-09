@@ -108,6 +108,12 @@ scratch_shape_matches(const Primitive primitive,
     return shape == CpuPrimitiveScratchShape::SpectrumEigen ||
            shape == CpuPrimitiveScratchShape::SpectrumSvdValues ||
            shape == CpuPrimitiveScratchShape::SpectrumSvdVectors;
+  case Primitive::Window:
+    return shape == CpuPrimitiveScratchShape::None ||
+           shape == CpuPrimitiveScratchShape::RangeI32 ||
+           shape == CpuPrimitiveScratchShape::RangeU32 ||
+           shape == CpuPrimitiveScratchShape::RangeI64 ||
+           shape == CpuPrimitiveScratchShape::RangeU64;
   case Primitive::SegmentedScan:
   case Primitive::SegmentedReduce:
   case Primitive::Compact:
@@ -146,6 +152,20 @@ prepare_borrowed_transform(const kernel::TransformPlan &plan,
                                        plan.element_count, plan.direction,
                                        plan.fixed_format)) {
     return Result<CpuPrimitiveScratch>::fail(Reason::CpuRuntimePlanInvalid);
+  }
+  return prepared_cpu_scratch(prepared);
+}
+
+template <class Lane>
+[[nodiscard]] Result<CpuPrimitiveScratch>
+prepare_borrowed_range(const CpuPrimitiveScratchPlan &plan,
+                       const std::span<Lane> storage, CpuPreparedArena &arena) {
+  auto *const prepared = arena.claim_primitive_object<CpuRangeScratch<Lane>>();
+  std::size_t cursor = 0u;
+  if (prepared == nullptr ||
+      !bind_buffer(prepared->first, storage, cursor, plan.counts[0]) ||
+      !bind_buffer(prepared->second, storage, cursor, plan.counts[1])) {
+    return Result<CpuPrimitiveScratch>::fail(Reason::BufferCapacity);
   }
   return prepared_cpu_scratch(prepared);
 }
@@ -278,6 +298,43 @@ plan_cpu_scratch(const CpuRuntimePrimitive &primitive) noexcept {
   case Primitive::Stencil:
   case Primitive::Matrix:
     return empty_scratch_plan();
+  case Primitive::Window: {
+    const auto *const semantic = active_plan<kernel::WindowPlan>(primitive);
+    if (semantic == nullptr || !primitive.range.has_value() ||
+        !primitive.range->ok() || primitive.range->temporary_count() > 2u) {
+      return Result<CpuPrimitiveScratchPlan>::fail(
+          Reason::CpuRuntimePlanInvalid);
+    }
+    if (primitive.range->temporary_count() == 0u) {
+      return empty_scratch_plan();
+    }
+    std::array<std::size_t, 5u> counts{};
+    for (std::size_t index = 0u; index < primitive.range->temporary_count();
+         ++index) {
+      const auto temporary = primitive.range->temporary(index);
+      if (temporary.bytes % semantic->element_bytes != 0u ||
+          !to_size(temporary.bytes / semantic->element_bytes, counts[index])) {
+        return Result<CpuPrimitiveScratchPlan>::fail(Reason::ProgramCapacity);
+      }
+    }
+    const bool wide = semantic->element_bytes == sizeof(kernel::u64);
+    const bool unsigned_domain =
+        semantic->domain == kernel::ComputeDomain::U32 ||
+        semantic->domain == kernel::ComputeDomain::U64;
+    const CpuPrimitiveScratchShape shape =
+        wide ? (unsigned_domain ? CpuPrimitiveScratchShape::RangeU64
+                                : CpuPrimitiveScratchShape::RangeI64)
+             : (unsigned_domain ? CpuPrimitiveScratchShape::RangeU32
+                                : CpuPrimitiveScratchShape::RangeI32);
+    const std::uint64_t owner_bytes =
+        wide ? (unsigned_domain ? sizeof(CpuRangeScratch<kernel::u64>)
+                                : sizeof(CpuRangeScratch<kernel::i64>))
+             : (unsigned_domain ? sizeof(CpuRangeScratch<kernel::u32>)
+                                : sizeof(CpuRangeScratch<kernel::i32>));
+    return scratch_plan(shape,
+                        static_cast<std::uint8_t>(semantic->element_bytes),
+                        counts, owner_bytes);
+  }
   case Primitive::Sort:
   case Primitive::Argsort: {
     const auto *const plan = active_plan<kernel::SortPlan>(primitive);
@@ -541,6 +598,30 @@ Status append_cpu_primitive_arena_plan(
   case CpuPrimitiveScratchShape::ScatterReduce:
     u32_count = scratch.counts[0];
     break;
+  case CpuPrimitiveScratchShape::RangeI32:
+    if (!add_count(i32_count, scratch.counts[0]) ||
+        !add_count(i32_count, scratch.counts[1])) {
+      return Status::fail(Reason::ProgramCapacity);
+    }
+    break;
+  case CpuPrimitiveScratchShape::RangeU32:
+    if (!add_count(u32_count, scratch.counts[0]) ||
+        !add_count(u32_count, scratch.counts[1])) {
+      return Status::fail(Reason::ProgramCapacity);
+    }
+    break;
+  case CpuPrimitiveScratchShape::RangeI64:
+    if (!add_count(i64_count, scratch.counts[0]) ||
+        !add_count(i64_count, scratch.counts[1])) {
+      return Status::fail(Reason::ProgramCapacity);
+    }
+    break;
+  case CpuPrimitiveScratchShape::RangeU64:
+    if (!add_count(u64_count, scratch.counts[0]) ||
+        !add_count(u64_count, scratch.counts[1])) {
+      return Status::fail(Reason::ProgramCapacity);
+    }
+    break;
   case CpuPrimitiveScratchShape::Transform:
     if (scratch.element_bytes == sizeof(kernel::i64)) {
       if (!add_count(next.transform_i64_count, scratch.counts[0])) {
@@ -665,6 +746,18 @@ prepare_cpu_scratch(const CpuRuntimePrimitive &primitive,
     }
     return prepared_cpu_scratch(prepared);
   }
+  case CpuPrimitiveScratchShape::RangeI32:
+    return prepare_borrowed_range<kernel::i32>(request, arena.primitive_i32(),
+                                               arena);
+  case CpuPrimitiveScratchShape::RangeU32:
+    return prepare_borrowed_range<kernel::u32>(request, arena.primitive_u32(),
+                                               arena);
+  case CpuPrimitiveScratchShape::RangeI64:
+    return prepare_borrowed_range<kernel::i64>(request, arena.primitive_i64(),
+                                               arena);
+  case CpuPrimitiveScratchShape::RangeU64:
+    return prepare_borrowed_range<kernel::u64>(request, arena.primitive_u64(),
+                                               arena);
   case CpuPrimitiveScratchShape::Transform: {
     const auto *const plan = active_plan<kernel::TransformPlan>(primitive);
     if (plan == nullptr) {

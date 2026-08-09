@@ -5,6 +5,7 @@
 #include <accel/graph/factory/buffer/read.hpp>
 #include <accel/graph/factory/buffer/write.hpp>
 #include <accel/graph/factory/primitive/transform/node.hpp>
+#include <accel/graph/factory/primitive/window.hpp>
 #include <accel/graph/factory/scan/basic.hpp>
 #include <accel/graph/factory/scan/segmented.hpp>
 
@@ -59,6 +60,21 @@ namespace {
           .normalization = rund::kernel::TransformNorm::None,
           .element_count = input.count,
       });
+  const rund::kernel::WindowDesc window_desc{
+      .op = rund::kernel::WindowOp::Max,
+      .element = rund::kernel::WindowElement::U32,
+      .boundary = rund::kernel::WindowBoundary::Clip,
+      .domain = rund::kernel::ComputeDomain::U32,
+      .input_count = input.count,
+      .output_count = output.count,
+      .window_size = 3u,
+      .stride = 1u,
+      .pad_left = 1u,
+  };
+  const rund::AccelGraphNode window_node =
+      rund::AccelWindow(refs.data(), refs.size(), window_desc);
+  const rund::AccelGraphNode default_window_node = rund::AccelWindow(
+      refs.data(), refs.size(), input.count, output.count, 3u, 1u, 1u);
   TEST_ASSERT(node.kind == rund::kernel::NodeKind::Scan);
   TEST_ASSERT(node.buffers == refs.data());
   TEST_ASSERT(node.buffer_count == refs.size());
@@ -71,7 +87,8 @@ namespace {
   TEST_ASSERT(default_node.scan.element == rund::kernel::ScanElement::U32);
   TEST_ASSERT(default_node.scan.element_count == input.count);
   TEST_ASSERT(default_node.scan.block_size == input.count);
-  TEST_ASSERT(default_segmented_node.kind == rund::kernel::NodeKind::SegmentedScan);
+  TEST_ASSERT(default_segmented_node.kind ==
+              rund::kernel::NodeKind::SegmentedScan);
   TEST_ASSERT(default_segmented_node.buffers == segmented_refs.data());
   TEST_ASSERT(default_segmented_node.buffer_count == segmented_refs.size());
   TEST_ASSERT(default_segmented_node.segmented_scan.op ==
@@ -86,6 +103,16 @@ namespace {
               rund::kernel::TransformLayout::Split);
   TEST_ASSERT(transform_node.transform.normalization ==
               rund::kernel::TransformNorm::None);
+  TEST_ASSERT(window_node.kind == rund::kernel::NodeKind::Window);
+  TEST_ASSERT(window_node.element_count == window_desc.output_count);
+  TEST_ASSERT(window_node.window.window_size == window_desc.window_size);
+  TEST_ASSERT(window_node.window.boundary ==
+              rund::kernel::WindowBoundary::Clip);
+  TEST_ASSERT(window_node.signature.ok);
+  TEST_ASSERT(default_window_node.kind == rund::kernel::NodeKind::Window);
+  TEST_ASSERT(default_window_node.window.op == rund::kernel::WindowOp::Sum);
+  TEST_ASSERT(default_window_node.window.input_count == input.count);
+  TEST_ASSERT(default_window_node.window.output_count == output.count);
   TEST_ASSERT(refs[0].binding_name == std::string_view{"in"});
   TEST_ASSERT(refs[1].role == rund::kernel::BufferRole::Write);
   return true;

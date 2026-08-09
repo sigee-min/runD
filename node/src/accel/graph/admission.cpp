@@ -46,6 +46,9 @@ const char *AdmitGraphNodePrimitive(const rund::AccelGraphNode &node,
   if (StencilGraphNode(node.kind)) {
     return AdmitStencilNode(node, admission, domain, compile_data);
   }
+  if (WindowGraphNode(node.kind)) {
+    return AdmitWindowNode(node, admission, compile_data);
+  }
   if (TransformGraphNode(node.kind)) {
     return AdmitTransformNode(node, compile_data);
   }

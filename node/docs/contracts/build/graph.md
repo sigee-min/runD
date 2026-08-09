@@ -341,10 +341,11 @@ or algorithm.
   Shader compilation, executable cache lookup, and pipeline layout remain
   separate owners.
 - Native parameter layouts shared by Metal and Vulkan are owned by the
-  operation, not by either backend. The `model.hpp` leaf under Gather,
-  Histogram, Partition, Scatter, Segmented, or Stencil contains the sole C++
-  host type; each backend local header imports it directly. The admitted
-  layouts are:
+  operation substrate, not by either backend. The `model.hpp` leaf under
+  Gather, Histogram, Partition, Scatter, or Segmented contains the sole C++
+  host type. Stencil and Window consume the primitive-neutral `RangeParams`
+  owner in `range_aggregate/execution.hpp`; each backend imports its owner
+  directly. The admitted layouts are:
 
   | Model | Field offsets in bytes | Size | Alignment |
   | --- | --- | ---: | ---: |
@@ -353,7 +354,7 @@ or algorithm.
   | Partition | `0` | 8 | 8 |
   | Scatter | `0, 8` | 16 | 8 |
   | Segmented Scan | `0, 8, 16, 24, 28` | 32 | 8 |
-  | Stencil | `0, 8` | 16 | 8 |
+  | Range | `0, 8, 16, 24, 32, 40, 48, 56, 60` | 64 | 8 |
 
   C++ `u64/u32`, Metal `ulong/uint`, and Vulkan
   `std430 uint64_t/uint` have the corresponding 8/4-byte scalar widths and
@@ -683,15 +684,17 @@ or scheduling boundary. A `.cpp` that only includes implementation headers is
 not an admitted semantic owner; its assertions belong to the nearest owner in
 the same target.
 
-Native collective implementations follow that rule directly. Metal
-compact, gather, partition, reduce, scatter, stencil, and sort preparation,
-encoding, pipeline acquisition, and resource destruction are owned by each
-operation's `execute.mm`; segmented-scan preparation and destruction are
-owned by its `execute.mm` beside the independently compiled encoder. Vulkan
-uses the corresponding `execute.cpp` owner, while Map uses its existing
-`finish.cpp` run owner because it has no standalone execute translation unit.
-Every native translation unit owns a distinct calculation or platform
-boundary; forwarding-only translation units are not admitted.
+Native collective implementations follow that rule directly. Metal compact,
+gather, partition, reduce, scatter, and sort preparation, encoding, pipeline
+acquisition, and resource destruction are owned by each operation's
+`execute.mm`; segmented-scan preparation and destruction are owned by its
+`execute.mm` beside the independently compiled encoder. Range owns the shared
+Stencil and Window physical stage execution under `metal/range/`, while the
+primitive directories retain only their semantic binding adapters. Vulkan
+uses the corresponding `execute.cpp` owners under the same split. Map uses its
+existing `finish.cpp` run owner because it has no standalone execute
+translation unit. Every native translation unit owns a distinct calculation
+or platform boundary; forwarding-only translation units are not admitted.
 
 The CPU SIMD `32/run.cpp` and `64/run.cpp` files are distinct compiled numeric
 owners: each instantiates the shared executor under a different storage-width

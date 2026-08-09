@@ -6,13 +6,11 @@ bool ScanGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::Scan;
 }
 
-bool SegmentedScanGraphNode(
-    const rund::kernel::NodeKind kind) noexcept {
+bool SegmentedScanGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::SegmentedScan;
 }
 
-bool SegmentedReduceGraphNode(
-    const rund::kernel::NodeKind kind) noexcept {
+bool SegmentedReduceGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::SegmentedReduce;
 }
 
@@ -28,8 +26,7 @@ bool GatherGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::Gather;
 }
 
-bool HistogramGraphNode(
-    const rund::kernel::NodeKind kind) noexcept {
+bool HistogramGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::Histogram;
 }
 
@@ -53,6 +50,10 @@ bool StencilGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::Stencil;
 }
 
+bool WindowGraphNode(const rund::kernel::NodeKind kind) noexcept {
+  return kind == rund::kernel::NodeKind::Window;
+}
+
 bool TransformGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::Transform;
 }
@@ -73,4 +74,4 @@ bool SpectrumGraphNode(const rund::kernel::NodeKind kind) noexcept {
   return kind == rund::kernel::NodeKind::Spectrum;
 }
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

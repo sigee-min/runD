@@ -1,10 +1,14 @@
+#include "src/accel/metal/range/local.hpp"
 #include "src/accel/range_aggregate/execution.hpp"
 #include "src/accel/range_aggregate/plan.hpp"
+#include "src/accel/source/hash.hpp"
+#include "src/accel/vulkan/range/local.hpp"
 
 #include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -37,14 +41,33 @@ Shape(const RangeOp operation, const u64 count, const u64 radius,
                              count, radius, element_bytes);
 }
 
+[[nodiscard]] constexpr RangeShape
+AffineShape(const RangeOp operation, const RangeBoundary boundary,
+            const u64 input_count, const u64 output_count,
+            const u64 window_size, const u64 stride, const u64 padding,
+            const u32 element_bytes = 4u,
+            const ComputeDomain domain = ComputeDomain::U32) {
+  return *RangeShape::affine(Traits(operation, domain), boundary, input_count,
+                             output_count, window_size, stride, padding,
+                             element_bytes);
+}
+
 [[nodiscard]] constexpr RangeCaps
 Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
     const u32 maximum_threads = 256u, const u32 occupancy = 4u,
     const u64 shared_limit = 32768u,
     const u64 maximum_groups = std::numeric_limits<u32>::max(),
-    const std::uint8_t support = kAllRangeCandidates) {
+    const std::uint8_t support = kAllRangeCandidates,
+    const u64 maximum_storage_elements = 0u,
+    const u64 maximum_storage_bytes = std::numeric_limits<u64>::max()) {
+  const u64 storage_limit =
+      maximum_storage_elements != 0u
+          ? maximum_storage_elements
+          : (variant == RangeSource::Vulkan ? std::numeric_limits<u32>::max()
+                                            : std::numeric_limits<u64>::max());
   return *RangeCaps::gpu(variant, widths, maximum_threads, occupancy,
-                         shared_limit, maximum_groups, support);
+                         shared_limit, maximum_groups, storage_limit,
+                         maximum_storage_bytes, support);
 }
 
 [[nodiscard]] constexpr bool BasicSelectionContract() {
@@ -56,7 +79,7 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
   const RangePlan large_max =
       PlanRange(Shape(RangeOp::Maximum, 515u, 515u), full);
   const RangePlan cpu =
-      PlanRange(Shape(RangeOp::Sum, 17u, 3u), RangeCaps::cpu());
+      PlanRange(Shape(RangeOp::Sum, 17u, 3u), RangeCaps::cpu_reference());
   return small_sum.ok() &&
          small_sum.candidate().disposition() == RangePath::SharedHalo &&
          small_sum.candidate().width() == 256u && large_sum.ok() &&
@@ -77,15 +100,14 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
     const RangeTraits sum = Traits(RangeOp::Sum, domain);
     const RangeTraits minimum = Traits(RangeOp::Minimum, domain);
     const RangeTraits maximum = Traits(RangeOp::Maximum, domain);
-    const RangeTraits saturating = *RangeTraits::sum_saturating(domain);
+    const std::optional<RangeTraits> saturating =
+        RangeTraits::sum_saturating(domain);
     if (!sum.associative() || !sum.has_identity() || !sum.commutative() ||
         !sum.invertible() || sum.idempotent() || sum.ordered() ||
         !minimum.associative() || !minimum.has_identity() ||
         !minimum.commutative() || minimum.invertible() ||
         !minimum.idempotent() || !minimum.ordered() || maximum.invertible() ||
-        !maximum.idempotent() || !maximum.ordered() ||
-        saturating.associative() || saturating.invertible() ||
-        !saturating.has_identity()) {
+        !maximum.idempotent() || !maximum.ordered()) {
       return false;
     }
     const bool signed_domain = domain == ComputeDomain::I32 ||
@@ -93,6 +115,12 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
                                domain == ComputeDomain::Fixed;
     const bool unsigned_domain =
         domain == ComputeDomain::U32 || domain == ComputeDomain::U64;
+    if (saturating.has_value() != signed_domain ||
+        (saturating.has_value() &&
+         (saturating->associative() || saturating->invertible() ||
+          !saturating->has_identity()))) {
+      return false;
+    }
     if (sum.signed_domain() != signed_domain ||
         sum.unsigned_domain() != unsigned_domain ||
         sum.fixed_domain() != (domain == ComputeDomain::Fixed)) {
@@ -286,6 +314,127 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
              "compute_range_aggregate_candidate_unavailable";
 }
 
+[[nodiscard]] constexpr bool StorageIndexCapabilityContract() {
+  constexpr u64 exact = std::numeric_limits<u32>::max();
+  constexpr std::uint8_t direct = RangeSupportBit(RangeSupport::Direct);
+  constexpr std::uint8_t direct_block =
+      direct | RangeSupportBit(RangeSupport::BlockPrefixSuffix);
+  const RangeCaps vulkan =
+      Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u32>::max(), direct, exact);
+  const std::optional<RangeCaps> oversized_vulkan_capability =
+      RangeCaps::gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                     std::numeric_limits<u32>::max(), exact + 1u, direct);
+  const RangePlan below =
+      PlanRange(Shape(RangeOp::Sum, exact - 1u, 1u), vulkan);
+  const RangePlan at = PlanRange(Shape(RangeOp::Sum, exact, 1u), vulkan);
+  const RangePlan above =
+      PlanRange(Shape(RangeOp::Sum, exact + 1u, 1u), vulkan);
+  const RangePlan input_only_above =
+      PlanRange(AffineShape(RangeOp::Sum, RangeBoundary::Clamp, exact + 1u, 1u,
+                            1u, 1u, 0u),
+                vulkan);
+  const RangePlan metal_above =
+      PlanRange(Shape(RangeOp::Sum, exact + 1u, 1u),
+                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct,
+                    std::numeric_limits<u64>::max()));
+  const RangePlan cpu_above = PlanRange(Shape(RangeOp::Sum, exact + 1u, 1u),
+                                        RangeCaps::cpu_reference());
+  const RangePlan identity_wide =
+      PlanRange(Shape(RangeOp::Sum, 65u, 1u), vulkan);
+  const RangePlan identity_narrow =
+      PlanRange(Shape(RangeOp::Sum, 65u, 1u),
+                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct, exact - 1u));
+
+  const RangeCaps vulkan_block =
+      Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u32>::max(), direct_block, exact);
+  const RangePlan span_at = PlanRange(
+      AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 1u, 1u, exact, 1u, 0u),
+      vulkan_block);
+  const RangePlan span_above =
+      PlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 1u, 1u,
+                            exact + 1u, 1u, 0u),
+                vulkan_block);
+  const std::optional<RangeExec> at_execution = RangeExec::from(at);
+  return !oversized_vulkan_capability.has_value() &&
+         vulkan.maximum_storage_element_count() == exact && below.ok() &&
+         at.ok() && at_execution.has_value() &&
+         at_execution->vulkan_dispatch_fits(std::numeric_limits<u32>::max()) &&
+         !above.ok() &&
+         std::string_view{above.reason()} ==
+             "compute_range_aggregate_candidate_unavailable" &&
+         !input_only_above.ok() && metal_above.ok() && cpu_above.ok() &&
+         identity_wide.ok() && identity_narrow.ok() &&
+         identity_wide.source_identity() == identity_narrow.source_identity() &&
+         identity_wide.execution_identity() ==
+             identity_narrow.execution_identity() &&
+         span_at.ok() && span_at.legal_candidate_count() == 2u &&
+         span_above.ok() && span_above.legal_candidate_count() == 1u &&
+         span_above.candidate().disposition() == RangePath::Direct;
+}
+
+[[nodiscard]] constexpr bool StorageBindingCapabilityContract() {
+  constexpr std::uint8_t direct_prefix =
+      RangeSupportBit(RangeSupport::Direct) |
+      RangeSupportBit(RangeSupport::PrefixDifference);
+  constexpr std::uint8_t direct_block =
+      RangeSupportBit(RangeSupport::Direct) |
+      RangeSupportBit(RangeSupport::BlockPrefixSuffix);
+
+  const RangeShape prefix_shape =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 65u, 65u, 65u, 1u, 0u);
+  const RangePlan prefix_below =
+      PlanRange(prefix_shape,
+                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+                    std::numeric_limits<u32>::max(), direct_prefix, 0u, 259u));
+  const RangePlan prefix_exact =
+      PlanRange(prefix_shape,
+                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+                    std::numeric_limits<u32>::max(), direct_prefix, 0u, 260u));
+  const RangePlan prefix_above =
+      PlanRange(prefix_shape,
+                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+                    std::numeric_limits<u32>::max(), direct_prefix, 0u, 261u));
+
+  const RangeShape block_shape = AffineShape(
+      RangeOp::Minimum, RangeBoundary::Clip, 16u, 16u, 33u, 1u, 16u);
+  const RangePlan block_below =
+      PlanRange(block_shape,
+                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct_block, 0u, 191u));
+  const RangePlan block_exact =
+      PlanRange(block_shape,
+                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct_block, 0u, 192u));
+  const RangePlan block_above =
+      PlanRange(block_shape,
+                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct_block, 0u, 193u));
+
+  return prefix_below.ok() &&
+         prefix_below.candidate().disposition() == RangePath::Direct &&
+         prefix_exact.ok() &&
+         prefix_exact.candidate().disposition() ==
+             RangePath::PrefixDifference &&
+         prefix_above.ok() &&
+         prefix_above.candidate() == prefix_exact.candidate() &&
+         prefix_above.source_identity() == prefix_exact.source_identity() &&
+         prefix_above.execution_identity() ==
+             prefix_exact.execution_identity() &&
+         block_below.ok() &&
+         block_below.candidate().disposition() == RangePath::Direct &&
+         block_exact.ok() &&
+         block_exact.candidate().disposition() ==
+             RangePath::BlockPrefixSuffix &&
+         block_above.ok() &&
+         block_above.candidate() == block_exact.candidate() &&
+         block_exact.temporary(0u).bytes == 192u &&
+         block_exact.temporary(1u).bytes == 192u;
+}
+
 [[nodiscard]] constexpr bool CostCrossoverContract() {
   constexpr std::uint8_t direct_prefix =
       RangeSupportBit(RangeSupport::Direct) |
@@ -463,7 +612,7 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
   const RangePlan block =
       PlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), block_caps);
   const RangePlan cpu =
-      PlanRange(Shape(RangeOp::Sum, 17u, 3u), RangeCaps::cpu());
+      PlanRange(Shape(RangeOp::Sum, 17u, 3u), RangeCaps::cpu_reference());
   const auto shared_exec = RangeExec::from(shared);
   const auto prefix_exec = RangeExec::from(prefix);
   const auto block_exec = RangeExec::from(block);
@@ -534,6 +683,346 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
          block_full.cost().scratch_bytes <= 6u * count * 4u;
 }
 
+[[nodiscard]] constexpr bool AffineShapeContract() {
+  const RangeShape centered = Shape(RangeOp::Sum, 17u, 7u);
+  const RangeShape projected =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 17u, 17u, 15u, 1u, 7u);
+  const RangeShape strided =
+      AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 19u, 7u, 9u, 3u, 2u);
+  const RangeShape padded_anchor =
+      AffineShape(RangeOp::Maximum, RangeBoundary::Clamp, 5u, 2u, 10u, 8u, 5u);
+  const RangeShape wide_window =
+      AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 2u, 1u, 6u, 1u, 1u);
+  const auto no_intersection = RangeShape::affine(
+      Traits(RangeOp::Sum), RangeBoundary::Clip, 5u, 2u, 2u, 10u, 0u, 4u);
+  const auto invalid_padding = RangeShape::affine(
+      Traits(RangeOp::Sum), RangeBoundary::Clamp, 5u, 1u, 3u, 1u, 3u, 4u);
+  const auto overflowing_anchor =
+      RangeShape::affine(Traits(RangeOp::Sum), RangeBoundary::Clamp, 2u, 3u, 2u,
+                         std::numeric_limits<u64>::max(), 1u, 4u);
+  constexpr u64 span_input = std::numeric_limits<u64>::max() / 4u;
+  constexpr u64 span_window = 2u * span_input + 1u;
+  constexpr u64 span_padding = span_window - 1u;
+  const auto span_overflow = RangeShape::affine(
+      Traits(RangeOp::Minimum), RangeBoundary::Clamp, span_input, 2u,
+      span_window, span_input + span_padding - 1u, span_padding, 4u);
+  return centered.input_count() == projected.input_count() &&
+         centered.output_count() == projected.output_count() &&
+         centered.window_size() == projected.window_size() &&
+         centered.stride() == projected.stride() &&
+         centered.padding() == projected.padding() &&
+         centered.centered_clamp() && projected.centered_clamp() &&
+         !strided.centered_clamp() && strided.input_count() == 19u &&
+         strided.output_count() == 7u && strided.window_size() == 9u &&
+         strided.stride() == 3u && strided.padding() == 2u &&
+         strided.right_extent() == 6u && *strided.affine_span() == 27u &&
+         padded_anchor.valid() && wide_window.valid() &&
+         wide_window.window_size() > 2u * wide_window.input_count() + 1u &&
+         !no_intersection.has_value() && !invalid_padding.has_value() &&
+         !overflowing_anchor.has_value() && span_overflow.has_value() &&
+         !span_overflow->affine_span().has_value();
+}
+
+[[nodiscard]] constexpr bool AffineCostAndTopologyContract() {
+  constexpr std::uint8_t direct = RangeSupportBit(RangeSupport::Direct);
+  constexpr std::uint8_t direct_shared =
+      direct | RangeSupportBit(RangeSupport::SharedHalo);
+  constexpr std::uint8_t direct_prefix =
+      direct | RangeSupportBit(RangeSupport::PrefixDifference);
+  constexpr std::uint8_t direct_block =
+      direct | RangeSupportBit(RangeSupport::BlockPrefixSuffix);
+  const RangeCaps direct_caps =
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u32>::max(), direct);
+  const RangeShape clamp =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 5u, 3u, 3u, 2u, 1u);
+  const RangeShape clip =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 5u, 3u, 3u, 2u, 1u);
+  const RangePlan clamp_direct = PlanRange(clamp, direct_caps);
+  const RangePlan clip_direct = PlanRange(clip, direct_caps);
+  const RangeShape prefix_shape =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u);
+  const RangePlan prefix = PlanRange(
+      prefix_shape, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+                        std::numeric_limits<u32>::max(), direct_prefix));
+  const RangeShape block_shape = AffineShape(
+      RangeOp::Minimum, RangeBoundary::Clip, 101u, 7u, 50u, 3u, 10u);
+  const RangeCaps block_caps =
+      Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u32>::max(), direct_block);
+  const RangePlan block = PlanRange(block_shape, block_caps);
+  const RangeShape block_clamp_shape = AffineShape(
+      RangeOp::Minimum, RangeBoundary::Clamp, 257u, 65u, 129u, 2u, 64u);
+  const RangeShape block_clip_shape = AffineShape(
+      RangeOp::Minimum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u);
+  const RangePlan block_clamp = PlanRange(block_clamp_shape, block_caps);
+  const RangePlan block_clip = PlanRange(block_clip_shape, block_caps);
+  const RangePlan shared_for_affine = PlanRange(
+      AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 65u, 32u, 3u, 2u, 1u),
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+          std::numeric_limits<u32>::max(), direct_shared));
+  return clamp_direct.ok() && clip_direct.ok() &&
+         clamp_direct.cost().global_read_bytes == 9u * 4u &&
+         clamp_direct.cost().global_write_bytes == 3u * 4u &&
+         clamp_direct.cost().combine_ops == 6u &&
+         clip_direct.cost().global_read_bytes == 7u * 4u &&
+         clip_direct.cost().global_write_bytes == 3u * 4u &&
+         clip_direct.cost().combine_ops == 4u && prefix.ok() &&
+         prefix.candidate().disposition() == RangePath::PrefixDifference &&
+         prefix.stage(prefix.stage_count() - 1u).element_count == 65u &&
+         prefix.stage(prefix.stage_count() - 1u).groups == 2u &&
+         prefix.temporary(0u).bytes == 257u * 4u && block.ok() &&
+         block.candidate().disposition() == RangePath::BlockPrefixSuffix &&
+         *block_shape.affine_span() == 68u &&
+         block.stage(0u).element_count == 68u &&
+         block.stage(1u).element_count == 7u &&
+         block.cost().scratch_bytes == 2u * 68u * 4u && block_clamp.ok() &&
+         block_clip.ok() &&
+         block_clamp.candidate().disposition() ==
+             RangePath::BlockPrefixSuffix &&
+         block_clip.candidate() == block_clamp.candidate() &&
+         block_clamp.cost().global_read_bytes == (2u * 257u + 2u * 65u) * 4u &&
+         block_clip.cost().global_read_bytes ==
+             (2u * (257u - 64u) + 2u * 65u) * 4u &&
+         shared_for_affine.ok() &&
+         shared_for_affine.candidate().disposition() != RangePath::SharedHalo;
+}
+
+[[nodiscard]] constexpr bool AffinePaddedDirectContract() {
+  constexpr std::uint8_t direct = RangeSupportBit(RangeSupport::Direct);
+  const RangeShape clamp =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 3u, 2u, 5u, 5u, 4u);
+  const RangeShape clip =
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 3u, 2u, 5u, 5u, 4u);
+  const RangePlan clamp_plan =
+      PlanRange(clamp, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                           std::numeric_limits<u32>::max(), direct));
+  const RangePlan clip_plan =
+      PlanRange(clip, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                          std::numeric_limits<u32>::max(), direct));
+  constexpr std::array<u32, 3u> input{2u, 5u, 7u};
+  constexpr std::array<u32, 2u> clamp_expected{10u, 33u};
+  constexpr std::array<u32, 2u> clip_expected{2u, 12u};
+  std::array<u32, 2u> clamp_actual{};
+  std::array<u32, 2u> clip_actual{};
+  for (u64 output = 0u; output < 2u; ++output) {
+    const u64 anchor = output * 5u;
+    for (u64 slot = 0u; slot < 5u; ++slot) {
+      u64 index = 0u;
+      bool valid = true;
+      if (slot < 4u) {
+        const u64 delta = 4u - slot;
+        if (anchor < delta) {
+          index = 0u;
+        } else {
+          index = anchor - delta;
+          if (index >= input.size()) {
+            index = input.size() - 1u;
+          }
+        }
+      } else if (anchor >= input.size() || slot - 4u >= input.size() - anchor) {
+        index = input.size() - 1u;
+      } else {
+        index = anchor + slot - 4u;
+      }
+      clamp_actual[output] += input[index];
+
+      if (slot < 4u) {
+        const u64 delta = 4u - slot;
+        if (anchor < delta) {
+          valid = false;
+        } else {
+          index = anchor - delta;
+          valid = index < input.size();
+        }
+      } else if (anchor >= input.size() || slot - 4u >= input.size() - anchor) {
+        valid = false;
+      } else {
+        index = anchor + slot - 4u;
+      }
+      if (valid) {
+        clip_actual[output] += input[index];
+      }
+    }
+  }
+  return clamp_plan.ok() && clip_plan.ok() &&
+         clamp_plan.candidate().disposition() == RangePath::Direct &&
+         clip_plan.candidate().disposition() == RangePath::Direct &&
+         clamp_plan.cost().global_read_bytes == 10u * 4u &&
+         clip_plan.cost().global_read_bytes == 3u * 4u &&
+         clamp_actual == clamp_expected && clip_actual == clip_expected;
+}
+
+[[nodiscard]] constexpr bool CpuCandidateContract() {
+  const RangePlan reference_sum =
+      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), RangeCaps::cpu_reference());
+  const RangePlan prefix =
+      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), RangeCaps::cpu());
+  const RangePlan block =
+      PlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), RangeCaps::cpu());
+  return reference_sum.ok() &&
+         reference_sum.candidate() == RangeCandidate::direct_cpu() &&
+         prefix.ok() &&
+         prefix.candidate().disposition() == RangePath::PrefixDifference &&
+         prefix.candidate().width() == kRangeCpuBlockWidth &&
+         prefix.stage_count() == 2u && prefix.temporary_count() == 1u &&
+         prefix.stage(0u).disposition == RangeStageKind::PrefixSequential &&
+         prefix.stage(0u).width == 0u &&
+         prefix.stage(1u).disposition == RangeStageKind::PrefixWindow &&
+         prefix.temporary(0u).role == RangeTempRole::PrefixValues &&
+         prefix.temporary(0u).bytes == 4097u * 4u &&
+         prefix.cost().shared_bytes == 0u &&
+         prefix.cost().launched_lanes == 8194u && block.ok() &&
+         block.candidate().disposition() == RangePath::BlockPrefixSuffix &&
+         block.candidate().width() == kRangeCpuBlockWidth &&
+         block.stage_count() == 2u &&
+         block.stage(0u) ==
+             RangeStagePlan{.disposition = RangeStageKind::BlockPrefixSuffix,
+                            .level = 0u,
+                            .element_count = 12291u,
+                            .groups = 1u,
+                            .width = 0u} &&
+         block.stage(1u) ==
+             RangeStagePlan{.disposition = RangeStageKind::BlockWindow,
+                            .level = 0u,
+                            .element_count = 4097u,
+                            .groups = 1u,
+                            .width = 0u} &&
+         block.cost().launched_lanes == 28679u;
+}
+
+[[nodiscard]] constexpr bool AffineIdentityContract() {
+  constexpr std::uint8_t direct_prefix =
+      RangeSupportBit(RangeSupport::Direct) |
+      RangeSupportBit(RangeSupport::PrefixDifference);
+  const RangeCaps caps =
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+          std::numeric_limits<u32>::max(), direct_prefix);
+  const RangePlan first = PlanRange(
+      AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 257u, 65u, 129u, 2u, 64u),
+      caps);
+  const RangePlan second =
+      PlanRange(AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 513u, 129u,
+                            257u, 2u, 128u),
+                caps);
+  const RangePlan clipped = PlanRange(
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u),
+      caps);
+  return first.ok() && second.ok() && clipped.ok() &&
+         first.candidate() == second.candidate() &&
+         first.source_identity() == second.source_identity() &&
+         first.execution_identity() != second.execution_identity() &&
+         first.source_identity() != clipped.source_identity();
+}
+
+[[nodiscard]] bool AffineSourceContract() {
+  constexpr std::uint8_t direct = RangeSupportBit(RangeSupport::Direct);
+  constexpr std::uint8_t direct_prefix =
+      direct | RangeSupportBit(RangeSupport::PrefixDifference);
+  constexpr std::uint8_t direct_block =
+      direct | RangeSupportBit(RangeSupport::BlockPrefixSuffix);
+  const RangePlan direct_clip = PlanRange(
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 3u, 2u, 5u, 5u, 4u),
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u32>::max(), direct));
+  const RangePlan direct_clamp = PlanRange(
+      AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 3u, 2u, 5u, 5u, 4u),
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u32>::max(), direct));
+  const RangePlan prefix_clip = PlanRange(
+      AffineShape(RangeOp::Sum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u),
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+          std::numeric_limits<u32>::max(), direct_prefix));
+  const RangePlan block_clip =
+      PlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 101u, 7u,
+                            50u, 3u, 10u, 4u, ComputeDomain::I32),
+                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct_block));
+  const std::optional<RangeTraits> saturating =
+      RangeTraits::sum_saturating(ComputeDomain::Fixed);
+  const std::optional<RangeShape> saturating_shape =
+      saturating.has_value()
+          ? RangeShape::affine(*saturating, RangeBoundary::Clamp, 5u, 3u, 3u,
+                               2u, 1u, 4u)
+          : std::nullopt;
+  const RangePlan saturating_direct =
+      saturating_shape.has_value()
+          ? PlanRange(*saturating_shape,
+                      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                          std::numeric_limits<u32>::max(), direct))
+          : RangePlan::rejected("compute_range_aggregate_shape_invalid");
+  const auto direct_exec = RangeExec::from(direct_clip);
+  const auto direct_clamp_exec = RangeExec::from(direct_clamp);
+  const auto prefix_exec = RangeExec::from(prefix_clip);
+  const auto block_exec = RangeExec::from(block_clip);
+  const auto saturating_exec = RangeExec::from(saturating_direct);
+  if (!direct_exec.has_value() || !direct_clamp_exec.has_value() ||
+      !prefix_exec.has_value() || !block_exec.has_value() ||
+      !saturating_exec.has_value()) {
+    return false;
+  }
+  const std::string direct_source = MetalRangeSource(*direct_exec);
+  const std::string direct_clamp_source = MetalRangeSource(*direct_clamp_exec);
+  const std::string prefix_source = MetalRangeSource(*prefix_exec);
+  const std::string block_source = MetalRangeSource(*block_exec);
+  const std::string saturating_source = MetalRangeSource(*saturating_exec);
+  if (direct_source.find("ulong input_count;") == std::string::npos ||
+      direct_source.find("ulong output_count;") == std::string::npos ||
+      direct_source.find("ulong window_size;") == std::string::npos ||
+      direct_source.find("ulong stride;") == std::string::npos ||
+      direct_source.find("ulong padding;") == std::string::npos ||
+      direct_source.find("if (input_index >= params.input_count)") ==
+          std::string::npos ||
+      direct_source.find("valid = false;") == std::string::npos ||
+      direct_clamp_source.find("input_index = params.input_count - 1ul;") ==
+          std::string::npos ||
+      prefix_source.find("const ulong anchor = i * params.stride;") ==
+          std::string::npos ||
+      prefix_source.find("left_missing") != std::string::npos ||
+      block_source.find("const ulong window = params.window_size;") ==
+          std::string::npos ||
+      block_source.find("const ulong left = i * params.stride;") ==
+          std::string::npos ||
+      block_source.find("2147483647") == std::string::npos ||
+      saturating_source.find("device const int* input") == std::string::npos ||
+      saturating_source.find("rund_range_add_sat(value, sample)") ==
+          std::string::npos ||
+      saturating_source.find("slot < params.window_size") ==
+          std::string::npos) {
+    return false;
+  }
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  const RangePlan vulkan_direct = PlanRange(
+      direct_clip.shape(), Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u,
+                               0u, std::numeric_limits<u32>::max(), direct));
+  const RangePlan vulkan_block =
+      PlanRange(block_clip.shape(),
+                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct_block));
+  const auto vulkan_direct_exec = RangeExec::from(vulkan_direct);
+  const auto vulkan_exec = RangeExec::from(vulkan_block);
+  if (!vulkan_direct_exec.has_value() || !vulkan_exec.has_value()) {
+    return false;
+  }
+  const std::string direct_vulkan_source =
+      VulkanRangeSource(*vulkan_direct_exec);
+  const std::string source = VulkanRangeSource(*vulkan_exec);
+  std::uint64_t bytes = 0u;
+  if (!VulkanRangeSourceBytes(*vulkan_exec, bytes) || bytes != source.size() ||
+      source.find("uint64_t output_count;") == std::string::npos ||
+      source.find("const uint64_t left = block * params.stride;") ==
+          std::string::npos ||
+      direct_vulkan_source.find("if (input_index >= params.input_count)") ==
+          std::string::npos ||
+      direct_vulkan_source.find("valid = false;") == std::string::npos ||
+      source.find("2147483647") == std::string::npos ||
+      !VulkanRangeSourceMatches(*vulkan_exec, source, SourceHash(source))) {
+    return false;
+  }
+#endif
+  return true;
+}
+
 [[nodiscard]] constexpr bool FailClosedContract() {
   const auto invalid_operation = RangeTraits::make(
       static_cast<RangeOp>(255u), ComputeDomain::U32, RangeLaw::ModuloWidth);
@@ -549,8 +1038,9 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
   const auto payload_overflow =
       RangeShape::window(Traits(RangeOp::Sum), RangeBoundary::Clamp,
                          std::numeric_limits<u64>::max() / 4u + 1u, 1u, 4u);
-  const auto invalid_caps = RangeCaps::gpu(RangeSource::Metal, 0x80u, 256u, 4u,
-                                           32768u, 1u, kAllRangeCandidates);
+  const auto invalid_caps =
+      RangeCaps::gpu(RangeSource::Metal, 0x80u, 256u, 4u, 32768u, 1u,
+                     std::numeric_limits<u64>::max(), kAllRangeCandidates);
   const RangePlan unavailable =
       PlanRange(Shape(RangeOp::Sum, 1u, 1u), RangeCaps::unavailable());
   constexpr u64 maximum_u32_count = std::numeric_limits<u64>::max() / 4u;
@@ -559,8 +1049,18 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
       RangeSupportBit(RangeSupport::BlockPrefixSuffix);
   const RangePlan overflowing_block =
       PlanRange(Shape(RangeOp::Minimum, maximum_u32_count, maximum_u32_count),
-                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
                     std::numeric_limits<u64>::max(), direct_block));
+  constexpr u64 vulkan_input = std::numeric_limits<u32>::max() / 2u;
+  constexpr u64 vulkan_window = 2u * vulkan_input + 1u;
+  constexpr u64 vulkan_padding = vulkan_window - 1u;
+  const RangeShape oversized_vulkan_span = AffineShape(
+      RangeOp::Minimum, RangeBoundary::Clip, vulkan_input, 2u, vulkan_window,
+      vulkan_input + vulkan_padding - 1u, vulkan_padding);
+  const RangePlan vulkan_span_fallback =
+      PlanRange(oversized_vulkan_span,
+                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                    std::numeric_limits<u32>::max(), direct_block));
   rund::kernel::u128 ignored = 0u;
   return !invalid_operation.has_value() && !invalid_domain.has_value() &&
          !invalid_law.has_value() && !invalid_shape.has_value() &&
@@ -571,6 +1071,9 @@ Gpu(const RangeSource variant, const std::uint8_t widths = kRangeKnownWidthMask,
          overflowing_block.ok() &&
          overflowing_block.candidate().disposition() == RangePath::Direct &&
          overflowing_block.legal_candidate_count() == 1u &&
+         vulkan_span_fallback.ok() &&
+         vulkan_span_fallback.candidate().disposition() == RangePath::Direct &&
+         vulkan_span_fallback.legal_candidate_count() == 1u &&
          !range_plan_detail::Multiply(range_plan_detail::kU128Maximum, 2u,
                                       ignored);
 }
@@ -580,12 +1083,19 @@ static_assert(AlgebraContract());
 static_assert(WidthAndCapacityContract());
 static_assert(CandidateFamilyLegalityContract());
 static_assert(CapabilityBoundaryContract());
+static_assert(StorageIndexCapabilityContract());
+static_assert(StorageBindingCapabilityContract());
 static_assert(CostCrossoverContract());
 static_assert(PrefixHierarchyContract());
 static_assert(PrefixStageSubstrateContract());
 static_assert(BlockPrefixSuffixContract());
 static_assert(IdentityContract());
 static_assert(LinearWorkContract());
+static_assert(AffineShapeContract());
+static_assert(AffineCostAndTopologyContract());
+static_assert(AffinePaddedDirectContract());
+static_assert(CpuCandidateContract());
+static_assert(AffineIdentityContract());
 static_assert(FailClosedContract());
 static_assert(sizeof(RangePlan) <= 320u);
 
@@ -596,10 +1106,15 @@ int RunRangePlannerContract() {
                  WidthAndCapacityContract() &&
                  CandidateFamilyLegalityContract() &&
                  ExhaustivePlannerContract() && CapabilityBoundaryContract() &&
+                 StorageIndexCapabilityContract() &&
+                 StorageBindingCapabilityContract() &&
                  CostCrossoverContract() && PrefixHierarchyContract() &&
                  PrefixStageSubstrateContract() &&
                  BlockPrefixSuffixContract() && IdentityContract() &&
                  ExecutionProjectionContract() && LinearWorkContract() &&
+                 AffineShapeContract() && AffineCostAndTopologyContract() &&
+                 AffinePaddedDirectContract() && CpuCandidateContract() &&
+                 AffineIdentityContract() && AffineSourceContract() &&
                  FailClosedContract()
              ? 0
              : 1;

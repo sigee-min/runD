@@ -22,6 +22,7 @@
 #include <kernel/program/compute/spectrum/model.hpp>
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
+#include <kernel/program/compute/window/model.hpp>
 
 namespace rund::node::accel::detail {
 
@@ -66,13 +67,17 @@ ReduceBindingsOk(const rund::AccelGraphNode &node,
 [[nodiscard]] bool
 ScatterBindingsOk(const rund::AccelGraphNode &node,
                   const rund::kernel::ScatterPlan &plan) noexcept;
-[[nodiscard]] bool ScatterReduceBindingsOk(
-    const rund::AccelGraphNode &node,
-    const rund::kernel::ScatterReducePlan &plan) noexcept;
+[[nodiscard]] bool
+ScatterReduceBindingsOk(const rund::AccelGraphNode &node,
+                        const rund::kernel::ScatterReducePlan &plan) noexcept;
 
 [[nodiscard]] bool
 StencilBindingsOk(const rund::AccelGraphNode &node,
                   const rund::kernel::StencilPlan &plan) noexcept;
+
+[[nodiscard]] bool
+WindowBindingsOk(const rund::AccelGraphNode &node,
+                 const rund::kernel::WindowPlan &plan) noexcept;
 
 [[nodiscard]] bool
 TransformBindingsOk(const rund::AccelGraphNode &node,

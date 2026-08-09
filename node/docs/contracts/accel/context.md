@@ -130,19 +130,15 @@ projects known typed reasons directly and maps only unknown backend-private
 reasons to its transfer boundary.
 
 `AccelGraphBufferRef`, `AccelGraphNode`, `AccelGraph`, `AccelKernelCheck`,
-`AccelKernel`, and `CompileAccelKernel(context, graph)` are repository-internal graph/kernel
-compile support types. `AccelGraphNode` accepts checked `ComputeIR` facts produced
-by the kernel Compute DSL for `Map` nodes, a `ScanDesc` plus matching primitive
-hash for `Scan`, a compile-derived `SortDesc` plus matching primitive hash
-for valid four-buffer `Sort`, a compile-derived `CompactDesc` plus matching
-primitive hash for valid two-buffer `Compact`, `AccelGraphNode::gather` plus a
-matching primitive hash for valid three-buffer `Gather`, `AccelGraphNode::partition`
-plus a matching primitive hash for valid three-buffer `Partition`,
-`AccelGraphNode::reduce` plus a matching primitive hash for valid two-buffer
-`Reduce`, `AccelGraphNode::scatter` plus a matching primitive hash for valid
-three-buffer `Scatter`, `AccelGraphNode::stencil` plus a matching primitive
-hash for valid three-buffer `Stencil`, plus authenticated `AccelBuffer`
-references. Graph kind and primitive descriptors use their sole
+`AccelKernel`, and `CompileAccelKernel(context, graph)` are repository-internal
+graph/kernel compile support types. `AccelGraphNode` accepts checked `ComputeIR`
+facts produced by the kernel Compute DSL for `Map` nodes, a `ScanDesc` plus
+matching primitive hash for `Scan`, and each primitive's checked descriptor,
+signature, and matching hash. In particular, Stencil and Window each expose
+one read and one write binding and project their semantic descriptors into the
+shared Range execution substrate only after graph admission. All graph nodes
+carry authenticated `AccelBuffer` references. Graph kind and primitive
+descriptors use their sole
 `rund::kernel` owners directly; Accel does not add root aliases. Node does not
 accept arbitrary shader text, unvalidated callback source, backend source,
 runtime storage captures, or backend-provided primitive identity as graph

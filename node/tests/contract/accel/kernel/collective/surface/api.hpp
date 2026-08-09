@@ -20,5 +20,8 @@ namespace node_accel_contract {
 [[nodiscard]] bool RequiredVulkanRunsScatter();
 [[nodiscard]] bool RequiredMetalRunsStencil();
 [[nodiscard]] bool RequiredVulkanRunsStencil();
+[[nodiscard]] bool WindowProjectionContract();
+[[nodiscard]] bool RequiredMetalRunsWindow();
+[[nodiscard]] bool RequiredVulkanRunsWindow();
 
 } // namespace node_accel_contract

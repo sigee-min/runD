@@ -20,6 +20,7 @@
 #include <kernel/program/compute/spectrum/model.hpp>
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
+#include <kernel/program/compute/window/model.hpp>
 
 #include <cstdint>
 
@@ -47,6 +48,7 @@ struct AccelGraphNode {
   rund::kernel::ScatterDesc scatter{};
   rund::kernel::ScatterReduceDesc scatter_reduce{};
   rund::kernel::StencilDesc stencil{};
+  rund::kernel::WindowDesc window{};
   rund::kernel::TransformDesc transform{};
   rund::kernel::MatrixDesc matrix{};
   rund::kernel::FactorDesc factor{};

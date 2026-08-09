@@ -165,6 +165,11 @@ set(KERNEL_COMPUTE_MODEL_TEST_SOURCES
   tests/contract/program/compute/stencil/reference.cpp
   tests/contract/program/compute/stencil/reject.cpp
   tests/contract/program/compute/stencil/shape.cpp
+  tests/contract/program/compute/window.cpp
+  tests/contract/program/compute/window/identity.cpp
+  tests/contract/program/compute/window/reference.cpp
+  tests/contract/program/compute/window/reject.cpp
+  tests/contract/program/compute/window/shape.cpp
   tests/contract/program/compute/fixed/arithmetic.cpp
   tests/contract/program/compute/fixed/arithmetic/dsl.cpp
   tests/contract/program/compute/fixed/arithmetic/fusion.cpp

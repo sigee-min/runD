@@ -1,6 +1,6 @@
-# Accel RangeAggregate Planning Contract
+# Accel Range Planning Contract
 
-`RangeAggregate` is the source-private algorithm-selection authority for
+Range is the source-private algorithm-selection authority for
 associative one-dimensional range operations. It turns operation algebra,
 window shape, and backend capabilities into one immutable physical plan. It
 does not own graph semantics, buffers, an arena, or physical memory placement.
@@ -23,8 +23,7 @@ Verification authority:
 The entry point is
 
 ```cpp fragment
-PlanRange(const RangeShape &,
-                   const RangeCaps &) noexcept
+PlanRange(const RangeShape &, const RangeCaps &) noexcept
 ```
 
 and is the only candidate-selection function. Callers project an already
@@ -47,37 +46,80 @@ The exclusive traits factory recognizes Sum, Minimum, and Maximum in the
 signed, unsigned, or fixed integer domains and requires an explicit arithmetic
 law. Modulo-width Sum is associative, has an identity, is commutative, and is
 invertible. Saturating Sum is conservatively non-associative and non-invertible,
-so it cannot acquire a prefix candidate. Minimum and Maximum use an order-only
-law; both are associative, idempotent, and ordered but are not invertible.
+so it cannot acquire a prefix candidate. Direct and centered SharedHalo visit
+logical window positions from left to right. Signed and unsigned integers wrap
+at lane width; Fixed applies its declared overflow law after every addition.
+Minimum and Maximum use an
+order-only law; both are associative, idempotent, and ordered but are not
+invertible.
 
-The current window shape is one-dimensional Clamp with
+The common one-dimensional affine shape is
 
 ```text
-N >= 1
-1 <= r <= N
+N = input count, Q = output count
+K = logical window size, S = output stride, P = left padding
+output j begins at jS-P and contains K logical positions
+
+N,Q,K,S >= 1
+P < K
+(Q-1)S is representable in u64
+(Q-1)S-P < N
 E in {4, 8} bytes
-payload = N E representable in u64
+NE and QE representable in u64
 ```
 
-Capabilities are constructed as exactly one of unavailable, CPU, or GPU. A
+`P<K` proves that output zero intersects the input. The checked last-start
+inequality proves that every later output also intersects, including a padded
+output whose anchor is beyond `N`. Range admits arbitrary representable `K`;
+semantic adapters own any tighter bound. The centered Stencil projection is
+exactly `Q=N`, `K=2r+1`, `S=1`, `P=r`, Clamp. A pooling adapter may impose its
+public `K<=N` law before projection without creating a second Range validator.
+
+Clamp repeats the nearest endpoint outside `[0,N)`. Clip excludes an
+out-of-range logical position, equivalently combining the operation identity.
+Both are source-shaping boundary laws. The checked conceptual span used by
+block preparation is `T=(Q-1)S+K`.
+
+Capabilities are constructed as exactly one of unavailable, CPU, or GPU.
+`cpu_reference()` admits Direct only for the standalone meaning oracle;
+`cpu()` admits Direct, PrefixDifference, and BlockPrefixSuffix with a frozen
+logical block width of 64. A
 GPU capability names its Metal or Vulkan source class, the supported width set
 within `{64, 128, 256}`, maximum threads per workgroup, shared-memory limit,
 shared-memory occupancy budget, maximum first-dimension group count, and
-supported algorithm variants. Unknown source classes, widths, operations,
-domains, or candidate bits fail closed.
+maximum addressable storage element count, maximum bytes in one storage
+binding, plus supported algorithm variants.
+Metal and CPU retain the u64 count domain; the current Vulkan source variant
+freezes `UINT32_MAX` as its storage element-count upper bound because every
+storage-array subscript is u32. Unknown source classes, widths, operations,
+domains, zero storage bounds, or candidate bits fail closed.
 
 ## Legal candidates
 
-Direct is the CPU route and the meaning-preserving GPU fallback. For a GPU
-width `W`, it is legal only when the width and
-`ceil(N / W)` groups are supported. Its exact modeled work is
+Every candidate requires `N`, `Q`, and each emitted stage element count to fit
+the frozen capability's storage element-count bound. A candidate that emits a
+global temporary additionally requires every individual temporary to fit the
+frozen single-storage-binding byte bound. These legality checks occur inside
+`PlanRange`; pipeline acquisition retains only defensive rechecks and never
+becomes a second candidate authority. Thus an oversized PrefixDifference or
+BlockPrefixSuffix temporary removes that candidate while Direct remains
+eligible when its authenticated input and output bindings are legal.
+
+Direct is the meaning-preserving fallback. For output `j`, let `Vj` be `K`
+under Clamp and the number of in-range logical positions under Clip, and let
+`V=sum(Vj)`. For a GPU width `W`, it is legal only when the width and
+`ceil(Q / W)` groups are supported. Its exact modeled work is
 
 ```text
-global reads  = N(2r + 1)E
-global writes = NE
-combine ops   = 2rN
+global reads  = VE
+global writes = QE
+combine ops   = V-Q
 dispatches    = 1
 ```
+
+Clamp therefore has `V=QK`; Clip subtracts the exact left and right excluded
+arithmetic series. Direct is `Theta(QK)` and remains the semantic fallback
+when no linear candidate is legal.
 
 SharedHalo is considered separately at each supported width. With device
 shared limit `L` and occupancy budget `q`, its frozen radius capacity is
@@ -88,44 +130,64 @@ C = min(W, floor((S - W) / 2)) when q > 0 and S > W
 C = 0 otherwise
 ```
 
-It is legal only when `r <= C`, `(W + 2C)E <= floor(L/q)`, and the dispatch
+SharedHalo is legal only for the centered Clamp projection (`Q=N`, `S=1`,
+`K=2P+1`) and when `P <= C`, `(W + 2C)E <= floor(L/q)`, and the dispatch
 group count fits. The allocation uses the frozen capacity `C`; the traffic
-uses runtime radius `r`. For `G = ceil(N/W)` and final active tail
+uses runtime padding `P`. For `G = ceil(N/W)` and final active tail
 `T = N - (G-1)W`, exact distinct-union input reads are
 
 ```text
 R = N                                      when G = 1
-R = N + (2G - 3)r + min(r, T)             when G > 1
+R = N + (2G - 3)P + min(P, T)             when G > 1
 global reads = RE
-combine ops  = 2rN
+combine ops  = (K-1)Q
 ```
 
 PrefixDifference is legal only for an associative invertible operation,
 currently modulo-width Sum.
 Each level performs a work-efficient, padded width-`W` local prefix, emits one
 summary per group, recursively scans the summaries, and fixes lower levels in
-reverse order. The final window stage applies prefix difference and explicit
-Clamp endpoint corrections. Every hierarchy dispatch must fit, `WE` local
+reverse order. The final stage derives the in-range endpoints of
+`[jS-P,jS-P+K)`, applies prefix difference, and under Clamp adds at most one
+scaled left endpoint and one scaled right endpoint per output. Clip adds no
+endpoint correction. Every hierarchy dispatch must fit, `WE` local
 shared bytes must fit the occupancy budget, and all prefix and summary byte
 requirements must be representable. If `n[0] = N` and
 `n[j+1] = ceil(n[j]/W)`, the hierarchy is a decreasing geometric series for
-`W >= 64`; its scan and fix-up work is `O(N)`. Endpoint work is at most `2r`,
-and `r <= N`, so total work is `O(N)` independent of a multiplicative radius
-factor.
+`W >= 64`; its scan and fix-up work is `O(N)`. Query and endpoint work is
+`O(Q)`, so total work is `O(N+Q)` independent of a multiplicative window-size
+factor. Prefix values occupy exactly `NE` bytes. Both input/output counts and
+every hierarchy stage element count must fit the frozen storage element bound.
+
+The CPU plan uses the same candidate authority but an exact sequential
+two-stage graph: one `PrefixSequential` pass over `N`, then one query pass over
+`Q`. It retains only the `NE` prefix temporary, has no shared bytes or block
+summaries, and models exactly `N+Q` launched logical lanes.
 
 BlockPrefixSuffix is legal only for ordered idempotent Minimum or Maximum. It
-forms the conceptual clamped sequence
+forms the conceptual sequence
 
 ```text
-M = N + 2r
-K = 2r + 1
+T = (Q-1)S + K
 ```
 
-and partitions it into `ceil(M/K)` blocks. Each block writes forward prefix
-and backward suffix values; each output combines the suffix at its left edge
-with the prefix at its right edge. Since `r <= N`, `M <= 3N`; preparation plus
-output work is therefore `O(N)`. Checked `M`, byte capacities, and both
-dispatch topologies must fit.
+Conceptual position `x` maps to input index `x-P`; Clamp materializes an
+endpoint and Clip materializes the Min/Max identity outside the input. The
+candidate partitions the sequence into `ceil(T/K)` blocks. Each block writes
+forward prefix and backward suffix values; each output combines the suffix at
+its left edge `jS` with the prefix at `jS+K-1`. General affine preparation plus
+output is `O(T+Q)`, with exact scratch `2TE`. It reduces to `O(N+Q)` under
+adapter bounds such as Pooling's `K<=N` or centered Stencil's `Q=N`, `S=1`,
+and `K<=2N+1`. Checked `T`, byte capacities, and both dispatch topologies must
+fit. Preparation reads exactly `2T` input elements under Clamp. Under Clip,
+identity padding performs no input access, so preparation reads exactly
+`2 min(N,T-P)` input elements. The query stage reads two prepared values per
+output. A backend removes this candidate when `T` exceeds its frozen storage
+element bound; for the current Vulkan source this is `UINT32_MAX` because its
+scratch indices are u32. Another legal candidate may remain available.
+The CPU projection records two sequential stages with one logical group and
+width zero: preparation performs `2T` forward/backward iterations and the
+query performs `Q`, so its launched-work evidence is exactly `2T+Q`.
 
 ## Cost and deterministic selection
 
@@ -176,7 +238,7 @@ The plan stores a compact immutable derivation rather than owning a vector or
 allocating. These are placement-free requirements:
 
 ```text
-RangeAggregate planner
+Range planner
   -> variant + stage graph + typed temporary requirements
   -> existing Pipeline memory planner
   -> arena offsets, lifetime aliasing, alignment, and accounting
@@ -186,23 +248,34 @@ Dispatch-local shared bytes remain pipeline resource metadata and never enter
 the global arena. The existing Pipeline memory planner remains the sole
 physical placement and reuse authority.
 
-Stencil is the current window adapter. It supplies Clamp semantics, the public
-Stencil descriptor/hash, resident overlap rejection, and public error
-projection; selected source, cache identity, temporary binding, and stage
-dispatch arrive from `RangeExec`. Pooling and rolling aggregates require their
-own semantic adapters before they can enter this execution path.
+Stencil and Window are the semantic adapters. Both project into the same
+`RangeShape`, use the same physical `RangeBinds`, reject resident overlap, and
+receive selected source, cache identity, temporary binding, and stage dispatch
+from `RangeExec`. Stencil owns its centered Clamp descriptor/hash. Exact
+rolling aggregates use the Window adapter with `Q=N`, `K=2r+1`, `S=1`, and
+`P=r`. Pool validates `K<=N` and derives `Q=1+floor((N-K)/S)` for Drop or
+`Q=1+floor((N-1)/S)` for Keep before entering the same Window adapter. Window
+owns the resulting affine descriptor/hash and Clamp/Clip boundary; neither
+public adapter owns physical scratch or backend source code.
 
 ## Identity
 
 Source identity contains the backend source class, algorithm variant, width,
 shared capacity, operation, numeric domain, arithmetic law, boundary, and
 element width.
-`N` and `r` are normalized out when they do not shape that source variant.
+`N`, `Q`, `K`, `S`, and `P` are runtime parameters and are normalized out when
+they do not shape that source variant.
 
-Execution identity starts from source identity and adds `N`, `r`, exact stage
-topology, temporary roles and lifetimes, and the complete cost vector. Thus
-runtime-equivalent source variants can reuse a pipeline while different
-dispatch or storage plans remain distinct.
+Execution identity starts from source identity and adds `N`, `Q`, `K`, `S`,
+`P`, exact stage topology, temporary roles and lifetimes, and the complete cost
+vector. Thus runtime-equivalent source variants can reuse a pipeline while
+different dispatch or storage plans remain distinct.
+
+The Metal named-pipeline key serializes the complete source-shaping tuple
+directly—candidate, width, shared capacity, operation, domain, arithmetic law,
+boundary, and element width. Lookup therefore compares exact tuple text rather
+than trusting only a compact hash; count and affine geometry remain absent
+because they are runtime parameters for a fixed source variant.
 
 Rejected plans carry a stable positive failure boundary for invalid shape,
 unavailable or invalid capability, no legal candidate, or checked cost

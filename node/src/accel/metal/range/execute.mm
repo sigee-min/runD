@@ -60,6 +60,7 @@ RangeCaps MetalRangeCaps(const rund::AccelDevice &pick) noexcept {
       RangeSource::Metal, MetalRangeWidthMask(maximum_width), maximum_width,
       kRangeSharedReserve, device.maxThreadgroupMemoryLength,
       std::numeric_limits<std::uint32_t>::max(),
+      std::numeric_limits<rund::kernel::u64>::max(), device.maxBufferLength,
       RangeSupportBit(RangeSupport::Direct) |
           RangeSupportBit(RangeSupport::SharedHalo) |
           RangeSupportBit(RangeSupport::PrefixDifference) |

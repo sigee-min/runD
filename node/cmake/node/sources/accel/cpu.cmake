@@ -25,4 +25,5 @@ list(APPEND NODE_SOURCES
   src/accel/cpu/transfer.cpp
   src/accel/cpu/transform.cpp
   src/accel/cpu/window.cpp
+  src/accel/cpu/window/run.cpp
 )

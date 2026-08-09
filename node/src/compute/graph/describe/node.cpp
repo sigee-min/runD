@@ -42,6 +42,8 @@ public_operation(const Primitive primitive) noexcept {
     return graph::Operation::ScatterReduce;
   case Primitive::Stencil:
     return graph::Operation::Stencil;
+  case Primitive::Window:
+    return graph::Operation::Window;
   case Primitive::Transform:
     return graph::Operation::Transform;
   case Primitive::Matrix:
@@ -67,6 +69,7 @@ public_operation(const Primitive primitive) noexcept {
   case Primitive::Partition:
   case Primitive::Reduce:
   case Primitive::Stencil:
+  case Primitive::Window:
   case Primitive::Transform:
   case Primitive::Matrix:
   case Primitive::Factor:

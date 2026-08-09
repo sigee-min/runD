@@ -13,12 +13,12 @@ namespace {
 PseudoRangePlan(const RangeExec &execution) noexcept {
   const RangeIdentity identity = execution.source_identity();
   const bool wide = execution.wide_elements();
-  const bool signed_extrema = execution.signed_extrema();
+  const bool signed_values = execution.signed_values();
   const rund::kernel::ComputeDomain executable_domain =
-      signed_extrema ? (wide ? rund::kernel::ComputeDomain::I64
-                             : rund::kernel::ComputeDomain::I32)
-                     : (wide ? rund::kernel::ComputeDomain::U64
-                             : rund::kernel::ComputeDomain::U32);
+      signed_values ? (wide ? rund::kernel::ComputeDomain::I64
+                            : rund::kernel::ComputeDomain::I32)
+                    : (wide ? rund::kernel::ComputeDomain::U64
+                            : rund::kernel::ComputeDomain::U32);
   return rund::kernel::ComputePlan{
       .op_hash_hi = identity.hi,
       .op_hash_lo = identity.lo,
@@ -109,6 +109,7 @@ RangeCaps VulkanRangeCaps(const rund::AccelDevice &pick) noexcept {
   const std::optional<RangeCaps> capabilities = RangeCaps::gpu(
       RangeSource::Vulkan, widths, maximum_width, kRangeSharedReserve,
       properties.limits.maxComputeSharedMemorySize, maximum_groups,
+      std::numeric_limits<rund::kernel::u32>::max(), adapter->storage_limit,
       RangeSupportBit(RangeSupport::Direct) |
           RangeSupportBit(RangeSupport::SharedHalo) |
           RangeSupportBit(RangeSupport::PrefixDifference) |

@@ -102,6 +102,7 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/run/window.cpp
   tests/contract/accel/kernel/scatter.cpp
   tests/contract/accel/kernel/stencil.cpp
+  tests/contract/accel/kernel/window.cpp
 )
 
 if(RUND_NODE_HAVE_METAL_SDK)
@@ -130,6 +131,7 @@ set(NODE_TEST_ACCEL_CPU_KERNEL_TEST_SOURCES
   tests/contract/accel/kernel/cpu.cpp
   tests/contract/accel/kernel/cpu/map/run.cpp
   tests/contract/accel/kernel/cpu/segmented.cpp
+  tests/contract/accel/kernel/cpu/window.cpp
 )
 
 set(NODE_TEST_ACCEL_BACKEND_RUNTIME_TEST_SOURCES

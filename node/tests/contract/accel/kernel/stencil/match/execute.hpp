@@ -64,7 +64,8 @@ ForcedCapabilities(const rund::node::accel::detail::RangeCaps &base,
                         base.maximum_threads_per_workgroup(),
                         base.shared_memory_occupancy_budget(),
                         base.shared_memory_limit(), base.maximum_group_count(),
-                        support);
+                        base.maximum_storage_element_count(),
+                        base.maximum_storage_binding_bytes(), support);
 }
 
 [[nodiscard]] constexpr rund::node::accel::detail::RangePath
@@ -211,7 +212,7 @@ template <typename T, std::size_t Count>
     return match_detail::Fail("forced.plan", range.reason());
   }
 
-  const detail::StencilBinds bindings{
+  const detail::RangeBinds bindings{
       .input = &resources.input.resident,
       .input_handle = &input_handle,
       .output = &resources.output.resident,

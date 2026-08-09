@@ -23,6 +23,7 @@ struct SortPlan;
 struct SpectrumPlan;
 struct StencilPlan;
 struct TransformPlan;
+struct WindowPlan;
 
 [[nodiscard]] GraphSignature BuildMapGraphSignature(const ComputeIR &ir,
                                                     ComputeApi api);
@@ -49,6 +50,7 @@ GraphSignatureFor(const ScatterPlan &plan) noexcept;
 GraphSignatureFor(const ScatterReducePlan &plan) noexcept;
 [[nodiscard]] GraphSignature
 GraphSignatureFor(const StencilPlan &plan) noexcept;
+[[nodiscard]] GraphSignature GraphSignatureFor(const WindowPlan &plan) noexcept;
 [[nodiscard]] GraphSignature
 GraphSignatureFor(const TransformPlan &plan) noexcept;
 [[nodiscard]] GraphSignature GraphSignatureFor(const MatrixPlan &plan) noexcept;

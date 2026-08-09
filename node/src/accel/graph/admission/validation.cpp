@@ -36,26 +36,26 @@ bool BindingOrderOk(const rund::AccelGraphNode &node,
   if (!node.control.valid(node.buffer_count)) {
     return false;
   }
-  const auto control_binding_ok = [&](const std::uint32_t local,
-                                      const rund::kernel::GraphControlSource source,
-                                      const std::uint64_t offset) {
-    if (local == rund::kernel::kNoGraphControlBinding) {
-      return source == rund::kernel::GraphControlSource::Descriptor;
-    }
-    if (local < data_count || local >= node.buffer_count) {
-      return false;
-    }
-    const rund::AccelGraphBufferRef &ref = node.buffers[local];
-    const rund::AccelBufferDesc shape = AccelGraphBufferShape(ref);
-    const std::uint64_t width =
-        source == rund::kernel::GraphControlSource::U64 ? 8u : 4u;
-    return ref.role == rund::kernel::BufferRole::Read &&
-           shape.scalar_width_bytes == width && shape.count != 0u &&
-           offset % width == 0u && offset / width < shape.count;
-  };
+  const auto control_binding_ok =
+      [&](const std::uint32_t local,
+          const rund::kernel::GraphControlSource source,
+          const std::uint64_t offset) {
+        if (local == rund::kernel::kNoGraphControlBinding) {
+          return source == rund::kernel::GraphControlSource::Descriptor;
+        }
+        if (local < data_count || local >= node.buffer_count) {
+          return false;
+        }
+        const rund::AccelGraphBufferRef &ref = node.buffers[local];
+        const rund::AccelBufferDesc shape = AccelGraphBufferShape(ref);
+        const std::uint64_t width =
+            source == rund::kernel::GraphControlSource::U64 ? 8u : 4u;
+        return ref.role == rund::kernel::BufferRole::Read &&
+               shape.scalar_width_bytes == width && shape.count != 0u &&
+               offset % width == 0u && offset / width < shape.count;
+      };
   if (node.control.has_count() &&
-      !control_binding_ok(node.control.count_binding,
-                          node.control.count_source,
+      !control_binding_ok(node.control.count_binding, node.control.count_source,
                           node.control.count_byte_offset)) {
     return false;
   }
@@ -105,6 +105,8 @@ bool PrimitivePayloadOnly(const rund::AccelGraphNode &node,
           DefaultScatterReduceDescriptor(node.scatter_reduce)) &&
          (active == rund::kernel::NodeKind::Stencil ||
           DefaultStencilDescriptor(node.stencil)) &&
+         (active == rund::kernel::NodeKind::Window ||
+          DefaultWindowDescriptor(node.window)) &&
          (active == rund::kernel::NodeKind::Transform ||
           DefaultTransformDescriptor(node.transform)) &&
          (active == rund::kernel::NodeKind::Matrix ||

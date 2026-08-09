@@ -106,5 +106,6 @@ CpuContextRunsSegmentedReduceRangeDefault(const rund::AccelDevice &pick);
 [[nodiscard]] bool CpuContextRejectsBadScanHash(const rund::AccelDevice &pick);
 [[nodiscard]] bool
 CpuContextRejectsForeignBuffer(const rund::AccelDevice &pick);
+[[nodiscard]] bool CpuContextRunsWindow(const rund::AccelDevice &pick);
 
 } // namespace node_accel_contract::cpu_context

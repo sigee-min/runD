@@ -2608,7 +2608,7 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   const RangeExec minimum_i32_execution =
       stencil::RequireRangeExec(minimum_i32);
   return RangePipelineKey(sum_u32_execution) ==
-             RangePipelineKey(sum_u32_execution) &&
+             "range.aggregate.1.64.64.0.2.0.0.4" &&
          RangePipelineKey(sum_u32_execution) !=
              RangePipelineKey(sum_i32_execution) &&
          RangePipelineKey(sum_u32_execution) !=
@@ -2878,6 +2878,7 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   constexpr std::optional<RangeCaps> stencil_capabilities =
       RangeCaps::gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
                      std::numeric_limits<rund::kernel::u32>::max(),
+                     std::numeric_limits<rund::kernel::u64>::max(),
                      RangeSupportBit(RangeSupport::Direct));
   constexpr RangePlan stencil_range =
       stencil_shape.has_value() && stencil_capabilities.has_value()

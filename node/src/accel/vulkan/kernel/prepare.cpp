@@ -442,15 +442,16 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
     }
     break;
   }
-  case rund::kernel::NodeKind::Stencil: {
-    const auto *const active = OperationFor<operation::Stencil>(step);
+  case rund::kernel::NodeKind::Stencil:
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan *const range =
+        step.step == nullptr ? nullptr : RangePlanFor(step.step->operation);
     const std::optional<RangeExec> execution =
-        active == nullptr ? std::nullopt : RangeExec::from(active->range);
+        range == nullptr ? std::nullopt : RangeExec::from(*range);
     complete = execution.has_value();
     if (complete) {
       const std::uint32_t descriptor_count = execution->descriptor_count();
-      for (std::size_t index = 0u; index < active->range.stage_count();
-           ++index) {
+      for (std::size_t index = 0u; index < range->stage_count(); ++index) {
         complete =
             complete && add(AcquireVulkanRangePipeline(*adapter, *execution),
                             descriptor_count);

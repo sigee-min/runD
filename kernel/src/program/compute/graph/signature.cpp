@@ -19,6 +19,7 @@
 #include <kernel/program/compute/spectrum/model.hpp>
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
+#include <kernel/program/compute/window/model.hpp>
 
 #include <cstddef>
 
@@ -356,20 +357,18 @@ GraphSignatureFor(const ScatterPlan &plan) noexcept {
 
 [[nodiscard]] GraphSignature
 GraphSignatureFor(const ScatterReducePlan &plan) noexcept {
-  GraphSignature out = graph_signature_detail::Begin(
-      NodeKind::ScatterReduce, plan.ok, plan.reason);
+  GraphSignature out = graph_signature_detail::Begin(NodeKind::ScatterReduce,
+                                                     plan.ok, plan.reason);
   if (!out.ok) {
     return out;
   }
+  graph_signature_detail::Add(out, graph_signature_detail::Value(
+                                       GraphValueKind::Values, BufferRole::Read,
+                                       plan.element_bytes, plan.element_count));
   graph_signature_detail::Add(
-      out, graph_signature_detail::Value(GraphValueKind::Values,
-                                         BufferRole::Read,
-                                         plan.element_bytes,
-                                         plan.element_count));
-  graph_signature_detail::Add(
-      out, graph_signature_detail::Value(GraphValueKind::Indices,
-                                         BufferRole::Read, plan.index_bytes,
-                                         plan.element_count));
+      out,
+      graph_signature_detail::Value(GraphValueKind::Indices, BufferRole::Read,
+                                    plan.index_bytes, plan.element_count));
   if (plan.count_source != ComputeCountSource::Descriptor) {
     graph_signature_detail::Add(
         out, graph_signature_detail::Value(
@@ -377,10 +376,9 @@ GraphSignatureFor(const ScatterReducePlan &plan) noexcept {
                  ComputeCountBytes(plan.count_source), 1u));
   }
   graph_signature_detail::Add(
-      out, graph_signature_detail::Value(GraphValueKind::Output,
-                                         BufferRole::Write,
-                                         plan.element_bytes,
-                                         plan.output_count));
+      out,
+      graph_signature_detail::Value(GraphValueKind::Output, BufferRole::Write,
+                                    plan.element_bytes, plan.output_count));
   return out;
 }
 
@@ -398,6 +396,23 @@ GraphSignatureFor(const StencilPlan &plan) noexcept {
       out,
       graph_signature_detail::Value(GraphValueKind::Output, BufferRole::Write,
                                     plan.element_bytes, plan.element_count));
+  return out;
+}
+
+[[nodiscard]] GraphSignature
+GraphSignatureFor(const WindowPlan &plan) noexcept {
+  GraphSignature out =
+      graph_signature_detail::Begin(NodeKind::Window, plan.ok, plan.reason);
+  if (!out.ok) {
+    return out;
+  }
+  graph_signature_detail::Add(out, graph_signature_detail::Value(
+                                       GraphValueKind::Values, BufferRole::Read,
+                                       plan.element_bytes, plan.input_count));
+  graph_signature_detail::Add(
+      out,
+      graph_signature_detail::Value(GraphValueKind::Output, BufferRole::Write,
+                                    plan.element_bytes, plan.output_count));
   return out;
 }
 

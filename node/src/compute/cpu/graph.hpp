@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../accel/range_aggregate/model.hpp"
+
 #include <kernel/program/compute/compact/model.hpp>
 #include <kernel/program/compute/factor/model.hpp>
 #include <kernel/program/compute/gather/model.hpp>
@@ -16,11 +18,13 @@
 #include <kernel/program/compute/spectrum/model.hpp>
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
+#include <kernel/program/compute/window/model.hpp>
 #include <rund/compute/abi/model.hpp>
 #include <rund/compute/ops.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -51,14 +55,15 @@ using CpuRuntimePrimitivePlan =
                  kernel::HistogramPlan, kernel::PartitionPlan,
                  kernel::ReducePlan, kernel::ScatterPlan,
                  kernel::ScatterReducePlan, kernel::StencilPlan,
-                 kernel::TransformPlan, kernel::MatrixPlan, kernel::FactorPlan,
-                 kernel::SolvePlan, kernel::SpectrumPlan>;
+                 kernel::WindowPlan, kernel::TransformPlan, kernel::MatrixPlan,
+                 kernel::FactorPlan, kernel::SolvePlan, kernel::SpectrumPlan>;
 
 struct CpuRuntimePrimitive final {
   std::vector<std::uint32_t> inputs;
   std::uint32_t output{};
   Primitive kind{Primitive::Reduce};
   CpuRuntimePrimitivePlan plan{};
+  std::optional<rund::node::accel::detail::RangePlan> range{};
   FlowControl control{};
 };
 
