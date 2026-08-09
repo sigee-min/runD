@@ -69,6 +69,15 @@ median has a one-observation contamination bound: one arbitrary scheduler
 interruption cannot move `B`, while two degraded observations remain visible
 in `B` rather than being hidden by an allowance.
 
+Every general Compute workload row records `prime_runs = 1`. After the initial
+validated warm-up, each timed `Job::run()` is immediately preceded by one
+completed, untimed run of that same prepared Job. The prime must succeed and
+its warm counters join the row's zero-setup contract. It neither retries nor
+filters a timed sample: the fixed number of timed samples is still retained in
+full and its median is still the timing value. This defines the measured
+boundary as steady prepared execution; idle-to-active submission latency is a
+different observation and is not silently folded into the workload median.
+
 For a new Release source, `tools/measure/admit/run` creates an independent
 three-packet set for each route. Every input must have a passed workload, the
 same source/toolchain identity, the same executable identity within its route,

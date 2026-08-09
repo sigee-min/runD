@@ -27,6 +27,11 @@
 
 namespace rund::measure::compute {
 
+// Each timed resident invocation follows one completed invocation of the same
+// prepared job. This makes the measured boundary explicit: it is a steady
+// prepared execution, not an idle-to-active submission latency sample.
+inline constexpr std::size_t kPrimeRuns = 1u;
+
 #if defined(RUND_COMPUTE_FOCUS)
 [[nodiscard]] inline bool ParseBackend(const std::string_view name,
                                        Backend &backend) noexcept {
@@ -112,15 +117,13 @@ consteval bool WarmCounterContract() {
   }
   counters.observe(WarmCounterSample{1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u});
   counters.observe(WarmCounterSample{9u, 8u, 7u, 6u, 5u, 4u, 3u, 2u, 1u});
-  if (counters.pipeline_compiles != 10u ||
-      counters.buffer_allocations != 10u ||
+  if (counters.pipeline_compiles != 10u || counters.buffer_allocations != 10u ||
       counters.descriptor_pool_creations != 10u ||
       counters.descriptor_set_allocations != 10u ||
       counters.download_events != 10u || counters.uploaded_bytes != 10u ||
       counters.downloaded_bytes != 10u ||
       counters.internal_roundtrip_bytes != 10u ||
-      counters.external_roundtrip_bytes != 10u ||
-      counters.zero()) {
+      counters.external_roundtrip_bytes != 10u || counters.zero()) {
     return false;
   }
   constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
@@ -292,7 +295,7 @@ inline void PrintWarmColumns() {
 inline void PrintWorkloadColumns() {
   std::fputs(
       "workload_columns,backend,family,variant,status,input_count,active_count,"
-      "samples,median_us,input_items_per_s,active_items_per_s",
+      "samples,prime_runs,median_us,input_items_per_s,active_items_per_s",
       stdout);
   PrintStatsColumns();
   PrintWarmColumns();

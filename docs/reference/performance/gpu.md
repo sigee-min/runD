@@ -148,9 +148,11 @@ host, and driver path. They do not show CPU or GPU compute throughput.
 ### Warm Resident Execution
 
 The workload timer creates the resident job and completes one validated
-warmup before sampling. Each sample then times only `Job::run()`. After the
-samples, the suite validates the result and requires its graph and output
-hashes to match the CPU reference:
+warmup before sampling. Each timed sample follows one successful, untimed
+prime run of that same prepared Job; the row records `prime_runs = 1` and
+requires zero setup work across both prime and timed runs. The timer encloses
+only the following `Job::run()`. After the samples, the suite validates the
+result and requires its graph and output hashes to match the CPU reference:
 
 | Workload, `N = 262,144` | CPU | Metal | Vulkan/MoltenVK |
 | --- | ---: | ---: | ---: |

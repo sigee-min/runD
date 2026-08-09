@@ -40,7 +40,7 @@ PERL
   echo "Darwin baseline cardinality changed: $darwin_rows" >&2
   exit 1
 }
-compute_fillers=$((compute_metrics - 10))
+compute_fillers=$((compute_metrics - 11))
 
 system=$(uname -s)
 release=$(uname -r)
@@ -71,6 +71,8 @@ compute_observation="$work/compute-observation.csv"
 printf '%s\n' \
   'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
   'resident_setup,cpu,ok,4,1,10.000,48,48,1,2' \
+  'workload_columns,backend,family,variant,status,input_count,active_count,samples,prime_runs,median_us,input_items_per_s,active_items_per_s,pipeline_compiles,buffer_allocations,download_events,dispatches,command_submits,uploaded_bytes,downloaded_bytes,pipeline_cache_hits,pipeline_cache_evictions,buffer_reuses,descriptor_pool_creations,descriptor_set_allocations,descriptor_reuses,original_dispatches,final_dispatches,fusions,fusion_rejections,internal_roundtrip_bytes,external_roundtrip_bytes,kernel_ns,kernel_samples,shader_compile_ns,spirv_compile_ns,pipeline_create_ns,descriptor_setup_ns,submit_wait_ns,readback_ns,graph_hash,output_hash,workers,participating,tiles,tile_size,vector_chunks,tail_chunks,warm_pipeline_compiles,warm_buffer_allocations,warm_download_events,warm_uploaded_bytes,warm_zero,resident_bytes,staging_bytes' \
+  'workload,metal,fixed_map,fixed_i16_f16_widen,ok,4096,4096,11,1,165.250,24786686.838,24786686.838,0,0,1,1,1,0,16384,0,0,0,0,0,0,1,1,0,0,0,0,3499,1,0,0,0,0,576083,31375,157605815099850567,10370443571796449501,0,0,0,0,0,0,0,0,0,0,1,49152,2' \
   'inflight_columns,backend,status,k,count,samples,serial_median_us,concurrent_median_us,serial_jobs_per_s,concurrent_jobs_per_s,concurrent_items_per_s,speedup,command_capacity,command_inflight_peak,command_capacity_rejections,graph_hash,output_hash,hash_parity,warm_zero,command_submits,dispatches' \
   'inflight,vulkan,ok,8,262144,7,10.000,5.000,800000.000,1600000.000,419430400000.000,2.000000,8,8,0,11,12,1,1,8,8' \
   'batch_columns,backend,status,jobs,elements_per_job,samples,serial_first,batch_first,serial_wall_median_us,batch_wall_median_us,serial_submit_wait_us,batch_submit_wait_us,serial_kernel_us,batch_kernel_us,serial_host_residual_us,batch_host_residual_us,serial_jobs_per_s,batch_jobs_per_s,speedup,paired_speedup,serial_command_submits,batch_command_submits,job_command_submits,serial_dispatches,batch_dispatches,graph_hash,output_hash,hash_parity,warm_zero' \
@@ -478,6 +480,7 @@ printf '%s\n' \
   'fixture	measure-compute	batch/metal/jobs=64/elements=64/serial_wall_median_us	upper	10.000	25	us' \
   'fixture	measure-compute	batch/vulkan/jobs=64/elements=64/batch_wall_median_us	upper	6.000	15	us' \
   'fixture	measure-compute	batch/vulkan/jobs=64/elements=64/serial_wall_median_us	upper	12.000	30	us' \
+  'fixture	measure-compute	workload/metal/fixed_map/fixed_i16_f16_widen/4096/median_us	upper	165.250	413.125	us' \
   'fixture	measure-compute	mixed/cpu+metal+vulkan/mixed_median_us	upper	8.000	20	us' \
   'fixture	measure-compute	mixed/cpu+metal+vulkan/serial_median_us	upper	16.000	40	us' \
   'fixture	measure-compute	resident/cpu/4/median_us	upper	10.000	25	us' \
@@ -663,6 +666,8 @@ perl "$root/tools/internal/measure/compare" \
   -eq $((compute_metrics + 2)) ]
 grep -q '^profile	fixture$' "$work/compute-observe.tsv"
 grep -q '^resident/cpu/4/median_us	10.000	us$' \
+  "$work/compute-observe.tsv"
+grep -q '^workload/metal/fixed_map/fixed_i16_f16_widen/4096/median_us	165.250	us$' \
   "$work/compute-observe.tsv"
 grep -q '^inflight/vulkan/serial_median_us	10.000	us$' \
   "$work/compute-observe.tsv"

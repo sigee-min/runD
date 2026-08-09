@@ -48,9 +48,10 @@ add_test(
   NAME tools.measure
   COMMAND sh "${CMAKE_SOURCE_DIR}/tools/internal/measure/contract"
           "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/measure-contract")
+# This contract projects and replays the complete 15-packet admission fixture.
 set_tests_properties(tools.measure PROPERTIES
   LABELS "rund_tools;rund_harness"
-  TIMEOUT 30)
+  TIMEOUT 60)
 rund_test_route(tools.measure NO_BUILD_TARGETS)
 
 if(TARGET runD-compute-focus)

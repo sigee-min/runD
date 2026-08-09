@@ -38,6 +38,18 @@ bool MeasureWorkload(const std::string_view family,
   samples.reserve(iterations);
   WarmCounters warm{};
   for (std::size_t index = 0u; index < iterations; ++index) {
+    for (std::size_t prime = 0u; prime < kPrimeRuns; ++prime) {
+      const auto status = job->run();
+      if (!status) {
+        std::fprintf(stderr, "workload %s/%.*s/%.*s prime failed: %.*s\n",
+                     Name(backend), static_cast<int>(family.size()),
+                     family.data(), static_cast<int>(variant.size()),
+                     variant.data(), static_cast<int>(status.error().size()),
+                     status.error().data());
+        return false;
+      }
+      warm.observe(job->stats());
+    }
     const auto begin = Clock::now();
     const auto status = job->run();
     const auto end = Clock::now();
@@ -68,11 +80,12 @@ bool MeasureWorkload(const std::string_view family,
       backend, ReferenceKey{family, variant, input_count}, evidence);
   const auto stats = job->stats();
   const auto memory = job->memory();
-  std::printf("workload,%s,%.*s,%.*s,%s,%zu,%zu,%zu,%.3f,%.3f,%.3f",
+  std::printf("workload,%s,%.*s,%.*s,%s,%zu,%zu,%zu,%zu,%.3f,%.3f,%.3f",
               Name(backend), static_cast<int>(family.size()), family.data(),
               static_cast<int>(variant.size()), variant.data(),
               reference_ok ? "ok" : "reference_failed", input_count,
-              active_count, iterations, median_us, input_rate, active_rate);
+              active_count, iterations, kPrimeRuns, median_us, input_rate,
+              active_rate);
   PrintStats(stats);
   PrintWarm(warm);
   std::printf(",%llu,%llu\n",
@@ -255,6 +268,5 @@ bool FixedWidening64(const Backend backend) {
   return FixedWidening<Fixed<20, 44>>(backend, "fixed_i20_f44_widen");
 }
 #endif
-
 
 } // namespace rund::measure::compute
