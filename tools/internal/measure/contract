@@ -416,9 +416,9 @@ sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=9 warm_median_ns
 cp "$scheduler_observation" "$calibration/scheduler2.log"
 sed 's/cold_ns_per_op=10 warm_median_ns_per_op=9/cold_ns_per_op=100 warm_median_ns_per_op=99/' \
   "$scheduler_observation" >"$calibration/scheduler3.log"
-sed 's/,10.000,48,48,1,2$/,9.000,48,48,1,2/' \
+sed 's/,10.000,1.000,2.000,1.000,2.000,3.000,1.000,4,/,9.000,1.000,2.000,1.000,2.000,3.000,1.000,4,/' \
   "$compute_observation" >"$calibration/compute1.log"
-sed 's/,10.000,48,48,1,2$/,11.000,48,48,1,2/' \
+sed 's/,10.000,1.000,2.000,1.000,2.000,3.000,1.000,4,/,11.000,1.000,2.000,1.000,2.000,3.000,1.000,4,/' \
   "$compute_observation" >"$calibration/compute2.log"
 cp "$compute_observation" "$calibration/compute3.log"
 sed 's/graph	median	us	10.000/graph	median	us	9.000/' \
