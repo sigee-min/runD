@@ -1,8 +1,8 @@
 # Performance Method
 
 This page and [`baseline.tsv`](./baseline.tsv) are the product performance
-baseline authority. The five installed-Release measurement routes compare
-their output before a successful evidence packet can be published:
+baseline authority. The five installed-Release measurement routes produce one
+sealed workload observation each:
 
 - `tools/measure/scheduler/run`
 - `tools/measure/compute/run`
@@ -10,12 +10,16 @@ their output before a successful evidence packet can be published:
 - `tools/measure/graph/services/run`
 - `tools/measure/telemetry/run`
 
-`tools/internal/measure/compare` is the sole measurement-log parser and
-comparison owner. `tools/internal/measure/schema.pm` is the sole baseline
-schema, host/profile selection, route cardinality, canonical-order, and
-immutable-packet seal owner. The shared `tools/internal/measure/finish`
-boundary invokes the comparator once; individual routes do not mirror either
-policy.
+`tools/measure/admit/run` is the sole Release admission command. It records
+three consecutive observations for every route, projects their canonical
+per-metric medians, and compares that one candidate to the checked baseline.
+`tools/internal/measure/compare` is the sole raw measurement-log parser.
+`tools/internal/measure/project` is the sole median projection owner, and
+`tools/internal/measure/admit` is the sole candidate comparison owner.
+`tools/internal/measure/schema.pm` owns the baseline schema, host/profile
+selection, route cardinality, canonical ordering, and immutable-packet seal.
+The raw route boundary records its own comparison result for diagnosis; the
+admission boundary is the only Release decision.
 
 For an explicit baseline review, appending the read-only `observe` operand
 prints the selected profile followed by the parser's canonical
@@ -59,10 +63,23 @@ B = median(x_1, x_2, x_3).
 When equivalent decimal values occupy the median, the lowest packet ordinal
 owns its spelling. Adjacency is structural: the three inputs must occupy
 consecutive positions in that route's timestamp-named evidence-packet
-directory. A cut therefore cannot skip an intervening sample or select a
-quieter observation. The median has a one-observation contamination bound:
-one arbitrary scheduler interruption cannot move `B`, while two degraded
-observations remain visible in `B` rather than being hidden by an allowance.
+directory. A baseline cut and a Release admission both use this exact rule;
+neither can skip an intervening observation or select a quieter sample. The
+median has a one-observation contamination bound: one arbitrary scheduler
+interruption cannot move `B`, while two degraded observations remain visible
+in `B` rather than being hidden by an allowance.
+
+For a new Release source, `tools/measure/admit/run` creates an independent
+three-packet set for each route. Every input must have a passed workload, the
+same source/toolchain identity, the same executable identity within its route,
+the same canonical metric set and units, and the same semantic identity. It
+then evaluates the median candidate against the existing `B + A` limits. The
+command records all fifteen packet paths, the candidate TSV SHA-256, and the
+admission proof in one immutable `measure-admit` evidence packet. A raw route
+whose one-observation comparison fails remains valid diagnostic input when its
+workload and sealed semantics pass; the fixed median is the only admission
+result. A failed median is retained as failed evidence and never widens `A` or
+permits a replacement subset.
 
 All three packets must expose the same canonical metric and unit set. The
 projector stores the final admission allowance `A` in the `envelope` column.
@@ -759,13 +776,15 @@ whole measurement before it can be averaged into an overhead result.
 
 ## Evidence Publication
 
-A measurement packet contains the unmodified route log and a separate
-`baseline.log`. `run.tsv` seals the route, current host, both file names, and
-both SHA-256 digests. It also seals the workload result independently as
+A raw measurement packet contains the unmodified route log and a separate
+`baseline.log`. An admission packet contains the projected `candidate.tsv` and
+`admission.log`, which names all fifteen sealed raw inputs in canonical order.
+`run.tsv` seals the route, current host, both payload names, and both SHA-256
+digests. It also seals the workload result independently as
 `workload:status` and `workload:exit`; `passed` is valid only with exit `0`,
 and `failed` only with a canonical process exit in `[1, 255]`. The selected
-profile, compared metric count, and comparator result live under the
-`proof:*` hierarchy. A comparator failure can therefore never rewrite a
+profile, compared metric count, and comparison result live under the
+`proof:*` hierarchy. A raw comparator failure can therefore never rewrite a
 successful workload into a failed workload or erase its exit status.
 
 The packet also seals the selected environment profile, measured executable
@@ -783,21 +802,26 @@ measurement and packet publication both resolve that same executable through
 `tools/internal/measure/compiler`; changing `${CXX}` after configuration
 cannot measure one compiler while sealing another.
 
-Evidence status accepts the packet only when all fields are unique, the host
-is the current host, both files and hashes match, and a fresh comparator run
-over the recorded raw log is byte-identical to the recorded result. A copied
-packet, deleted measurement log, edited result, stale profile, or changed
-baseline therefore cannot report `passed`.
+Evidence status accepts a raw diagnostic packet only when all fields are
+unique, the host is current, both files and hashes match, and a fresh parser
+comparison over its retained log is byte-identical to its result. It accepts an
+admission packet only when the canonical projection and checked-baseline
+admission replay byte-identically from every named raw packet. A copied
+packet, deleted log, edited result, stale profile, changed baseline, or
+reordered raw input therefore cannot report `passed`.
 
-Each route publishes an atomic attempt marker after acquiring its build locks
-and before preparation. `running` reports `in-progress`. Preparation and
-pre-workload frontend failures occur before `finish`, publish no packet, and
-leave the marker as the sole `failed` result. Once execution reaches `finish`,
-the packet preserves the workload result even when comparison fails. Any
-execution, comparison, or publication failure still leaves the attempt marker
-failed. A completed packet is visible only after its attempt marker is
-atomically cleared, so an interrupted process cannot publish a successful
-result for an unfinished attempt.
+Each raw route and aggregate admission opens an atomic attempt marker after
+acquiring its build locks and before preparation. `running` reports
+`in-progress`. Preparation and pre-workload frontend failures publish no
+packet and leave the marker as the sole `failed` result. A standalone raw
+route retains a failed marker when its one-packet diagnostic comparison fails.
+During the fixed fifteen-packet admission, a raw comparison failure remains in
+its immutable raw packet but is not a Release decision; the aggregate marker
+stays live until projection and admission finish. Any aggregate workload,
+projection, admission, source-stability, or publication failure leaves that
+aggregate marker failed. A completed aggregate packet is visible only after
+its own marker is atomically cleared, so an interrupted process cannot publish
+a successful admission for an unfinished packet set.
 
 ## Update Contract
 
@@ -819,8 +843,9 @@ ordinary release evidence still requires a passing comparator proof.
 After the explicit table edit, the product manifest becomes `M1`. The table's
 `manifest` identity remains `M0`, because it identifies the measured product
 point; rewriting it to include its own edit would be a circular hash demand.
-Release is then rebuilt at `M1`, and every route runs once more against the
-new table to publish ordinary same-`M1` admission evidence.
+Release is then rebuilt at `M1`, and `tools/measure/admit/run` records a new
+independent three-packet set for every route against the new table. Its one
+aggregate packet is the ordinary same-`M1` admission evidence.
 
 The stdout-only candidate projector is:
 

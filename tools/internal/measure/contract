@@ -570,6 +570,7 @@ PERL
 mv "$work/baseline-ordered.tsv" "$baseline"
 
 mkdir -p "$fixture/tools/internal/measure" \
+  "$fixture/tools/internal/evidence/status" \
   "$fixture/tools/internal/state" "$work/finish"
 cp "$root/tools/internal/measure/compare" \
   "$fixture/tools/internal/measure/compare"
@@ -579,6 +580,10 @@ cp "$root/tools/internal/measure/context" \
   "$fixture/tools/internal/measure/context"
 cp "$root/tools/internal/measure/project" \
   "$fixture/tools/internal/measure/project"
+cp "$root/tools/internal/measure/admit" \
+  "$fixture/tools/internal/measure/admit"
+cp "$root/tools/internal/evidence/status/run" \
+  "$fixture/tools/internal/evidence/status/run"
 : >"$work/finish/runD-flow-measure"
 printf '%s\n' '#!/bin/sh' 'exit 0' \
   >"$fixture/tools/internal/state/verify"
@@ -987,6 +992,91 @@ grep -q '^fixture	measure-scheduler	spawn_complete/warm_median_ns_per_op	upper	9
   "$work/candidate.tsv"
 grep -q '^fixture	measure-scheduler	spawn_complete/cold_ns_per_op	upper	10	25	ns/op$' \
   "$work/candidate.tsv"
+
+admit() {
+  perl "$root/tools/internal/measure/admit" "$fixture" fixture \
+    "$scheduler_packet1" "$scheduler_packet2" "$scheduler_packet3" \
+    "$compute_packet1" "$compute_packet2" "$compute_packet3" \
+    "$flow_packet1" "$flow_packet2" "$flow_packet3" \
+    "$graph_packet1" "$graph_packet2" "$graph_packet3" \
+    "$telemetry_packet1" "$telemetry_packet2" "$telemetry_packet3"
+}
+admit >"$work/admission.log"
+candidate_sha=$(cmake -E sha256sum "$work/candidate.tsv" | awk 'NR == 1 { print $1 }')
+[ "$(wc -l <"$work/admission.log" | tr -d ' ')" -eq 21 ]
+grep -q '^admission	version	1$' "$work/admission.log"
+grep -q '^profile	fixture$' "$work/admission.log"
+[ "$(grep -c '^packet	' "$work/admission.log")" -eq 15 ]
+grep -q '^packet	measure-scheduler	1	.cache/evidence/measure-scheduler/20260101T000001Z$' \
+  "$work/admission.log"
+grep -q '^candidate	manifest	[0-9a-f]\{64\}$' "$work/admission.log"
+grep -q "^candidate	sha256	$candidate_sha$" "$work/admission.log"
+grep -q "^metrics	$darwin_rows$" "$work/admission.log"
+grep -q '^status	passed$' "$work/admission.log"
+admit >"$work/admission-repeat.log"
+cmp "$work/admission.log" "$work/admission-repeat.log"
+
+admit_packet="$fixture/.cache/evidence/measure-admit/20260101T000001Z"
+mkdir -p "$admit_packet"
+cp "$work/candidate.tsv" "$admit_packet/candidate.tsv"
+cp "$work/admission.log" "$admit_packet/admission.log"
+cp "$manifest_file" "$admit_packet/source-manifest.tsv"
+cp "$packet_identity" "$admit_packet/source-identity.tsv"
+admit_manifest_sha=$(log_digest "$admit_packet/source-manifest.tsv")
+admit_identity_sha=$(log_digest "$admit_packet/source-identity.tsv")
+admit_candidate_sha=$(log_digest "$admit_packet/candidate.tsv")
+admit_proof_sha=$(log_digest "$admit_packet/admission.log")
+printf '%s\n' \
+  'route	measure-admit' \
+  'status	passed' \
+  "host	$(uname -a)" \
+  "source_manifest_sha256	$admit_manifest_sha" \
+  "source_identity_sha256	$admit_identity_sha" \
+  'proof:kind	performance' \
+  'proof:route	measure-admit' \
+  'proof:status	passed' \
+  'proof:profile	fixture' \
+  "proof:metrics	$darwin_rows" \
+  'proof:log	candidate.tsv' \
+  "proof:log:sha256	$admit_candidate_sha" \
+  'proof:result	admission.log' \
+  "proof:result:sha256	$admit_proof_sha" \
+  >"$admit_packet/run.tsv"
+sh "$fixture/tools/internal/evidence/status/run" \
+  "$fixture" "$manifest_digest" measure-admit >"$work/admit-status.out"
+grep -q '^measure-admit	passed	' "$work/admit-status.out"
+grep -q '^overall	passed$' "$work/admit-status.out"
+cp "$admit_packet/admission.log" "$work/admit-proof.log"
+awk -F '\t' -v OFS='\t' '
+  $1 == "candidate" && $2 == "manifest" {
+    $3 = "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+  { print }
+' "$work/admit-proof.log" >"$admit_packet/admission.log"
+if sh "$fixture/tools/internal/evidence/status/run" \
+    "$fixture" "$manifest_digest" measure-admit >"$work/admit-status-invalid.out"; then
+  echo "admission evidence accepted a mismatched source manifest" >&2
+  exit 1
+fi
+grep -q '^measure-admit	invalid	' "$work/admit-status-invalid.out"
+mv "$work/admit-proof.log" "$admit_packet/admission.log"
+
+cp "$baseline" "$work/admission-baseline.tsv"
+awk -F '\t' -v OFS='\t' '
+  $2 == "measure-flow" && $3 == "alpha/median" {
+    $5 = 0; $6 = 0
+  }
+  { print }
+' "$work/admission-baseline.tsv" >"$baseline"
+if admit >"$work/admission-regression.out" \
+    2>"$work/admission-regression.err"; then
+  echo "median admission accepted a measured regression" >&2
+  exit 1
+fi
+grep -q 'measure-flow.*alpha/median baseline=0 observed=10.000 limit=0' \
+  "$work/admission-regression.err"
+mv "$work/admission-baseline.tsv" "$baseline"
+
 cut >"$work/cut.out"
 grep -q '^baseline-cut	profile=fixture	manifest=.*	status=passed$' \
   "$work/cut.out"

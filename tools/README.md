@@ -38,6 +38,7 @@ contracts without defining another product authority.
 | `tools/measure/flow/run` | Measure installed Flow construction and C++ frontend cost. |
 | `tools/measure/graph/services/run` | Measure installed cache, coalescing, and bounded graph services. |
 | `tools/measure/telemetry/run` | Measure Disabled, Basic, and Detail telemetry cost and parity. |
+| `tools/measure/admit/run` | Seal three installed observations for every route and admit their canonical median candidate. |
 | `tools/measure/build/run [build [target]]` | Measure cold/warm public-header frontend cost, live reverse fan-out, and target dirtiness. |
 | `tools/source/manifest` | Hash the complete admitted product source and executable modes. |
 | `tools/evidence/status [route ...]` | Validate the newest evidence packets against the current source manifest. |

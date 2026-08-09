@@ -29,6 +29,7 @@ bytes.
 | `tools/measure/flow/run` | Installed Flow construction and C++ frontend workloads. |
 | `tools/measure/graph/services/run` | Installed Program-cache, async-coalescing, and bounded-graph workloads. |
 | `tools/measure/telemetry/run` | Installed Disabled, Basic, and Detail Replay telemetry cost and parity. |
+| `tools/measure/admit/run` | Seal three consecutive installed observations per route and admit their canonical median candidate against the checked baseline. |
 | `tools/measure/build/run [build [target]]` | Measure public-header frontend cost, live reverse fan-out, and target dirtiness. |
 | `tools/evidence/status` | Validate the newest required packets against the current source manifest. |
 

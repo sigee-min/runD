@@ -1,0 +1,159 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+use Digest::SHA qw(sha256_hex);
+use Math::BigFloat;
+
+sub fail {
+  print STDERR "performance admission: $_[0]\n";
+  exit 1;
+}
+
+@ARGV == 17
+    or die "usage: tools/internal/measure/admit <root> <profile> " .
+           "<scheduler1> <scheduler2> <scheduler3> " .
+           "<compute1> <compute2> <compute3> " .
+           "<flow1> <flow2> <flow3> <graph1> <graph2> <graph3> " .
+           "<telemetry1> <telemetry2> <telemetry3>\n";
+my ($root_argument, $requested_profile, @packet_arguments) = @ARGV;
+$requested_profile =~ /\A[a-z0-9]+\z/ or fail('invalid requested profile');
+my $root = abs_path($root_argument) // fail("missing root $root_argument");
+require "$root/tools/internal/measure/schema.pm";
+my $schema;
+eval { $schema = RundMeasureSchema::load($root, 1); 1 }
+    or fail($@ =~ s/\n\z//r);
+my $profile;
+eval { $profile = RundMeasureSchema::select_profile($schema); 1 }
+    or fail($@ =~ s/\n\z//r);
+$profile eq $requested_profile
+    or fail("current host selected $profile, requested $requested_profile");
+
+open my $project, '-|', 'perl', "$root/tools/internal/measure/project",
+    $root, $profile, @packet_arguments
+    or fail('cannot start canonical median projection');
+my $candidate;
+{
+  local $/;
+  $candidate = <$project> // '';
+}
+close $project or fail('canonical median projection failed');
+$candidate ne '' or fail('canonical median projection is empty');
+
+my @candidate_lines = split /\n/, $candidate, -1;
+pop @candidate_lines if @candidate_lines && $candidate_lines[-1] eq '';
+@candidate_lines >= 2 or fail('canonical median projection is incomplete');
+shift(@candidate_lines) eq
+        "profile\troute\tmetric\tpolicy\tvalue\tenvelope\tunit"
+    or fail('canonical median projection header changed');
+
+my %candidate;
+for my $line (@candidate_lines) {
+  my @field = split /\t/, $line, -1;
+  @field == 7 or fail("malformed median row: $line");
+  my ($row_profile, $route, $metric, $policy, $value, $envelope, $unit) =
+      @field;
+  $row_profile eq $profile && $route ne '' && $metric ne '' && $unit ne ''
+      or fail("invalid median row: $line");
+  my $key = join "\t", $route, $metric;
+  !exists $candidate{$key} or fail("duplicate median row: $key");
+  $candidate{$key} = {
+    policy => $policy,
+    value => $value,
+    envelope => $envelope,
+    unit => $unit,
+  };
+}
+
+my %expected;
+for my $rule (@{$schema->{rules}}) {
+  next unless $rule->{profile} eq $profile;
+  my $key = join "\t", $rule->{route}, $rule->{metric};
+  !exists $expected{$key} or fail("duplicate checked baseline row: $key");
+  $expected{$key} = $rule;
+}
+scalar(keys %candidate) == scalar(keys %expected)
+    or fail('canonical median metric cardinality changed');
+
+my @raw_identity = grep { /\Abaseline\t(?:scheduler|compute|flow|graph|telemetry)[123]\z/ }
+    keys %expected;
+@raw_identity == 15 or fail('checked baseline raw identity set changed');
+my %raw_identity_value;
+my $candidate_manifest;
+for my $key (sort keys %expected) {
+  my $observed = $candidate{$key}
+      // fail("canonical median is missing $key");
+  my $rule = $expected{$key};
+  $observed->{policy} eq $rule->{policy} &&
+      $observed->{unit} eq $rule->{unit}
+      or fail("canonical median policy or unit changed: $key");
+
+  if ($rule->{route} eq 'baseline') {
+    $observed->{policy} eq 'identity' && $observed->{envelope} eq '-' &&
+        $observed->{value} =~ /\A[0-9a-f]{64}\z/
+        or fail("invalid canonical median identity: $key");
+    $candidate_manifest = $observed->{value}
+        if $rule->{metric} eq 'manifest';
+    if ($rule->{metric} ne 'manifest') {
+      !$raw_identity_value{$observed->{value}}++
+          or fail('canonical median raw-log identities are not unique');
+    }
+    next;
+  }
+
+  if ($rule->{policy} eq 'exact') {
+    $observed->{envelope} eq '-' && $observed->{value} eq $rule->{value}
+        or fail("exact measurement changed: $key");
+    next;
+  }
+
+  RundMeasureSchema::decimal($observed->{value}) &&
+      RundMeasureSchema::decimal($observed->{envelope})
+      or fail("invalid upper median: $key");
+  my $limit = Math::BigFloat->new($rule->{value});
+  $limit->badd(Math::BigFloat->new($rule->{envelope}));
+  my $value = Math::BigFloat->new($observed->{value});
+  $value->bcmp($limit) <= 0
+      or fail("$key baseline=$rule->{value} observed=$observed->{value} " .
+              "limit=" . $limit->bstr());
+}
+
+defined($candidate_manifest) && $candidate_manifest =~ /\A[0-9a-f]{64}\z/
+    or fail('canonical median has no source manifest identity');
+scalar(keys %raw_identity_value) == 15
+    or fail('canonical median raw-log identity cardinality changed');
+
+my @routes = RundMeasureSchema::routes();
+my @relative_packet;
+my $argument = 0;
+for my $route (@routes) {
+  for my $ordinal (1 .. 3) {
+    my $packet = abs_path($packet_arguments[$argument++])
+        // fail("missing packet $packet_arguments[$argument - 1]");
+    my $prefix = "$root/.cache/evidence/$route/";
+    index($packet, $prefix) == 0 &&
+        substr($packet, length($prefix)) =~ /\A[0-9]{8}T[0-9]{6}Z\z/
+        or fail("packet is outside the $route evidence boundary: $packet");
+    $relative_packet[$argument - 1] = substr($packet, length($root) + 1);
+  }
+}
+$argument == @packet_arguments or fail('unused median packet argument');
+
+my $metrics = scalar(keys %candidate);
+my @output = (
+  "admission\tversion\t1",
+  "profile\t$profile",
+);
+$argument = 0;
+for my $route (@routes) {
+  for my $ordinal (1 .. 3) {
+    push @output, join "\t", 'packet', $route, $ordinal,
+        $relative_packet[$argument++];
+  }
+}
+push @output, "candidate\tmanifest\t$candidate_manifest";
+push @output, "candidate\tsha256\t" . sha256_hex($candidate);
+push @output, "metrics\t$metrics";
+push @output, "status\tpassed";
+print "$_\n" for @output;

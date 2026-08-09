@@ -12,7 +12,7 @@ action=$3
 code=${4:-}
 
 case "$route" in
-  measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry) ;;
+  measure-admit|measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry) ;;
   *)
     echo "invalid measurement route: $route" >&2
     exit 2

@@ -1,0 +1,182 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  printf '%s\n' \
+    "Admit one Release package from three sealed measurements per route." \
+    "usage: tools/measure/admit/run" \
+    "       -h, --help  Show this help."
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+  usage
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+release=$(sh "$root/tools/internal/state/root" "$root" release)
+build=$(sh "$root/tools/internal/state/root" "$root" measure/admit)
+
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$release"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$release" "$0" "$@"
+fi
+if ! sh "$root/tools/internal/state/lock" --held "$root" "$build"; then
+  exec sh "$root/tools/internal/state/lock" "$root" "$build" "$0" "$@"
+fi
+
+sh "$root/tools/internal/measure/attempt" "$root" measure-admit start
+attempt_failed() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  [ "$code" -ne 0 ] || code=1
+  sh "$root/tools/internal/measure/attempt" \
+    "$root" measure-admit fail "$code" || :
+  exit "$code"
+}
+trap attempt_failed EXIT HUP INT TERM
+
+sh "$root/tools/internal/measure/prepare" "$root" "$build" \
+  "$root/tools/measure/admit"
+
+profile=$(perl - "$root" <<'PERL'
+use strict;
+use warnings;
+my ($root) = @ARGV;
+require "$root/tools/internal/measure/schema.pm";
+my $schema = RundMeasureSchema::load($root, 1);
+print RundMeasureSchema::select_profile($schema), "\n";
+PERL
+)
+case "$profile" in
+  ''|*[!a-z0-9]*)
+    echo "measurement admission selected an invalid profile" >&2
+    exit 1
+    ;;
+esac
+
+latest_packet() {
+  route=$1
+  latest=
+  for packet in "$root/.cache/evidence/$route"/[0-9]*; do
+    [ -d "$packet" ] || continue
+    latest=$packet
+  done
+  printf '%s\n' "$latest"
+}
+
+capture() {
+  route=$1
+  shift
+  before=$(latest_packet "$route")
+  if "$@" >&2; then
+    :
+  else
+    # A raw route can fail its one-packet diagnostic comparison.  Its sealed
+    # workload record remains input to the fixed three-packet admission below.
+    :
+  fi
+  after=$(latest_packet "$route")
+  [ -n "$after" ] && [ "$after" != "$before" ] || {
+    echo "measurement route did not publish a new packet: $route" >&2
+    exit 1
+  }
+  # The aggregate packet is the admission boundary.  Its own attempt marker
+  # remains live until all three sealed observations have been projected.
+  sh "$root/tools/internal/measure/attempt" "$root" "$route" complete
+  printf '%s\n' "$after"
+}
+
+packet_scheduler_1=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
+packet_scheduler_2=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
+packet_scheduler_3=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
+packet_compute_1=$(capture measure-compute sh "$root/tools/measure/compute/run")
+packet_compute_2=$(capture measure-compute sh "$root/tools/measure/compute/run")
+packet_compute_3=$(capture measure-compute sh "$root/tools/measure/compute/run")
+packet_flow_1=$(capture measure-flow sh "$root/tools/measure/flow/run")
+packet_flow_2=$(capture measure-flow sh "$root/tools/measure/flow/run")
+packet_flow_3=$(capture measure-flow sh "$root/tools/measure/flow/run")
+packet_graph_1=$(capture measure-graph-services sh "$root/tools/measure/graph/services/run")
+packet_graph_2=$(capture measure-graph-services sh "$root/tools/measure/graph/services/run")
+packet_graph_3=$(capture measure-graph-services sh "$root/tools/measure/graph/services/run")
+packet_telemetry_1=$(capture measure-telemetry sh "$root/tools/measure/telemetry/run")
+packet_telemetry_2=$(capture measure-telemetry sh "$root/tools/measure/telemetry/run")
+packet_telemetry_3=$(capture measure-telemetry sh "$root/tools/measure/telemetry/run")
+
+set -- \
+  "$packet_scheduler_1" "$packet_scheduler_2" "$packet_scheduler_3" \
+  "$packet_compute_1" "$packet_compute_2" "$packet_compute_3" \
+  "$packet_flow_1" "$packet_flow_2" "$packet_flow_3" \
+  "$packet_graph_1" "$packet_graph_2" "$packet_graph_3" \
+  "$packet_telemetry_1" "$packet_telemetry_2" "$packet_telemetry_3"
+
+candidate="$build/candidate.tsv"
+admission="$build/admission.log"
+if perl "$root/tools/internal/measure/project" "$root" "$profile" "$@" \
+    >"$candidate" 2>"$build/candidate.err"; then
+  candidate_ready=true
+else
+  candidate_ready=false
+  cat "$build/candidate.err" >"$candidate"
+fi
+
+if [ "$candidate_ready" = true ] &&
+   perl "$root/tools/internal/measure/admit" "$root" "$profile" "$@" \
+     >"$admission" 2>&1; then
+  status=passed
+  proof_status=passed
+  proof_profile=$profile
+  proof_metrics=$(awk -F '\t' '$1 == "metrics" { print $2 }' "$admission")
+else
+  status=failed
+  proof_status=failed
+  proof_profile=-
+  proof_metrics=0
+  if [ "$candidate_ready" != true ]; then
+    cp "$build/candidate.err" "$admission"
+  fi
+fi
+
+all_workloads_passed=true
+for packet do
+  if ! awk -F '\t' '$1 == "workload:status" && $2 == "passed" { ok = 1 }
+                         END { exit ok ? 0 : 1 }' "$packet/run.tsv"; then
+    all_workloads_passed=false
+  fi
+done
+if [ "$all_workloads_passed" = true ]; then
+  workload_status=passed
+  workload_exit=0
+else
+  workload_status=failed
+  workload_exit=1
+  status=failed
+  proof_status=failed
+  proof_profile=-
+  proof_metrics=0
+fi
+
+if sh "$root/tools/internal/state/verify" "$root" "$build"; then
+  :
+else
+  status=failed
+fi
+
+cmake -D "ROOT=$root" -D "BUILD=$build" -D "ROUTE=measure-admit" \
+  -D "STATUS=$status" -D "LOG=$candidate" -D "LOG_NAME=candidate.tsv" \
+  -D "PROFILE=$profile" -D "ARTIFACT=$root/tools/internal/measure/admit" \
+  -D "WORKLOAD_STATUS=$workload_status" -D "WORKLOAD_EXIT=$workload_exit" \
+  -D "PROOF_KIND=performance" -D "PROOF_ROUTE=measure-admit" \
+  -D "PROOF_STATUS=$proof_status" -D "PROOF_PROFILE=$proof_profile" \
+  -D "PROOF_METRICS=$proof_metrics" -D "PROOF=$admission" \
+  -D "PROOF_NAME=admission.log" \
+  -D "SOURCE_MANIFEST=$build/.rund-source-manifest-after.tsv" \
+  -P "$root/tools/internal/record.cmake"
+
+sh "$root/tools/internal/measure/attempt" "$root" measure-admit complete
+trap - EXIT HUP INT TERM
+cat "$admission"
+[ "$status" = passed ]

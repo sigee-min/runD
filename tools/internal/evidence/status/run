@@ -25,13 +25,11 @@ if [ "$#" -eq 0 ]; then
   case "$(uname -s)" in
     Darwin)
       set -- check sanitize-address sanitize-thread platform-unavailable \
-        release release-darwin leaks measure-scheduler measure-compute \
-        measure-flow measure-graph-services measure-telemetry
+        release release-darwin leaks measure-admit
       ;;
     Linux)
       set -- check sanitize-address sanitize-thread platform-unavailable \
-        release measure-scheduler measure-compute measure-flow \
-        measure-graph-services measure-telemetry
+        release measure-admit
       ;;
     *)
       echo "no local launch-closure matrix for this host" >&2
@@ -64,34 +62,15 @@ valid_sha256() {
   [ "${#value}" -eq 64 ]
 }
 
-proof_valid() {
-  packet_host=$(field host "$run") || return 1
-  proof_kind=$(field proof:kind "$run") || return 1
-  proof_route=$(field proof:route "$run") || return 1
-  proof_status=$(field proof:status "$run") || return 1
-  proof_profile=$(field proof:profile "$run") || return 1
-  proof_metrics=$(field proof:metrics "$run") || return 1
-  proof_log_name=$(field proof:log "$run") || return 1
-  proof_log_sha256=$(field proof:log:sha256 "$run") || return 1
-  proof_result_name=$(field proof:result "$run") || return 1
-  proof_result_sha256=$(field proof:result:sha256 "$run") || return 1
-
+proof_valid_raw() {
   case "$route" in
     measure-compute|measure-scheduler|measure-telemetry) expected_log=measure.log ;;
     measure-flow) expected_log=samples.tsv ;;
     measure-graph-services) expected_log=measure.tsv ;;
     *) return 1 ;;
   esac
-  [ "$packet_host" = "$current_host" ] || return 1
-  [ "$proof_kind" = performance ] || return 1
-  [ "$proof_route" = "$route" ] || return 1
-  [ "$proof_status" = passed ] || return 1
-  printf '%s\n' "$proof_profile" | grep -Eq '^[a-z0-9]+$' || return 1
-  printf '%s\n' "$proof_metrics" | grep -Eq '^[1-9][0-9]*$' || return 1
   [ "$proof_log_name" = "$expected_log" ] || return 1
   [ "$proof_result_name" = baseline.log ] || return 1
-  valid_sha256 "$proof_log_sha256" || return 1
-  valid_sha256 "$proof_result_sha256" || return 1
 
   proof_log="$latest/$proof_log_name"
   proof_result="$latest/$proof_result_name"
@@ -105,6 +84,104 @@ proof_valid() {
   proof_replay=$(perl "$root/tools/internal/measure/compare" \
     "$root" "$route" "$proof_log" 2>/dev/null) || return 1
   [ "$proof_replay" = "$proof_line" ]
+}
+
+proof_valid_admit() {
+  [ "$proof_log_name" = candidate.tsv ] || return 1
+  [ "$proof_result_name" = admission.log ] || return 1
+  proof_log="$latest/$proof_log_name"
+  proof_result="$latest/$proof_result_name"
+  [ -f "$proof_log" ] && [ -f "$proof_result" ] || return 1
+  [ "$(file_sha256 "$proof_log")" = "$proof_log_sha256" ] || return 1
+  [ "$(file_sha256 "$proof_result")" = "$proof_result_sha256" ] || return 1
+
+  candidate_sha=$(file_sha256 "$proof_log")
+  packet_relative=$(awk -F '\t' \
+    -v profile="$proof_profile" -v metrics="$proof_metrics" \
+    -v manifest="$packet_manifest" -v candidate_sha="$candidate_sha" '
+      BEGIN {
+        routes[1] = "measure-scheduler";
+        routes[2] = "measure-compute";
+        routes[3] = "measure-flow";
+        routes[4] = "measure-graph-services";
+        routes[5] = "measure-telemetry";
+        invalid = 0;
+      }
+      NR == 1 { if (NF != 3 || $1 != "admission" || $2 != "version" || $3 != "1") invalid = 1; next }
+      NR == 2 { if (NF != 2 || $1 != "profile" || $2 != profile) invalid = 1; next }
+      NR >= 3 && NR <= 17 {
+        ordinal_index = NR - 3;
+        expected_route = routes[int(ordinal_index / 3) + 1];
+        expected_ordinal = (ordinal_index % 3) + 1;
+        prefix = ".cache/evidence/" expected_route "/";
+        suffix = substr($4, length(prefix) + 1);
+        if (NF != 4 || $1 != "packet" || $2 != expected_route ||
+            $3 != expected_ordinal || index($4, prefix) != 1 ||
+            suffix !~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z$/) {
+          invalid = 1;
+        }
+        print $4;
+        next;
+      }
+      NR == 18 { if (NF != 3 || $1 != "candidate" || $2 != "manifest" || $3 != manifest) invalid = 1; next }
+      NR == 19 { if (NF != 3 || $1 != "candidate" || $2 != "sha256" || $3 != candidate_sha) invalid = 1; next }
+      NR == 20 { if (NF != 2 || $1 != "metrics" || $2 != metrics) invalid = 1; next }
+      NR == 21 { if (NF != 2 || $1 != "status" || $2 != "passed") invalid = 1; next }
+      { invalid = 1 }
+      END { if (NR != 21 || invalid) exit 1 }
+    ' "$proof_result") || return 1
+  old_ifs=$IFS
+  IFS='
+'
+  set -- $packet_relative
+  IFS=$old_ifs
+  [ "$#" -eq 15 ] || return 1
+
+  proof_replay=$(perl "$root/tools/internal/measure/admit" \
+    "$root" "$proof_profile" \
+    "$root/$1" "$root/$2" "$root/$3" \
+    "$root/$4" "$root/$5" "$root/$6" \
+    "$root/$7" "$root/$8" "$root/$9" \
+    "$root/${10}" "$root/${11}" "$root/${12}" \
+    "$root/${13}" "$root/${14}" "$root/${15}" 2>/dev/null) || return 1
+  printf '%s\n' "$proof_replay" | cmp -s - "$proof_result" || return 1
+  candidate_replay=$(perl "$root/tools/internal/measure/project" \
+    "$root" "$proof_profile" \
+    "$root/$1" "$root/$2" "$root/$3" \
+    "$root/$4" "$root/$5" "$root/$6" \
+    "$root/$7" "$root/$8" "$root/$9" \
+    "$root/${10}" "$root/${11}" "$root/${12}" \
+    "$root/${13}" "$root/${14}" "$root/${15}" 2>/dev/null) || return 1
+  printf '%s\n' "$candidate_replay" | cmp -s - "$proof_log"
+}
+
+proof_valid() {
+  packet_host=$(field host "$run") || return 1
+  proof_kind=$(field proof:kind "$run") || return 1
+  proof_route=$(field proof:route "$run") || return 1
+  proof_status=$(field proof:status "$run") || return 1
+  proof_profile=$(field proof:profile "$run") || return 1
+  proof_metrics=$(field proof:metrics "$run") || return 1
+  proof_log_name=$(field proof:log "$run") || return 1
+  proof_log_sha256=$(field proof:log:sha256 "$run") || return 1
+  proof_result_name=$(field proof:result "$run") || return 1
+  proof_result_sha256=$(field proof:result:sha256 "$run") || return 1
+
+  [ "$packet_host" = "$current_host" ] || return 1
+  [ "$proof_kind" = performance ] || return 1
+  [ "$proof_route" = "$route" ] || return 1
+  [ "$proof_status" = passed ] || return 1
+  printf '%s\n' "$proof_profile" | grep -Eq '^[a-z0-9]+$' || return 1
+  printf '%s\n' "$proof_metrics" | grep -Eq '^[1-9][0-9]*$' || return 1
+  valid_sha256 "$proof_log_sha256" || return 1
+  valid_sha256 "$proof_result_sha256" || return 1
+  case "$route" in
+    measure-admit) proof_valid_admit ;;
+    measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry)
+      proof_valid_raw
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 LC_ALL=C
@@ -186,7 +263,7 @@ for route do
       case "$packet_status" in
         passed)
           case "$route" in
-            measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry)
+            measure-admit|measure-compute|measure-scheduler|measure-flow|measure-graph-services|measure-telemetry)
               if proof_valid; then
                 if [ "$packet_manifest" = "$current_manifest" ]; then
                   state=passed

@@ -12,6 +12,7 @@ set(commands
   sanitize/run
   check/leaks
   check/platform/unavailable
+  measure/admit/run
   measure/scheduler/run
   measure/compute/run
   measure/flow/run

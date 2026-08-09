@@ -30,6 +30,8 @@ whose profile, identity, metric, or unit disagrees.
 - `tools/measure/flow/run`
 - `tools/measure/graph/services/run`
 - `tools/measure/telemetry/run`
+- `tools/measure/admit/run` — seal three observations per installed route and
+  perform the Release median admission.
 - `tools/measure/build/run [build [target]]`
 
 Measurement commands consume the installed Release SDK and never edit the

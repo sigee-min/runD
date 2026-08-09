@@ -75,12 +75,14 @@ product-source manifest, selects the local host's required Debug, sanitizer,
 platform, Release, artifact, leak, and measurement routes, and validates the
 newest immutable packet for each route. A route is closed only when its newest
 packet passed, its copied manifest and identity still match the hashes in
-`run.tsv`, and its manifest equals the current manifest. Measurement packets
-also require the current host, sealed raw-log and comparator-result hashes,
-and a byte-identical fresh comparison against the checked-in baseline. An
-atomic measurement-attempt marker exposes `in-progress` and setup failure
-before a newer packet exists, so an older pass cannot mask the latest attempt.
+`run.tsv`, and its manifest equals the current manifest. Measurement admission
+packets also require the current host, sealed canonical candidate and result
+hashes, and a byte-identical fresh replay against the checked-in baseline.
+Their proof names every sealed raw input packet; each input remains
+independently authenticated by its own immutable packet seal. An atomic
+measurement-attempt marker exposes `in-progress` and setup failure before a
+newer packet exists, so an older pass cannot mask the latest attempt.
 Missing, in-progress, failed, corrupt, and stale results remain distinct
 states. The diagnostic does not build or execute a workload; replaying the
-pure comparator only validates recorded evidence and cannot turn an older
-packet into evidence for current bytes.
+pure candidate projection and admission only validates recorded evidence and
+cannot turn an older packet into evidence for current bytes.
