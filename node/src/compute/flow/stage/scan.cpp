@@ -71,18 +71,6 @@ std::uint32_t flow_bounded_scan_value(const std::shared_ptr<FlowState> &flow,
   }
 }
 
-void flow_bounded_scan(const std::shared_ptr<FlowState> &flow,
-                       const std::uint32_t count, const Scan scan) {
-  if (flow == nullptr || !flow->status) {
-    return;
-  }
-  const std::uint32_t output =
-      flow_bounded_scan_value(flow, flow->output, count, scan);
-  if (output != 0u) {
-    flow->output = output;
-  }
-}
-
 std::uint32_t flow_bounded_reduce_value(const std::shared_ptr<FlowState> &flow,
                                         const std::uint32_t input,
                                         const std::uint32_t count,
@@ -109,18 +97,6 @@ std::uint32_t flow_bounded_reduce_value(const std::shared_ptr<FlowState> &flow,
                           {.mode = static_cast<std::uint32_t>(operation)})
              ? output
              : 0u;
-}
-
-void flow_bounded_reduce(const std::shared_ptr<FlowState> &flow,
-                         const std::uint32_t count, const Reduce operation) {
-  if (flow == nullptr || !flow->status) {
-    return;
-  }
-  const std::uint32_t output =
-      flow_bounded_reduce_value(flow, flow->output, count, operation);
-  if (output != 0u) {
-    flow->output = output;
-  }
 }
 
 std::uint32_t flow_bounded_sort_value(const std::shared_ptr<FlowState> &flow,
@@ -151,18 +127,6 @@ std::uint32_t flow_bounded_sort_value(const std::shared_ptr<FlowState> &flow,
                           indices ? Primitive::Argsort : Primitive::Sort, {})
              ? output
              : 0u;
-}
-
-void flow_bounded_sort(const std::shared_ptr<FlowState> &flow,
-                       const std::uint32_t count, const bool indices) {
-  if (flow == nullptr || !flow->status) {
-    return;
-  }
-  const std::uint32_t output =
-      flow_bounded_sort_value(flow, flow->output, count, indices);
-  if (output != 0u) {
-    flow->output = output;
-  }
 }
 
 BoundedIds flow_filter_masks(const std::shared_ptr<FlowState> &flow,

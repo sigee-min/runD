@@ -68,19 +68,13 @@ void flow_scan(const std::shared_ptr<FlowState> &flow, Scan scan);
 [[nodiscard]] std::uint32_t
 flow_scan_value(const std::shared_ptr<FlowState> &flow, std::uint32_t input,
                 Scan scan);
-void flow_bounded_scan(const std::shared_ptr<FlowState> &flow,
-                       std::uint32_t count, Scan scan);
 [[nodiscard]] std::uint32_t
 flow_bounded_scan_value(const std::shared_ptr<FlowState> &flow,
                         std::uint32_t input, std::uint32_t count, Scan scan);
-void flow_bounded_reduce(const std::shared_ptr<FlowState> &flow,
-                         std::uint32_t count, Reduce operation);
 [[nodiscard]] std::uint32_t
 flow_bounded_reduce_value(const std::shared_ptr<FlowState> &flow,
                           std::uint32_t input, std::uint32_t count,
                           Reduce operation);
-void flow_bounded_sort(const std::shared_ptr<FlowState> &flow,
-                       std::uint32_t count, bool indices);
 [[nodiscard]] std::uint32_t
 flow_bounded_sort_value(const std::shared_ptr<FlowState> &flow,
                         std::uint32_t input, std::uint32_t count, bool indices);

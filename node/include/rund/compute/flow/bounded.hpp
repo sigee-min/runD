@@ -113,10 +113,10 @@ public:
   }
   template <std::size_t N, class StepFn, class ConvergedFn>
   [[nodiscard]] auto unroll(StepFn &&step, ConvergedFn &&converged) && {
-    auto remaining = StageRef<R, stage::Bounded<Count>>{state_, values_, count_}
-                         .template unroll<N>(
-                             std::forward<StepFn>(step),
-                             std::forward<ConvergedFn>(converged));
+    auto remaining =
+        StageRef<R, stage::Bounded<Count>>{state_, values_, count_}
+            .template unroll<N>(std::forward<StepFn>(step),
+                                std::forward<ConvergedFn>(converged));
     return Flow<R(A...), stage::Bounded<Count>, Inputs>{
         std::move(state_), remaining.value_, remaining.count_};
   }
@@ -213,25 +213,23 @@ public:
     return Flow<Count(A...), stage::Scalar, Inputs>{std::move(state_)};
   }
   [[nodiscard]] Flow &&scan(const Scan operation) && {
-    detail::flow_pick(state_, values_);
-    detail::flow_bounded_scan(state_, count_, operation);
-    values_ = detail::flow_value(state_);
+    values_ =
+        detail::flow_bounded_scan_value(state_, values_, count_, operation);
     return std::move(*this);
   }
   [[nodiscard]] Flow<R(A...), stage::Scalar, Inputs>
   reduce(const Reduce operation = Reduce::Sum) && {
-    detail::flow_bounded_reduce(state_, count_, operation);
+    detail::flow_pick(state_, detail::flow_bounded_reduce_value(
+                                  state_, values_, count_, operation));
     return Flow<R(A...), stage::Scalar, Inputs>{std::move(state_)};
   }
   [[nodiscard]] Flow &&sort() && {
-    detail::flow_bounded_sort(state_, count_, false);
-    values_ = detail::flow_value(state_);
+    values_ = detail::flow_bounded_sort_value(state_, values_, count_, false);
     return std::move(*this);
   }
   [[nodiscard]] Flow<std::uint32_t(A...), stage::Bounded<Count>, Inputs>
   argsort() && {
-    detail::flow_bounded_sort(state_, count_, true);
-    values_ = detail::flow_value(state_);
+    values_ = detail::flow_bounded_sort_value(state_, values_, count_, true);
     return {std::move(state_), values_, count_};
   }
   [[nodiscard]] Flow &&window(const WindowSpec options = {}) && {
