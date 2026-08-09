@@ -170,7 +170,7 @@ sub validate_product_values {
     $values->{run_submissions} eq $expected_run_submissions
         or fail('Compute product cold submission count changed');
   } else {
-    $values->{samples} eq '15'
+    $values->{samples} eq '60'
         or fail('Compute product warm sample count changed');
     $values->{submissions_per_run} eq $expected_run_submissions
         or fail('Compute product warm submission count changed');

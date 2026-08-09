@@ -102,7 +102,7 @@ emit_product_warm() {
   product_window=$9
   shift 9
   product_stride=$1
-  printf 'product_warm,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,15,10.000,10.000,1000000.000,4,%s,%s,1,0,4,8192,8192,1024,1024,0,0,0,0,0,0,0,0,0,0,11,12,7\n' \
+  printf 'product_warm,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,60,10.000,10.000,1000000.000,4,%s,%s,1,0,4,8192,8192,1024,1024,0,0,0,0,0,0,0,0,0,0,11,12,7\n' \
     "$product_backend" "$product_chain" "$product_shape" \
     "$product_capacity" "$product_active" "$product_radius" \
     "$product_window" "$product_stride" "$product_run_submits" \
@@ -1599,7 +1599,7 @@ sed 's/,prefix,64,4,0,1024,/,retired,64,4,0,1024,/' \
 reject compute-candidate measure-compute "$work/compute-candidate.csv" \
   'Compute product_cold candidate is invalid'
 
-sed 's/,15,10[.]000,10[.]000,1000000[.]000,4,0,0,1,0,4,/,15,10.000,10.000,1000000.000,4,0,0,0,0,4,/' \
+sed 's/,60,10[.]000,10[.]000,1000000[.]000,4,0,0,1,0,4,/,60,10.000,10.000,1000000.000,4,0,0,0,0,4,/' \
   "$compute_observation" >"$work/compute-readback.csv"
 reject compute-readback measure-compute "$work/compute-readback.csv" \
   'Compute product_warm must perform exactly one terminal readback'
@@ -1610,7 +1610,7 @@ reject compute-warm-allocation measure-compute \
   "$work/compute-warm-allocation.csv" \
   'Compute product warm allocation/transfer changed: warm_allocations'
 
-sed 's/,15,10[.]000,10[.]000,1000000[.]000,/,15,10.000,500.000,1000000.000,/' \
+sed 's/,60,10[.]000,10[.]000,1000000[.]000,/,60,10.000,500.000,1000000.000,/' \
   "$compute_observation" >"$work/compute-warm-time.csv"
 reject compute-warm-time measure-compute "$work/compute-warm-time.csv" \
   'product/warm/cpu/window/n4096_r4/warm_p95_us baseline=10.000000 observed=500.000000'

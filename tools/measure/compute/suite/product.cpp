@@ -18,7 +18,7 @@
 namespace rund::measure::compute {
 namespace {
 
-constexpr std::size_t WarmSamples = 15u;
+constexpr std::size_t WarmSamples = 60u;
 constexpr std::size_t BoundedCapacity = 1u << 18u;
 constexpr std::size_t BoundedRadius = 1024u;
 

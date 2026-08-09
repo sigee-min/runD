@@ -71,7 +71,7 @@ in `B` rather than being hidden by an allowance.
 
 Each Compute Product row measures one public `Flow` compiled into one prepared
 `Pipeline`. A cold row starts before authoring and ends after the first terminal
-result read. A warm row records fifteen consecutive `Pipeline::run()` samples
+result read. A warm row records sixty consecutive `Pipeline::run()` samples
 after preparation and performs one terminal read after the samples. No sample
 is retried, filtered, or preceded by a hidden per-sample prime. Bounded rows
 repeat the same prepared capacity at the declared active counts; each phase
@@ -375,8 +375,10 @@ pass by matching the active prefix accidentally.
 For each cold row, `first_result_us` encloses public Flow authoring, Program
 compilation, input upload, Pipeline preparation, one execution, and the final
 typed read. Phase durations remain diagnostics. For each warm row,
-`warm_p50_us` and `warm_p95_us` are computed from all fifteen consecutive
-prepared-Pipeline executions. `active_elements_per_s` is derived from p50 and
+`warm_p50_us` and `warm_p95_us` are computed from all sixty consecutive
+prepared-Pipeline executions. Nearest-rank p95 is position fifty-seven because
+`ceil(0.95 * 60) = 57`, so it is the fourth-highest observation rather than a
+single scheduling maximum. `active_elements_per_s` is derived from p50 and
 never acts as a second timing authority.
 
 Every warm run must report zero pipeline compiles, Buffer allocations,
