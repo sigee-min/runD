@@ -12,14 +12,18 @@ EncodeMetalPartitionScans(MetalAdapter &adapter,
                           const MetalPartitionCommandState &state,
                           void *const command_encoder) {
   MetalPartitionEncodeResources &partition = *state.partition;
+  if (!partition.scan_execution.has_value()) {
+    SetMetalLastError(adapter, "compute_partition_invalid");
+    return rund::AccelCheck{false, "compute_partition_invalid"};
+  }
   return EncodePreparedMetalScanBuffers(
       adapter, partition.scan_desc, partition.scan_plan,
       rund::kernel::ComputeDomain::U32, partition.false_bits.buffer.get(),
       partition.false_offsets.buffer.get(), partition.false_totals.buffer.get(),
       partition.false_status.buffer.get(), command_encoder,
-      partition.scan_block, partition.scan_prefix, partition.scan_offset, nullptr,
-      0u, partition.false_bits.offset, partition.false_offsets.offset, 0u,
-      partition.false_totals.offset);
+      *partition.scan_execution, partition.scan_block, partition.scan_prefix,
+      partition.scan_offset, nullptr, 0u, partition.false_bits.offset,
+      partition.false_offsets.offset, 0u, partition.false_totals.offset);
 }
 #endif
 

@@ -37,6 +37,7 @@ struct ReduceBinds;
 struct ScatterBinds;
 struct ScatterReduceBinds;
 struct RangeBinds;
+struct BoundControl;
 class RangePlan;
 struct TransformBinds;
 struct MatrixBinds;
@@ -94,7 +95,7 @@ ExecuteCpuScatterReduce(const rund::AccelDevice &pick,
 ExecuteCpuWindow(const rund::AccelDevice &pick,
                  const rund::kernel::WindowDesc &desc,
                  const rund::kernel::WindowPlan &plan, const RangePlan &range,
-                 const RangeBinds &bindings);
+                 const RangeBinds &bindings, const BoundControl &control);
 [[nodiscard]] rund::AccelCheck ExecuteCpuTransform(
     const rund::AccelDevice &pick, const rund::kernel::TransformDesc &desc,
     const rund::kernel::TransformPlan &plan, const TransformBinds &bindings);

@@ -39,8 +39,8 @@ rund::AccelCheck PrepareMetalStencil(
     SetMetalLastError(*adapter, lookup.reason);
     return lookup;
   }
-  const rund::AccelCheck check =
-      PrepareMetalRange(pick, range, *range_bindings, resources, pipelines);
+  const rund::AccelCheck check = PrepareMetalRange(
+      pick, range, *range_bindings, nullptr, resources, pipelines);
   if (!check.ok &&
       std::string_view{check.reason} == "compute_range_aggregate_invalid") {
     SetMetalLastError(*adapter, "compute_stencil_invalid");

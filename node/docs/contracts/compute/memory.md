@@ -1452,8 +1452,8 @@ the exact logical Host amount and never counts that padding as payload.
 For serial affine Windows, the four signed/unsigned lane pools independently
 retain the maximum requested element count rather than the sum of each
 Window's request. PrefixDifference binds `[N,0]`; BlockPrefixSuffix binds
-`[T,T]`. Both descriptors can therefore reuse the same typed pool without a
-second arena or a warm allocation.
+`[T,T]`. Both descriptors therefore reuse prefixes of the same typed pool, and
+warm execution is allocation-free.
 Transform tables are additive because their canonical twiddle values persist
 per descriptor, while their descriptors and tables still live inside the one
 mapping.
@@ -1572,7 +1572,8 @@ always-zero host-allocation coordinate is published.
   owns exactly one `CpuPreparedArena`: Job bindings, route arrays,
   `JobWorkspace` objects and offsets, and the maximum execution/scratch
   envelope are typed slices of that mapping. Jobs and recurrence alternates
-  borrow those slices and cannot retain a second vector or heap owner.
+  borrow those slices; `CpuPreparedArena` remains their sole mutable allocation
+  owner.
 - Accelerator binding arrays and standalone prepared resources are Job-owned.
   The one cached convenience Job is included by Program observation, while two
   public resident Jobs share the immutable kernel token but no mutable binding

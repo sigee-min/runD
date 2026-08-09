@@ -5,6 +5,7 @@
 #import <Metal/Metal.h>
 #endif
 
+#include "../../kernel/backend/run.hpp"
 #include "../../kernel/scratch.hpp"
 #include "../../range_aggregate/plan.hpp"
 #include "../pipeline/template.hpp"
@@ -14,6 +15,7 @@
 #include "pipeline/store.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 
 namespace rund::node::accel::detail {
@@ -135,6 +137,117 @@ FindMetalRangeTemp(MetalRangeResources &resources, const RangeTempRole role,
   return true;
 }
 
+[[nodiscard]] std::string MetalRangeControlKey(const RangePlan &plan) {
+  const RangeShape &shape = plan.shape();
+  std::string key = "range.control";
+  const auto append = [&key](const std::uint64_t value) {
+    key.push_back('.');
+    key += std::to_string(value);
+  };
+  append(static_cast<std::uint8_t>(shape.count()));
+  append(shape.input_count());
+  append(shape.window_size());
+  append(shape.stride());
+  append(shape.padding());
+  append(plan.stage_count());
+  for (std::size_t index = 0u; index < plan.stage_count(); ++index) {
+    const RangeStagePlan stage = plan.stage(index);
+    append(static_cast<std::uint8_t>(stage.disposition));
+    append(stage.level);
+    append(stage.width);
+  }
+  return key;
+}
+
+[[nodiscard]] std::shared_ptr<void>
+AcquireMetalRangeControlPipeline(MetalAdapter &adapter, const RangePlan &plan) {
+  const std::string key = MetalRangeControlKey(plan);
+  std::shared_ptr<void> pipeline = LookupMetalNamedPipeline(adapter, key);
+  if (pipeline != nullptr) {
+    return pipeline;
+  }
+  std::uint64_t source_upper = 0u;
+  if (!MetalRangeControlSourceUpperBytes(plan, source_upper)) {
+    return {};
+  }
+  const std::shared_ptr<void> library =
+      AcquireMetalLibrary(adapter, MetalRangeControlSource(plan), source_upper);
+  id<MTLDevice> device = (__bridge id<MTLDevice>)adapter.device.get();
+  id<MTLLibrary> native = (__bridge id<MTLLibrary>)library.get();
+  const std::uint64_t begin = MonotonicNanoseconds();
+  if (device == nil || native == nil) {
+    return {};
+  }
+  if (!MakeNamedMetalPipeline(device, native, "rund_range_control", pipeline)) {
+    RecordMetalUncachedPipelineCompile(adapter, MonotonicNanoseconds() - begin);
+    return {};
+  }
+  const std::uint64_t create_ns = MonotonicNanoseconds() - begin;
+  const MetalNamedPipelinePublishResult published =
+      PublishMetalNamedPipeline(adapter, key, pipeline, create_ns);
+  if (published.status != MetalNamedPipelinePublishStatus::Inserted) {
+    RecordMetalUncachedPipelineCompile(adapter, create_ns);
+  }
+  return published.status == MetalNamedPipelinePublishStatus::Failed
+             ? std::shared_ptr<void>{}
+             : published.pipeline;
+}
+
+[[nodiscard]] bool
+PrepareMetalRangeControl(const rund::AccelDevice &pick,
+                         const BoundControl *const bound,
+                         MetalRangeResources &resources,
+                         const MetalKernelImmutablePipelines *const pipelines) {
+  if (!resources.range.shape().resident_counted()) {
+    return bound == nullptr || !bound->active();
+  }
+  if (bound == nullptr || !bound->control.has_count() ||
+      bound->control.has_predicate() || bound->count == nullptr ||
+      bound->count_handle == nullptr ||
+      bound->control.capacity != resources.range.shape().input_count() ||
+      (resources.range.shape().count() == RangeCount::U64) !=
+          (bound->control.count_source ==
+           rund::kernel::GraphControlSource::U64)) {
+    return false;
+  }
+  const std::optional<RangeControlLayout> layout =
+      RangeControlLayout::from(resources.range);
+  if (!layout.has_value()) {
+    return false;
+  }
+  resources.control_count =
+      LookupMetalResidentBuffer(pick, *bound->count, *bound->count_handle);
+  if (!resources.control_count.check.ok ||
+      resources.control_count.device_buffer == nullptr) {
+    return false;
+  }
+  resources.control_count.ref = *bound->count;
+  resources.control = bound->control;
+  resources.control_params = AcquireMetalBuffer(
+      *resources.adapter, layout->params_bytes(), MetalBufferUsage::Output);
+  resources.control_indirect = AcquireMetalBuffer(
+      *resources.adapter, layout->indirect_bytes(), MetalBufferUsage::Output);
+  resources.control_status =
+      AcquireMetalBuffer(*resources.adapter, RangeControlLayout::status_bytes(),
+                         MetalBufferUsage::Output);
+  resources.control_pipeline = pipelines == nullptr
+                                   ? AcquireMetalRangeControlPipeline(
+                                         *resources.adapter, resources.range)
+                                   : pipelines->control;
+  resources.controlled = true;
+  resources.indirect = pipelines == nullptr;
+  void *const status = MetalBufferContents(resources.control_status);
+  if (resources.control_params.buffer == nullptr ||
+      resources.control_indirect.buffer == nullptr ||
+      resources.control_status.buffer == nullptr ||
+      resources.control_pipeline == nullptr || status == nullptr) {
+    return false;
+  }
+  std::memset(status, 0,
+              static_cast<std::size_t>(RangeControlLayout::status_bytes()));
+  return true;
+}
+
 } // namespace
 
 bool MetalRangeScratch(const MetalRangeResources &resources,
@@ -175,6 +288,12 @@ void DestroyMetalRangeResources(void *const raw) {
     for (MetalRuntimeBuffer &temporary : resources->temporaries) {
       ReleaseMetalBuffer(*resources->adapter, std::move(temporary));
     }
+    ReleaseMetalBuffer(*resources->adapter,
+                       std::move(resources->control_params));
+    ReleaseMetalBuffer(*resources->adapter,
+                       std::move(resources->control_indirect));
+    ReleaseMetalBuffer(*resources->adapter,
+                       std::move(resources->control_status));
 #endif
   }
   delete resources;
@@ -242,6 +361,7 @@ MetalRangeAttempt CompileMetalRange(MetalAdapter &adapter,
 rund::AccelCheck
 PrepareMetalRange(const rund::AccelDevice &pick, const RangePlan &range,
                   const MetalRangeBinds &bindings,
+                  const BoundControl *const control,
                   std::shared_ptr<void> &resources,
                   const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
@@ -278,7 +398,10 @@ PrepareMetalRange(const rund::AccelDevice &pick, const RangePlan &range,
   if (!PrepareMetalRangeTemps(*adapter, *raw)) {
     return rund::AccelCheck{false, MetalLastError(adapter)};
   }
-  if (pipelines != nullptr && !pipelines->ready(raw->stage_count)) {
+  if (!PrepareMetalRangeControl(pick, control, *raw, pipelines)) {
+    check = {false, "compute_range_aggregate_invalid"};
+  } else if (pipelines != nullptr &&
+             !pipelines->ready(raw->stage_count, raw->controlled)) {
     check = {false, "accel_metal_pipeline_unavailable"};
   } else {
     for (std::size_t index = 0u; check.ok && index < range.stage_count();
@@ -313,6 +436,7 @@ PrepareMetalRange(const rund::AccelDevice &pick, const RangePlan &range,
   (void)pick;
   (void)bindings;
   (void)range;
+  (void)control;
   (void)resources;
   (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
@@ -329,14 +453,47 @@ rund::AccelCheck EncodeMetalRange(MetalAdapter &adapter,
   if (!prepared.ok) {
     return prepared;
   }
+  if (state.range->controlled) {
+    id<MTLComputePipelineState> control =
+        (__bridge id<MTLComputePipelineState>)
+            state.range->control_pipeline.get();
+    id<MTLBuffer> count =
+        (__bridge id<MTLBuffer>)state.range->control_count.device_buffer.get();
+    id<MTLBuffer> params =
+        (__bridge id<MTLBuffer>)state.range->control_params.buffer.get();
+    id<MTLBuffer> indirect =
+        (__bridge id<MTLBuffer>)state.range->control_indirect.buffer.get();
+    id<MTLBuffer> status =
+        (__bridge id<MTLBuffer>)state.range->control_status.buffer.get();
+    if (control == nil || count == nil || params == nil || indirect == nil ||
+        status == nil) {
+      return rund::AccelCheck{false, "accel_metal_command_unavailable"};
+    }
+    [state.encoder setComputePipelineState:control];
+    [state.encoder setBuffer:count
+                      offset:static_cast<NSUInteger>(
+                                 state.range->control_count.ref.offset_bytes +
+                                 state.range->control.count_byte_offset)
+                     atIndex:0u];
+    [state.encoder setBuffer:params offset:0u atIndex:1u];
+    [state.encoder setBuffer:indirect offset:0u atIndex:2u];
+    [state.encoder setBuffer:status offset:0u atIndex:3u];
+    [state.encoder
+              dispatchThreads:MTLSizeMake(state.range->stage_count, 1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(state.range->stage_count, 1u, 1u)];
+    [state.encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+  }
   for (std::uint32_t index = 0u; index < state.range->stage_count; ++index) {
     const std::optional<RangeParams> params =
-        RangeStageParamsFor(state.range->range, index);
-    if (!params.has_value()) {
+        state.range->controlled
+            ? std::nullopt
+            : RangeStageParamsFor(state.range->range, index);
+    if (!state.range->controlled && !params.has_value()) {
       SetMetalLastError(adapter, "compute_range_aggregate_invalid");
       return rund::AccelCheck{false, "compute_range_aggregate_invalid"};
     }
-    EncodeMetalRangeStage(state, index, *params);
+    EncodeMetalRangeStage(state, index,
+                          params.has_value() ? &*params : nullptr);
     if (index + 1u < state.range->stage_count &&
         RangeUsesScratch(state.range->range)) {
       [state.encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];

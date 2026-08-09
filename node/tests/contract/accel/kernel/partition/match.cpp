@@ -11,31 +11,33 @@
 #include <node/accel/context.hpp>
 
 #include <array>
+#include <cstdio>
 
 namespace node_accel_contract::partition {
+namespace {
 
-bool MatchesReference(const rund::AccelDevice &pick) {
+template <std::size_t Count>
+[[nodiscard]] bool Match(const rund::AccelDevice &pick,
+                         const std::array<rund::kernel::u32, Count> &flags,
+                         const std::array<rund::kernel::u32, Count> &values,
+                         const rund::kernel::u64 physical_dispatches) {
   namespace p = node_accel_contract::primitive;
   if (!pick.check.ok) {
     return false;
   }
 
-  constexpr std::array<rund::kernel::u32, 8u> flags{1u, 0u, 2u, 0u,
-                                                    0u, 7u, 0u, 3u};
-  constexpr std::array<rund::kernel::u32, 8u> values{11u, 12u, 13u, 14u,
-                                                     15u, 16u, 17u, 18u};
-  std::array<rund::kernel::u32, 8u> expected{};
+  std::array<rund::kernel::u32, Count> expected{};
   rund::kernel::u64 false_count = 0u;
   rund::kernel::u64 true_count = 0u;
   const rund::kernel::PartitionResult reference =
       rund::kernel::ReferenceStablePartitionU32(flags.data(), values.data(),
                                                 flags.size(), expected.data(),
                                                 &false_count, &true_count);
-  if (!reference.ok || false_count != 4u || true_count != 4u) {
+  if (!reference.ok || false_count + true_count != Count) {
     return false;
   }
 
-  Fixture fixture = Make(pick);
+  Fixture fixture = Make(pick, Count);
   Bind(fixture);
   if (!fixture.context.check.ok || !fixture.flags.check.ok ||
       !fixture.values.check.ok || !fixture.output.check.ok ||
@@ -81,18 +83,63 @@ bool MatchesReference(const rund::AccelDevice &pick) {
       });
   if (!evidence.ok || evidence.host_to_device_bytes != 0u ||
       evidence.device_to_host_bytes != 0u ||
-      evidence.dispatch_count != fixture.plan.pass_count ||
+      evidence.dispatch_count != physical_dispatches ||
       evidence.original_dispatch_count != fixture.plan.pass_count ||
-      evidence.final_dispatch_count != fixture.plan.pass_count) {
+      evidence.final_dispatch_count != physical_dispatches) {
+    std::fprintf(
+        stderr,
+        "partition run count=%zu ok=%d reason=%s dispatch=%llu expected=%llu "
+        "original=%llu final=%llu plan=%llu upload=%llu download=%llu\n",
+        Count, evidence.ok, evidence.reason,
+        static_cast<unsigned long long>(evidence.dispatch_count),
+        static_cast<unsigned long long>(physical_dispatches),
+        static_cast<unsigned long long>(evidence.original_dispatch_count),
+        static_cast<unsigned long long>(evidence.final_dispatch_count),
+        static_cast<unsigned long long>(fixture.plan.pass_count),
+        static_cast<unsigned long long>(evidence.host_to_device_bytes),
+        static_cast<unsigned long long>(evidence.device_to_host_bytes));
     return false;
   }
 
-  std::array<rund::kernel::u32, 8u> downloaded{};
+  std::array<rund::kernel::u32, Count> downloaded{};
   const rund::AccelCheck download = rund::node::accel::DownloadAccelBuffer(
       fixture.context, fixture.output, downloaded.data(),
       downloaded.size() * sizeof(rund::kernel::u32));
-  return download.ok && p::HashValues(downloaded.data(), downloaded.size()) ==
-                            p::HashValues(expected.data(), expected.size());
+  const auto actual_hash = p::HashValues(downloaded.data(), downloaded.size());
+  const auto expected_hash = p::HashValues(expected.data(), expected.size());
+  if (!download.ok || actual_hash != expected_hash) {
+    std::fprintf(stderr,
+                 "partition output count=%zu download=%d reason=%s "
+                 "actual=%llu expected=%llu\n",
+                 Count, download.ok, download.reason,
+                 static_cast<unsigned long long>(actual_hash),
+                 static_cast<unsigned long long>(expected_hash));
+    return false;
+  }
+  return true;
+}
+
+} // namespace
+
+bool MatchesReference(const rund::AccelDevice &pick) {
+  constexpr std::array<rund::kernel::u32, 8u> flags{1u, 0u, 2u, 0u,
+                                                    0u, 7u, 0u, 3u};
+  constexpr std::array<rund::kernel::u32, 8u> values{11u, 12u, 13u, 14u,
+                                                     15u, 16u, 17u, 18u};
+  if (!Match(pick, flags, values, 3u)) {
+    return false;
+  }
+  if (pick.api != rund::AccelApi::Metal) {
+    return true;
+  }
+
+  std::array<rund::kernel::u32, 1025u> large_flags{};
+  std::array<rund::kernel::u32, 1025u> large_values{};
+  for (std::size_t index = 0u; index < large_flags.size(); ++index) {
+    large_flags[index] = index % 3u == 0u ? 0u : 1u;
+    large_values[index] = static_cast<rund::kernel::u32>(index + 11u);
+  }
+  return Match(pick, large_flags, large_values, 5u);
 }
 
 } // namespace node_accel_contract::partition

@@ -3,7 +3,7 @@
 Window is the semantic adapter for one-dimensional affine Sum, Min, and Max
 queries. Kernel owns `WindowDesc`, `PlanWindow`, identity, numeric policy, and
 the deterministic reference. Node owns resident admission and execution over
-the common source-private RangeAggregate substrate.
+the common source-private Range substrate.
 
 ## Authority
 
@@ -26,6 +26,7 @@ Verification authority:
 - `/node/tests/contract/accel/kernel/cpu/window.cpp`
 - `/node/tests/contract/accel/kernel/window.cpp`
 - `/node/tests/contract/compute/collective/modes/core.cpp`
+- `/node/tests/contract/compute/collective/modes/bounded.cpp`
 - `/node/tests/contract/compute/memory/scratch.cpp`
 
 ## Semantic and graph law
@@ -43,6 +44,10 @@ derives the descriptor from the current value, and the descriptor's complete
 numeric policy is authenticated by its semantic hash. This permits a Window
 to consume a stored format produced by an earlier Map without confusing that
 format with the graph root's numeric header.
+
+Pool is the Exact-stage strided adapter. It validates its public width, stride,
+tail, and edge law, derives one affine Window descriptor, and then uses the
+same Range plan and execution owners.
 
 Kernel accepts the canonical zero-work Sum descriptor with `N=Q=0` so the
 semantic ABI has an empty value. Low-level resident Accel graph admission
@@ -77,6 +82,16 @@ typed temporary requirements come from the frozen plan. Global temporaries are
 placed by the existing Pipeline scratch authority; Window owns no arena or
 parallel scratch vector. After prepared Pipeline memory is retained, warm
 resident execution performs no allocation.
+
+A Bounded product Window lowers to one Window node with an ordinary resident
+logical-count binding. Its authored input and output counts are the common
+capacity `M`; the generic Range control stage turns the current scalar `n` into
+the exact active stage parameters and dispatch evidence. Vulkan and standalone
+Metal consume the resulting indirect topology. Metal Pipeline-private capture
+uses the frozen capacity grids with those runtime parameters because its ICB
+contract has no indirect-dispatch command. The output preserves the same
+logical count lineage. No per-radius Gather graph, host count readback, or
+Window-private scratch owner participates in this route.
 
 The contracts compare CPU, Metal, and Vulkan output with the kernel reference,
 exercise a multi-stage affine Window, verify exact dispatch evidence, and keep

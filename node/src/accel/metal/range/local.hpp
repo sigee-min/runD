@@ -8,6 +8,7 @@
 #include "../state.hpp"
 #include "api.hpp"
 #include <accel/check.hpp>
+#include <kernel/program/compute/graph/schema.hpp>
 
 #include <array>
 #include <cstdint>
@@ -18,6 +19,7 @@
 namespace rund::node::accel::detail {
 
 struct MetalKernelImmutablePipelines;
+struct BoundControl;
 
 struct MetalRangeLimits final {
   rund::kernel::u32 maximum_workgroup_width{};
@@ -105,19 +107,31 @@ struct MetalRangeResources {
   MetalResidentBufferResult output{};
   std::array<std::shared_ptr<void>, kRangeStageCap> pipelines{};
   std::array<MetalRuntimeBuffer, kRangeTempCap> temporaries{};
+  MetalResidentBufferResult control_count{};
+  MetalRuntimeBuffer control_params{};
+  MetalRuntimeBuffer control_indirect{};
+  MetalRuntimeBuffer control_status{};
+  std::shared_ptr<void> control_pipeline{};
+  rund::kernel::GraphControl control{};
   std::uint32_t stage_count{};
+  bool controlled{};
+  bool indirect{};
 };
 
 void DestroyMetalRangeResources(void *raw);
 [[nodiscard]] std::string MetalRangeSource(const RangeExec &execution);
 [[nodiscard]] bool MetalRangeSourceUpperBytes(const RangeExec &execution,
                                               std::uint64_t &upper) noexcept;
+[[nodiscard]] std::string MetalRangeControlSource(const RangePlan &plan);
+[[nodiscard]] bool
+MetalRangeControlSourceUpperBytes(const RangePlan &plan,
+                                  std::uint64_t &upper) noexcept;
 [[nodiscard]] MetalRangeAttempt CompileMetalRange(MetalAdapter &adapter,
                                                   const RangeExec &execution,
                                                   std::shared_ptr<void> &out);
 [[nodiscard]] rund::AccelCheck
 PrepareMetalRange(const rund::AccelDevice &pick, const RangePlan &range,
-                  const MetalRangeBinds &bindings,
+                  const MetalRangeBinds &bindings, const BoundControl *control,
                   std::shared_ptr<void> &resources,
                   const MetalKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck

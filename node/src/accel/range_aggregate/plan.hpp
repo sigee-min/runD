@@ -673,6 +673,7 @@ SourceIdentity(const RangeShape &shape, const RangeCaps &capabilities,
   identity.add(static_cast<std::uint8_t>(shape.traits().arithmetic_law()));
   identity.add(static_cast<std::uint8_t>(shape.boundary()));
   identity.add(shape.element_bytes());
+  identity.add(static_cast<std::uint8_t>(shape.count()));
   return identity.finish();
 }
 

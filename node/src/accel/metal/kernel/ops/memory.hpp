@@ -6,6 +6,7 @@
 #include "../../gather/local.hpp"
 #include "../../histogram/local.hpp"
 #include "../../partition/local.hpp"
+#include "../../range/local.hpp"
 #include "../../reduce/local.hpp"
 #include "../../runtime/map/resources.hpp"
 #include "../../scan/kernel/local.hpp"
@@ -27,10 +28,10 @@ MetalResources(const std::shared_ptr<void> &resources) noexcept {
 MetalMapStepMemory(const std::shared_ptr<void> &resources,
                    const std::uint64_t budget) {
   const auto *const map = MetalResources<MetalMapEncodeResources>(resources);
-  return map == nullptr ? PreparedMemory{}
-                        : MetalBuffersMemory(
-                              budget, map->param, map->control_args,
-                              map->control_params, map->control_status);
+  return map == nullptr
+             ? PreparedMemory{}
+             : MetalBuffersMemory(budget, map->param, map->control_args,
+                                  map->control_params, map->control_status);
 }
 
 [[nodiscard]] inline PreparedMemory
@@ -126,6 +127,16 @@ MetalScatterStepMemory(const std::shared_ptr<void> &resources,
       MetalResources<MetalScatterEncodeResources>(resources);
   return scatter == nullptr ? PreparedMemory{}
                             : MetalBufferMemory(scatter->status, budget);
+}
+
+[[nodiscard]] inline PreparedMemory
+MetalRangeStepMemory(const std::shared_ptr<void> &resources,
+                     const std::uint64_t budget) {
+  const auto *const range = MetalResources<MetalRangeResources>(resources);
+  return range == nullptr ? PreparedMemory{}
+                          : MetalBuffersMemory(budget, range->control_params,
+                                               range->control_indirect,
+                                               range->control_status);
 }
 
 #endif

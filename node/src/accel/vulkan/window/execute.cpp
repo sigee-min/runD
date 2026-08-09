@@ -15,7 +15,8 @@ rund::AccelCheck PrepareVulkanWindow(
     const rund::AccelDevice &pick, const rund::kernel::WindowDesc &desc,
     const rund::kernel::WindowPlan &plan, const RangeBinds &bindings,
     const RangePlan &range, std::shared_ptr<void> &resources,
-    const VulkanKernelImmutablePipelines *const pipelines) {
+    const VulkanKernelImmutablePipelines *const pipelines,
+    const BoundControl *const control, const KernelPreparationMode mode) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   resources.reset();
   VulkanAdapter *const adapter = CheckedVulkanAdapter(pick);
@@ -39,9 +40,9 @@ rund::AccelCheck PrepareVulkanWindow(
     SetVulkanLastError(*adapter, "compute_window_invalid");
     return rund::AccelCheck{false, "compute_window_invalid"};
   }
-  const rund::AccelCheck check =
-      PrepareVulkanRange(pick, range, *range_bindings,
-                         rund::kernel::NodeKind::Window, resources, pipelines);
+  const rund::AccelCheck check = PrepareVulkanRange(
+      pick, range, *range_bindings, rund::kernel::NodeKind::Window, resources,
+      pipelines, control, mode);
   if (!check.ok &&
       std::string_view{check.reason} == "compute_range_aggregate_invalid") {
     SetVulkanLastError(*adapter, "compute_window_invalid");
@@ -56,6 +57,8 @@ rund::AccelCheck PrepareVulkanWindow(
   (void)range;
   (void)resources;
   (void)pipelines;
+  (void)control;
+  (void)mode;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

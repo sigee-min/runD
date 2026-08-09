@@ -10,8 +10,8 @@ namespace rund::node::accel::detail {
 namespace {
 
 [[nodiscard]] rund::kernel::ComputePlan
-PseudoRangePlan(const RangeExec &execution) noexcept {
-  const RangeIdentity identity = execution.source_identity();
+PseudoRangePlan(const RangeExec &execution,
+                const RangeIdentity identity) noexcept {
   const bool wide = execution.wide_elements();
   const bool signed_values = execution.signed_values();
   const rund::kernel::ComputeDomain executable_domain =
@@ -29,6 +29,19 @@ PseudoRangePlan(const RangeExec &execution) noexcept {
       .ok = true,
       .reason = "ok",
   };
+}
+
+[[nodiscard]] rund::kernel::ComputePlan
+PseudoRangePlan(const RangeExec &execution) noexcept {
+  return PseudoRangePlan(execution, execution.source_identity());
+}
+
+[[nodiscard]] rund::kernel::ComputePlan
+PseudoRangeControlPlan(const RangeExec &execution) noexcept {
+  const RangeIdentity topology = execution.execution_identity();
+  return PseudoRangePlan(
+      execution, RangeIdentity{.hi = topology.hi ^ 0x76756c6b2e726374ull,
+                               .lo = topology.lo ^ 0x72616e67652e6374ull});
 }
 
 } // namespace
@@ -81,6 +94,62 @@ AcquireVulkanRangePipeline(VulkanAdapter &adapter, const RangeExec &execution) {
   }
   return AcquireVulkanCollectivePipeline(adapter, execution.descriptor_count(),
                                          0u, pseudo, artifact);
+}
+
+bool VulkanRangeControlPipelineMatches(
+    const VulkanAdapter &adapter,
+    const VulkanCollectivePipeline *const pipeline,
+    const RangePlan &plan) noexcept {
+  const std::optional<RangeExec> execution = RangeExec::from(plan);
+  if (!execution.has_value() || !plan.shape().resident_counted() ||
+      pipeline == nullptr || adapter.device == VK_NULL_HANDLE ||
+      pipeline->device != adapter.device || pipeline->descriptor_count != 4u ||
+      pipeline->push_bytes != sizeof(VulkanRangeControlPush) ||
+      pipeline->specialization != VulkanSpecialization{} ||
+      pipeline->pipeline == VK_NULL_HANDLE ||
+      pipeline->pipeline_layout == VK_NULL_HANDLE ||
+      pipeline->descriptor_set_layout == VK_NULL_HANDLE ||
+      pipeline->source.empty()) {
+    return false;
+  }
+  const rund::kernel::ComputePlan pseudo = PseudoRangeControlPlan(*execution);
+  const rund::kernel::ArtifactKey expected_key{
+      .api = rund::kernel::ComputeApi::Vulkan,
+      .scalar = pseudo.scalar,
+      .domain = pseudo.domain,
+      .variant = rund::kernel::LoweringArtifactVariant::Canonical,
+      .fixed_format = pseudo.fixed_format,
+      .op_hash_hi = pseudo.op_hash_hi,
+      .op_hash_lo = pseudo.op_hash_lo,
+      .canonical_ir_hash_hi = pseudo.op_hash_hi,
+      .canonical_ir_hash_lo = pseudo.op_hash_lo,
+  };
+  return pipeline->key == expected_key &&
+         VulkanRangeControlSourceMatches(plan, pipeline->source,
+                                         pipeline->source_hash);
+}
+
+VulkanCollectivePipeline *
+AcquireVulkanRangeControlPipeline(VulkanAdapter &adapter,
+                                  const RangePlan &plan) {
+  const std::optional<RangeExec> execution = RangeExec::from(plan);
+  if (!execution.has_value() || !plan.shape().resident_counted() ||
+      plan.stage_count() == 0u ||
+      plan.stage_count() > adapter.max_dispatch_groups) {
+    SetVulkanLastError(adapter, "compute_dispatch_overflow");
+    return nullptr;
+  }
+  const rund::kernel::ComputePlan pseudo = PseudoRangeControlPlan(*execution);
+  std::string source = VulkanRangeControlSource(plan);
+  const std::uint64_t source_bytes = source.size();
+  const rund::kernel::LoweringArtifact artifact =
+      MakeVulkanBackendArtifact(pseudo, std::move(source), source_bytes);
+  if (!artifact.ok) {
+    SetVulkanLastError(adapter, artifact.reason);
+    return nullptr;
+  }
+  return AcquireVulkanCollectivePipeline(
+      adapter, 4u, sizeof(VulkanRangeControlPush), pseudo, artifact);
 }
 #endif
 

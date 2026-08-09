@@ -7,6 +7,25 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 namespace {
 
+void EncodeVulkanRangeControlBarrier(const VulkanRangeResources &range,
+                                     const VkCommandBuffer command) {
+  const std::array<VkBufferMemoryBarrier, 3u> barriers{
+      VulkanBufferBarrier(range.control_params, VK_ACCESS_SHADER_WRITE_BIT,
+                          VK_ACCESS_SHADER_READ_BIT),
+      VulkanBufferBarrier(range.control_indirect, VK_ACCESS_SHADER_WRITE_BIT,
+                          VK_ACCESS_INDIRECT_COMMAND_READ_BIT),
+      VulkanBufferBarrier(range.control_status.device,
+                          VK_ACCESS_SHADER_WRITE_BIT,
+                          VK_ACCESS_SHADER_READ_BIT),
+  };
+  vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                           VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                       0u, 0u, nullptr,
+                       static_cast<std::uint32_t>(barriers.size()),
+                       barriers.data(), 0u, nullptr);
+}
+
 void EncodeVulkanRangeBarrier(const VulkanRangeResources &range,
                               const VkCommandBuffer command,
                               const std::uint32_t stage_index) {
@@ -36,8 +55,13 @@ void EncodeVulkanRangeBarrier(const VulkanRangeResources &range,
                        count, barriers.data(), 0u, nullptr);
 }
 
-void EncodeVulkanRangeFinishBarrier(const VulkanRangeResources &range,
-                                    const VkCommandBuffer command) {
+[[nodiscard]] bool
+EncodeVulkanRangeFinishBarrier(const VulkanRangeResources &range,
+                               const VkCommandBuffer command) {
+  if (range.controlled) {
+    const std::array<const VulkanBuffer *, 1u> outputs{range.output};
+    return FinishVulkanStatus(command, range.control_status, outputs);
+  }
   std::array<VkBufferMemoryBarrier, 1u> barriers{
       VulkanDeviceOutputBarrier(*range.output),
   };
@@ -45,6 +69,7 @@ void EncodeVulkanRangeFinishBarrier(const VulkanRangeResources &range,
                        kVulkanDeviceOutputStage, 0u, 0u, nullptr,
                        static_cast<std::uint32_t>(barriers.size()),
                        barriers.data(), 0u, nullptr);
+  return true;
 }
 
 } // namespace

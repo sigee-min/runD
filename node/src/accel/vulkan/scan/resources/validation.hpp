@@ -16,7 +16,9 @@ namespace {
 [[nodiscard]] bool VulkanScanU32AbiOk(const rund::kernel::ScanPlan &plan) {
   const auto u32_max =
       static_cast<rund::kernel::u64>(std::numeric_limits<std::uint32_t>::max());
-  return plan.block_count <= u32_max && plan.element_count <= u32_max &&
+  const RangePrefixExec prefix = PlanScanPrefixExecution(plan);
+  return prefix.ok() && prefix.stage(0u).groups <= u32_max &&
+         prefix.stage(0u).element_count <= u32_max &&
          plan.block_size <= u32_max;
 }
 

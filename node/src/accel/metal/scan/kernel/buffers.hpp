@@ -2,7 +2,6 @@
 
 #include <accel/check.hpp>
 
-#include "../../../scan/prefix.hpp"
 #include "local.hpp"
 
 namespace rund::node::accel::detail {
@@ -12,15 +11,15 @@ namespace {
 
 [[nodiscard]] rund::AccelCheck
 AcquireMetalScanScratch(MetalAdapter &adapter,
-                        const rund::kernel::ScanPlan &plan,
                         MetalScanEncodeResources &resources) {
-  const auto totals_bytes = ScanPrefixTotalsBytes(plan);
-  if (!totals_bytes.has_value()) {
+  if (!resources.prefix_execution.has_value() ||
+      resources.prefix_execution->temporary_count() != 1u) {
     SetMetalLastError(adapter, "compute_scan_invalid");
     return rund::AccelCheck{false, "compute_scan_invalid"};
   }
-  resources.totals =
-      AcquireMetalBuffer(adapter, *totals_bytes, MetalBufferUsage::Scratch);
+  resources.totals = AcquireMetalBuffer(
+      adapter, resources.prefix_execution->temporary(0u).bytes,
+      MetalBufferUsage::Scratch);
   resources.status = AcquireMetalBuffer(adapter, sizeof(rund::kernel::u32),
                                         MetalBufferUsage::Output);
   if (resources.totals.buffer != nullptr &&

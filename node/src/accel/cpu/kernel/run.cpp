@@ -194,9 +194,10 @@ Reset(const BackendRun &run, const std::size_t step, std::size_t &cursor) {
   case rund::kernel::NodeKind::Window: {
     const auto &active = step.operation.get<operation::Window>();
     const RangeBinds *const source = BindingsFor<RangeBinds>(bound);
-    return source == nullptr ? Invalid()
-                             : ExecuteCpuWindow(pick, active.desc, active.plan,
-                                                active.range, *source);
+    return source == nullptr
+               ? Invalid()
+               : ExecuteCpuWindow(pick, active.desc, active.plan, active.range,
+                                  *source, bound.control);
   }
   case rund::kernel::NodeKind::Transform: {
     const auto &active = step.operation.get<operation::Transform>();

@@ -17,7 +17,15 @@ bool CreateVulkanRangeDescriptors(VulkanAdapter &adapter,
     return false;
   }
   const VulkanStorageBinding params =
-      VulkanStorageBindingFor(resources.params[stage_index]);
+      resources.controlled
+          ? VulkanStorageBindingFor(resources.control_params,
+                                    resources.control_param_stride *
+                                        stage_index,
+                                    sizeof(RangeParams))
+          : VulkanStorageBindingFor(resources.params[stage_index]);
+  if (params.buffer == nullptr) {
+    return false;
+  }
   if (descriptor_count == 3u) {
     return WriteVulkanStorageDescriptorSet(
         adapter, resources.descriptor_sets[stage_index],

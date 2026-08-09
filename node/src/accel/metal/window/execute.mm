@@ -18,7 +18,8 @@ namespace rund::node::accel::detail {
 rund::AccelCheck PrepareMetalWindow(
     const rund::AccelDevice &pick, const rund::kernel::WindowDesc &desc,
     const rund::kernel::WindowPlan &plan, const RangeBinds &bindings,
-    const RangePlan &range, std::shared_ptr<void> &resources,
+    const RangePlan &range, const BoundControl *const control,
+    std::shared_ptr<void> &resources,
     const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
@@ -38,8 +39,8 @@ rund::AccelCheck PrepareMetalWindow(
     SetMetalLastError(*adapter, lookup.reason);
     return lookup;
   }
-  const rund::AccelCheck check =
-      PrepareMetalRange(pick, range, *range_bindings, resources, pipelines);
+  const rund::AccelCheck check = PrepareMetalRange(
+      pick, range, *range_bindings, control, resources, pipelines);
   if (!check.ok &&
       std::string_view{check.reason} == "compute_range_aggregate_invalid") {
     SetMetalLastError(*adapter, "compute_window_invalid");
@@ -52,6 +53,7 @@ rund::AccelCheck PrepareMetalWindow(
   (void)plan;
   (void)bindings;
   (void)range;
+  (void)control;
   (void)resources;
   (void)pipelines;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
@@ -84,7 +86,7 @@ rund::AccelCheck ExecuteMetalWindow(const rund::AccelDevice &pick,
   }
   std::shared_ptr<void> resources{};
   const rund::AccelCheck prepare =
-      PrepareMetalWindow(pick, desc, plan, bindings, range, resources);
+      PrepareMetalWindow(pick, desc, plan, bindings, range, nullptr, resources);
   if (!prepare.ok) {
     return prepare;
   }

@@ -36,8 +36,8 @@ using rund::kernel::compute_lowering_detail::ParsedNode;
   const IrOp op = static_cast<IrOp>(node.op);
   switch (op) {
   case IrOp::Write:
-    return node.rhs == static_cast<rund::kernel::u32>(
-                           rund::kernel::IrWriteMode::Value);
+    return node.rhs ==
+           static_cast<rund::kernel::u32>(rund::kernel::IrWriteMode::Value);
   case IrOp::DivSigned:
   case IrOp::DivUnsigned:
   case IrOp::ReadAt:
@@ -217,9 +217,9 @@ using rund::kernel::compute_lowering_detail::ParsedNode;
     const rund::kernel::LoweringArtifact &artifact,
     const rund::kernel::compute_lowering_detail::ComputeInputAdmission &input) {
   MapSemantic semantic = BuildMapSemanticShape(artifact, input);
-  semantic.recurrence_total =
-      artifact.ok && input.ok && input.key == artifact.key &&
-      RecurrenceTotal(input.parsed);
+  semantic.recurrence_total = artifact.ok && input.ok &&
+                              input.key == artifact.key &&
+                              RecurrenceTotal(input.parsed);
   return semantic;
 }
 
@@ -243,7 +243,8 @@ using rund::kernel::compute_lowering_detail::ParsedNode;
         !control.valid(binding_indices.size())) {
       binding_indices_ok = false;
     }
-  } else if (!binding_indices.valid()) {
+  } else if (!binding_indices.valid() ||
+             !control.valid(binding_indices.size())) {
     binding_indices_ok = false;
   }
   if (!binding_indices_ok) {

@@ -127,6 +127,33 @@ void main() {
                                         p.indirect_dispatch_count));
     return;
   }
+  if (p.kind == 5u) {
+    if (p.primary_word_count == 0u ||
+        (p.primary_word_count & 7u) != 0u) { return; }
+    const uint64_t logical =
+        count_scalar(p.count_word_offset, p.count_source);
+    add_control(4u, logical);
+    add_control(6u, p.capacity);
+    if (logical > p.capacity) {
+      store_control(18u, min(load_control(18u), p.capacity));
+      return;
+    }
+    if (p.iteration != 0u) {
+      if (logical == 0u) {
+        add_control(14u, 1u);
+        return;
+      }
+      add_control(12u, 1u);
+    }
+    add_control(8u, uint64_t(p.indirect_dispatch_count));
+    uint64_t active_work = uint64_t(0);
+    for (uint index = 0u; index + 4u < p.primary_word_count; index += 8u) {
+      active_work = saturating_add(
+          active_work, pair64(primary[index + 3u], primary[index + 4u]));
+    }
+    add_control(10u, active_work);
+    return;
+  }
   if (p.kind != 1u || p.primary_word_count == 0u ||
       (p.primary_word_count & 3u) != 0u) { return; }
   const uint64_t logical = p.has_count != 0u

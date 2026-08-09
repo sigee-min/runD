@@ -33,9 +33,22 @@ LoadVulkanRangeState(VulkanAdapter &adapter,
     SetVulkanLastError(adapter, "compute_range_aggregate_invalid");
     return rund::AccelCheck{false, "compute_range_aggregate_invalid"};
   }
+  if (state.range->controlled !=
+          state.range->range.shape().resident_counted() ||
+      (state.range->controlled &&
+       (state.range->control_pipeline == nullptr ||
+        state.range->control_descriptor == VK_NULL_HANDLE ||
+        state.range->control_params.buffer == VK_NULL_HANDLE ||
+        state.range->control_indirect.buffer == VK_NULL_HANDLE ||
+        state.range->control_status.device.buffer == VK_NULL_HANDLE ||
+        state.range->control_param_stride < sizeof(RangeParams)))) {
+    SetVulkanLastError(adapter, "compute_range_aggregate_invalid");
+    return rund::AccelCheck{false, "compute_range_aggregate_invalid"};
+  }
   for (std::size_t index = 0u; index < state.range->stage_count; ++index) {
     if (state.range->pipelines[index] == nullptr ||
-        state.range->params[index].buffer == VK_NULL_HANDLE ||
+        (!state.range->controlled &&
+         state.range->params[index].buffer == VK_NULL_HANDLE) ||
         state.range->descriptor_sets[index] == VK_NULL_HANDLE ||
         !execution->stage_dispatch_fits(index, adapter.max_dispatch_groups)) {
       SetVulkanLastError(adapter, "compute_dispatch_overflow");

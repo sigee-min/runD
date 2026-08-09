@@ -25,7 +25,8 @@ rund::AccelCheck EncodeMetalScanU32FlagBuffers(
     return prepared;
   }
   EncodeMetalFlagScanBlock(state);
-  if (plan.pass_count == 2u) {
+  if (state.prefix_execution.has_value() &&
+      ScanPrefixHasOffset(*state.prefix_execution)) {
     EncodeMetalFlagScanPrefix(state);
     if (materialize_offsets) {
       EncodeMetalFlagScanOffset(state);

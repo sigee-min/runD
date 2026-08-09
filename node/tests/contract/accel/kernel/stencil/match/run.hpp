@@ -132,7 +132,7 @@ bool MatchesForcedPrefixDifferenceU64(const rund::AccelDevice &pick) {
 }
 
 // 65,537 is deliberately one past 256^2.  It creates at least three prefix
-// hierarchy levels for every legal RangeAggregate width (64, 128, or 256),
+// hierarchy levels for every legal Range width (64, 128, or 256),
 // so the run proves that summary-role bindings and reverse fix-up are not
 // limited to the first local block layer.
 bool MatchesDeepPrefixHierarchyU32(const rund::AccelDevice &pick) {

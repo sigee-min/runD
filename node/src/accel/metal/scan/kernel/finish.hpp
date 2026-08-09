@@ -2,7 +2,6 @@
 
 #include <accel/check.hpp>
 
-#include "../../../scan/count.hpp"
 #include "local.hpp"
 
 namespace rund::node::accel::detail {
@@ -11,7 +10,8 @@ rund::AccelCheck FinishMetalScan(MetalAdapter &adapter,
                                  const std::shared_ptr<void> &resources) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   auto *const scan = static_cast<MetalScanEncodeResources *>(resources.get());
-  if (scan == nullptr || scan->adapter != &adapter) {
+  if (scan == nullptr || scan->adapter != &adapter ||
+      !scan->prefix_execution.has_value()) {
     SetMetalLastError(adapter, "compute_scan_invalid");
     return rund::AccelCheck{false, "compute_scan_invalid"};
   }
@@ -23,7 +23,8 @@ rund::AccelCheck FinishMetalScan(MetalAdapter &adapter,
     SetMetalLastError(adapter, reason);
     return rund::AccelCheck{false, reason};
   }
-  RecordMetalDispatches(adapter, EncodedScanDispatchCount(scan->plan));
+  RecordMetalDispatches(adapter,
+                        MetalScanPipelineCount(*scan->prefix_execution));
   SetMetalLastError(adapter, "ok");
   return rund::AccelCheck{true, "ok"};
 #else

@@ -12,7 +12,9 @@ namespace rund::node::accel::detail {
     const rund::kernel::ScanPlan &plan, void *const input_buffer,
     void *const output_buffer, void *const totals_buffer,
     void *const status_buffer, void *const command_encoder,
-    MetalScanEncodeState &state, const std::shared_ptr<void> *const block,
+    MetalScanEncodeState &state,
+    const RangePrefixExec *const frozen_prefix_execution,
+    const std::shared_ptr<void> *const block,
     const std::shared_ptr<void> *const prefix,
     const std::shared_ptr<void> *const offset) {
   const rund::AccelCheck inputs = CheckMetalScanEncodeInputs(
@@ -28,11 +30,19 @@ namespace rund::node::accel::detail {
     return status;
   }
 
+  const RangePrefixExec planned = PlanScanPrefixExecution(plan);
+  const RangePrefixExec &prefix_execution =
+      frozen_prefix_execution == nullptr ? planned : *frozen_prefix_execution;
+  if (!BindMetalScanPlanShape(plan, prefix_execution, state)) {
+    SetMetalLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
+
   rund::AccelCheck pipelines{false, "accel_metal_pipeline_unavailable"};
-  if (block != nullptr && prefix != nullptr && offset != nullptr) {
+  if (block != nullptr) {
     state.block_handle = *block;
-    state.prefix_handle = *prefix;
-    state.offset_handle = *offset;
+    state.prefix_handle = prefix == nullptr ? nullptr : *prefix;
+    state.offset_handle = offset == nullptr ? nullptr : *offset;
     state.block =
         (__bridge id<MTLComputePipelineState>)state.block_handle.get();
     state.prefix =
@@ -40,11 +50,12 @@ namespace rund::node::accel::detail {
     state.offset =
         (__bridge id<MTLComputePipelineState>)state.offset_handle.get();
     pipelines =
-        state.block != nil && state.prefix != nil && state.offset != nil
+        state.block != nil && (!ScanPrefixHasOffset(prefix_execution) ||
+                               (state.prefix != nil && state.offset != nil))
             ? rund::AccelCheck{true, "ok"}
             : rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   } else {
-    pipelines = LoadMetalScanPipelines(adapter, plan, state);
+    pipelines = LoadMetalScanPipelines(adapter, plan, prefix_execution, state);
   }
   if (!pipelines.ok) {
     return pipelines;
@@ -56,11 +67,7 @@ namespace rund::node::accel::detail {
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
 
-  if (!BindMetalScanPlanShape(plan, state)) {
-    SetMetalLastError(adapter, "compute_scan_invalid");
-    return rund::AccelCheck{false, "compute_scan_invalid"};
-  }
-  return CheckMetalScanThreadShape(adapter, plan, state);
+  return CheckMetalScanThreadShape(adapter, state);
 }
 #endif
 

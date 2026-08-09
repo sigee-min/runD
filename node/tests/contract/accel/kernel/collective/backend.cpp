@@ -47,6 +47,8 @@ namespace {
   using rund::node::accel::detail::kScanPrefixWorkgroupWidth;
   using rund::node::accel::detail::PlanScanPrefixExecution;
   using rund::node::accel::detail::ScanDispatches;
+  using rund::node::accel::detail::ScanPrefixDispatches;
+  using rund::node::accel::detail::ScanPrefixHasOffset;
   using rund::node::accel::detail::ScanPrefixPayloadBytes;
   using rund::node::accel::detail::ScanPrefixTotalsBytes;
   using rund::node::accel::detail::SortDispatches;
@@ -86,9 +88,22 @@ namespace {
       .ok = true,
       .reason = "ok",
   };
+  constexpr rund::kernel::ScanPlan chunked{
+      .op = rund::kernel::ScanOp::InclusiveSum,
+      .element = rund::kernel::ScanElement::U32,
+      .element_count = 65'536u,
+      .element_bytes = 4u,
+      .block_size = 1u,
+      .block_count = 65'536u,
+      .pass_count = 2u,
+      .temp_bytes = 262'144u,
+      .ok = true,
+      .reason = "ok",
+  };
   constexpr auto single_prefix = PlanScanPrefixExecution(single);
   constexpr auto multiple_prefix = PlanScanPrefixExecution(multiple);
   constexpr auto malformed_prefix = PlanScanPrefixExecution(malformed);
+  constexpr auto chunked_prefix = PlanScanPrefixExecution(chunked);
   return CeilGroups(0u, 1u) == 0u && CeilGroups(1u, 0u) == 0u &&
          CeilGroups(65'535u, 65'535u) == 1u &&
          CeilGroups(65'536u, 65'535u) == 2u &&
@@ -101,6 +116,12 @@ namespace {
          multiple_prefix.stage(0u).groups == 3u &&
          multiple_prefix.stage(1u).groups == 1u &&
          multiple_prefix.stage(2u).groups == 3u &&
+         !ScanPrefixHasOffset(single_prefix) &&
+         ScanPrefixHasOffset(multiple_prefix) &&
+         ScanPrefixDispatches(single_prefix, 65'535u) == 1u &&
+         ScanPrefixDispatches(multiple_prefix, 65'535u) == 3u &&
+         chunked_prefix.ok() && chunked_prefix.stage_count() == 3u &&
+         ScanPrefixDispatches(chunked_prefix, 65'535u) == 5u &&
          multiple_prefix.temporary(0u).bytes == 24u &&
          multiple_prefix.temporary(0u).last_stage == 2u &&
          ScanPrefixPayloadBytes(multiple).has_value() &&

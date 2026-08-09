@@ -10,6 +10,7 @@
 namespace rund::node::accel::detail {
 
 struct MetalAdapter;
+class RangePrefixExec;
 
 [[nodiscard]] rund::AccelCheck ExecuteMetalScanBuffers(
     MetalAdapter &adapter, const rund::kernel::ScanDesc &desc,
@@ -33,15 +34,24 @@ struct MetalAdapter;
     rund::kernel::u64 output_offset = 0u,
     rund::kernel::u64 logical_count_offset = 0u,
     rund::kernel::u64 totals_offset = 0u);
+[[nodiscard]] rund::AccelCheck EncodePreparedMetalScanBuffers(
+    MetalAdapter &adapter, const rund::kernel::ScanDesc &desc,
+    const rund::kernel::ScanPlan &plan, rund::kernel::ComputeDomain domain,
+    void *input_buffer, void *output_buffer, void *totals_buffer,
+    void *status_buffer, void *command_encoder,
+    const RangePrefixExec &prefix_execution, const std::shared_ptr<void> &block,
+    const std::shared_ptr<void> &prefix, const std::shared_ptr<void> &offset,
+    void *logical_count_buffer, rund::kernel::u32 count_words,
+    rund::kernel::u64 input_offset = 0u, rund::kernel::u64 output_offset = 0u,
+    rund::kernel::u64 logical_count_offset = 0u,
+    rund::kernel::u64 totals_offset = 0u);
 [[nodiscard]] rund::AccelCheck EncodeMetalScanDeferredOffsetBuffers(
     MetalAdapter &adapter, const rund::kernel::ScanDesc &desc,
     const rund::kernel::ScanPlan &plan, void *input_buffer, void *output_buffer,
     void *totals_buffer, void *status_buffer, void *command_encoder,
     const std::shared_ptr<void> &block, const std::shared_ptr<void> &prefix,
-    const std::shared_ptr<void> &offset,
-    rund::kernel::u64 input_offset = 0u,
-    rund::kernel::u64 output_offset = 0u,
-    rund::kernel::u64 totals_offset = 0u);
+    const std::shared_ptr<void> &offset, rund::kernel::u64 input_offset = 0u,
+    rund::kernel::u64 output_offset = 0u, rund::kernel::u64 totals_offset = 0u);
 [[nodiscard]] rund::AccelCheck EncodePreparedOffsetScan(
     MetalAdapter &adapter, const rund::kernel::ScanDesc &desc,
     const rund::kernel::ScanPlan &plan, void *input_buffer, void *output_buffer,
@@ -55,7 +65,6 @@ struct MetalAdapter;
     std::uint64_t output_offset, void *totals_buffer,
     std::uint64_t totals_offset, void *status_buffer, void *command_encoder,
     const std::shared_ptr<void> &block, const std::shared_ptr<void> &prefix,
-    const std::shared_ptr<void> &offset,
-    bool materialize_offsets);
+    const std::shared_ptr<void> &offset, bool materialize_offsets);
 
 } // namespace rund::node::accel::detail

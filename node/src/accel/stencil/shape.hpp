@@ -12,7 +12,7 @@
 namespace rund::node::accel::detail {
 
 // Stencil owns this semantic-width projection.  The generic executor consumes
-// the already-frozen RangeAggregate shape and never reinterprets a Stencil
+// the already-frozen Range shape and never reinterprets a Stencil
 // descriptor or public binding.
 [[nodiscard]] constexpr rund::kernel::u32
 StencilElementBytes(const rund::kernel::StencilElement element) noexcept {
@@ -24,7 +24,7 @@ StencilElementBytes(const rund::kernel::StencilElement element) noexcept {
 
 // Kernel Stencil semantics remain the graph descriptor and hash authority.
 // This adapter proves that the frozen physical plan came from unchanged
-// primitive semantics before the RangeAggregate execution contract is used.
+// primitive semantics before the Range execution contract is used.
 [[nodiscard]] constexpr std::optional<RangeShape>
 StencilRangeShape(const rund::kernel::StencilPlan &semantic,
                   const rund::kernel::ComputeDomain domain) noexcept {

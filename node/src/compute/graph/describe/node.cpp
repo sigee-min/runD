@@ -69,13 +69,15 @@ public_operation(const Primitive primitive) noexcept {
   case Primitive::Partition:
   case Primitive::Reduce:
   case Primitive::Stencil:
-  case Primitive::Window:
   case Primitive::Transform:
   case Primitive::Matrix:
   case Primitive::Factor:
   case Primitive::Solve:
   case Primitive::Spectrum:
     return true;
+  case Primitive::Window:
+    return primitive.node.window.count_source ==
+           kernel::ComputeCountSource::Descriptor;
   case Primitive::Sort:
   case Primitive::Argsort:
     return primitive.node.sort.count_source ==
@@ -132,6 +134,9 @@ primitive_memory(const GraphPrimitive &primitive,
     case Primitive::Gather:
     case Primitive::ScatterReduce:
       count_input = inputs.size() == 3u ? 2u : inputs.size();
+      break;
+    case Primitive::Window:
+      count_input = inputs.size() == 2u ? 1u : inputs.size();
       break;
     default:
       break;

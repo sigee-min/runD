@@ -5,6 +5,7 @@
 #include "../local.hpp"
 
 #include <memory>
+#include <optional>
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #import <Metal/Metal.h>
@@ -21,6 +22,7 @@ struct MetalScanEncodeState {
   id<MTLComputePipelineState> prefix = nil;
   id<MTLComputePipelineState> offset = nil;
   id<MTLComputeCommandEncoder> encoder = nil;
+  std::optional<RangePrefixExec> prefix_execution{};
   rund::kernel::u64 element_count = 0u;
   rund::kernel::u64 block_size = 0u;
   rund::kernel::u64 block_count = 0u;
@@ -32,7 +34,9 @@ struct MetalScanEncodeState {
     MetalAdapter &adapter, const rund::kernel::ScanDesc &desc,
     const rund::kernel::ScanPlan &plan, void *input_buffer, void *output_buffer,
     void *totals_buffer, void *status_buffer, void *command_encoder,
-    MetalScanEncodeState &state, const std::shared_ptr<void> *block = nullptr,
+    MetalScanEncodeState &state,
+    const RangePrefixExec *prefix_execution = nullptr,
+    const std::shared_ptr<void> *block = nullptr,
     const std::shared_ptr<void> *prefix = nullptr,
     const std::shared_ptr<void> *offset = nullptr);
 #endif

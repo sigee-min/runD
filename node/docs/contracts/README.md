@@ -16,13 +16,13 @@ Stable `/node` behavior lives here. Kernel-owned behavior stays in
 | [Compute Memory](./compute/memory.md) | Program/Job retained owner accounting, compact CPU runtime graph/SIMD-plan ownership, authenticated accelerator-token metadata, and exact allocation-free snapshot invariants. |
 | [Accel Compact](./accel/compact.md) | Stable native compaction, direct rank law, bounded capacity status, reuse, and Vulkan `8 * ceil(N / 256) + 4` scratch. |
 | [Accel Gather](./accel/gather.md) | Node-owned CPU/Metal/Vulkan execution for kernel-planned deterministic gather graph steps. |
-| [Accel RangeAggregate](./accel/range-aggregate.md) | Timing-free algebra, capability, exact-cost, stage, temporary-requirement, and source/execution identity planning shared by one-dimensional range primitives. |
+| [Accel Range](./accel/range-aggregate.md) | Timing-free algebra, capability, exact-cost, stage, temporary-requirement, and source/execution identity planning shared by one-dimensional range primitives. |
 | [Accel Reduce](./accel/reduce.md) | Node-owned CPU/Metal/Vulkan execution for kernel-planned deterministic reduce graph steps. |
 | [Accel Scan](./accel/scan.md) | Observable prefix contract, deterministic native hierarchy, exact overflow, and Vulkan block/prefix/offset execution. |
 | [Accel Segmented Scan](./accel/segmented/scan.md) | Cross-block carry, canonical overflow, cancellation, and bounded Vulkan dispatch. |
 | [Accel Scatter](./accel/scatter.md) | Node-owned CPU/Metal/Vulkan execution for kernel-planned deterministic limited scatter graph steps. |
 | [Accel Stencil](./accel/stencil.md) | Node-owned CPU/Metal/Vulkan execution for kernel-planned deterministic stencil graph steps. |
-| [Accel Window](./accel/window.md) | Node-owned affine Sum/Min/Max Window admission, frozen RangeAggregate execution, CPU reference, and Metal/Vulkan parity. |
+| [Accel Window](./accel/window.md) | Node-owned affine Sum/Min/Max Window admission, frozen Range execution, CPU reference, and Metal/Vulkan parity. |
 | [Host](./host.md) | Deterministic host API boundaries for random, timer, IO, env, input, and thread. |
 | [Network](./net.md) | Byte-level `rund::net` surface, canonical address and socket identity, scheduler readiness, replay, limits, and runtime/domain semantic cut. |
 | [Session](./runtime.md) | Session configuration, backend, lifecycle, actual-state snapshots, scope/result UX, trace, discovery, Compute integration, and replay evidence. |

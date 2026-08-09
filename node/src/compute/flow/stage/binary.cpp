@@ -55,6 +55,41 @@ std::uint32_t flow_binary_values(const std::shared_ptr<FlowState> &flow,
                                                                       : 0u;
 }
 
+std::uint32_t flow_bounded_window_value(const std::shared_ptr<FlowState> &flow,
+                                        const std::uint32_t input,
+                                        const std::uint32_t count,
+                                        const Type output_type,
+                                        const std::size_t capacity,
+                                        const PrimitiveOptions options) {
+  if (flow == nullptr || !flow->status || input == 0u || count == 0u ||
+      input > flow->values.size() || count > flow->values.size()) {
+    return 0u;
+  }
+  const FlowValue &values = flow->values[input - 1u];
+  const FlowValue &logical = flow->values[count - 1u];
+  if (values.count != capacity || logical.count != 1u ||
+      (logical.type != Type::U32 && logical.type != Type::U64)) {
+    reject(*flow, Reason::BoundedCountInvalid);
+    return 0u;
+  }
+  const FixedFormat fixed_format =
+      type_fixed(output_type) && values.type == output_type
+          ? values.fixed_format
+          : FixedFormat{};
+  const std::uint32_t output =
+      append(*flow, output_type, capacity, fixed_format);
+  if (output == 0u) {
+    return 0u;
+  }
+  flow->values[output - 1u].active = count;
+  const std::array inputs{input, count};
+  const std::array outputs{output};
+  return append_primitive(*flow, inputs, outputs, Primitive::Window, options,
+                          FlowControl{.count = count, .capacity = capacity})
+             ? output
+             : 0u;
+}
+
 void flow_binary(const std::shared_ptr<FlowState> &flow,
                  const Primitive operation, const std::uint32_t side,
                  const bool side_first, const Type output_type,

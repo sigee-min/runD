@@ -14,8 +14,8 @@
 
 namespace rund::node::accel::detail {
 
-// RangeAggregate is primitive-neutral. Adapters project their own semantic
-// descriptors into this algebra and shape without acquiring a second planner.
+// Range is primitive-neutral. Adapters project their semantic descriptors into
+// this sole algebra-and-shape planning authority.
 enum class RangeOp : std::uint8_t {
   Sum,
   Minimum,
@@ -25,6 +25,12 @@ enum class RangeOp : std::uint8_t {
 enum class RangeBoundary : std::uint8_t {
   Clamp,
   Clip,
+};
+
+enum class RangeCount : std::uint8_t {
+  Descriptor,
+  U32,
+  U64,
 };
 
 enum class RangeLaw : std::uint8_t {
@@ -256,15 +262,18 @@ public:
          const rund::kernel::u64 input_count,
          const rund::kernel::u64 output_count,
          const rund::kernel::u64 window_size, const rund::kernel::u64 stride,
-         const rund::kernel::u64 padding,
-         const rund::kernel::u32 element_bytes) noexcept {
+         const rund::kernel::u64 padding, const rund::kernel::u32 element_bytes,
+         const RangeCount count = RangeCount::Descriptor) noexcept {
     const rund::kernel::u128 last_anchor =
         static_cast<rund::kernel::u128>(
             output_count == 0u ? 0u : output_count - 1u) *
         stride;
-    if (!traits.valid() || !KnownBoundary(boundary) || input_count == 0u ||
-        output_count == 0u || window_size == 0u || stride == 0u ||
-        padding >= window_size ||
+    if (!traits.valid() || !KnownBoundary(boundary) || !KnownCount(count) ||
+        input_count == 0u || output_count == 0u || window_size == 0u ||
+        stride == 0u || padding >= window_size ||
+        (count != RangeCount::Descriptor &&
+         (input_count != output_count || stride != 1u ||
+          window_size - padding - 1u != padding)) ||
         last_anchor > std::numeric_limits<rund::kernel::u64>::max() ||
         last_anchor >= static_cast<rund::kernel::u128>(input_count) + padding ||
         (element_bytes != 4u && element_bytes != 8u) ||
@@ -275,8 +284,9 @@ public:
             std::numeric_limits<rund::kernel::u64>::max() / element_bytes) {
       return std::nullopt;
     }
-    return RangeShape{traits,      boundary, input_count, output_count,
-                      window_size, stride,   padding,     element_bytes};
+    return RangeShape{traits,       boundary,      input_count,
+                      output_count, window_size,   stride,
+                      padding,      element_bytes, count};
   }
 
   [[nodiscard]] static constexpr std::optional<RangeShape>
@@ -301,6 +311,14 @@ public:
 
   [[nodiscard]] constexpr RangeBoundary boundary() const noexcept {
     return boundary_;
+  }
+
+  [[nodiscard]] constexpr RangeCount count() const noexcept {
+    return static_cast<RangeCount>((element_and_count_ >> 8u) & 0xffu);
+  }
+
+  [[nodiscard]] constexpr bool resident_counted() const noexcept {
+    return count() != RangeCount::Descriptor;
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 element_count() const noexcept {
@@ -352,20 +370,20 @@ public:
   }
 
   [[nodiscard]] constexpr rund::kernel::u32 element_bytes() const noexcept {
-    return element_bytes_;
+    return element_and_count_ & 0xffu;
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 payload_bytes() const noexcept {
-    return input_count_ * element_bytes_;
+    return input_count_ * element_bytes();
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 output_bytes() const noexcept {
-    return output_count_ * element_bytes_;
+    return output_count_ * element_bytes();
   }
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     return affine(traits_, boundary_, input_count_, output_count_, window_size_,
-                  stride_, padding_, element_bytes_)
+                  stride_, padding_, element_bytes(), count())
         .has_value();
   }
 
@@ -373,6 +391,12 @@ private:
   [[nodiscard]] static constexpr bool
   KnownBoundary(const RangeBoundary boundary) noexcept {
     return boundary == RangeBoundary::Clamp || boundary == RangeBoundary::Clip;
+  }
+
+  [[nodiscard]] static constexpr bool
+  KnownCount(const RangeCount count) noexcept {
+    return count == RangeCount::Descriptor || count == RangeCount::U32 ||
+           count == RangeCount::U64;
   }
 
   [[nodiscard]] static constexpr bool
@@ -395,14 +419,17 @@ private:
                        const rund::kernel::u64 window_size,
                        const rund::kernel::u64 stride,
                        const rund::kernel::u64 padding,
-                       const rund::kernel::u32 element_bytes) noexcept
-      : traits_(traits), boundary_(boundary), element_bytes_(element_bytes),
+                       const rund::kernel::u32 element_bytes,
+                       const RangeCount count) noexcept
+      : traits_(traits), boundary_(boundary),
+        element_and_count_(element_bytes |
+                           (static_cast<rund::kernel::u32>(count) << 8u)),
         input_count_(input_count), output_count_(output_count),
         window_size_(window_size), stride_(stride), padding_(padding) {}
 
   RangeTraits traits_;
   RangeBoundary boundary_;
-  rund::kernel::u32 element_bytes_;
+  rund::kernel::u32 element_and_count_;
   rund::kernel::u64 input_count_;
   rund::kernel::u64 output_count_;
   rund::kernel::u64 window_size_;
@@ -753,7 +780,7 @@ inline constexpr std::size_t kRangeTempCap = 12u;
 inline constexpr std::size_t kRangeCandidateCap = 12u;
 
 // This derives physical prefix stages and temporary lifetimes. It does not
-// choose an aggregate algorithm: RangeAggregate selects PrefixDifference, and
+// choose an aggregate algorithm: Range selects PrefixDifference, and
 // native Scan projects its own observable-prefix semantics into the flat form.
 enum class RangePrefixKind : std::uint8_t {
   Rejected,

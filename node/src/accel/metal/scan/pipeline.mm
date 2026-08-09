@@ -10,19 +10,59 @@
 
 namespace rund::node::accel::detail {
 
-bool CompileMetalScanPipelines(MetalAdapter& adapter,
-                               const rund::kernel::ScanElement element,
-                               std::shared_ptr<void>& block,
-                               std::shared_ptr<void>& prefix,
-                               std::shared_ptr<void>& offset) {
+namespace {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+[[nodiscard]] bool CompileMetalScanPipelinesImpl(
+    MetalAdapter &adapter, const rund::kernel::ScanElement element,
+    const bool with_offsets, std::shared_ptr<void> &block,
+    std::shared_ptr<void> &prefix, std::shared_ptr<void> &offset) {
   return CompileMetalScanPipelineSet(
       adapter, MetalScanFunctionName("rund_compute_scan_block", element),
       MetalScanFunctionName("rund_compute_scan_prefix", element),
       MetalScanFunctionName("rund_compute_scan_offset", element),
       MetalScanPipelineKey("block", element),
       MetalScanPipelineKey("prefix", element),
-      MetalScanPipelineKey("offset", element), block, prefix, offset);
+      MetalScanPipelineKey("offset", element), with_offsets, block, prefix,
+      offset);
+}
+#endif
+} // namespace
+
+bool CompileMetalScanPipelines(MetalAdapter &adapter,
+                               const rund::kernel::ScanElement element,
+                               const RangePrefixExec &prefix_execution,
+                               std::shared_ptr<void> &block,
+                               std::shared_ptr<void> &prefix,
+                               std::shared_ptr<void> &offset) {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+  if (!prefix_execution.ok() ||
+      prefix_execution.disposition() != RangePrefixKind::FlatBlockTotals) {
+    return false;
+  }
+  const std::size_t pipeline_count = prefix_execution.stage_count();
+  return (pipeline_count == 1u || pipeline_count == 3u) &&
+         CompileMetalScanPipelinesImpl(adapter, element,
+                                       ScanPrefixHasOffset(prefix_execution),
+                                       block, prefix, offset);
+#else
+  (void)adapter;
+  (void)element;
+  (void)prefix_execution;
+  (void)block;
+  (void)prefix;
+  (void)offset;
+  return false;
+#endif
+}
+
+bool CompileMetalScanPipelines(MetalAdapter &adapter,
+                               const rund::kernel::ScanElement element,
+                               std::shared_ptr<void> &block,
+                               std::shared_ptr<void> &prefix,
+                               std::shared_ptr<void> &offset) {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+  return CompileMetalScanPipelinesImpl(adapter, element, true, block, prefix,
+                                       offset);
 #else
   (void)adapter;
   (void)element;
@@ -33,17 +73,17 @@ bool CompileMetalScanPipelines(MetalAdapter& adapter,
 #endif
 }
 
-bool CompileMetalScanFlagPipelines(MetalAdapter& adapter,
-                                   std::shared_ptr<void>& block,
-                                   std::shared_ptr<void>& prefix,
-                                   std::shared_ptr<void>& offset) {
+bool CompileMetalScanFlagPipelines(MetalAdapter &adapter,
+                                   std::shared_ptr<void> &block,
+                                   std::shared_ptr<void> &prefix,
+                                   std::shared_ptr<void> &offset) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   return CompileMetalScanPipelineSet(
       adapter, @"rund_compute_scan_block_flag_u32",
       @"rund_compute_scan_prefix_u32", @"rund_compute_scan_offset_u32",
       "scan.block.flag.u32",
       MetalScanPipelineKey("prefix", rund::kernel::ScanElement::U32),
-      MetalScanPipelineKey("offset", rund::kernel::ScanElement::U32),
+      MetalScanPipelineKey("offset", rund::kernel::ScanElement::U32), true,
       block, prefix, offset);
 #else
   (void)adapter;
@@ -54,4 +94,4 @@ bool CompileMetalScanFlagPipelines(MetalAdapter& adapter,
 #endif
 }
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

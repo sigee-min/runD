@@ -34,3 +34,15 @@ Metal and Vulkan retain only their backend-language declarations and must match
 the common byte layout through the parameter-model contract. Prepared
 execution uploads that same eight-byte value once; there is no backend adapter,
 conversion, or second parameter representation.
+
+Metal freezes the internal exclusive-U32 Scan as a `RangePrefixExec` before
+allocating its block-total scratch or acquiring executables. Partition's
+prepared tuple is `classify`, `scatter`, followed by the frozen Scan tuple: a
+one-block input therefore owns three PSOs and three dispatches, while a
+multi-block input owns five in the order `classify`, `scatter`, `block`,
+`prefix`, `offset`. That is retained tuple order; command encoding executes
+`classify`, the selected Scan stages, then `scatter`. The same `2 + S`
+cardinality owns manifest reservation, immutable publication, encoding, and
+runtime telemetry; the Kernel
+`PartitionPlan::pass_count` remains semantic graph evidence rather than Metal
+pipeline cardinality.

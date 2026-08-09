@@ -2,6 +2,8 @@
 
 #include "../state.hpp"
 
+#include <optional>
+
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
@@ -17,6 +19,7 @@ struct MetalFlagScanEncodeState {
   id<MTLBuffer> output = nil;
   id<MTLBuffer> totals = nil;
   id<MTLBuffer> status = nil;
+  std::optional<RangePrefixExec> prefix_execution{};
   NSUInteger flags_offset = 0u;
   NSUInteger output_offset = 0u;
   NSUInteger totals_offset = 0u;

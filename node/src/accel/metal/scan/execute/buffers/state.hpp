@@ -3,11 +3,13 @@
 #include "../../../command/run.hpp"
 #include "../../local.hpp"
 
+#include <optional>
 #include <utility>
 
 namespace rund::node::accel::detail {
 
 struct MetalScanDirectBuffers {
+  std::optional<RangePrefixExec> prefix_execution{};
   MetalRuntimeBuffer totals{};
   MetalRuntimeBuffer status{};
 };

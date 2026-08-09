@@ -50,7 +50,8 @@ rund::AccelCheck PrepareVulkanScanBuffers(
   if (!valid.ok) {
     return valid;
   }
-  if (!PlanScanPrefixExecution(plan).ok()) {
+  const RangePrefixExec prefix_execution = PlanScanPrefixExecution(plan);
+  if (!prefix_execution.ok()) {
     SetVulkanLastError(adapter, "compute_scan_invalid");
     return rund::AccelCheck{false, "compute_scan_invalid"};
   }
@@ -70,18 +71,19 @@ rund::AccelCheck PrepareVulkanScanBuffers(
   const VulkanStorageBinding input_binding =
       VulkanStorageBindingFor(input, static_cast<VkDeviceSize>(input_offset),
                               static_cast<VkDeviceSize>(input_range));
-  raw->block_count = plan.block_count;
-  raw->pass_count = plan.pass_count;
-  raw->dispatch_count = ScanDispatches(plan.pass_count, plan.block_count,
-                                       adapter.max_dispatch_groups);
+  raw->prefix_execution = prefix_execution;
+  raw->dispatch_count =
+      ScanPrefixDispatches(prefix_execution, adapter.max_dispatch_groups);
 
   const ScanParams params_value{
-      plan.element_count, plan.block_size, plan.block_count,
+      prefix_execution.stage(0u).element_count, plan.block_size,
+      prefix_execution.stage(0u).groups,
       static_cast<rund::kernel::u32>(
           rund::kernel::ComputeCountBytes(plan.count_source) /
           sizeof(rund::kernel::u32)),
       desc.op == rund::kernel::ScanOp::InclusiveSum ? 1u : 0u};
-  const std::uint32_t scan_stage_count = plan.pass_count == 1u ? 1u : 3u;
+  const std::uint32_t scan_stage_count =
+      static_cast<std::uint32_t>(prefix_execution.stage_count());
   const std::uint32_t tuple_count = pipeline_offset + scan_stage_count;
   const rund::kernel::NodeKind tuple_kind =
       pipeline_offset == 0u ? rund::kernel::NodeKind::Scan
@@ -91,7 +93,7 @@ rund::AccelCheck PrepareVulkanScanBuffers(
                                                VulkanScanStage::Block)
                    : pipelines->borrow(tuple_kind, tuple_count, pipeline_offset,
                                        kScanDescriptorCount, 1u);
-  raw->prefix = plan.pass_count == 2u
+  raw->prefix = ScanPrefixHasOffset(prefix_execution)
                     ? (pipelines == nullptr
                            ? AcquireVulkanScanPipeline(adapter, desc, domain,
                                                        VulkanScanStage::Prefix)
@@ -99,7 +101,7 @@ rund::AccelCheck PrepareVulkanScanBuffers(
                                                pipeline_offset + 1u,
                                                kScanDescriptorCount, 1u))
                     : nullptr;
-  raw->offset = plan.pass_count == 2u
+  raw->offset = ScanPrefixHasOffset(prefix_execution)
                     ? (pipelines == nullptr
                            ? AcquireVulkanScanPipeline(adapter, desc, domain,
                                                        VulkanScanStage::Offset)
@@ -108,7 +110,7 @@ rund::AccelCheck PrepareVulkanScanBuffers(
                                                kScanDescriptorCount, 1u))
                     : nullptr;
   if (raw->dispatch_count == 0u || raw->block == nullptr ||
-      (plan.pass_count == 2u &&
+      (ScanPrefixHasOffset(prefix_execution) &&
        (raw->prefix == nullptr || raw->offset == nullptr)) ||
       !CreateVulkanBuffer(adapter, sizeof(params_value),
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, raw->params) ||
@@ -157,7 +159,7 @@ rund::AccelCheck EncodeVulkanScanBuffers(VulkanAdapter &adapter,
     return rund::AccelCheck{false, "compute_scan_invalid"};
   }
   EncodeVulkanScanBlocks(*state.scan, state.command);
-  if (state.scan->pass_count == 2u) {
+  if (VulkanScanHasOffset(*state.scan)) {
     EncodeVulkanScanBlockBarrier(*state.scan, state.command);
     EncodeVulkanScanPrefix(*state.scan, state.command);
     EncodeVulkanScanPrefixBarrier(*state.scan, state.command);

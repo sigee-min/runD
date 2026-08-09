@@ -89,6 +89,14 @@ GraphOut graph_primitive(const std::shared_ptr<GraphState> &graph,
     graph_detail::reject(*graph, Reason::BoundedCountInvalid);
     return {};
   }
+  if (primitive == Primitive::Window &&
+      (inputs.size() < 1u || inputs.size() > 2u ||
+       (inputs.size() == 2u &&
+        (inputs[1u].count != 1u ||
+         (inputs[1u].type != Type::U32 && inputs[1u].type != Type::U64))))) {
+    graph_detail::reject(*graph, Reason::BoundedCountInvalid);
+    return {};
+  }
 
   const GraphArg *control_input = nullptr;
   for (const GraphArg &input : inputs) {
@@ -107,10 +115,14 @@ GraphOut graph_primitive(const std::shared_ptr<GraphState> &graph,
     }
   }
   if (!control.empty() || control.iteration != 0u) {
-    if ((primitive != Primitive::Sort && primitive != Primitive::Argsort) ||
-        control.count == 0u || control.predicate != 0u ||
-        control.iteration == 0u || control.capacity != inputs.front().count ||
-        control_input == nullptr || control_input->count != 1u ||
+    const bool window = primitive == Primitive::Window;
+    const bool ordered =
+        primitive == Primitive::Sort || primitive == Primitive::Argsort;
+    if ((!window && !ordered) || control.count == 0u ||
+        control.predicate != 0u || (ordered && control.iteration == 0u) ||
+        (window && control.iteration != 0u) ||
+        control.capacity != inputs.front().count || control_input == nullptr ||
+        control_input->count != 1u ||
         (control_input->type != Type::U32 &&
          control_input->type != Type::U64)) {
       graph_detail::reject(*graph, Reason::BoundedCountInvalid);

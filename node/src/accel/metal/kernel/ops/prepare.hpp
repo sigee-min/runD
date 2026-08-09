@@ -232,7 +232,8 @@ PrepareMetalWindowStep(const rund::AccelDevice &pick, const BoundStep &step,
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareMetalWindow(pick, active->desc, active->plan, *bindings,
-                                  active->range, resources, pipelines);
+                                  active->range, &step.control, resources,
+                                  pipelines);
 }
 
 #include "prepare/numeric.hpp"

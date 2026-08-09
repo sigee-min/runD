@@ -43,21 +43,22 @@ void Bind(Fixture &fixture) noexcept {
   };
 }
 
-Fixture Make(const rund::AccelDevice &pick) {
+Fixture Make(const rund::AccelDevice &pick,
+             const rund::kernel::u64 element_count) {
   namespace p = node_accel_contract::primitive;
   Fixture fixture{};
   fixture.context = rund::node::accel::OpenAccel(pick);
   fixture.flags = rund::node::accel::CreateAccelBuffer(
       fixture.context, p::BufferDesc(rund::BufferUsage::ReadOnly,
-                                     sizeof(rund::kernel::u32), 8u));
+                                     sizeof(rund::kernel::u32), element_count));
   fixture.values = rund::node::accel::CreateAccelBuffer(
       fixture.context, p::BufferDesc(rund::BufferUsage::ReadOnly,
-                                     sizeof(rund::kernel::u32), 8u));
+                                     sizeof(rund::kernel::u32), element_count));
   fixture.output = rund::node::accel::CreateAccelBuffer(
       fixture.context, p::BufferDesc(rund::BufferUsage::WriteOnly,
-                                     sizeof(rund::kernel::u32), 8u));
+                                     sizeof(rund::kernel::u32), element_count));
   fixture.desc = rund::kernel::PartitionDesc{
-      .element_count = 8u,
+      .element_count = element_count,
       .flag_bytes = 4u,
       .value_bytes = 4u,
   };

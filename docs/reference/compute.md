@@ -651,18 +651,21 @@ same-width-only internal `BoundaryMask` is not widened into a second conversion
 authority.
 `WindowSpec` is the centered rolling-aggregate adapter. It carries operation,
 radius, and `WindowEdge`; output `i` aggregates the logical interval
-`[i-radius,i+radius]`. Exact inputs lower this affine window directly through
-the Range execution substrate. Bounded inputs retain their resident-count
-composition because their output cardinality is not frozen at admission.
+`[i-radius,i+radius]`. Exact and Bounded inputs lower this affine window through
+the Range execution substrate. An Exact input uses its descriptor count. A
+Bounded input supplies its resident U32/U64 count to the generic Range control
+pass, which derives active data-stage parameters and dispatch evidence from the
+current logical count while retaining capacity-sized scratch. The output
+preserves that count lineage without host readback.
 
 `pool(PoolSpec)` is the exact-cardinality strided adapter over the same Range
 substrate. For input count `N`, width `K`, and stride `S`, output `j` starts at
 `jS`. `PoolTail::Drop` emits `1 + floor((N-K)/S)` complete windows;
 `PoolTail::Keep` emits `1 + floor((N-1)/S)` windows and applies the selected
 Clamp or Clip law to each trailing partial window. `K` and `S` are positive and
-`K <= N`. Pooling does not create a second arena or a second algorithm
-selector: its affine geometry is planned by the same Range planner and its
-temporary roles are placed by the Pipeline scratch planner.
+`K <= N`. The Range planner is the sole algorithm selector for this affine
+geometry, and the Pipeline scratch planner is the sole placement owner for its
+temporary roles.
 For an empty exact input, Sum produces the canonical empty output; Min and Max
 reject because their empty range has no public value.
 
@@ -674,7 +677,8 @@ adopting the selected value stage's exact Fixed storage policy; it is not a
 numeric integer-to-Fixed conversion and cannot introduce another I/F format.
 Its canonical `BoundaryMask` Write shape is `select(X != 0, 1, 0)`, and its
 mode and target policy are part of graph identity.
-Its work is `O(radius * count)`. Exact and Bounded Flow `window` both accept
+Its work is `O(radius * count)` because segment membership makes the generic
+unsegmented Range plan inapplicable. Exact and Bounded Flow `window` both accept
 `WindowEdge::Clamp` and `WindowEdge::Clip` for `Sum`, `Min`, and `Max`. Clamp
 uses the nearest logical endpoint for an out-of-range neighbor; Clip excludes
 that neighbor by applying the operation's identity. On a Bounded stage, both

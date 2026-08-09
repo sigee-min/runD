@@ -22,6 +22,9 @@ struct PreparedBackendCacheDependency final {
   // a builder-adjacent complete cache tuple is available.
   std::uint64_t source_recipe{};
   std::uint64_t source_upper_bytes{};
+  // Native pipeline objects retained by this collision-safe cache dependency.
+  // This is deliberately not the number of executable stage slots: several
+  // slots may borrow the same cached pipeline.
   std::uint64_t pipeline_stage_count{};
   // Conservative std::string external-storage envelope for the retained
   // source. Text cardinality remains independently exact above.
@@ -41,7 +44,12 @@ struct PreparedBackendManifest final {
   // U: number of retained source/library cache dependencies. This is not P:
   // one source library may produce several pipeline stages (Metal Sort).
   std::uint64_t source_library_dependency_count{};
+  // Executable tuple slots. Slots preserve dispatch order and may alias one
+  // native pipeline dependency.
   std::uint64_t pipeline_stage_count{};
+  // Exact unique Vulkan native pipelines derived transactionally from the
+  // complete source-dependency tuple. Metal leaves this projection zero.
+  std::uint64_t native_pipeline_dependency_count{};
   std::uint64_t descriptor_set_count{};
   std::uint64_t descriptor_binding_count{};
   std::uint64_t descriptor_lease_count{};
@@ -128,35 +136,48 @@ struct PreparedBackendManifest final {
 CompleteVulkanBackendManifest(PreparedBackendManifest &manifest) noexcept {
   std::uint64_t pipeline_objects = 0u;
   std::uint64_t descriptor_objects = 0u;
+  std::uint64_t native_objects = 0u;
   std::uint64_t capture_dispatches = 0u;
+  std::uint64_t dependency_pipelines = 0u;
   bool dependencies_complete = manifest.source_library_dependency_count != 0u &&
                                manifest.cache_dependency_entry_count ==
                                    manifest.source_library_dependency_count;
   for (std::size_t index = 0u; index < manifest.cache_dependency_entry_count;
        ++index) {
+    const PreparedBackendCacheDependency &dependency =
+        manifest.source_dependencies[index];
     dependencies_complete =
-        dependencies_complete && manifest.source_dependencies[index].complete();
+        dependencies_complete && dependency.complete() &&
+        rund::kernel::checked::add(dependency_pipelines,
+                                   dependency.pipeline_stage_count,
+                                   dependency_pipelines);
   }
   manifest.source_dependencies_complete = dependencies_complete;
-  if (manifest.pipeline_stage_count == 0u ||
+  manifest.native_pipeline_dependency_count = 0u;
+  manifest.cold_cache_native_object_count = 0u;
+  if (manifest.source_build_count == 0u ||
+      manifest.source_build_count != manifest.source_library_dependency_count ||
+      manifest.pipeline_stage_count == 0u ||
       manifest.source_library_dependency_count == 0u ||
       !ValidPreparedBackendControlManifest(manifest) ||
-      !manifest.source_dependencies_complete ||
+      !manifest.source_dependencies_complete || dependency_pipelines == 0u ||
+      dependency_pipelines > manifest.pipeline_stage_count ||
+      dependency_pipelines > manifest.descriptor_dependency_count ||
       !rund::kernel::checked::add(manifest.capture_direct_dispatch_count,
                                   manifest.capture_indirect_dispatch_count,
                                   capture_dispatches) ||
       capture_dispatches == 0u ||
-      !rund::kernel::checked::mul(manifest.pipeline_stage_count, 3u,
-                                  pipeline_objects) ||
+      !rund::kernel::checked::mul(dependency_pipelines, 3u, pipeline_objects) ||
       !rund::kernel::checked::add(manifest.descriptor_set_count,
-                                  manifest.descriptor_dependency_count,
-                                  descriptor_objects) ||
+                                  dependency_pipelines, descriptor_objects) ||
       !rund::kernel::checked::add(pipeline_objects, descriptor_objects,
-                                  manifest.cold_cache_native_object_count)) {
+                                  native_objects)) {
     manifest.ok = false;
     manifest.reason = "compute_pipeline_capacity";
     return false;
   }
+  manifest.native_pipeline_dependency_count = dependency_pipelines;
+  manifest.cold_cache_native_object_count = native_objects;
   manifest.ok = true;
   manifest.reason = "ok";
   return true;

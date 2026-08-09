@@ -19,7 +19,7 @@ public:
   [[nodiscard]] bool valid() const noexcept;
   [[nodiscard]] bool used() const noexcept;
   [[nodiscard]] bool active() const noexcept;
-  // Maximum physical page extent.  The frozen RangeAggregate placement plan
+  // Maximum physical page extent. The frozen Range placement plan
   // uses the same page convention as Pipeline planning; this accessor lets a
   // backend re-materialize that plan without inventing another arena owner.
   [[nodiscard]] std::uint64_t page_bytes() const noexcept;

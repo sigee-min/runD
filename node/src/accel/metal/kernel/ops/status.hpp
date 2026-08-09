@@ -9,6 +9,7 @@
 #include "../../gather/local.hpp"
 #include "../../histogram/local.hpp"
 #include "../../partition/local.hpp"
+#include "../../range/local.hpp"
 #include "../../reduce/local.hpp"
 #include "../../scan/kernel/local.hpp"
 #include "../../scatter/local.hpp"
@@ -71,17 +72,64 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
   if (!map->controlled()) {
     return true;
   }
-  MetalPipelineStatusBinding described =
-      binding(map->control_status,
-              map->prepared->checks.empty()
-                  ? MetalPipelineStatusEncoding::Nonzero
-                  : MetalPipelineStatusEncoding::Mapping,
-              {reason(rund::compute::Reason::WorksetOverflow),
-               reason(rund::compute::Reason::GatherIndexOutOfRange), 0u, 0u});
+  MetalPipelineStatusBinding described = binding(
+      map->control_status,
+      map->prepared->checks.empty() ? MetalPipelineStatusEncoding::Nonzero
+                                    : MetalPipelineStatusEncoding::Mapping,
+      {reason(rund::compute::Reason::WorksetOverflow),
+       reason(rund::compute::Reason::GatherIndexOutOfRange), 0u, 0u});
   if (!map->prepared->checks.empty()) {
     described.indirect_dispatch_count = 1u;
   }
   return append(out, described);
+}
+
+[[nodiscard]] inline bool
+DescribeMetalRangePipelineStatus(const std::shared_ptr<void> &resources,
+                                 MetalPipelineStatusBindings &out) noexcept {
+  using namespace metal_pipeline_status;
+  out = {};
+  const auto *const range =
+      static_cast<const MetalRangeResources *>(resources.get());
+  if (range == nullptr) {
+    return false;
+  }
+  return !range->controlled ||
+         append(out, binding(range->control_status,
+                             MetalPipelineStatusEncoding::Nonzero,
+                             {reason(rund::compute::Reason::WorksetOverflow),
+                              0u, 0u, 0u}));
+}
+
+[[nodiscard]] inline bool DescribeMetalRangePipelineTelemetry(
+    const std::shared_ptr<void> &resources,
+    MetalPipelineTelemetrySource &source) noexcept {
+  source = {};
+  const auto *const range =
+      static_cast<const MetalRangeResources *>(resources.get());
+  if (range == nullptr) {
+    return false;
+  }
+  if (!range->controlled) {
+    return true;
+  }
+  if (range->control_indirect.buffer == nullptr ||
+      range->control_count.device_buffer == nullptr ||
+      range->stage_count > std::numeric_limits<std::uint32_t>::max() / 8u) {
+    return false;
+  }
+  source = MetalPipelineTelemetrySource{
+      .kind = MetalPipelineTelemetryKind::ControlledRange,
+      .primary_buffer = range->control_indirect.buffer.get(),
+      .count_buffer = range->control_count.device_buffer.get(),
+      .control = range->control,
+      .count_offset = range->control_count.ref.offset_bytes +
+                      range->control.count_byte_offset,
+      .capacity = range->control.capacity,
+      .primary_word_count = range->stage_count * 8u,
+      .indirect_dispatch_count = range->indirect ? range->stage_count : 0u,
+  };
+  return true;
 }
 
 [[nodiscard]] inline bool DescribeMetalMapPipelineTelemetry(
@@ -125,9 +173,8 @@ DescribeMetalMapPipelineStatus(const std::shared_ptr<void> &resources,
           map->prepared->checks.empty()
               ? static_cast<std::uint32_t>(map->windows.size() * 4u)
               : 2u,
-      .indirect_dispatch_count =
-          static_cast<std::uint32_t>(
-              1u + (!map->prepared->checks.empty() ? 1u : 0u)),
+      .indirect_dispatch_count = static_cast<std::uint32_t>(
+          1u + (!map->prepared->checks.empty() ? 1u : 0u)),
   };
   return (!map->control.has_count() || source.count_buffer != nullptr) &&
          (!map->control.has_predicate() || source.predicate_buffer != nullptr);

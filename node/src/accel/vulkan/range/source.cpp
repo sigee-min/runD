@@ -4,6 +4,7 @@
 #include "../../kernel/backend/source_recipe.hpp"
 #include "../../source/hash.hpp"
 #include "source/body.hpp"
+#include "source/control.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -163,6 +164,30 @@ bool VulkanRangeSourceMatches(const RangeExec &execution,
   }
   MatchSink sink{source};
   return EmitVulkanRangeSource(sink, execution) && sink.complete();
+}
+
+std::string VulkanRangeControlSource(const RangePlan &plan) {
+  return backend_source_recipe::materialize(
+      [&](auto &sink) { return EmitVulkanRangeControlSource(sink, plan); });
+}
+
+bool VulkanRangeControlSourceBytes(const RangePlan &plan,
+                                   std::uint64_t &bytes) noexcept {
+  return backend_source_recipe::bytes(
+      [&](backend_source_recipe::CountSink &sink) noexcept {
+        return EmitVulkanRangeControlSource(sink, plan);
+      },
+      bytes);
+}
+
+bool VulkanRangeControlSourceMatches(const RangePlan &plan,
+                                     const std::string_view source,
+                                     const std::uint64_t source_hash) noexcept {
+  if (SourceHash(source) != source_hash) {
+    return false;
+  }
+  MatchSink sink{source};
+  return EmitVulkanRangeControlSource(sink, plan) && sink.complete();
 }
 #endif
 

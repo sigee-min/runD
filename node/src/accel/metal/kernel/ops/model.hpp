@@ -79,6 +79,7 @@ enum class MetalPipelineTelemetryKind : std::uint8_t {
   IndexedControl,
   ControlledCollective,
   GatherControl,
+  ControlledRange,
 };
 
 // Pipeline-private primitives cannot run their standalone Finish function:

@@ -10,7 +10,7 @@ bool CreateVulkanScanDescriptorSets(VulkanAdapter &adapter,
   if (!AcquireVulkanCollectiveDescriptorSet(adapter, *resources.block,
                                             kScanDescriptorCount,
                                             resources.block_set) ||
-      (resources.pass_count == 2u &&
+      (VulkanScanHasOffset(resources) &&
        (!AcquireVulkanCollectiveDescriptorSet(adapter, *resources.prefix,
                                               kScanDescriptorCount,
                                               resources.prefix_set) ||
@@ -25,7 +25,7 @@ bool CreateVulkanScanDescriptorSets(VulkanAdapter &adapter,
           VulkanStorageBindingFor(resources.params), input,
           resources.output_binding, VulkanStorageBindingFor(resources.totals),
           VulkanStorageBindingFor(resources.status->device), logical_count});
-  if (resources.pass_count == 2u) {
+  if (VulkanScanHasOffset(resources)) {
     ready = ready && WriteVulkanStorageDescriptorSet(
                          adapter, resources.prefix_set,
                          std::array<VulkanStorageBinding, kScanDescriptorCount>{

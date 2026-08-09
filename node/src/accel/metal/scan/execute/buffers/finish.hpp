@@ -2,19 +2,19 @@
 
 #include <accel/check.hpp>
 
-#include "../../../../scan/count.hpp"
 #include "encode.hpp"
 
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 [[nodiscard]] inline rund::AccelCheck FinishMetalScanDirectBuffers(
-    MetalAdapter &adapter, const rund::kernel::ScanPlan &plan,
-    const bool record_dispatches, const MetalScanDirectBuffers &buffers,
-    const CommandRun &command, const rund::AccelCheck encoded) {
+    MetalAdapter &adapter, const bool record_dispatches,
+    const MetalScanDirectBuffers &buffers, const CommandRun &command,
+    const rund::AccelCheck encoded) {
   const rund::AccelCheck submit = FinishCommand(adapter, command, encoded);
-  if (submit.ok && record_dispatches) {
-    RecordMetalDispatches(adapter, EncodedScanDispatchCount(plan));
+  if (submit.ok && record_dispatches && buffers.prefix_execution.has_value()) {
+    RecordMetalDispatches(adapter,
+                          MetalScanPipelineCount(*buffers.prefix_execution));
   }
   if (!submit.ok) {
     return submit;

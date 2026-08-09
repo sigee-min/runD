@@ -16,7 +16,9 @@ LoadMetalPartitionPipelines(MetalAdapter &adapter,
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
-  if (!CompileMetalScanPipelines(adapter, raw.scan_plan.element, raw.scan_block,
+  if (!raw.scan_execution.has_value() ||
+      !CompileMetalScanPipelines(adapter, raw.scan_plan.element,
+                                 *raw.scan_execution, raw.scan_block,
                                  raw.scan_prefix, raw.scan_offset)) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};

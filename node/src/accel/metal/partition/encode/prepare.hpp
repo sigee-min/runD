@@ -14,7 +14,8 @@ namespace rund::node::accel::detail {
       static_cast<MetalPartitionEncodeResources *>(resources.get());
   state.encoder = (__bridge id<MTLComputeCommandEncoder>)command_encoder;
   if (state.partition == nullptr || state.partition->adapter != &adapter ||
-      state.encoder == nil || !MetalPartitionBuffersReady(*state.partition)) {
+      !state.partition->scan_execution.has_value() || state.encoder == nil ||
+      !MetalPartitionBuffersReady(*state.partition)) {
     SetMetalLastError(adapter, "compute_partition_invalid");
     return rund::AccelCheck{false, "compute_partition_invalid"};
   }

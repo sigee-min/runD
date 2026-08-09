@@ -23,6 +23,7 @@ namespace rund::kernel {
       hash, static_cast<u64>(desc.fixed_format.overflow), salt);
   hash = internal::MixIdentity(
       hash, static_cast<u64>(desc.fixed_format.approximation), salt);
+  hash = internal::MixIdentity(hash, static_cast<u64>(desc.count_source), salt);
   hash = internal::MixIdentity(hash, desc.input_count, salt);
   hash = internal::MixIdentity(hash, desc.output_count, salt);
   hash = internal::MixIdentity(hash, desc.window_size, salt);

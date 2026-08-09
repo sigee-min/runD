@@ -208,6 +208,11 @@ rund::AccelGraphNode make_node(const Primitive primitive,
             .domain = domain,
             .fixed_format =
                 fixed ? exact_primitive_format : kernel::ComputeFixedFormat{},
+            .count_source = inputs.size() == 2u
+                                ? (inputs[1u].type == Type::U64
+                                       ? kernel::ComputeCountSource::BufferU64
+                                       : kernel::ComputeCountSource::BufferU32)
+                                : kernel::ComputeCountSource::Descriptor,
             .input_count = count,
             .output_count = options.fourth,
             .window_size = options.first,

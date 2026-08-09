@@ -25,10 +25,13 @@ struct VulkanScanEncodeState {
       state.scan->block->push_bytes != kScanPushBytes ||
       state.scan->block_set == VK_NULL_HANDLE ||
       state.scan->status == nullptr ||
-      state.scan->block_count == 0u ||
+      !state.scan->prefix_execution.has_value() ||
+      !state.scan->prefix_execution->ok() ||
+      VulkanScanStageGroups(*state.scan, 0u) == 0u ||
       state.scan->adapter->max_dispatch_groups == 0u ||
-      (state.scan->pass_count != 1u && state.scan->pass_count != 2u) ||
-      (state.scan->pass_count == 2u &&
+      (state.scan->prefix_execution->stage_count() != 1u &&
+       state.scan->prefix_execution->stage_count() != 3u) ||
+      (VulkanScanHasOffset(*state.scan) &&
        (state.scan->prefix == nullptr || state.scan->offset == nullptr ||
         state.scan->prefix->pipeline == VK_NULL_HANDLE ||
         state.scan->offset->pipeline == VK_NULL_HANDLE ||

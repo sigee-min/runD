@@ -23,6 +23,7 @@ namespace rund::node::accel::detail {
   append(static_cast<std::uint8_t>(execution.arithmetic_law()));
   append(static_cast<std::uint8_t>(shape.boundary()));
   append(execution.element_bytes());
+  append(static_cast<std::uint8_t>(shape.count()));
   key.pop_back();
   return key;
 }

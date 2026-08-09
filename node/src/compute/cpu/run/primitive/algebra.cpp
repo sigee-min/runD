@@ -9,6 +9,7 @@
 #include "../../../../accel/transform.hpp"
 #include "../../../backend.hpp"
 #include "../../../host.hpp"
+#include "../../../job/state.hpp"
 #include "../../../program/state.hpp"
 #include "../../../status.hpp"
 #include "../../../type.hpp"
@@ -109,15 +110,15 @@ template <class Lane>
 [[nodiscard]] kernel::WindowResult
 run_prefix_window(const Lane *const input, Lane *const output,
                   const kernel::WindowPlan &semantic,
-                  const node::accel::detail::RangePlan &range,
                   CpuPrimitiveScratch &scratch) noexcept {
   auto *const owner = cpu_primitive_scratch<CpuRangeScratch<Lane>>(scratch);
-  if (owner == nullptr || owner->first.size() != semantic.input_count ||
+  if (owner == nullptr || owner->first.size() < semantic.input_count ||
       !owner->second.empty() || semantic.op != kernel::WindowOp::Sum ||
       semantic.fixed_format.overflow == kernel::ComputeOverflow::Saturate) {
     return {};
   }
-  std::span<Lane> prefix = owner->first;
+  std::span<Lane> prefix =
+      owner->first.first(static_cast<std::size_t>(semantic.input_count));
   prefix[0u] = input[0u];
   for (kernel::u64 index = 1u; index < semantic.input_count; ++index) {
     prefix[static_cast<std::size_t>(index)] = add_window(
@@ -162,8 +163,7 @@ run_prefix_window(const Lane *const input, Lane *const output,
   }
   return {.input_count = semantic.input_count,
           .output_count = semantic.output_count,
-          .ok = range.candidate().disposition() ==
-                node::accel::detail::RangePath::PrefixDifference,
+          .ok = true,
           .reason = "ok"};
 }
 
@@ -171,12 +171,16 @@ template <class Lane>
 [[nodiscard]] kernel::WindowResult
 run_block_window(const Lane *const input, Lane *const output,
                  const kernel::WindowPlan &semantic,
-                 const node::accel::detail::RangePlan &range,
                  CpuPrimitiveScratch &scratch) noexcept {
   auto *const owner = cpu_primitive_scratch<CpuRangeScratch<Lane>>(scratch);
-  const auto span = range.shape().affine_span();
-  if (owner == nullptr || !span.has_value() || owner->first.size() != *span ||
-      owner->second.size() != *span || semantic.op == kernel::WindowOp::Sum) {
+  kernel::u64 last_anchor = 0u;
+  kernel::u64 span = 0u;
+  if (owner == nullptr ||
+      !kernel::checked::mul(semantic.output_count - 1u, semantic.stride,
+                            last_anchor) ||
+      !kernel::checked::add(last_anchor, semantic.window_size, span) ||
+      owner->first.size() < span || owner->second.size() < span ||
+      semantic.op == kernel::WindowOp::Sum) {
     return {};
   }
   const Lane identity = window_identity<Lane>(semantic);
@@ -191,8 +195,8 @@ run_block_window(const Lane *const input, Lane *const output,
                ? input[semantic.input_count - 1u]
                : identity;
   };
-  for (kernel::u64 begin = 0u; begin < *span; begin += semantic.window_size) {
-    const kernel::u64 end = std::min(*span, begin + semantic.window_size);
+  for (kernel::u64 begin = 0u; begin < span; begin += semantic.window_size) {
+    const kernel::u64 end = std::min(span, begin + semantic.window_size);
     for (kernel::u64 index = begin; index < end; ++index) {
       const Lane value = sample(index);
       owner->first[index] =
@@ -258,22 +262,44 @@ Status run_stencil(PrimitiveContext &context) {
 }
 
 Status run_window(PrimitiveContext &context) {
-  const auto &plan = std::get<kernel::WindowPlan>(context.primitive.plan);
+  const auto &capacity = std::get<kernel::WindowPlan>(context.primitive.plan);
   if (!context.primitive.range.has_value() || !context.primitive.range->ok()) {
     return Status::fail(Reason::CpuRuntimePlanInvalid);
   }
   const auto &range = *context.primitive.range;
   const auto path = range.candidate().disposition();
+  const bool resident =
+      capacity.count_source != kernel::ComputeCountSource::Descriptor;
+  if (resident &&
+      (context.job.cpu == nullptr || !context.job.cpu->controlled_count_valid ||
+       context.job.cpu->controlled_count > capacity.input_count)) {
+    return Status::fail(Reason::WorksetOverflow);
+  }
+  kernel::WindowPlan plan = capacity;
+  if (resident) {
+    plan.input_count = context.job.cpu->controlled_count;
+    plan.output_count = context.job.cpu->controlled_count;
+    plan.input_bytes = plan.input_count * plan.element_bytes;
+    plan.output_bytes = plan.output_count * plan.element_bytes;
+  }
+  if (plan.input_count == 0u) {
+    return Status::success();
+  }
+  const std::size_t output_port = resident ? 2u : 1u;
+  if (output_port >= context.ports.size()) {
+    return Status::fail(Reason::GraphBindingInvalid);
+  }
   CpuPrimitiveScratch &scratch = cpu_step_scratch(context.run, context.step);
   const auto execute = [&]<class Lane>(const auto reference) {
     const auto *const input =
         reinterpret_cast<const Lane *>(context.port(0u).data);
-    auto *const output = reinterpret_cast<Lane *>(context.port(1u).data);
+    auto *const output =
+        reinterpret_cast<Lane *>(context.port(output_port).data);
     if (path == node::accel::detail::RangePath::PrefixDifference) {
-      return run_prefix_window(input, output, plan, range, scratch);
+      return run_prefix_window(input, output, plan, scratch);
     }
     if (path == node::accel::detail::RangePath::BlockPrefixSuffix) {
-      return run_block_window(input, output, plan, range, scratch);
+      return run_block_window(input, output, plan, scratch);
     }
     return path == node::accel::detail::RangePath::Direct
                ? reference(input, output, plan)

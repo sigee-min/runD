@@ -58,7 +58,21 @@ enum class VulkanPipelineTelemetryKind : std::uint8_t {
   IndexedControl,
   ControlledCollective,
   GatherControl,
+  ControlledRange,
 };
+
+static_assert(static_cast<std::uint8_t>(VulkanPipelineTelemetryKind::None) ==
+              0u);
+static_assert(static_cast<std::uint8_t>(
+                  VulkanPipelineTelemetryKind::ControlledMap) == 1u);
+static_assert(static_cast<std::uint8_t>(
+                  VulkanPipelineTelemetryKind::IndexedControl) == 2u);
+static_assert(static_cast<std::uint8_t>(
+                  VulkanPipelineTelemetryKind::ControlledCollective) == 3u);
+static_assert(static_cast<std::uint8_t>(
+                  VulkanPipelineTelemetryKind::GatherControl) == 4u);
+static_assert(static_cast<std::uint8_t>(
+                  VulkanPipelineTelemetryKind::ControlledRange) == 5u);
 
 struct VulkanPipelineTelemetrySource final {
   VulkanPipelineTelemetryKind kind{VulkanPipelineTelemetryKind::None};

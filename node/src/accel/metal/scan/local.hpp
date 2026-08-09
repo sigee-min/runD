@@ -9,6 +9,7 @@
 #include "../state.hpp"
 #include "limits.hpp"
 #include "pipeline.hpp"
+
 namespace rund::node::accel::detail {
 
 [[nodiscard]] rund::AccelCheck EncodeMetalScanBuffersImpl(
@@ -16,6 +17,7 @@ namespace rund::node::accel::detail {
     const rund::kernel::ScanPlan &plan, rund::kernel::ComputeDomain domain,
     void *input_buffer, void *output_buffer, void *totals_buffer,
     void *status_buffer, void *command_encoder, bool materialize_offsets,
+    const RangePrefixExec *execution = nullptr,
     const std::shared_ptr<void> *block = nullptr,
     const std::shared_ptr<void> *prefix = nullptr,
     const std::shared_ptr<void> *offset = nullptr,

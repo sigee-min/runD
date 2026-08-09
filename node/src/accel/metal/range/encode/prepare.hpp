@@ -21,6 +21,15 @@ LoadMetalRangeState(MetalAdapter &adapter,
     SetMetalLastError(adapter, "compute_range_aggregate_invalid");
     return rund::AccelCheck{false, "compute_range_aggregate_invalid"};
   }
+  if (state.range->controlled &&
+      (state.range->control_count.device_buffer == nullptr ||
+       state.range->control_params.buffer == nullptr ||
+       state.range->control_indirect.buffer == nullptr ||
+       state.range->control_status.buffer == nullptr ||
+       state.range->control_pipeline == nullptr)) {
+    SetMetalLastError(adapter, "compute_range_aggregate_invalid");
+    return rund::AccelCheck{false, "compute_range_aggregate_invalid"};
+  }
   const std::optional<RangeExec> execution =
       RangeExec::from(state.range->range);
   if (!execution.has_value()) {

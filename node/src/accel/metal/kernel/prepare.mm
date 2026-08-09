@@ -105,8 +105,20 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
     if (raw == nullptr) {
       break;
     }
-    frozen->stages = {raw->block, raw->prefix, raw->offset};
-    frozen->count = 3u;
+    if (!raw->prefix_execution.has_value()) {
+      break;
+    }
+    const auto stage_count = static_cast<std::uint32_t>(
+        MetalScanPipelineCount(*raw->prefix_execution));
+    if (stage_count == 0u) {
+      break;
+    }
+    frozen->stages[0u] = raw->block;
+    if (ScanPrefixHasOffset(*raw->prefix_execution)) {
+      frozen->stages[1u] = raw->prefix;
+      frozen->stages[2u] = raw->offset;
+    }
+    frozen->count = stage_count;
     break;
   }
   case rund::kernel::NodeKind::SegmentedScan: {
@@ -184,12 +196,22 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
   case rund::kernel::NodeKind::Partition: {
     const auto *const raw =
         MetalPrimitiveResource<MetalPartitionEncodeResources>(resource);
-    if (raw == nullptr) {
+    if (raw == nullptr || !raw->scan_execution.has_value()) {
       break;
     }
-    frozen->stages = {raw->pipelines.classify, raw->pipelines.scatter,
-                      raw->scan_block, raw->scan_prefix, raw->scan_offset};
-    frozen->count = 5u;
+    const auto pipeline_count = static_cast<std::uint32_t>(
+        MetalPartitionPipelineCount(*raw->scan_execution));
+    if (pipeline_count == 0u) {
+      break;
+    }
+    frozen->stages[0u] = raw->pipelines.classify;
+    frozen->stages[1u] = raw->pipelines.scatter;
+    frozen->stages[2u] = raw->scan_block;
+    if (ScanPrefixHasOffset(*raw->scan_execution)) {
+      frozen->stages[3u] = raw->scan_prefix;
+      frozen->stages[4u] = raw->scan_offset;
+    }
+    frozen->count = pipeline_count;
     break;
   }
   case rund::kernel::NodeKind::Reduce: {
@@ -228,12 +250,14 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
     const auto *const raw =
         MetalPrimitiveResource<MetalRangeResources>(resource);
     if (raw == nullptr || raw->stage_count == 0u ||
-        raw->stage_count > frozen->stages.size()) {
+        raw->stage_count > frozen->stages.size() ||
+        (raw->controlled && raw->control_pipeline == nullptr)) {
       break;
     }
     for (std::size_t index = 0u; index < raw->stage_count; ++index) {
       frozen->stages[index] = raw->pipelines[index];
     }
+    frozen->control = raw->control_pipeline;
     frozen->count = raw->stage_count;
     break;
   }

@@ -287,12 +287,15 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
   switch (step.step->kind()) {
   case rund::kernel::NodeKind::Scan: {
     const auto *const active = OperationFor<operation::Scan>(step);
-    complete = active != nullptr &&
+    const RangePrefixExec prefix = active == nullptr
+                                       ? PlanRangeFlatPrefix(0u, 0u, 0u, 0u)
+                                       : PlanScanPrefixExecution(active->plan);
+    complete = active != nullptr && prefix.ok() &&
                add(AcquireVulkanScanPipeline(*adapter, active->desc,
                                              step.planned->domain,
                                              VulkanScanStage::Block),
                    kScanDescriptorCount) &&
-               (active->plan.pass_count == 1u ||
+               (!ScanPrefixHasOffset(prefix) ||
                 (add(AcquireVulkanScanPipeline(*adapter, active->desc,
                                                step.planned->domain,
                                                VulkanScanStage::Prefix),
@@ -392,7 +395,8 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
         .block_size = block::VulkanPartition,
     };
     const rund::kernel::ScanPlan scan_plan = rund::kernel::PlanScan(scan);
-    complete = active != nullptr && scan_plan.ok &&
+    const RangePrefixExec prefix = PlanScanPrefixExecution(scan_plan);
+    complete = active != nullptr && prefix.ok() &&
                add(AcquirePartitionPipeline(*adapter, active->desc,
                                             PartitionStage::Classify),
                    kPartitionClassifyDescriptorCount) &&
@@ -403,7 +407,7 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
                                              rund::kernel::ComputeDomain::U32,
                                              VulkanScanStage::Block),
                    kScanDescriptorCount) &&
-               (scan_plan.pass_count == 1u ||
+               (!ScanPrefixHasOffset(prefix) ||
                 (add(AcquireVulkanScanPipeline(*adapter, scan,
                                                rund::kernel::ComputeDomain::U32,
                                                VulkanScanStage::Prefix),
@@ -451,10 +455,16 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
     complete = execution.has_value();
     if (complete) {
       const std::uint32_t descriptor_count = execution->descriptor_count();
+      if (step.step->kind() == rund::kernel::NodeKind::Window &&
+          range->shape().resident_counted()) {
+        complete = pipelines->append_control(
+            AcquireVulkanRangeControlPipeline(*adapter, *range), 4u, 1u);
+      }
+      VulkanCollectivePipeline *const data_pipeline =
+          complete ? AcquireVulkanRangePipeline(*adapter, *execution) : nullptr;
+      complete = complete && data_pipeline != nullptr;
       for (std::size_t index = 0u; index < range->stage_count(); ++index) {
-        complete =
-            complete && add(AcquireVulkanRangePipeline(*adapter, *execution),
-                            descriptor_count);
+        complete = complete && add(data_pipeline, descriptor_count);
       }
     }
     break;
@@ -547,6 +557,13 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
     const PreparedBackendManifest &manifest, const std::uint32_t source_node,
     std::uint32_t &order) noexcept {
   if (!pipelines.ready(pipelines.kind, manifest)) {
+    return false;
+  }
+  if (pipelines.control.pipeline != nullptr &&
+      !AppendVulkanDescriptorDependency(
+          program, VulkanKernelDescriptorDependencyKind::Collective,
+          pipelines.control.pipeline, pipelines.control.descriptor_count,
+          pipelines.control.sets_per_route, source_node, order)) {
     return false;
   }
   for (std::size_t index = 0u; index < pipelines.count; ++index) {

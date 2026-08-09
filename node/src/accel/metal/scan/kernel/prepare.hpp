@@ -3,23 +3,22 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../pipeline/template.hpp"
 #include "buffers.hpp"
 #include "lifetime.hpp"
 #include "lookup.hpp"
-#include "../../pipeline/template.hpp"
 
 #include <utility>
 
 namespace rund::node::accel::detail {
 
-rund::AccelCheck PrepareMetalScan(const rund::AccelDevice &pick,
-                                  const rund::kernel::ScanDesc &desc,
-                                  const rund::kernel::ScanPlan &plan,
-                                  const rund::kernel::ComputeDomain domain,
-                                  const ScanBinds &bindings,
-                                  std::shared_ptr<void> &resources,
-                                  const MetalKernelImmutablePipelines *const
-                                      pipelines) {
+rund::AccelCheck
+PrepareMetalScan(const rund::AccelDevice &pick,
+                 const rund::kernel::ScanDesc &desc,
+                 const rund::kernel::ScanPlan &plan,
+                 const rund::kernel::ComputeDomain domain,
+                 const ScanBinds &bindings, std::shared_ptr<void> &resources,
+                 const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -40,22 +39,32 @@ rund::AccelCheck PrepareMetalScan(const rund::AccelDevice &pick,
   raw->desc = desc;
   raw->plan = plan;
   raw->domain = domain;
+  const RangePrefixExec prefix_execution = PlanScanPrefixExecution(plan);
+  if (!MetalScanPrefixMatchesPlan(plan, prefix_execution)) {
+    SetMetalLastError(*adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
+  raw->prefix_execution = prefix_execution;
   const rund::AccelCheck lookup = LookupMetalScanBuffers(pick, bindings, *raw);
   if (!lookup.ok) {
     SetMetalLastError(*adapter, lookup.reason);
     return lookup;
   }
-  const rund::AccelCheck buffers =
-      AcquireMetalScanScratch(*adapter, plan, *raw);
+  const rund::AccelCheck buffers = AcquireMetalScanScratch(*adapter, *raw);
   if (!buffers.ok) {
     return buffers;
   }
-  if (pipelines != nullptr && pipelines->ready(3u)) {
+  const auto stage_count =
+      static_cast<std::uint32_t>(MetalScanPipelineCount(prefix_execution));
+  if (pipelines != nullptr && pipelines->ready(stage_count)) {
     raw->block = pipelines->stages[0u];
-    raw->prefix = pipelines->stages[1u];
-    raw->offset = pipelines->stages[2u];
+    if (ScanPrefixHasOffset(prefix_execution)) {
+      raw->prefix = pipelines->stages[1u];
+      raw->offset = pipelines->stages[2u];
+    }
   } else if (pipelines != nullptr ||
-             !CompileMetalScanPipelines(*adapter, plan.element, raw->block,
+             !CompileMetalScanPipelines(*adapter, plan.element,
+                                        prefix_execution, raw->block,
                                         raw->prefix, raw->offset)) {
     SetMetalLastError(*adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};

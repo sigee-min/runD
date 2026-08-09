@@ -11,7 +11,9 @@ namespace rund {
     const kernel::ComputeFixedFormat fixed_format,
     const std::uint64_t input_count, const std::uint64_t output_count,
     const std::uint64_t window_size, const std::uint64_t stride,
-    const std::uint64_t pad_left) noexcept {
+    const std::uint64_t pad_left,
+    const kernel::ComputeCountSource count_source =
+        kernel::ComputeCountSource::Descriptor) noexcept {
   return AccelWindow(refs, ref_count,
                      kernel::WindowDesc{
                          .op = op,
@@ -19,6 +21,7 @@ namespace rund {
                          .boundary = boundary,
                          .domain = domain,
                          .fixed_format = fixed_format,
+                         .count_source = count_source,
                          .input_count = input_count,
                          .output_count = output_count,
                          .window_size = window_size,

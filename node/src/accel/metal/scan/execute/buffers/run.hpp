@@ -35,8 +35,8 @@ rund::AccelCheck ExecuteMetalScanBuffers(
       check = EncodeMetalScanDirectBuffers(
           adapter, desc, plan, domain, input_buffer, output_buffer, buffers,
           command, logical_count_buffer, count_words);
-      check = FinishMetalScanDirectBuffers(adapter, plan, record_dispatches,
-                                           buffers, command, check);
+      check = FinishMetalScanDirectBuffers(adapter, record_dispatches, buffers,
+                                           command, check);
     }
   }
   ReleaseMetalScanDirectBuffers(adapter, buffers);

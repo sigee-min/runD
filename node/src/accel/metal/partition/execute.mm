@@ -7,12 +7,12 @@
 
 #include "../../partition/shape.hpp"
 #include "../command/run.hpp"
+#include "../pipeline/template.hpp"
 #include "encode/scatter.hpp"
 #include "local.hpp"
 #include "pipeline/select.hpp"
 #include "pipeline/store.hpp"
 #include "resources/pipeline.hpp"
-#include "../pipeline/template.hpp"
 
 #include <utility>
 
@@ -77,13 +77,11 @@ bool CompileMetalPartitionPipelines(MetalAdapter &adapter,
 #endif
 }
 
-rund::AccelCheck PrepareMetalPartition(const rund::AccelDevice &pick,
-                                       const rund::kernel::PartitionDesc &desc,
-                                       const rund::kernel::PartitionPlan &plan,
-                                       const PartitionBinds &bindings,
-                                       std::shared_ptr<void> &resources,
-                                       const MetalKernelImmutablePipelines *const
-                                           pipelines) {
+rund::AccelCheck PrepareMetalPartition(
+    const rund::AccelDevice &pick, const rund::kernel::PartitionDesc &desc,
+    const rund::kernel::PartitionPlan &plan, const PartitionBinds &bindings,
+    std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -115,12 +113,18 @@ rund::AccelCheck PrepareMetalPartition(const rund::AccelDevice &pick,
   if (!check.ok) {
     return check;
   }
-  if (pipelines != nullptr && pipelines->ready(5u)) {
+  const auto pipeline_count = static_cast<std::uint32_t>(
+      raw->scan_execution.has_value()
+          ? MetalPartitionPipelineCount(*raw->scan_execution)
+          : 0u);
+  if (pipelines != nullptr && pipelines->ready(pipeline_count)) {
     raw->pipelines.classify = pipelines->stages[0u];
     raw->pipelines.scatter = pipelines->stages[1u];
     raw->scan_block = pipelines->stages[2u];
-    raw->scan_prefix = pipelines->stages[3u];
-    raw->scan_offset = pipelines->stages[4u];
+    if (ScanPrefixHasOffset(*raw->scan_execution)) {
+      raw->scan_prefix = pipelines->stages[3u];
+      raw->scan_offset = pipelines->stages[4u];
+    }
   } else if (pipelines != nullptr) {
     check = {false, "accel_metal_pipeline_unavailable"};
   } else {

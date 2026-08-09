@@ -55,14 +55,14 @@ PrepareVulkanWindowStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const KernelPreparationMode mode,
                         const VulkanKernelImmutablePipelines *const pipelines,
                         std::shared_ptr<void> &resources) {
-  (void)mode;
   const RangeBinds *const bindings =
       BindingsFor<RangeBinds>(step, rund::kernel::NodeKind::Window);
   const auto *active = OperationFor<operation::Window>(step);
   return bindings == nullptr || active == nullptr
              ? rund::AccelCheck{false, "accel_kernel_run_invalid"}
              : PrepareVulkanWindow(pick, active->desc, active->plan, *bindings,
-                                   active->range, resources, pipelines);
+                                   active->range, resources, pipelines,
+                                   &step.control, mode);
 }
 
 #include "numeric.hpp"

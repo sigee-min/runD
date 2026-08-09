@@ -12,8 +12,11 @@
 #include "src/accel/kernel/recurrence.hpp"
 #include "src/accel/kernel/submission.hpp"
 #include "src/accel/kernel/telemetry.hpp"
+
 #include "src/accel/metal/kernel/pipeline/icb.hpp"
 #include "src/accel/metal/kernel/pipeline/identity_index.hpp"
+#include <kernel/program/compute/partition/plan.hpp>
+#include <kernel/program/compute/scan/plan.hpp>
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 #include "src/accel/vulkan/kernel/control.hpp"
@@ -2799,7 +2802,19 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   };
 
   KernelExecutionStep step{};
-  step.operation.set<operation::Scan>();
+  auto &scan = step.operation.set<operation::Scan>();
+  scan.desc = rund::kernel::ScanDesc{
+      .op = rund::kernel::ScanOp::ExclusiveSum,
+      .element = rund::kernel::ScanElement::U32,
+      .element_count = 8u,
+      .block_size = 256u,
+  };
+  scan.plan = rund::kernel::PlanScan(scan.desc);
+  if (!verify(step, 1u, 1u, 1u, 11u, guarded_size(MetalScanSource(), 7u))) {
+    return false;
+  }
+  scan.desc.element_count = 257u;
+  scan.plan = rund::kernel::PlanScan(scan.desc);
   if (!verify(step, 1u, 1u, 3u, 11u, guarded_size(MetalScanSource(), 7u))) {
     return false;
   }
@@ -2835,7 +2850,20 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   if (!verify(step, 1u, 1u, 2u, 4u, guarded_size(MetalHistogramSource(), 2u))) {
     return false;
   }
-  step.operation.set<operation::Partition>();
+  auto &partition = step.operation.set<operation::Partition>();
+  partition.desc = rund::kernel::PartitionDesc{
+      .element_count = 8u,
+      .flag_bytes = 4u,
+      .value_bytes = 4u,
+  };
+  partition.plan = rund::kernel::PlanPartition(partition.desc);
+  if (!verify(step, 3u, 2u, 3u, 11u,
+              guarded_size(MetalPartitionSource(), 6u) +
+                  guarded_size(MetalScanSource(), 7u))) {
+    return false;
+  }
+  partition.desc.element_count = 1025u;
+  partition.plan = rund::kernel::PlanPartition(partition.desc);
   if (!verify(step, 3u, 2u, 5u, 11u,
               guarded_size(MetalPartitionSource(), 6u) +
                   guarded_size(MetalScanSource(), 7u))) {
@@ -2895,6 +2923,51 @@ static_assert(PreparedControlPhaseCodesAreChecked());
                   4u))) {
     return false;
   }
+  constexpr rund::kernel::WindowDesc window_desc{
+      .op = rund::kernel::WindowOp::Sum,
+      .element = rund::kernel::WindowElement::U32,
+      .boundary = rund::kernel::WindowBoundary::Clamp,
+      .domain = rund::kernel::ComputeDomain::U32,
+      .count_source = rund::kernel::ComputeCountSource::BufferU32,
+      .input_count = 4097u,
+      .output_count = 4097u,
+      .window_size = 8195u,
+      .stride = 1u,
+      .pad_left = 4097u,
+  };
+  constexpr rund::kernel::WindowPlan window_plan =
+      rund::kernel::PlanWindow(window_desc);
+  constexpr std::optional<RangeShape> window_shape =
+      WindowRangeShape(window_plan);
+  constexpr std::optional<RangeCaps> window_capabilities =
+      RangeCaps::gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                     std::numeric_limits<rund::kernel::u32>::max(),
+                     std::numeric_limits<rund::kernel::u64>::max(),
+                     std::numeric_limits<rund::kernel::u64>::max(),
+                     RangeSupportBit(RangeSupport::Direct) |
+                         RangeSupportBit(RangeSupport::PrefixDifference));
+  constexpr RangePlan window_range =
+      window_shape.has_value() && window_capabilities.has_value()
+          ? PlanRange(*window_shape, *window_capabilities)
+          : RangePlan::rejected(
+                "compute_range_aggregate_candidate_unavailable");
+  static_assert(window_plan.ok && window_range.ok() &&
+                window_range.candidate().disposition() ==
+                    RangePath::PrefixDifference);
+  auto &window = step.operation.set<operation::Window>(window_desc, window_plan,
+                                                       window_range);
+  step.control = rund::kernel::GraphControl{
+      .count_source = rund::kernel::GraphControlSource::U32,
+      .count_binding = 1u,
+      .capacity = window_plan.input_count,
+  };
+  const RangeExec window_execution = *RangeExec::from(window.range);
+  if (!verify(step, 2u, 2u, window.range.stage_count() + 1u, 5u,
+              guarded_size(MetalRangeSource(window_execution), 4u) +
+                  guarded_size(MetalRangeControlSource(window.range), 1u))) {
+    return false;
+  }
+  step.control = {};
   const std::uint64_t numeric_source_bytes =
       guarded_size(MetalNumericSource(), 10u);
   step.operation.set<operation::Transform>();

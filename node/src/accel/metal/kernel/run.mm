@@ -17,6 +17,7 @@
 #include "../range/local.hpp"
 #include "../reduce/local.hpp"
 #include "../runtime/map/source_upper.hpp"
+#include "../scan/local.hpp"
 #include "../scan/source.hpp"
 #include "../scatter/local.hpp"
 #include "../scatter/reduce/model.hpp"
@@ -96,7 +97,7 @@ AddAlignedMetalParameterBytes(std::uint64_t &target,
     out = 4u;
     break;
   case rund::kernel::NodeKind::Partition:
-    // Partition embeds that same full Scan producer before scatter.
+    // Partition's embedded Scan block stage authors bindings 0...10.
     out = 11u;
     break;
   case rund::kernel::NodeKind::Reduce:
@@ -109,9 +110,14 @@ AddAlignedMetalParameterBytes(std::uint64_t &target,
     out = 8u;
     break;
   case rund::kernel::NodeKind::Stencil:
-  case rund::kernel::NodeKind::Window:
-    out = RangeDescriptorCount(*RangePlanFor(step.operation));
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan &range = *RangePlanFor(step.operation);
+    out = RangeDescriptorCount(range);
+    if (range.shape().resident_counted()) {
+      out = std::max(out, std::uint64_t{4u});
+    }
     break;
+  }
   case rund::kernel::NodeKind::Transform:
     out = 6u;
     break;
@@ -225,8 +231,15 @@ PlanMetalStepControlShape(const KernelExecutionStep &step,
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
   case rund::kernel::NodeKind::Stencil:
-  case rund::kernel::NodeKind::Window:
     break;
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan *const range = RangePlanFor(step.operation);
+    const bool resident =
+        range != nullptr && range->ok() && range->shape().resident_counted();
+    valid = !resident || (active_control && status(1u, 1u, 0u));
+    result.telemetry_source_count = resident ? 1u : 0u;
+    break;
+  }
   case rund::kernel::NodeKind::Factor:
     valid = status(
         1u, step.operation.get<operation::Factor>().plan.status_count, 1u);
@@ -334,11 +347,15 @@ AddMetalPipelineSourceRecipe(PreparedBackendManifest &manifest,
                 });
 }
 
-[[nodiscard]] MetalPipelineSourceRecipe
-MetalScanPipelineSourceRecipe() noexcept {
+[[nodiscard]] MetalPipelineSourceRecipe MetalScanPipelineSourceRecipe(
+    const std::uint64_t pipeline_count = 3u) noexcept {
+  if (pipeline_count != 1u && pipeline_count != 3u) {
+    return {};
+  }
   std::uint64_t raw_upper = 0u;
   return MetalScanSourceUpperBytes(raw_upper)
-             ? MetalSourceRecipe(0x6d6574616c736361ull, raw_upper, 7u, 3u)
+             ? MetalSourceRecipe(0x6d6574616c736361ull, raw_upper, 7u,
+                                 pipeline_count)
              : MetalPipelineSourceRecipe{};
 }
 
@@ -428,6 +445,15 @@ MetalRangeSourceRecipe(const RangePlan &range) noexcept {
                  MetalRangeSourceUpperBytes(*execution, raw_upper)
              ? MetalSourceRecipe(0x6d6574616c726e67ull, raw_upper, 4u,
                                  range.stage_count())
+             : MetalPipelineSourceRecipe{};
+}
+
+[[nodiscard]] MetalPipelineSourceRecipe
+MetalRangeControlSourceRecipe(const RangePlan &range) noexcept {
+  std::uint64_t raw_upper = 0u;
+  return range.ok() && range.shape().resident_counted() &&
+                 MetalRangeControlSourceUpperBytes(range, raw_upper)
+             ? MetalSourceRecipe(0x6d6574616c726374ull, raw_upper, 1u, 1u)
              : MetalPipelineSourceRecipe{};
 }
 
@@ -690,13 +716,21 @@ PreparedBackendManifest BuildMetalBackendManifest(
     }
     break;
   }
-  case rund::kernel::NodeKind::Scan:
-    dimensions(1u, 3u, 1u);
-    if (!AddMetalPipelineSourceRecipe(manifest,
-                                      MetalScanPipelineSourceRecipe())) {
+  case rund::kernel::NodeKind::Scan: {
+    const RangePrefixExec prefix_execution =
+        PlanScanPrefixExecution(step.operation.get<operation::Scan>().plan);
+    const std::uint64_t pipeline_count =
+        MetalScanPipelineCount(prefix_execution);
+    if (pipeline_count == 0u) {
+      return manifest;
+    }
+    dimensions(1u, pipeline_count, 1u);
+    if (!AddMetalPipelineSourceRecipe(
+            manifest, MetalScanPipelineSourceRecipe(pipeline_count))) {
       return manifest;
     }
     break;
+  }
   case rund::kernel::NodeKind::SegmentedScan:
     dimensions(1u, 3u, 1u);
     if (!AddMetalPipelineSourceRecipe(
@@ -743,15 +777,25 @@ PreparedBackendManifest BuildMetalBackendManifest(
       return manifest;
     }
     break;
-  case rund::kernel::NodeKind::Partition:
-    dimensions(3u, 5u, 2u);
+  case rund::kernel::NodeKind::Partition: {
+    const RangePrefixExec scan_execution = MetalPartitionScanExecution(
+        step.operation.get<operation::Partition>().plan);
+    const std::uint64_t scan_pipeline_count =
+        MetalScanPipelineCount(scan_execution);
+    const std::uint64_t pipeline_count =
+        MetalPartitionPipelineCount(scan_execution);
+    if (pipeline_count == 0u) {
+      return manifest;
+    }
+    dimensions(3u, pipeline_count, 2u);
     if (!AddMetalPipelineSourceRecipe(manifest,
                                       MetalPartitionPipelineSourceRecipe()) ||
-        !AddMetalPipelineSourceRecipe(manifest,
-                                      MetalScanPipelineSourceRecipe())) {
+        !AddMetalPipelineSourceRecipe(
+            manifest, MetalScanPipelineSourceRecipe(scan_pipeline_count))) {
       return manifest;
     }
     break;
+  }
   case rund::kernel::NodeKind::Reduce:
     dimensions(1u, 1u, 1u);
     if (!AddMetalPipelineSourceRecipe(
@@ -771,9 +815,13 @@ PreparedBackendManifest BuildMetalBackendManifest(
   case rund::kernel::NodeKind::Stencil:
   case rund::kernel::NodeKind::Window: {
     const RangePlan &range = *RangePlanFor(step.operation);
-    dimensions(1u, range.stage_count(), 1u);
+    const bool resident = range.shape().resident_counted();
+    dimensions(resident ? 2u : 1u, range.stage_count() + (resident ? 1u : 0u),
+               resident ? 2u : 1u);
     if (!AddMetalPipelineSourceRecipe(manifest,
-                                      MetalRangeSourceRecipe(range))) {
+                                      MetalRangeSourceRecipe(range)) ||
+        (resident && !AddMetalPipelineSourceRecipe(
+                         manifest, MetalRangeControlSourceRecipe(range)))) {
       return manifest;
     }
     break;

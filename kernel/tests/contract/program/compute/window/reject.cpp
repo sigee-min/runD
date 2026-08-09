@@ -23,6 +23,10 @@ int WindowReject() {
   TEST_ASSERT(ExpectReason(desc, "compute_window_boundary_unsupported") == 0);
 
   desc = U32Window();
+  desc.count_source = static_cast<rund::kernel::ComputeCountSource>(0xffu);
+  TEST_ASSERT(ExpectReason(desc, "compute_window_count_source_invalid") == 0);
+
+  desc = U32Window();
   desc.element = static_cast<rund::kernel::WindowElement>(0u);
   TEST_ASSERT(ExpectReason(desc, "compute_window_element_unsupported") == 0);
 
@@ -63,6 +67,24 @@ int WindowReject() {
   desc = U32Window();
   desc.output_count = 0u;
   TEST_ASSERT(ExpectReason(desc, "compute_window_count_invalid") == 0);
+
+  desc = U32Window();
+  desc.count_source = rund::kernel::ComputeCountSource::BufferU32;
+  TEST_ASSERT(ExpectReason(desc, "compute_window_shape_invalid") == 0);
+
+  desc = U32Window();
+  desc.count_source = rund::kernel::ComputeCountSource::BufferU32;
+  desc.output_count = desc.input_count;
+  desc.stride = 1u;
+  desc.window_size = 4u;
+  desc.pad_left = 1u;
+  TEST_ASSERT(ExpectReason(desc, "compute_window_shape_invalid") == 0);
+
+  desc = U32Window();
+  desc.count_source = rund::kernel::ComputeCountSource::BufferU32;
+  desc.input_count = 0u;
+  desc.output_count = 0u;
+  TEST_ASSERT(ExpectReason(desc, "compute_window_shape_invalid") == 0);
 
   desc = U32Window();
   desc.input_count = 0u;

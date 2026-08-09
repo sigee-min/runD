@@ -9,26 +9,29 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 [[nodiscard]] inline bool
 BindMetalScanPlanShape(const rund::kernel::ScanPlan &plan,
+                       const RangePrefixExec &prefix_execution,
                        MetalScanEncodeState &state) {
-  const RangePrefixExec prefix = PlanScanPrefixExecution(plan);
-  if (!prefix.ok()) {
+  if (!MetalScanPrefixMatchesPlan(plan, prefix_execution)) {
     return false;
   }
-  state.element_count = plan.element_count;
+  state.prefix_execution = prefix_execution;
+  state.element_count = prefix_execution.stage(0u).element_count;
   state.block_size = plan.block_size;
-  state.block_count = plan.block_count;
-  state.block_threads = static_cast<NSUInteger>(prefix.width());
-  state.prefix_threads = static_cast<NSUInteger>(prefix.width());
+  state.block_count = MetalScanStageGroups(prefix_execution, 0u);
+  state.block_threads = static_cast<NSUInteger>(prefix_execution.width());
+  state.prefix_threads = static_cast<NSUInteger>(prefix_execution.width());
   return true;
 }
 
 [[nodiscard]] inline rund::AccelCheck
 CheckMetalScanThreadShape(MetalAdapter &adapter,
-                          const rund::kernel::ScanPlan &plan,
                           const MetalScanEncodeState &state) {
-  if (state.block_size > kMetalScanMaxBlockSize || state.block_threads == 0u ||
+  if (!state.prefix_execution.has_value() ||
+      MetalScanPipelineCount(*state.prefix_execution) == 0u ||
+      state.block_count == 0u || state.block_size > kMetalScanMaxBlockSize ||
+      state.block_threads == 0u ||
       state.block_threads > [state.block maxTotalThreadsPerThreadgroup] ||
-      (plan.pass_count == 2u &&
+      (ScanPrefixHasOffset(*state.prefix_execution) &&
        (state.block_threads > [state.offset maxTotalThreadsPerThreadgroup] ||
         state.prefix_threads > [state.prefix maxTotalThreadsPerThreadgroup]))) {
     SetMetalLastError(adapter, "compute_scan_invalid");

@@ -29,6 +29,7 @@ struct WindowDesc final {
   WindowBoundary boundary = WindowBoundary::Clamp;
   ComputeDomain domain = ComputeDomain::U32;
   ComputeFixedFormat fixed_format{};
+  ComputeCountSource count_source = ComputeCountSource::Descriptor;
   u64 input_count = 0u;
   u64 output_count = 0u;
   u64 window_size = 1u;
@@ -42,6 +43,7 @@ struct WindowPlan final {
   WindowBoundary boundary = WindowBoundary::Clamp;
   ComputeDomain domain = ComputeDomain::U32;
   ComputeFixedFormat fixed_format{};
+  ComputeCountSource count_source = ComputeCountSource::Descriptor;
   u64 input_count = 0u;
   u64 output_count = 0u;
   u64 window_size = 0u;

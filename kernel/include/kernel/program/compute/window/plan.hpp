@@ -15,6 +15,13 @@ KnownBoundary(const WindowBoundary boundary) noexcept {
   return boundary == WindowBoundary::Clamp || boundary == WindowBoundary::Clip;
 }
 
+[[nodiscard]] constexpr bool
+KnownCountSource(const ComputeCountSource source) noexcept {
+  return source == ComputeCountSource::Descriptor ||
+         source == ComputeCountSource::BufferU32 ||
+         source == ComputeCountSource::BufferU64;
+}
+
 [[nodiscard]] constexpr u64 ElementBytes(const WindowElement element) noexcept {
   return element == WindowElement::U32
              ? 4u
@@ -45,6 +52,7 @@ KnownBoundary(const WindowBoundary boundary) noexcept {
       .boundary = desc.boundary,
       .domain = desc.domain,
       .fixed_format = desc.fixed_format,
+      .count_source = desc.count_source,
       .input_count = desc.input_count,
       .output_count = desc.output_count,
       .window_size = desc.window_size,
@@ -77,6 +85,10 @@ LastWindowIntersects(const WindowDesc &desc) noexcept {
   if (!window_plan_detail::KnownBoundary(desc.boundary)) {
     return window_plan_detail::Reject(desc, 0u,
                                       "compute_window_boundary_unsupported");
+  }
+  if (!window_plan_detail::KnownCountSource(desc.count_source)) {
+    return window_plan_detail::Reject(desc, 0u,
+                                      "compute_window_count_source_invalid");
   }
   const u64 element_bytes = window_plan_detail::ElementBytes(desc.element);
   if (element_bytes == 0u) {
@@ -111,6 +123,14 @@ LastWindowIntersects(const WindowDesc &desc) noexcept {
                                       "compute_window_padding_invalid");
   }
 
+  if (desc.count_source != ComputeCountSource::Descriptor &&
+      (desc.input_count == 0u || desc.input_count != desc.output_count ||
+       desc.stride != 1u ||
+       desc.window_size - desc.pad_left - 1u != desc.pad_left)) {
+    return window_plan_detail::Reject(desc, element_bytes,
+                                      "compute_window_shape_invalid");
+  }
+
   if (desc.input_count == 0u || desc.output_count == 0u) {
     if (desc.input_count != 0u || desc.output_count != 0u) {
       return window_plan_detail::Reject(desc, element_bytes,
@@ -126,6 +146,7 @@ LastWindowIntersects(const WindowDesc &desc) noexcept {
         .boundary = desc.boundary,
         .domain = desc.domain,
         .fixed_format = desc.fixed_format,
+        .count_source = desc.count_source,
         .input_count = 0u,
         .output_count = 0u,
         .window_size = desc.window_size,
@@ -154,6 +175,7 @@ LastWindowIntersects(const WindowDesc &desc) noexcept {
       .boundary = desc.boundary,
       .domain = desc.domain,
       .fixed_format = desc.fixed_format,
+      .count_source = desc.count_source,
       .input_count = desc.input_count,
       .output_count = desc.output_count,
       .window_size = desc.window_size,
@@ -176,6 +198,7 @@ WindowPlanMatchesDesc(const WindowDesc &desc, const WindowPlan &plan) noexcept {
          plan.element == expected.element &&
          plan.boundary == expected.boundary && plan.domain == expected.domain &&
          plan.fixed_format == expected.fixed_format &&
+         plan.count_source == expected.count_source &&
          plan.input_count == expected.input_count &&
          plan.output_count == expected.output_count &&
          plan.window_size == expected.window_size &&

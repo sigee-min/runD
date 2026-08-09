@@ -42,10 +42,14 @@ namespace rund::node::accel::detail {
   if (!pipeline_private) {
     std::memset([state.status contents], 0, sizeof(rund::kernel::u32));
   }
-  if (block == nullptr || prefix == nullptr || offset == nullptr) {
+  const RangePrefixExec prefix_execution = PlanScanPrefixExecution(plan);
+  if (!MetalScanPrefixMatchesPlan(plan, prefix_execution) || block == nullptr ||
+      (ScanPrefixHasOffset(prefix_execution) &&
+       (prefix == nullptr || offset == nullptr))) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
+  state.prefix_execution = prefix_execution;
   state.block_handle = block;
   state.prefix_handle = prefix;
   state.offset_handle = offset;
@@ -61,24 +65,20 @@ namespace rund::node::accel::detail {
   state.output_offset = static_cast<NSUInteger>(output_offset);
   state.totals_offset = static_cast<NSUInteger>(totals_offset);
   state.totals = (__bridge id<MTLBuffer>)totals_buffer;
-  state.element_count = plan.element_count;
+  state.element_count = prefix_execution.stage(0u).element_count;
   state.block_size = plan.block_size;
-  state.block_count = plan.block_count;
-  const RangePrefixExec prefix_execution = PlanScanPrefixExecution(plan);
-  if (!prefix_execution.ok()) {
-    SetMetalLastError(adapter, "compute_scan_invalid");
-    return rund::AccelCheck{false, "compute_scan_invalid"};
-  }
+  state.block_count = MetalScanStageGroups(prefix_execution, 0u);
   state.block_threads = static_cast<NSUInteger>(prefix_execution.width());
   state.prefix_threads = static_cast<NSUInteger>(prefix_execution.width());
-  if (state.block == nil || state.prefix == nil || state.offset == nil ||
-      state.encoder == nil) {
+  if (state.block == nil || state.encoder == nil ||
+      (ScanPrefixHasOffset(prefix_execution) &&
+       (state.prefix == nil || state.offset == nil))) {
     SetMetalLastError(adapter, "accel_metal_command_unavailable");
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
   if (state.block_size > kMetalScanMaxBlockSize || state.block_threads == 0u ||
       state.block_threads > [state.block maxTotalThreadsPerThreadgroup] ||
-      (plan.pass_count == 2u &&
+      (ScanPrefixHasOffset(prefix_execution) &&
        (state.block_threads > [state.offset maxTotalThreadsPerThreadgroup] ||
         state.prefix_threads > [state.prefix maxTotalThreadsPerThreadgroup]))) {
     SetMetalLastError(adapter, "compute_scan_invalid");

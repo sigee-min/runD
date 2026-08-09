@@ -31,7 +31,8 @@ struct Fixture {
 };
 
 void Bind(Fixture &fixture) noexcept;
-[[nodiscard]] Fixture Make(const rund::AccelDevice &pick);
+[[nodiscard]] Fixture Make(const rund::AccelDevice &pick,
+                           rund::kernel::u64 element_count = 8u);
 [[nodiscard]] bool CompileReason(const rund::AccelContext &context,
                                  const rund::AccelGraph &graph,
                                  std::string_view reason);

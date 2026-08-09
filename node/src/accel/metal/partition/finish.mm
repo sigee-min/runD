@@ -1,6 +1,5 @@
 #include <accel/check.hpp>
 
-#include "../../scan/count.hpp"
 #include "local.hpp"
 
 namespace rund::node::accel::detail {
@@ -10,7 +9,8 @@ rund::AccelCheck FinishMetalPartition(MetalAdapter &adapter,
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   auto *const partition =
       static_cast<MetalPartitionEncodeResources *>(resources.get());
-  if (partition == nullptr || partition->adapter != &adapter) {
+  if (partition == nullptr || partition->adapter != &adapter ||
+      !partition->scan_execution.has_value()) {
     SetMetalLastError(adapter, "compute_partition_invalid");
     return rund::AccelCheck{false, "compute_partition_invalid"};
   }
@@ -19,7 +19,7 @@ rund::AccelCheck FinishMetalPartition(MetalAdapter &adapter,
     return rund::AccelCheck{false, "compute_scan_sum_overflow"};
   }
   const rund::kernel::u64 dispatch_count =
-      2u + EncodedScanDispatchCount(partition->scan_plan);
+      MetalPartitionPipelineCount(*partition->scan_execution);
   RecordMetalDispatches(adapter, dispatch_count);
   SetMetalLastError(adapter, "ok");
   return rund::AccelCheck{true, "ok"};

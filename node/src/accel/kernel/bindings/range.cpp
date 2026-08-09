@@ -6,15 +6,22 @@ namespace rund::node::accel::detail {
 
 bool BuildRangeBinds(const KernelExecutionStep &step, const RunBinds &run_binds,
                      RangeBinds &out) {
+  const bool bounded =
+      step.kind() == rund::kernel::NodeKind::Window &&
+      step.operation.get<operation::Window>().plan.count_source !=
+          rund::kernel::ComputeCountSource::Descriptor;
   if (!step.graph_binding_indices_ok ||
-      step.graph_binding_indices.size() != 2u) {
+      step.graph_binding_indices.size() != (bounded ? 3u : 2u)) {
     return false;
   }
 
   const BindingSource source = BindingSourceFor(run_binds);
   if (!ReadBinding(source, step.graph_binding_indices[0u], out.input,
-                   out.input_handle) ||
-      !ReadBinding(source, step.graph_binding_indices[1u], out.output,
+                   out.input_handle)) {
+    return false;
+  }
+  const std::size_t output = bounded ? 2u : 1u;
+  if (!ReadBinding(source, step.graph_binding_indices[output], out.output,
                    out.output_handle)) {
     return false;
   }

@@ -83,7 +83,7 @@ is `/node/tests/contract/accel` and the registered cases under
 - Gather, Histogram, Partition, Scatter, and Segmented Scan each own one
   backend-neutral host parameter model under their domain directory. Stencil
   and Window instead consume the single primitive-neutral `RangeParams` model
-  under RangeAggregate. Metal and Vulkan local headers include the owning model
+  under Range. Metal and Vulkan local headers include the owning model
   directly and contain no declaration, alias, or re-export of the parameter
   type. Their shader-language declarations remain backend artifacts, but the
   source contract checks every field name, order, and width against the C++

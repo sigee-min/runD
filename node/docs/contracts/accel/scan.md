@@ -75,11 +75,12 @@ workgroup count is `G = B` and command chunk count is
 `ceil(G / maxComputeWorkGroupCount[0])`, without truncation, retry, or a second
 execution path.
 
-Generic and segmented scan, and radix sort, obtain this chunk count from the
-single internal Vulkan collective authority in `collective/chunk.hpp`. For a
-nonzero workgroup count `G` and device limit `L`, its integer form
-`1 + (G - 1) / L` avoids addition overflow and rejects any derived
-physical-dispatch count that would overflow 64-bit telemetry.
+Generic Scan projects its frozen `RangePrefixExec` stages through
+`ScanPrefixDispatches`; segmented scan and radix sort project their collective
+stages through `collective/chunk.hpp`. Both owners use the same overflow-safe
+integer law `1 + (G - 1) / L` for a nonzero workgroup count `G` and device
+limit `L`, and both reject a derived physical-command count that would overflow
+64-bit telemetry.
 
 Let `b(i)` be the logical block containing `i`, `L(i)` the modulo-width local
 prefix, and `T(k)` the modulo-width total of block `k`. The final value is
@@ -134,7 +135,15 @@ by both Metal and Vulkan preparation. The Pipeline scratch planner and direct
 backend scratch allocation consume that same derived block-total byte count;
 they retain their own physical arena and buffer ownership. Kernel remains the
 owner of Scan's visible-prefix, inclusive/exclusive, and overflow semantics;
-RangeAggregate does not select a window algorithm for Scan.
+Range does not select a window algorithm for Scan.
+
+Metal also uses that frozen stage graph as the executable-tuple and prepared
+cache-reservation authority. A one-stage graph freezes, compiles, publishes,
+and dispatches only the `block` PSO. A three-stage graph freezes exactly the
+`block`, `prefix`, and `offset` PSOs in that order. The source library remains
+shared because the exact source text is unchanged; the manifest's pipeline
+stage count and native-object reservation follow the selected tuple rather
+than the portable Kernel pass encoding.
 
 The 32-bit block and block-total prefix use a two-bank Kogge-Stone tree. For a
 product power-of-two width `W`, it has fixed depth `log2(W)`, exactly
@@ -203,8 +212,8 @@ consumer so public prefixes remain inside one execution boundary.
 ## Segmented carry hierarchy
 
 Segmented scan uses the same canonical transition law with reset points. CPU
-evaluates the segment directly. Metal and Vulkan keep three deterministic
-stages without a second result authority:
+evaluates the segment directly. Metal and Vulkan use one three-stage
+deterministic result authority:
 
 1. `block` emits modulo-width local prefixes and checks only subsegments that
    begin at a head inside the block;
@@ -232,9 +241,10 @@ physical scratch and dispatch count are runtime evidence, not graph identity.
 The adapter freezes `L = maxComputeWorkGroupCount[0]` without clamping. Device
 admission rejects an impossible zero limit. Generic and segmented block and
 offset stages use `G = B` workgroups and `C = ceil(G / L)` command chunks with
-a frozen base-block push constant. The physical dispatch count is `C` for one
-pass and `2C + 1` for three stages. Vulkan runtime telemetry records that
-physical count rather than the device-neutral kernel stage count.
+a frozen base-block push constant. `ScanPrefixDispatches` makes Generic Scan's
+physical count exactly `C` for one stage and `2C + 1` for three stages. Vulkan
+runtime telemetry records that physical count; the device-neutral kernel stage
+count remains portable planning evidence.
 
 ## Authority and verification
 
@@ -245,8 +255,15 @@ physical count rather than the device-neutral kernel stage count.
 - `/node/tests/contract/compute/collective/modes.cpp`
 - `/node/tests/contract/compute/bounded.cpp`
 
-`accel.kernel-core` verifies exact direct output and the three-stage Vulkan
-pipeline-cache shape. `compute.collective-modes` verifies inclusive/exclusive
+`accel.kernel-core` verifies exact direct output and the Vulkan executable
+tuple on an actual selected adapter. It first executes a one-block graph and
+requires exactly one compiled PSO and one dispatch, then reuses that block PSO
+in a three-stage graph while compiling exactly prefix and offset. It also
+executes the first physical chunk boundary with block size one when the
+adapter's `L+1` payload fits both its storage-binding limit and the contract's
+bounded `2^20`-element host fixture. Otherwise the test reports the exact
+device limit and unmet bound and does not classify that route as chunk
+execution evidence. `compute.collective-modes` verifies inclusive/exclusive
 output and overflow reasons over all six stored domains on CPU, Metal, and
 Vulkan. `compute.bounded-parity` verifies resident logical counts, stable
 filter-to-scan composition, reuse, and cross-backend hashes. Performance claims

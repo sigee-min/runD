@@ -36,6 +36,8 @@
 #include "../../primitive/block.hpp"
 #include "../../sort/block/vulkan.hpp"
 
+#include <kernel/program/compute/scan/plan.hpp>
+
 #include <limits>
 
 namespace rund::node::accel::detail {
@@ -411,16 +413,16 @@ PlanVulkanStepStructure(const KernelExecutionStep &step,
           : sizeof(VulkanKernelImmutablePipelines);
   std::uint64_t cache_owner_host_bytes = 0u;
   if (step.kind() == rund::kernel::NodeKind::Map) {
-    if (manifest.source_library_dependency_count == 0u ||
+    if (manifest.native_pipeline_dependency_count == 0u ||
         !AddVulkanHostBytes(cache_owner_host_bytes,
-                            manifest.source_library_dependency_count - 1u,
+                            manifest.native_pipeline_dependency_count - 1u,
                             sizeof(VulkanCollectivePipeline)) ||
         !backend_template_plan::add(cache_owner_host_bytes,
                                     sizeof(VulkanCachedPipeline))) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   } else if (!AddVulkanHostBytes(cache_owner_host_bytes,
-                                 manifest.source_library_dependency_count,
+                                 manifest.native_pipeline_dependency_count,
                                  sizeof(VulkanCollectivePipeline))) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
@@ -460,7 +462,7 @@ PlanVulkanStepStructure(const KernelExecutionStep &step,
                                     sizeof(VulkanKernelDescriptorDependency)) &&
                  AddVulkanHostBytes(
                      reservation.template_host_bytes,
-                     manifest.descriptor_dependency_count -
+                     manifest.native_pipeline_dependency_count -
                          static_cast<std::uint64_t>(
                              step.kind() == rund::kernel::NodeKind::Map),
                      sizeof(VkDescriptorPool)) &&
@@ -645,8 +647,8 @@ VulkanBackendShape(const std::uint64_t alignment,
     break;
   case rund::kernel::NodeKind::Scan: {
     const auto &active = step.operation.get<operation::Scan>().plan;
-    direct = ScanDispatches(active.pass_count, active.block_count,
-                            max_dispatch_groups);
+    direct = ScanPrefixDispatches(PlanScanPrefixExecution(active),
+                                  max_dispatch_groups);
     break;
   }
   case rund::kernel::NodeKind::SegmentedScan: {
@@ -682,12 +684,15 @@ VulkanBackendShape(const std::uint64_t alignment,
     break;
   case rund::kernel::NodeKind::Partition: {
     const auto &active = step.operation.get<operation::Partition>().plan;
-    const std::uint64_t blocks =
-        CeilGroups(active.element_count, block::VulkanPartition);
-    const std::uint64_t passes =
-        active.element_count > block::VulkanPartition ? 2u : 1u;
-    const std::uint64_t scan =
-        ScanDispatches(passes, blocks, max_dispatch_groups);
+    const rund::kernel::ScanPlan scan_plan =
+        rund::kernel::PlanScan(rund::kernel::ScanDesc{
+            .op = rund::kernel::ScanOp::ExclusiveSum,
+            .element = rund::kernel::ScanElement::U32,
+            .element_count = active.element_count,
+            .block_size = block::VulkanPartition,
+        });
+    const std::uint64_t scan = ScanPrefixDispatches(
+        PlanScanPrefixExecution(scan_plan), max_dispatch_groups);
     if (scan == 0u || !add(scan, 2u, direct)) {
       return false;
     }
@@ -697,6 +702,19 @@ VulkanBackendShape(const std::uint64_t alignment,
     direct = 1u;
     indirect = 2u;
     break;
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan *const range = RangePlanFor(step.operation);
+    if (range == nullptr || !range->ok()) {
+      return false;
+    }
+    if (range->shape().resident_counted()) {
+      direct = 1u;
+      indirect = range->stage_count();
+    } else {
+      direct = plan.dispatch_count;
+    }
+    break;
+  }
   default:
     direct = plan.dispatch_count;
     break;
@@ -712,10 +730,17 @@ VulkanBackendShape(const std::uint64_t alignment,
     manifest.telemetry_source_count = controlled ? 1u : 0u;
     break;
   case rund::kernel::NodeKind::Stencil:
-  case rund::kernel::NodeKind::Window:
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
     break;
+  case rund::kernel::NodeKind::Window: {
+    const RangePlan *const range = RangePlanFor(step.operation);
+    if (range != nullptr && range->ok() && range->shape().resident_counted()) {
+      manifest.status_source_count = 1u;
+      manifest.telemetry_source_count = 1u;
+    }
+    break;
+  }
   default:
     manifest.status_source_count = 1u;
     break;
@@ -867,7 +892,11 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
   }
   case rund::kernel::NodeKind::Scan: {
     const auto &active = step.operation.get<operation::Scan>();
-    const std::uint64_t stages = scan_stages(active.plan.pass_count);
+    const RangePrefixExec prefix = PlanScanPrefixExecution(active.plan);
+    if (!prefix.ok()) {
+      return manifest;
+    }
+    const std::uint64_t stages = prefix.stage_count();
     manifest = PreparedBackendManifest{
         .source_build_count = stages,
         .source_library_dependency_count = stages,
@@ -1068,8 +1097,18 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
   }
   case rund::kernel::NodeKind::Partition: {
     const auto &active = step.operation.get<operation::Partition>();
-    const std::uint64_t scan = scan_stages(
-        active.plan.element_count > block::VulkanPartition ? 2u : 1u);
+    const rund::kernel::ScanPlan scan_plan =
+        rund::kernel::PlanScan(rund::kernel::ScanDesc{
+            .op = rund::kernel::ScanOp::ExclusiveSum,
+            .element = rund::kernel::ScanElement::U32,
+            .element_count = active.plan.element_count,
+            .block_size = block::VulkanPartition,
+        });
+    const RangePrefixExec prefix = PlanScanPrefixExecution(scan_plan);
+    if (!prefix.ok()) {
+      return manifest;
+    }
+    const std::uint64_t scan = prefix.stage_count();
     manifest.source_build_count = 2u + scan;
     manifest.source_library_dependency_count = 2u + scan;
     manifest.pipeline_stage_count = 2u + scan;
@@ -1197,30 +1236,52 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
       return manifest;
     }
     const std::uint64_t stage_count = range.stage_count();
+    const bool controlled = step.kind() == rund::kernel::NodeKind::Window &&
+                            range.shape().resident_counted();
     const std::uint32_t descriptor_count = execution->descriptor_count();
     std::uint64_t descriptor_bindings = 0u;
+    std::uint64_t pipeline_stages = 0u;
+    std::uint64_t descriptor_sets = 0u;
     if (!range.ok() || stage_count == 0u ||
         !rund::kernel::checked::mul(stage_count, descriptor_count,
-                                    descriptor_bindings)) {
+                                    descriptor_bindings) ||
+        !rund::kernel::checked::add(stage_count, controlled ? 1u : 0u,
+                                    pipeline_stages) ||
+        !rund::kernel::checked::add(stage_count, controlled ? 1u : 0u,
+                                    descriptor_sets) ||
+        (controlled && !rund::kernel::checked::add(descriptor_bindings, 4u,
+                                                   descriptor_bindings))) {
       return manifest;
     }
-    manifest =
-        PreparedBackendManifest{.source_build_count = 1u,
-                                .source_library_dependency_count = 1u,
-                                .pipeline_stage_count = stage_count,
-                                .descriptor_set_count = stage_count,
-                                .descriptor_binding_count = descriptor_bindings,
-                                .descriptor_lease_count = stage_count,
-                                .descriptor_dependency_count = stage_count};
+    manifest = PreparedBackendManifest{
+        .source_build_count = controlled ? 2u : 1u,
+        .source_library_dependency_count = controlled ? 2u : 1u,
+        .pipeline_stage_count = pipeline_stages,
+        .descriptor_set_count = descriptor_sets,
+        .descriptor_binding_count = descriptor_bindings,
+        .descriptor_lease_count = descriptor_sets,
+        .descriptor_dependency_count = pipeline_stages};
     std::uint64_t source_bytes = 0u;
     if (!VulkanRangeSourceBytes(*execution, source_bytes) ||
         !AddPreparedBackendCacheDependency(
             manifest, PreparedBackendCacheDependency{
                           .source_recipe = 0x76756c6b2e726e67ull,
                           .source_upper_bytes = source_bytes,
-                          .pipeline_stage_count = stage_count,
+                          .pipeline_stage_count = 1u,
                       })) {
       return manifest;
+    }
+    if (controlled) {
+      std::uint64_t control_source_bytes = 0u;
+      if (!VulkanRangeControlSourceBytes(range, control_source_bytes) ||
+          !AddPreparedBackendCacheDependency(
+              manifest, PreparedBackendCacheDependency{
+                            .source_recipe = 0x76756c6b2e726374ull,
+                            .source_upper_bytes = control_source_bytes,
+                            .pipeline_stage_count = 1u,
+                        })) {
+        return manifest;
+      }
     }
     break;
   }

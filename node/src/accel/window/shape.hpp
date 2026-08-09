@@ -41,10 +41,17 @@ WindowRangeShape(const rund::kernel::WindowPlan &semantic) noexcept {
       semantic.boundary == rund::kernel::WindowBoundary::Clamp
           ? RangeBoundary::Clamp
           : RangeBoundary::Clip;
+  const RangeCount count =
+      semantic.count_source == rund::kernel::ComputeCountSource::BufferU32
+          ? RangeCount::U32
+          : (semantic.count_source ==
+                     rund::kernel::ComputeCountSource::BufferU64
+                 ? RangeCount::U64
+                 : RangeCount::Descriptor);
   return RangeShape::affine(
       *traits, boundary, semantic.input_count, semantic.output_count,
       semantic.window_size, semantic.stride, semantic.pad_left,
-      static_cast<rund::kernel::u32>(semantic.element_bytes));
+      static_cast<rund::kernel::u32>(semantic.element_bytes), count);
 }
 
 [[nodiscard]] constexpr bool
@@ -56,6 +63,7 @@ WindowRangePlanMatches(const rund::kernel::WindowPlan &semantic,
   }
   const RangeShape &actual = range.shape();
   return actual.boundary() == shape->boundary() &&
+         actual.count() == shape->count() &&
          actual.input_count() == shape->input_count() &&
          actual.output_count() == shape->output_count() &&
          actual.window_size() == shape->window_size() &&

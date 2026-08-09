@@ -14,6 +14,7 @@ rund::AccelCheck EncodeMetalScan(MetalAdapter &adapter,
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   auto *const scan = static_cast<MetalScanEncodeResources *>(resources.get());
   if (scan == nullptr || scan->adapter != &adapter ||
+      !scan->prefix_execution.has_value() ||
       scan->input.device_buffer == nullptr ||
       scan->output.device_buffer == nullptr || scan->totals.buffer == nullptr ||
       scan->status.buffer == nullptr) {
@@ -24,12 +25,12 @@ rund::AccelCheck EncodeMetalScan(MetalAdapter &adapter,
       adapter, scan->desc, scan->plan, scan->domain,
       scan->input.device_buffer.get(), scan->output.device_buffer.get(),
       scan->totals.buffer.get(), scan->status.buffer.get(), command_encoder,
-      scan->block, scan->prefix, scan->offset,
+      *scan->prefix_execution, scan->block, scan->prefix, scan->offset,
       scan->logical_count.device_buffer == nullptr
           ? nullptr
           : scan->logical_count.device_buffer.get(),
       rund::kernel::ComputeCountBytes(scan->plan.count_source) /
-      sizeof(rund::kernel::u32),
+          sizeof(rund::kernel::u32),
       scan->input.ref.offset_bytes, scan->output.ref.offset_bytes,
       scan->logical_count.ref.offset_bytes, scan->totals.offset);
 #else

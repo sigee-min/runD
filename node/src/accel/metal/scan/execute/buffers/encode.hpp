@@ -14,10 +14,15 @@ namespace rund::node::accel::detail {
     void *const output_buffer, const MetalScanDirectBuffers &buffers,
     const CommandRun &command, void *const logical_count_buffer,
     const rund::kernel::u32 count_words) {
-  return EncodeMetalScanBuffers(
+  if (!buffers.prefix_execution.has_value()) {
+    SetMetalLastError(adapter, "compute_scan_invalid");
+    return rund::AccelCheck{false, "compute_scan_invalid"};
+  }
+  return EncodeMetalScanBuffersImpl(
       adapter, desc, plan, domain, input_buffer, output_buffer,
       buffers.totals.buffer.get(), buffers.status.buffer.get(),
-      (__bridge void *)command.encoder, logical_count_buffer, count_words);
+      (__bridge void *)command.encoder, true, &*buffers.prefix_execution,
+      nullptr, nullptr, nullptr, logical_count_buffer, count_words);
 }
 #endif
 

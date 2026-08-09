@@ -189,6 +189,22 @@ bool CollectiveWorkloads(const Backend backend, const std::size_t count,
                               [](auto value) { return value; })
           .segmented_reduce(count, rund::compute::Reduce::Sum)
           .compile();
+#if defined(RUND_COMPUTE_FOCUS)
+  constexpr std::size_t range_radius = 1024u;
+  auto range = rund::compute::on(TargetFor(backend))
+                   .map<std::uint32_t>("measure-range-source", count,
+                                       [](auto value) { return value; })
+                   .branch([](auto values) {
+                     return rund::compute::outputs(
+                         values.window({.op = rund::compute::Window::Sum,
+                                        .radius = range_radius}),
+                         values.window({.op = rund::compute::Window::Min,
+                                        .radius = range_radius}),
+                         values.window({.op = rund::compute::Window::Max,
+                                        .radius = range_radius}));
+                   })
+                   .compile();
+#endif
 
   const auto scan_valid = [count](const auto &values) {
     return values.size() == count && !values.empty() && values.back() == count;
@@ -208,6 +224,22 @@ bool CollectiveWorkloads(const Backend backend, const std::size_t count,
     return std::all_of(values.begin(), values.begin() + segments,
                        [](const auto value) { return value == segment_width; });
   };
+#if defined(RUND_COMPUTE_FOCUS)
+  const auto range_valid = [count](const auto &values) {
+    constexpr std::uint32_t sum = 2u * range_radius + 1u;
+    const auto &sums = std::get<0u>(values);
+    const auto &minimums = std::get<1u>(values);
+    const auto &maximums = std::get<2u>(values);
+    return sums.size() == count && minimums.size() == count &&
+           maximums.size() == count &&
+           std::all_of(sums.begin(), sums.end(),
+                       [](const auto value) { return value == sum; }) &&
+           std::all_of(minimums.begin(), minimums.end(),
+                       [](const auto value) { return value == 1u; }) &&
+           std::all_of(maximums.begin(), maximums.end(),
+                       [](const auto value) { return value == 1u; });
+  };
+#endif
   bool ok = true;
   ok = MeasureWorkload("scan", "inclusive_sum", backend, count, count,
                        iterations, scan, scan_valid, input) &&
@@ -223,6 +255,11 @@ bool CollectiveWorkloads(const Backend backend, const std::size_t count,
                        count, iterations, segmented_reduce,
                        segmented_reduce_valid, input, heads) &&
        ok;
+#if defined(RUND_COMPUTE_FOCUS)
+  ok = MeasureWorkload("range", "large_radius_sum_min_max", backend, count,
+                       count, iterations, range, range_valid, input) &&
+       ok;
+#endif
   return ok;
 }
 

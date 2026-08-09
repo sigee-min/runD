@@ -477,12 +477,21 @@ input/output byte extents in `u64`. The canonical no-work descriptor is
 `Sum` with `input_count == output_count == 0`; it records zero bytes and zero
 passes. Extrema have no empty-input result and reject that shape.
 
+`count_source == Descriptor` freezes the authored affine `N,Q,K,S,P`
+exactly. A resident count source freezes one centered capacity shape only:
+`N == Q > 0`, `S == 1`, and `K == 2P+1`. One runtime count `n` is the sole
+active input- and output-count law. Runtime `n == 0` is a successful no-data
+occurrence while the capacity
+descriptor remains nonempty. The graph signature places its one U32/U64
+logical-count read between the payload read and write.
+
 Every descriptor freezes its signed, unsigned, or fixed domain and storage
 width. Non-fixed descriptors carry an absent fixed format. Fixed descriptors
 carry a complete format and every stored `Sum` combine applies its declared
 `Saturate` or modulo-width `Wrap` policy. Fixed extrema compare stored signed
 values. The descriptor hash includes the operation, storage class, boundary,
-domain, complete fixed format, and all five affine geometry fields. Runtime
+domain, complete fixed format, count source, and all five affine geometry
+fields. Runtime
 values, backend capability, algorithm candidate, scratch placement, and
 timing are not semantic identity inputs.
 
@@ -499,13 +508,14 @@ Window rejection reasons are contract vocabulary:
 | Default-constructed or non-admitted plan/reference value | `compute_window_invalid` |
 | Unknown operation | `compute_window_op_unsupported` |
 | Unknown boundary | `compute_window_boundary_unsupported` |
+| Unknown count source | `compute_window_count_source_invalid` |
 | Unknown storage width | `compute_window_element_unsupported` |
 | Domain/storage-width mismatch | `compute_window_domain_unsupported` |
 | Invalid or unexpected fixed format | `compute_window_fixed_invalid` / `compute_window_fixed_unexpected` |
 | Zero window size, stride, or invalid left padding | `compute_window_size_invalid` / `compute_window_stride_invalid` / `compute_window_padding_invalid` |
 | Only one of input/output count is zero | `compute_window_count_invalid` |
 | Empty Min/Max input | `compute_window_count_zero` |
-| Last anchor overflow or a last window disjoint from input | `compute_window_shape_invalid` |
+| Invalid resident-count geometry, last anchor overflow, or a last window disjoint from input | `compute_window_shape_invalid` |
 | Input/output byte extent overflow | `compute_window_bytes_overflow` |
 | Missing nonempty CPU reference input or output | `compute_window_buffer_invalid` |
 

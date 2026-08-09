@@ -17,12 +17,13 @@ struct ScanDispatch {
 
 void DispatchVulkanScanChunks(const VulkanScanEncodeResources &scan,
                               VulkanCollectivePipeline &pipeline,
-                              const VkCommandBuffer command) {
+                              const VkCommandBuffer command,
+                              const rund::kernel::u64 logical_groups) {
   const rund::kernel::u64 limit = scan.adapter->max_dispatch_groups;
-  for (rund::kernel::u64 base = 0u; base < scan.block_count;) {
+  for (rund::kernel::u64 base = 0u; base < logical_groups;) {
     const ScanDispatch dispatch{base};
     const auto groups =
-        static_cast<std::uint32_t>(std::min(limit, scan.block_count - base));
+        static_cast<std::uint32_t>(std::min(limit, logical_groups - base));
     PushVulkanConstants(command, pipeline.pipeline_layout,
                         VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(dispatch),
                         &dispatch);
@@ -38,7 +39,8 @@ void EncodeVulkanScanBlocks(const VulkanScanEncodeResources &scan,
   BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         scan.block->pipeline_layout, 0u, 1u, &scan.block_set,
                         0u, nullptr);
-  DispatchVulkanScanChunks(scan, *scan.block, command);
+  DispatchVulkanScanChunks(scan, *scan.block, command,
+                           VulkanScanStageGroups(scan, 0u));
 }
 
 void EncodeVulkanScanBlockBarrier(const VulkanScanEncodeResources &scan,
@@ -67,7 +69,9 @@ void EncodeVulkanScanPrefix(const VulkanScanEncodeResources &scan,
   BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         scan.prefix->pipeline_layout, 0u, 1u, &scan.prefix_set,
                         0u, nullptr);
-  DispatchVulkan(command, 1u, 1u, 1u);
+  DispatchVulkan(command,
+                 static_cast<std::uint32_t>(VulkanScanStageGroups(scan, 1u)),
+                 1u, 1u);
 }
 
 void EncodeVulkanScanPrefixBarrier(const VulkanScanEncodeResources &scan,
@@ -92,7 +96,8 @@ void EncodeVulkanScanOffset(const VulkanScanEncodeResources &scan,
   BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         scan.offset->pipeline_layout, 0u, 1u, &scan.offset_set,
                         0u, nullptr);
-  DispatchVulkanScanChunks(scan, *scan.offset, command);
+  DispatchVulkanScanChunks(scan, *scan.offset, command,
+                           VulkanScanStageGroups(scan, 2u));
 }
 
 } // namespace

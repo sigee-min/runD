@@ -72,7 +72,7 @@ one physical owner only when their exact byte spans are disjoint. This keeps
 the input frozen for the complete dispatch and prevents CPU update order or GPU
 inter-thread races from becoming Stencil semantics.
 
-## Frozen RangeAggregate execution
+## Frozen Range execution
 
 Graph admission projects the accepted Kernel descriptor into
 `RangeTraits` and `RangeShape`, takes one backend capability
@@ -144,7 +144,7 @@ becomes visible until its pipeline owner is valid.
 
 ## Identity and parity
 
-The RangeAggregate source identity contains backend source class, family,
+The Range source identity contains backend source class, family,
 workgroup width, shared capacity, operation, domain, arithmetic law, boundary,
 and element width. The execution identity additionally contains `N`, `Q`, `K`,
 `S`, `P`, the complete stage graph, temporary requirements, and exact modeled
@@ -182,4 +182,4 @@ Input and output buffers must exactly match the planned element width and
 `element_count`. Resident Stencil runs do not stage host input and do not
 download output implicitly; only explicit upload/download calls affect
 user-facing transfer byte counters. `RunAccelKernel(...)` reports the exact
-frozen RangeAggregate stage count for Stencil.
+frozen Range stage count for Stencil.

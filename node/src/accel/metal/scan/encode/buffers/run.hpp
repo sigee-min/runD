@@ -13,11 +13,12 @@ inline rund::AccelCheck EncodeMetalScanBuffersImpl(
     const rund::kernel::ComputeDomain domain, void *const input_buffer,
     void *const output_buffer, void *const totals_buffer,
     void *const status_buffer, void *const command_encoder,
-    const bool materialize_offsets, const std::shared_ptr<void> *const block,
+    const bool materialize_offsets,
+    const RangePrefixExec *const prefix_execution,
+    const std::shared_ptr<void> *const block,
     const std::shared_ptr<void> *const prefix,
     const std::shared_ptr<void> *const offset, void *const logical_count_buffer,
-    const rund::kernel::u32 count_words,
-    const rund::kernel::u64 input_offset,
+    const rund::kernel::u32 count_words, const rund::kernel::u64 input_offset,
     const rund::kernel::u64 output_offset,
     const rund::kernel::u64 logical_count_offset,
     const rund::kernel::u64 totals_offset) {
@@ -25,7 +26,8 @@ inline rund::AccelCheck EncodeMetalScanBuffersImpl(
   MetalScanEncodeState state{};
   const rund::AccelCheck prepared = PrepareMetalScanEncodeState(
       adapter, desc, plan, input_buffer, output_buffer, totals_buffer,
-      status_buffer, command_encoder, state, block, prefix, offset);
+      status_buffer, command_encoder, state, prefix_execution, block, prefix,
+      offset);
   if (!prepared.ok) {
     return prepared;
   }
@@ -34,7 +36,8 @@ inline rund::AccelCheck EncodeMetalScanBuffersImpl(
                        status_buffer, logical_count_buffer, count_words,
                        signed_domain, state, input_offset, output_offset,
                        logical_count_offset, totals_offset);
-  if (plan.pass_count == 2u) {
+  if (state.prefix_execution.has_value() &&
+      ScanPrefixHasOffset(*state.prefix_execution)) {
     EncodeMetalScanPrefix(totals_buffer, totals_offset, state);
     if (materialize_offsets) {
       const rund::kernel::u32 inclusive =
@@ -58,6 +61,7 @@ inline rund::AccelCheck EncodeMetalScanBuffersImpl(
   (void)status_buffer;
   (void)command_encoder;
   (void)materialize_offsets;
+  (void)prefix_execution;
   (void)block;
   (void)prefix;
   (void)offset;
@@ -77,10 +81,10 @@ rund::AccelCheck EncodeMetalScanBuffers(
     void *const output_buffer, void *const totals_buffer,
     void *const status_buffer, void *const command_encoder,
     void *const logical_count_buffer, const rund::kernel::u32 count_words) {
-  return EncodeMetalScanBuffersImpl(adapter, desc, plan, domain, input_buffer,
-                                    output_buffer, totals_buffer, status_buffer,
-                                    command_encoder, true, nullptr, nullptr,
-                                    nullptr, logical_count_buffer, count_words);
+  return EncodeMetalScanBuffersImpl(
+      adapter, desc, plan, domain, input_buffer, output_buffer, totals_buffer,
+      status_buffer, command_encoder, true, nullptr, nullptr, nullptr, nullptr,
+      logical_count_buffer, count_words);
 }
 
 rund::AccelCheck EncodeMetalScanDeferredOffsetBuffers(
@@ -89,15 +93,14 @@ rund::AccelCheck EncodeMetalScanDeferredOffsetBuffers(
     void *const output_buffer, void *const totals_buffer,
     void *const status_buffer, void *const command_encoder,
     const std::shared_ptr<void> &block, const std::shared_ptr<void> &prefix,
-    const std::shared_ptr<void> &offset,
-    const rund::kernel::u64 input_offset,
+    const std::shared_ptr<void> &offset, const rund::kernel::u64 input_offset,
     const rund::kernel::u64 output_offset,
     const rund::kernel::u64 totals_offset) {
   return EncodeMetalScanBuffersImpl(
       adapter, desc, plan, rund::kernel::ComputeDomain::U32, input_buffer,
       output_buffer, totals_buffer, status_buffer, command_encoder, false,
-      &block, &prefix, &offset, nullptr, 0u, input_offset, output_offset, 0u,
-      totals_offset);
+      nullptr, &block, &prefix, &offset, nullptr, 0u, input_offset,
+      output_offset, 0u, totals_offset);
 }
 
 } // namespace rund::node::accel::detail

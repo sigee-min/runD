@@ -34,6 +34,27 @@ int WindowShape() {
   TEST_ASSERT(signature.values[1u].role == rund::kernel::BufferRole::Write);
   TEST_ASSERT(signature.values[1u].count == desc.output_count);
 
+  rund::kernel::WindowDesc resident = desc;
+  resident.count_source = rund::kernel::ComputeCountSource::BufferU64;
+  resident.output_count = resident.input_count;
+  resident.stride = 1u;
+  const rund::kernel::WindowPlan resident_plan =
+      rund::kernel::PlanWindow(resident);
+  TEST_ASSERT(resident_plan.ok);
+  const rund::kernel::GraphSignature resident_signature =
+      rund::kernel::GraphSignatureFor(resident_plan);
+  TEST_ASSERT(resident_signature.ok);
+  TEST_ASSERT(resident_signature.value_count == 3u);
+  TEST_ASSERT(resident_signature.values[0u].role ==
+              rund::kernel::BufferRole::Read);
+  TEST_ASSERT(resident_signature.values[1u].kind ==
+              rund::kernel::GraphValueKind::LogicalCount);
+  TEST_ASSERT(resident_signature.values[1u].element_bytes == 8u);
+  TEST_ASSERT(resident_signature.values[1u].count == 1u);
+  TEST_ASSERT(resident_signature.values[2u].role ==
+              rund::kernel::BufferRole::Write);
+  TEST_ASSERT(resident_signature.values[2u].count == resident.input_count);
+
   rund::kernel::WindowPlan forged = plan;
   ++forged.output_bytes;
   TEST_ASSERT(!rund::kernel::WindowPlanMatchesDesc(desc, forged));

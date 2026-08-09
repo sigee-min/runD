@@ -59,6 +59,9 @@ namespace rund::node::accel::detail {
       .count_offset = scan->logical_count.ref.offset_bytes +
                       scan->control.count_byte_offset,
       .capacity = scan->control.capacity,
+      .primary_word_count = static_cast<std::uint32_t>(
+          rund::kernel::ComputeCountBytes(scan->plan.count_source) /
+          sizeof(std::uint32_t)),
   };
   return {true, "ok"};
 #else

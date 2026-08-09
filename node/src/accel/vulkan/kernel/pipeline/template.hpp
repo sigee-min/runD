@@ -23,15 +23,30 @@ struct VulkanKernelImmutablePipelineStage final {
   std::uint64_t sets_per_route{};
 };
 
-// RangeAggregate PrefixDifference has at most 24 hierarchy/fix-up/window
+// Range PrefixDifference has at most 24 hierarchy/fix-up/window
 // stages for the legal 64-lane width. Route-owned buffers, descriptor leases,
 // and mutable dispatch state never enter this Program-level owner.
 struct VulkanKernelImmutablePipelines final {
   rund::kernel::NodeKind kind{rund::kernel::NodeKind::Map};
+  VulkanKernelImmutablePipelineStage control{};
   std::array<VulkanKernelImmutablePipelineStage, 24u> stages{};
   std::uint32_t count{};
   std::uint64_t capture_direct_dispatch_count{};
   std::uint64_t capture_indirect_dispatch_count{};
+
+  [[nodiscard]] bool
+  append_control(VulkanCollectivePipeline *const pipeline,
+                 const std::uint32_t descriptor_count,
+                 const std::uint64_t sets_per_route) noexcept {
+    if (control.pipeline != nullptr || pipeline == nullptr ||
+        descriptor_count == 0u || sets_per_route == 0u ||
+        pipeline->descriptor_count != descriptor_count) {
+      return false;
+    }
+    control = VulkanKernelImmutablePipelineStage{pipeline, descriptor_count,
+                                                 sets_per_route};
+    return true;
+  }
 
   [[nodiscard]] bool append(VulkanCollectivePipeline *const pipeline,
                             const std::uint32_t descriptor_count,
@@ -49,24 +64,34 @@ struct VulkanKernelImmutablePipelines final {
   [[nodiscard]] bool
   ready(const rund::kernel::NodeKind expected_kind,
         const PreparedBackendManifest &manifest) const noexcept {
+    const std::uint64_t control_count = control.pipeline == nullptr ? 0u : 1u;
+    std::uint64_t total_count = 0u;
     if (kind != expected_kind || expected_kind == rund::kernel::NodeKind::Map ||
         count == 0u || count > stages.size() ||
-        count != manifest.pipeline_stage_count ||
-        count != manifest.descriptor_dependency_count || !manifest.ok) {
+        !rund::kernel::checked::add(count, control_count, total_count) ||
+        total_count != manifest.pipeline_stage_count ||
+        total_count != manifest.descriptor_dependency_count || !manifest.ok) {
       return false;
     }
     std::uint64_t sets = 0u;
     std::uint64_t bindings = 0u;
+    const auto account = [&](const VulkanKernelImmutablePipelineStage &stage) {
+      std::uint64_t stage_bindings = 0u;
+      return stage.pipeline != nullptr && stage.descriptor_count != 0u &&
+             stage.sets_per_route != 0u &&
+             stage.pipeline->descriptor_count == stage.descriptor_count &&
+             rund::kernel::checked::add(sets, stage.sets_per_route, sets) &&
+             rund::kernel::checked::mul(stage.sets_per_route,
+                                        stage.descriptor_count,
+                                        stage_bindings) &&
+             rund::kernel::checked::add(bindings, stage_bindings, bindings);
+    };
+    if (control.pipeline != nullptr && !account(control)) {
+      return false;
+    }
     for (std::size_t index = 0u; index < count; ++index) {
       const VulkanKernelImmutablePipelineStage &stage = stages[index];
-      std::uint64_t stage_bindings = 0u;
-      if (stage.pipeline == nullptr || stage.descriptor_count == 0u ||
-          stage.sets_per_route == 0u ||
-          stage.pipeline->descriptor_count != stage.descriptor_count ||
-          !rund::kernel::checked::add(sets, stage.sets_per_route, sets) ||
-          !rund::kernel::checked::mul(stage.sets_per_route,
-                                      stage.descriptor_count, stage_bindings) ||
-          !rund::kernel::checked::add(bindings, stage_bindings, bindings)) {
+      if (!account(stage)) {
         return false;
       }
     }
@@ -93,6 +118,18 @@ struct VulkanKernelImmutablePipelines final {
                    stage.sets_per_route == sets_per_route &&
                    stage.pipeline->descriptor_count == descriptor_count
                ? stage.pipeline
+               : nullptr;
+  }
+
+  [[nodiscard]] VulkanCollectivePipeline *
+  borrow_control(const rund::kernel::NodeKind expected_kind,
+                 const std::uint32_t descriptor_count,
+                 const std::uint64_t sets_per_route) const noexcept {
+    return kind == expected_kind && control.pipeline != nullptr &&
+                   control.descriptor_count == descriptor_count &&
+                   control.sets_per_route == sets_per_route &&
+                   control.pipeline->descriptor_count == descriptor_count
+               ? control.pipeline
                : nullptr;
   }
 };

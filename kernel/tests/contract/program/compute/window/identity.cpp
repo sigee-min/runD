@@ -36,6 +36,10 @@ int WindowIdentity() {
   TEST_ASSERT(Different(original, rund::kernel::HashWindow(changed)));
 
   changed = desc;
+  changed.count_source = rund::kernel::ComputeCountSource::BufferU32;
+  TEST_ASSERT(Different(original, rund::kernel::HashWindow(changed)));
+
+  changed = desc;
   ++changed.input_count;
   TEST_ASSERT(Different(original, rund::kernel::HashWindow(changed)));
   changed = desc;

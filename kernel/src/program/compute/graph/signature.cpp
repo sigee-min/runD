@@ -409,6 +409,12 @@ GraphSignatureFor(const WindowPlan &plan) noexcept {
   graph_signature_detail::Add(out, graph_signature_detail::Value(
                                        GraphValueKind::Values, BufferRole::Read,
                                        plan.element_bytes, plan.input_count));
+  if (plan.count_source != ComputeCountSource::Descriptor) {
+    graph_signature_detail::Add(
+        out, graph_signature_detail::Value(
+                 GraphValueKind::LogicalCount, BufferRole::Read,
+                 ComputeCountBytes(plan.count_source), 1u));
+  }
   graph_signature_detail::Add(
       out,
       graph_signature_detail::Value(GraphValueKind::Output, BufferRole::Write,

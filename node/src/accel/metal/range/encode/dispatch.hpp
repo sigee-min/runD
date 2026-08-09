@@ -7,7 +7,7 @@ namespace rund::node::accel::detail {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 inline void EncodeMetalRangeStage(const MetalRangeState &state,
                                   const std::uint32_t stage_index,
-                                  const RangeParams &params) {
+                                  const RangeParams *const params) {
   id<MTLComputePipelineState> pipeline =
       (__bridge id<MTLComputePipelineState>)state.range->pipelines[stage_index]
           .get();
@@ -21,7 +21,15 @@ inline void EncodeMetalRangeStage(const MetalRangeState &state,
       setBuffer:state.output
          offset:static_cast<NSUInteger>(state.range->output.ref.offset_bytes)
         atIndex:1u];
-  [state.encoder setBytes:&params length:sizeof(params) atIndex:2u];
+  if (state.range->controlled) {
+    [state.encoder
+        setBuffer:(__bridge id<MTLBuffer>)
+                      state.range->control_params.buffer.get()
+           offset:static_cast<NSUInteger>(stage_index * sizeof(RangeParams))
+          atIndex:2u];
+  } else {
+    [state.encoder setBytes:params length:sizeof(*params) atIndex:2u];
+  }
   if (RangeUsesScratch(state.range->range)) {
     const MetalRuntimeBuffer *scratch0 = nullptr;
     const MetalRuntimeBuffer *scratch1 = nullptr;
@@ -35,10 +43,22 @@ inline void EncodeMetalRangeStage(const MetalRangeState &state,
                        atIndex:4u];
     }
   }
-  [state.encoder
-       dispatchThreadgroups:MTLSizeMake(static_cast<NSUInteger>(stage.groups),
-                                        1u, 1u)
-      threadsPerThreadgroup:MTLSizeMake(stage.width, 1u, 1u)];
+  if (state.range->controlled && state.range->indirect) {
+    [state.encoder
+        dispatchThreadgroupsWithIndirectBuffer:(__bridge id<MTLBuffer>)
+                                                   state.range->control_indirect
+                                                       .buffer.get()
+                          indirectBufferOffset:static_cast<NSUInteger>(
+                                                   stage_index *
+                                                   sizeof(RangeIndirect))
+                         threadsPerThreadgroup:MTLSizeMake(stage.width, 1u,
+                                                           1u)];
+  } else {
+    [state.encoder
+         dispatchThreadgroups:MTLSizeMake(static_cast<NSUInteger>(stage.groups),
+                                          1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(stage.width, 1u, 1u)];
+  }
 }
 #endif
 

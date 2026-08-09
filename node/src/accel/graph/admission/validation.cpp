@@ -70,9 +70,25 @@ bool BindingOrderOk(const rund::AccelGraphNode &node,
 
 bool PrimitivePayloadOnly(const rund::AccelGraphNode &node,
                           const rund::kernel::NodeKind active) noexcept {
+  const bool resident_window =
+      active == rund::kernel::NodeKind::Window &&
+      node.window.count_source != rund::kernel::ComputeCountSource::Descriptor;
+  const bool window_control =
+      resident_window && node.control.has_count() &&
+      !node.control.has_predicate() && node.control.count_binding == 1u &&
+      node.control.capacity == node.window.input_count &&
+      node.control.iteration == 0u &&
+      ((node.window.count_source ==
+            rund::kernel::ComputeCountSource::BufferU32 &&
+        node.control.count_source == rund::kernel::GraphControlSource::U32) ||
+       (node.window.count_source ==
+            rund::kernel::ComputeCountSource::BufferU64 &&
+        node.control.count_source == rund::kernel::GraphControlSource::U64));
   if (active != rund::kernel::NodeKind::Map &&
-      (node.control.has_count() || node.control.has_predicate() ||
-       node.control.capacity != 0u || node.control.iteration != 0u)) {
+      ((!resident_window &&
+        (node.control.has_count() || node.control.has_predicate() ||
+         node.control.capacity != 0u || node.control.iteration != 0u)) ||
+       (resident_window && !window_control))) {
     return false;
   }
   if (active == rund::kernel::NodeKind::Map) {

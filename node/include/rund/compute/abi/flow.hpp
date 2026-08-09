@@ -60,6 +60,10 @@ void flow_reject(const std::shared_ptr<FlowState> &flow, Reason reason);
 flow_binary_values(const std::shared_ptr<FlowState> &flow, Primitive operation,
                    std::span<const std::uint32_t> inputs, Type output,
                    std::size_t count, PrimitiveOptions options);
+[[nodiscard]] std::uint32_t
+flow_bounded_window_value(const std::shared_ptr<FlowState> &flow,
+                          std::uint32_t input, std::uint32_t count, Type output,
+                          std::size_t capacity, PrimitiveOptions options);
 void flow_scan(const std::shared_ptr<FlowState> &flow, Scan scan);
 [[nodiscard]] std::uint32_t
 flow_scan_value(const std::shared_ptr<FlowState> &flow, std::uint32_t input,

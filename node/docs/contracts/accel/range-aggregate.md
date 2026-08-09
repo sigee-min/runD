@@ -31,6 +31,14 @@ validated primitive into `RangeTraits` and `RangeShape`,
 then freeze the returned plan. Backend callers do not apply a second radius or
 device-name threshold.
 
+A shape is either descriptor-counted or resident-counted. A resident-counted
+shape freezes the authored capacity `M` for legality, candidate selection, and
+temporary reservation, while a U32 or U64 device scalar supplies the active
+count `n` for one execution. The scalar is data, not a second planning API:
+the selected candidate, width, source variant, and maximum stage topology stay
+frozen. `0 <= n <= M` is required. `n=0` emits no data work, and `n>M` records
+the canonical bounded-count failure before any output publication.
+
 `RangeExec` is the one backend-neutral physical projection of that frozen
 plan. It derives source identity, workgroup shape, stage parameters,
 descriptor demand, shared allocation, dispatch topology, and typed temporary
@@ -213,8 +221,9 @@ lexicographic order:
 9. launched lanes;
 10. candidate disposition, then width, then shared capacity.
 
-This is a deterministic integer model. It consumes neither timing,
-calibration, GPU model names, nor a fixed radius cutoff, and it does not claim
+This deterministic integer model consumes only operation algebra, exact shape,
+and frozen capability fields. Candidate legality and ordering are therefore
+reproducible across runs; the model is structural evidence and does not claim
 universal wall-clock optimality.
 
 ## Stages, temporary requirements, and ownership
@@ -224,6 +233,62 @@ requirements. A temporary records role, bytes, alignment, and inclusive first
 and last live stage. PrefixDifference exposes prefix values and per-level block
 summaries. BlockPrefixSuffix exposes distinct forward and backward value
 roles. Direct and SharedHalo have no global temporary.
+
+For a resident-counted GPU plan, backend preparation adds one physical control
+pass before the frozen algorithm stages. It is not an algorithm stage and does
+not change `RangePlan::stage_count()`. The pass reads `n`, derives every
+data-stage element and group count with checked integer formulas, and writes
+one 64-byte `RangeParams` row plus one 32-byte dispatch/evidence row per frozen
+data stage. Prefix levels above the hierarchy required by `n` and every data
+stage at `n=0` receive all-zero dispatch rows.
+
+For Pipeline execution, the existing Pipeline scratch planner remains the sole
+physical placement owner of arithmetic temporaries. Standalone preparation
+retains backend-native arithmetic buffers sized from the same frozen temporary
+requirements; it introduces neither another placement planner nor another
+arena. Control parameters, dispatch rows, and status are backend-native
+prepared buffers because they have command-processor usage and lifetime, not
+arithmetic scratch lifetime. Vulkan creates the dispatch backing with storage
+and indirect-command usage, then places a compute-write to
+compute/indirect-read barrier before the data stages. Standalone Metal likewise
+uses indirect data dispatches after a buffer barrier. Metal Pipeline-private
+capture records the frozen capacity grids because Metal indirect dispatch is
+not an ICB command in this contract; the runtime parameter rows make inactive
+lanes return before any payload access. Ordinary scratch barriers preserve the
+algorithm stage order. No Range-owned arena exists.
+
+For a centered resident Window with capacity `M`, active count `n`, radius
+`r`, and width `W`, the active geometry is
+
+```text
+Q(n) = n
+K = 2r + 1, S = 1, P = r
+Prefix level 0: n0 = n
+Prefix level j+1: nj+1 = ceil(nj / W), stopping after the first group
+BlockPrefixSuffix span: T(n) = n == 0 ? 0 : n - 1 + K
+```
+
+All active byte and work terms substitute `n`, `Q(n)`, and `T(n)` into the
+selected candidate's formulas. Reserved global scratch instead uses the same
+formulas at `M`; therefore every active placement is a prefix of an already
+retained allocation. Warm prepared execution allocates nothing. Vulkan and
+standalone Metal launch the active topology, while Metal Pipeline-private
+capture launches frozen capacity grids and performs active arithmetic only for
+`n`. PrefixDifference active arithmetic remains `O(n)`. BlockPrefixSuffix
+active arithmetic is `O(n+r)` and is `O(n)` exactly when the adapter constrains
+`r=O(n)`; under the centered resident Window bounds `n<=M` and `r<=M`, its
+frozen-capacity work and storage envelope is `O(M)`. The descriptor-counted
+path has no physical control pass or dispatch buffer.
+
+Vulkan retains one data PSO for all `S` frozen Range data-stage slots; a
+resident-counted route additionally retains one control PSO. Stage slots and
+their descriptor sets remain `S` or `S+1` because each dispatch needs its own
+immutable binding tuple, while the unique native pipeline dependency count is
+`U=1` or `U=2`. Cold native-object accounting therefore uses
+`3U + D + U`—pipeline, pipeline layout, and descriptor-set layout per unique
+PSO, `D` descriptor sets, and one descriptor pool per unique PSO—rather than
+multiplying native PSOs or pools by aliased stage slots. Immutable preparation
+acquires the data PSO once and borrows that exact pointer in every data slot.
 
 `RangePrefixExec` is the common source-private stage derivation for
 associative prefix work. Its hierarchical form derives PrefixDifference's
@@ -262,7 +327,7 @@ public adapter owns physical scratch or backend source code.
 
 Source identity contains the backend source class, algorithm variant, width,
 shared capacity, operation, numeric domain, arithmetic law, boundary, and
-element width.
+element width, plus the descriptor/U32/U64 count class.
 `N`, `Q`, `K`, `S`, and `P` are runtime parameters and are normalized out when
 they do not shape that source variant.
 
@@ -273,10 +338,19 @@ different dispatch or storage plans remain distinct.
 
 The Metal named-pipeline key serializes the complete source-shaping tuple
 directly—candidate, width, shared capacity, operation, domain, arithmetic law,
-boundary, and element width. Lookup therefore compares exact tuple text rather
-than trusting only a compact hash; count and affine geometry remain absent
-because they are runtime parameters for a fixed source variant.
+boundary, element width, and descriptor/U32/U64 count class. Exact tuple text
+is the lookup authority; the compact hash is only its index. One such
+typed source variant accepts its affine `N`, `Q`, `K`, `S`, and `P` through
+runtime parameters.
 
 Rejected plans carry a stable positive failure boundary for invalid shape,
 unavailable or invalid capability, no legal candidate, or checked cost
 overflow. A rejected plan is not an implemented execution route.
+
+The installed-Release focused route
+`tools/measure/compute/run --collective <cpu|metal|vulkan>` measures a prepared
+U32 Sum/Min/Max Window with `r=1024` at `N=4096` and `N=262144`. Its output
+hash, warm-allocation counters, dispatch evidence, and resident wall time are
+recorded together. Those observations measure the selected implementation on
+the recorded host; the integer work and storage bounds above remain the
+portable evidence.

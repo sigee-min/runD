@@ -13,16 +13,21 @@ AcquireMetalPartitionBuffers(MetalAdapter &adapter,
                              MetalPartitionEncodeResources &raw) {
   const rund::kernel::u64 element_bytes =
       plan.element_count * sizeof(rund::kernel::u32);
+  if (!raw.scan_execution.has_value() ||
+      raw.scan_execution->temporary_count() != 1u) {
+    SetMetalLastError(adapter, "compute_partition_invalid");
+    return rund::AccelCheck{false, "compute_partition_invalid"};
+  }
   const rund::kernel::u64 totals_bytes =
-      raw.scan_plan.block_count * sizeof(rund::kernel::u32);
+      raw.scan_execution->temporary(0u).bytes;
   raw.false_bits =
       AcquireMetalBuffer(adapter, element_bytes, MetalBufferUsage::Scratch);
   raw.false_offsets =
       AcquireMetalBuffer(adapter, element_bytes, MetalBufferUsage::Scratch);
   raw.false_totals =
       AcquireMetalBuffer(adapter, totals_bytes, MetalBufferUsage::Scratch);
-  raw.false_status = AcquireMetalBuffer(
-      adapter, sizeof(rund::kernel::u32), MetalBufferUsage::Output);
+  raw.false_status = AcquireMetalBuffer(adapter, sizeof(rund::kernel::u32),
+                                        MetalBufferUsage::Output);
   if (!MetalPartitionBuffersReady(raw)) {
     SetMetalLastError(adapter, "accel_metal_pipeline_unavailable");
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};

@@ -1,6 +1,7 @@
 #include "../../kernel/backend/source_recipe.hpp"
 #include "local.hpp"
 #include "source/build.hpp"
+#include "source/control.hpp"
 
 #include <string>
 
@@ -20,6 +21,22 @@ bool MetalRangeSourceUpperBytes(const RangeExec &execution,
       [&execution](backend_source_recipe::CountSink &sink) noexcept {
         return EmitMetalRangeSource(sink, execution);
       };
+  return backend_source_recipe::bytes(emit, upper);
+}
+
+std::string MetalRangeControlSource(const RangePlan &plan) {
+  const auto emit = [&plan](auto &sink) noexcept(
+                        noexcept(EmitMetalRangeControlSource(sink, plan))) {
+    return EmitMetalRangeControlSource(sink, plan);
+  };
+  return backend_source_recipe::materialize(emit);
+}
+
+bool MetalRangeControlSourceUpperBytes(const RangePlan &plan,
+                                       std::uint64_t &upper) noexcept {
+  const auto emit = [&plan](backend_source_recipe::CountSink &sink) noexcept {
+    return EmitMetalRangeControlSource(sink, plan);
+  };
   return backend_source_recipe::bytes(emit, upper);
 }
 

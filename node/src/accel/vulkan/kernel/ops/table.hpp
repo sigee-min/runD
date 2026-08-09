@@ -30,6 +30,9 @@ DescribeVulkanGatherPipelineCaptureDemand(const std::shared_ptr<void> &,
 [[nodiscard]] rund::AccelCheck
 DescribeVulkanScatterReduceCaptureDemand(const std::shared_ptr<void> &,
                                          std::uint64_t &) noexcept;
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanRangePipelineCaptureDemand(const std::shared_ptr<void> &,
+                                         std::uint64_t &) noexcept;
 
 [[nodiscard]] inline rund::AccelCheck
 NoVulkanPipelineStatus(const std::shared_ptr<void> &,
@@ -81,6 +84,12 @@ DescribeVulkanReducePipelineStatus(const std::shared_ptr<void> &,
 [[nodiscard]] rund::AccelCheck
 DescribeVulkanScatterPipelineStatus(const std::shared_ptr<void> &,
                                     VulkanPipelineStatusSource &);
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanRangePipelineStatus(const std::shared_ptr<void> &,
+                                  VulkanPipelineStatusSource &);
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanRangePipelineTelemetry(const std::shared_ptr<void> &,
+                                     VulkanPipelineTelemetrySource &);
 
 [[nodiscard]] inline VulkanKernelOps
 VulkanKernelOpsFor(const rund::kernel::NodeKind kind) noexcept {
@@ -220,10 +229,10 @@ VulkanKernelOpsFor(const rund::kernel::NodeKind kind) noexcept {
         .prepare = PrepareVulkanWindowStep,
         .encode = EncodeVulkanWindow,
         .finish = FinishVulkanWindow,
-        .pipeline_status = NoVulkanPipelineStatus,
-        .pipeline_telemetry = nullptr,
+        .pipeline_status = DescribeVulkanRangePipelineStatus,
+        .pipeline_telemetry = DescribeVulkanRangePipelineTelemetry,
         .failure = nullptr,
-        .pipeline_capture_demand = nullptr,
+        .pipeline_capture_demand = DescribeVulkanRangePipelineCaptureDemand,
     };
   default:
     return VulkanNumericOpsFor(kind);

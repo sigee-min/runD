@@ -2,6 +2,7 @@
 
 #include "model.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -12,8 +13,9 @@
 namespace rund::node::accel::detail {
 
 // This is the backend-neutral physical projection of a selected range plan.
-// It borrows the frozen plan; Pipeline scratch remains the sole owner of every
-// global temporary and backend adapters retain their primitive-specific
+// It borrows the frozen plan. Pipeline execution places every global temporary
+// through Pipeline scratch; standalone prepared backend resources retain
+// plan-sized temporary buffers. Adapters retain their primitive-specific
 // bindings and result authority.
 class RangeGpuShape final {
 public:
@@ -174,6 +176,8 @@ public:
   }
 
 private:
+  friend class RangeRun;
+
   constexpr RangeParams(const rund::kernel::u64 input_count,
                         const rund::kernel::u64 output_count,
                         const rund::kernel::u64 window_size,
@@ -202,6 +206,254 @@ static_assert(std::is_standard_layout_v<RangeParams>);
 static_assert(std::is_trivially_copyable_v<RangeParams>);
 static_assert(sizeof(RangeParams) == 64u);
 static_assert(alignof(RangeParams) == alignof(rund::kernel::u64));
+
+class RangeDispatch final {
+public:
+  RangeDispatch() = delete;
+
+  [[nodiscard]] constexpr const RangeParams &params() const noexcept {
+    return params_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 groups() const noexcept {
+    return groups_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u32 width() const noexcept {
+    return width_;
+  }
+
+  [[nodiscard]] constexpr bool active() const noexcept { return groups_ != 0u; }
+
+  [[nodiscard]] constexpr rund::kernel::u64 work_items() const noexcept {
+    return groups_ * width_;
+  }
+
+private:
+  friend class RangeRun;
+
+  constexpr RangeDispatch(const RangeParams params,
+                          const rund::kernel::u64 groups,
+                          const rund::kernel::u32 width) noexcept
+      : params_(params), groups_(groups), width_(width) {}
+
+  RangeParams params_;
+  rund::kernel::u64 groups_;
+  rund::kernel::u32 width_;
+};
+
+// One backend-native indirect row.  The first three words are the Metal and
+// Vulkan dispatch ABI.  The exact 64-bit invocation count follows so Pipeline
+// telemetry never reconstructs hierarchy work as logical_count * stage_count.
+struct RangeIndirect final {
+  rund::kernel::u32 groups_x{};
+  rund::kernel::u32 groups_y{};
+  rund::kernel::u32 groups_z{};
+  rund::kernel::u32 work_items_lo{};
+  rund::kernel::u32 work_items_hi{};
+  std::array<rund::kernel::u32, 3u> reserved{};
+};
+
+static_assert(sizeof(RangeIndirect) == 32u);
+static_assert(alignof(RangeIndirect) == alignof(rund::kernel::u32));
+static_assert(std::is_trivially_copyable_v<RangeIndirect>);
+
+// Projects one authenticated resident count into the frozen RangePlan stage
+// graph. Candidate, source identity, stage slots, and scratch capacity never
+// change; inactive hierarchy slots receive zero groups.
+class RangeRun final {
+public:
+  RangeRun() = delete;
+
+  [[nodiscard]] static constexpr std::optional<RangeRun>
+  make(const RangePlan &plan, const rund::kernel::u64 count) noexcept {
+    if (!plan.ok() || count > plan.shape().input_count() ||
+        (!plan.shape().resident_counted() &&
+         count != plan.shape().input_count())) {
+      return std::nullopt;
+    }
+    return RangeRun{plan, count};
+  }
+
+  [[nodiscard]] constexpr const RangePlan &plan() const noexcept {
+    assert(plan_ != nullptr);
+    return *plan_;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 count() const noexcept {
+    return count_;
+  }
+
+  [[nodiscard]] constexpr std::optional<RangeDispatch>
+  stage(const std::size_t index) const noexcept {
+    if (index >= plan().stage_count()) {
+      return std::nullopt;
+    }
+    const RangeStagePlan frozen = plan().stage(index);
+    if (!plan().shape().resident_counted()) {
+      const std::optional<RangeParams> params =
+          RangeParams::from(plan(), index);
+      return params.has_value() ? std::optional<RangeDispatch>{RangeDispatch{
+                                      *params, frozen.groups, frozen.width}}
+                                : std::nullopt;
+    }
+
+    rund::kernel::u64 elements = 0u;
+    rund::kernel::u64 groups = 0u;
+    switch (frozen.disposition) {
+    case RangeStageKind::Direct:
+    case RangeStageKind::SharedHalo:
+    case RangeStageKind::PrefixWindow:
+    case RangeStageKind::BlockWindow:
+      elements = count_;
+      groups = Groups(elements, frozen.width);
+      break;
+    case RangeStageKind::PrefixSequential:
+      elements = count_;
+      groups = count_ == 0u ? 0u : 1u;
+      break;
+    case RangeStageKind::PrefixBlock:
+    case RangeStageKind::PrefixSummary:
+      elements = PrefixCount(frozen.level);
+      groups = Groups(elements, frozen.width);
+      if (frozen.level != 0u && PrefixCount(static_cast<std::uint8_t>(
+                                    frozen.level - 1u)) <= frozen.width) {
+        groups = 0u;
+      }
+      break;
+    case RangeStageKind::PrefixFixup:
+      elements = PrefixCount(frozen.level);
+      groups = Groups(elements, frozen.width);
+      if (groups <= 1u) {
+        groups = 0u;
+      }
+      break;
+    case RangeStageKind::BlockPrefixSuffix: {
+      elements = ActiveSpan();
+      const rund::kernel::u64 blocks =
+          Groups(elements, plan().shape().window_size());
+      groups = Groups(blocks, frozen.width);
+      break;
+    }
+    }
+    const rund::kernel::u64 auxiliary =
+        frozen.disposition == RangeStageKind::BlockPrefixSuffix
+            ? Groups(elements, plan().shape().window_size())
+            : groups;
+    return RangeDispatch{
+        RangeParams{count_, count_, plan().shape().window_size(),
+                    plan().shape().stride(), plan().shape().padding(), elements,
+                    auxiliary,
+                    static_cast<rund::kernel::u32>(frozen.disposition)},
+        groups, frozen.width};
+  }
+
+  [[nodiscard]] constexpr std::optional<RangeIndirect>
+  indirect(const std::size_t index) const noexcept {
+    const std::optional<RangeDispatch> dispatch = stage(index);
+    if (!dispatch.has_value() ||
+        dispatch->groups() > std::numeric_limits<rund::kernel::u32>::max()) {
+      return std::nullopt;
+    }
+    const rund::kernel::u64 work = dispatch->work_items();
+    const rund::kernel::u32 active = dispatch->groups() == 0u ? 0u : 1u;
+    return RangeIndirect{
+        .groups_x = static_cast<rund::kernel::u32>(dispatch->groups()),
+        .groups_y = active,
+        .groups_z = active,
+        .work_items_lo = static_cast<rund::kernel::u32>(work),
+        .work_items_hi = static_cast<rund::kernel::u32>(work >> 32u),
+    };
+  }
+
+private:
+  constexpr RangeRun(const RangePlan &plan,
+                     const rund::kernel::u64 count) noexcept
+      : plan_(&plan), count_(count) {}
+
+  [[nodiscard]] static constexpr rund::kernel::u64
+  Groups(const rund::kernel::u64 count,
+         const rund::kernel::u32 width) noexcept {
+    if (count == 0u) {
+      return 0u;
+    }
+    return width == 0u
+               ? 1u
+               : count / width +
+                     static_cast<rund::kernel::u64>(count % width != 0u);
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64
+  PrefixCount(const std::uint8_t level) const noexcept {
+    rund::kernel::u64 value = count_;
+    const rund::kernel::u32 width = plan().candidate().width();
+    for (std::uint8_t cursor = 0u; cursor < level && value != 0u; ++cursor) {
+      value = Groups(value, width);
+    }
+    return value;
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u64 ActiveSpan() const noexcept {
+    if (count_ == 0u) {
+      return 0u;
+    }
+    rund::kernel::u64 span = 0u;
+    const bool ok = rund::kernel::checked::add(
+        count_ - 1u, plan().shape().window_size(), span);
+    assert(ok);
+    return ok ? span : 0u;
+  }
+
+  const RangePlan *plan_;
+  rund::kernel::u64 count_;
+};
+
+class RangeControlLayout final {
+public:
+  RangeControlLayout() = delete;
+
+  [[nodiscard]] static constexpr std::optional<RangeControlLayout>
+  from(const RangePlan &plan) noexcept {
+    if (!plan.ok() || !plan.shape().resident_counted() ||
+        plan.stage_count() == 0u || plan.stage_count() > kRangeStageCap) {
+      return std::nullopt;
+    }
+    rund::kernel::u64 params = 0u;
+    rund::kernel::u64 indirect = 0u;
+    if (!rund::kernel::checked::mul(plan.stage_count(), sizeof(RangeParams),
+                                    params) ||
+        !rund::kernel::checked::mul(plan.stage_count(), sizeof(RangeIndirect),
+                                    indirect)) {
+      return std::nullopt;
+    }
+    return RangeControlLayout{
+        static_cast<rund::kernel::u32>(plan.stage_count()), params, indirect};
+  }
+
+  [[nodiscard]] constexpr rund::kernel::u32 stage_count() const noexcept {
+    return stage_count_;
+  }
+  [[nodiscard]] constexpr rund::kernel::u64 params_bytes() const noexcept {
+    return params_bytes_;
+  }
+  [[nodiscard]] constexpr rund::kernel::u64 indirect_bytes() const noexcept {
+    return indirect_bytes_;
+  }
+  [[nodiscard]] static constexpr rund::kernel::u64 status_bytes() noexcept {
+    return 2u * sizeof(rund::kernel::u32);
+  }
+
+private:
+  constexpr RangeControlLayout(const rund::kernel::u32 stage_count,
+                               const rund::kernel::u64 params_bytes,
+                               const rund::kernel::u64 indirect_bytes) noexcept
+      : stage_count_(stage_count), params_bytes_(params_bytes),
+        indirect_bytes_(indirect_bytes) {}
+
+  rund::kernel::u32 stage_count_;
+  rund::kernel::u64 params_bytes_;
+  rund::kernel::u64 indirect_bytes_;
+};
 
 class RangeTempSlot final {
 public:
