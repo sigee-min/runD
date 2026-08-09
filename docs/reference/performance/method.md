@@ -72,11 +72,12 @@ in `B` rather than being hidden by an allowance.
 Each Compute Product row measures one public `Flow` compiled into one prepared
 `Pipeline`. A cold row starts before authoring and ends after the first terminal
 result read. A warm row records sixty consecutive `Pipeline::run()` samples
-after preparation and performs one terminal read after the samples. No sample
-is retried, filtered, or preceded by a hidden per-sample prime. Bounded rows
-repeat the same prepared capacity at the declared active counts; each phase
-observes its terminal once while atomically publishing the next count and
-poisoned-tail input.
+after one fixed sixty-run conditioning block and performs one terminal read
+after the samples. The conditioning block is untimed and occurs once per warm
+shape or bounded-count phase; it is never inserted between recorded samples.
+No sample is retried or filtered. Bounded rows repeat the same prepared
+capacity at the declared active counts; each phase observes its terminal once
+while atomically publishing the next count and poisoned-tail input.
 
 For a new Release source, `tools/measure/admit/run` creates an independent
 three-packet set for each route. Every input must have a passed workload, the
@@ -378,8 +379,10 @@ typed read. Phase durations remain diagnostics. For each warm row,
 `warm_p50_us` and `warm_p95_us` are computed from all sixty consecutive
 prepared-Pipeline executions. Nearest-rank p95 is position fifty-seven because
 `ceil(0.95 * 60) = 57`, so it is the fourth-highest observation rather than a
-single scheduling maximum. `active_elements_per_s` is derived from p50 and
-never acts as a second timing authority.
+single scheduling maximum. A preceding sixty-run conditioning block separates
+steady resident evidence from the cold first-result boundary without timing
+or filtering that block. `active_elements_per_s` is derived from p50 and never
+acts as a second timing authority.
 
 Every warm run must report zero pipeline compiles, Buffer allocations,
 descriptor-pool creations, descriptor-set allocations, uploads, download

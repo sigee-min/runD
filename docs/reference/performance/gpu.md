@@ -133,8 +133,9 @@ a forced shader variant as the representative performance path.
 
 Cold `first_result_us` includes Flow authoring, compilation, upload, Pipeline
 preparation, execution, and one terminal read. Warm p50 and p95 contain only
-sixty consecutive executions of the already prepared Pipeline; one terminal
-read follows the samples. Bounded rolling reuses one capacity at active counts
+sixty consecutive executions after one fixed sixty-run conditioning block on
+the already prepared Pipeline; one terminal read follows the samples. Bounded
+rolling reuses one capacity at active counts
 `0`, `257`, `131072`, and `262144` with a poisoned inactive tail. CPU, Metal,
 and Vulkan results, graph hashes, and output hashes must match the independent
 oracle before timing is admitted.

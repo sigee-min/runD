@@ -19,6 +19,7 @@ namespace rund::measure::compute {
 namespace {
 
 constexpr std::size_t WarmSamples = 60u;
+constexpr std::size_t WarmConditionRuns = WarmSamples;
 constexpr std::size_t BoundedCapacity = 1u << 18u;
 constexpr std::size_t BoundedRadius = 1024u;
 
@@ -110,6 +111,15 @@ terminal_submissions(const Backend backend) noexcept {
   const std::size_t rank =
       (sorted.size() * numerator + denominator - 1u) / denominator;
   return sorted[std::max<std::size_t>(1u, rank) - 1u];
+}
+
+[[nodiscard]] bool condition(rund::compute::Pipeline &pipeline) {
+  for (std::size_t run = 0u; run < WarmConditionRuns; ++run) {
+    if (!pipeline.run()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] constexpr std::uint32_t map_value(const std::uint32_t value) {
@@ -478,7 +488,7 @@ measure_exact(rund::compute::Device &device, rund::compute::ProgramCache &cache,
                    memory_before.transfer.cumulative),
              input.size() * sizeof(std::uint32_t), sizeof(std::uint32_t));
 
-  if (!pipeline_result->run()) {
+  if (!condition(*pipeline_result)) {
     return false;
   }
   std::vector<double> samples;
@@ -600,8 +610,8 @@ measure_exact(rund::compute::Device &device, rund::compute::ProgramCache &cache,
       0u, 257u, BoundedCapacity / 2u, BoundedCapacity};
   for (std::size_t phase = 0u; phase < active_counts.size(); ++phase) {
     const std::size_t active = active_counts[phase];
-    if (phase == 0u && !pipeline_result->run()) {
-      std::fprintf(stderr, "product %s/rolling initial warm prime failed\n",
+    if (!condition(*pipeline_result)) {
+      std::fprintf(stderr, "product %s/rolling warm conditioning failed\n",
                    Name(backend));
       return false;
     }
