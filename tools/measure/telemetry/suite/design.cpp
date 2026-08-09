@@ -4,7 +4,7 @@ namespace rund::measure::telemetry {
 
 [[nodiscard]] std::array<Setting, kSettings>
 SettingOrder(const std::size_t pair) noexcept {
-  constexpr std::array<std::array<Setting, kSettings>, 6u> orders{{
+  constexpr std::array<std::array<Setting, kSettings>, kSettingOrders> orders{{
       {Setting::Disabled, Setting::Basic, Setting::Detail},
       {Setting::Disabled, Setting::Detail, Setting::Basic},
       {Setting::Basic, Setting::Detail, Setting::Disabled},
@@ -12,12 +12,14 @@ SettingOrder(const std::size_t pair) noexcept {
       {Setting::Basic, Setting::Disabled, Setting::Detail},
       {Setting::Detail, Setting::Disabled, Setting::Basic},
   }};
+  static_assert(kPairs % orders.size() == 0u);
   return orders[pair % orders.size()];
 }
 
 [[nodiscard]] std::array<Operation, kOperations>
 OperationOrder(const std::size_t pair) noexcept {
-  constexpr std::array<std::array<Operation, kOperations>, 4u> orders{{
+  constexpr std::array<std::array<Operation, kOperations>, kOperationOrders>
+      orders{{
       {Operation::Live, Operation::Record, Operation::Scenario,
        Operation::Replay},
       {Operation::Record, Operation::Replay, Operation::Live,
@@ -27,6 +29,7 @@ OperationOrder(const std::size_t pair) noexcept {
       {Operation::Scenario, Operation::Live, Operation::Replay,
        Operation::Record},
   }};
+  static_assert(kPairs % orders.size() == 0u);
   return orders[pair % orders.size()];
 }
 

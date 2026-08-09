@@ -471,8 +471,8 @@ sub parse_telemetry {
   my @warmups_row = split /\t/, $lines[4], -1;
   @pairs_row == 4 && $pairs_row[0] eq 'config' &&
       $pairs_row[1] eq 'pairs' && $pairs_row[2] eq 'count' &&
-      $pairs_row[3] eq '12'
-      or fail('telemetry paired sample count must be 12');
+      $pairs_row[3] eq '60'
+      or fail('telemetry paired sample count must be 60');
   @warmups_row == 4 && $warmups_row[0] eq 'config' &&
       $warmups_row[1] eq 'warmups' && $warmups_row[2] eq 'count' &&
       $warmups_row[3] eq '2'
@@ -486,7 +486,14 @@ sub parse_telemetry {
       or fail('telemetry operation order changed');
   $lines[7] eq "design\tlevels\torder\tpermutations"
       or fail('telemetry level order changed');
-  my $pairs = 12;
+  my $pairs = 60;
+  my $median_lower = $pairs / 2 - 1;
+  my $median_upper = $pairs / 2;
+  my $p95_index = (95 * $pairs + 99) / 100 - 1;
+  my $valid_pair = sub {
+    my ($value) = @_;
+    return $value =~ /\A[1-9][0-9]*\z/ && $value <= $pairs;
+  };
   my @sample_columns = qw(
       sample operation lifecycle pair level operation:order level:order
       time:wall:ns time:cpu:ns memory:allocations
@@ -553,7 +560,7 @@ sub parse_telemetry {
           or fail("invalid telemetry operation: $operation");
       grep { $_ eq $lifecycle } @lifecycles
           or fail("invalid telemetry lifecycle: $lifecycle");
-      $pair =~ /\A(?:[1-9]|1[0-2])\z/
+      $valid_pair->($pair)
           or fail("invalid telemetry sample pair: $pair");
       grep { $_ eq $level } @levels
           or fail("invalid telemetry sample level: $level");
@@ -655,7 +662,7 @@ sub parse_telemetry {
           or fail("invalid telemetry delta operation: $operation");
       grep { $_ eq $lifecycle } @lifecycles
           or fail("invalid telemetry delta lifecycle: $lifecycle");
-      $pair =~ /\A(?:[1-9]|1[0-2])\z/
+      $valid_pair->($pair)
           or fail("invalid telemetry delta pair: $pair");
       grep { $_ eq $metric } @metrics
           or fail("invalid telemetry delta metric: $metric");
@@ -978,32 +985,32 @@ sub parse_telemetry {
         @detail = sort { $a->bcmp($b) } @detail;
         @signed = sort { $a->bcmp($b) } @signed;
         @reference_signed = sort { $a->bcmp($b) } @reference_signed;
-        my $disabled_median = $disabled[5]->copy();
-        $disabled_median->badd($disabled[6]);
+        my $disabled_median = $disabled[$median_lower]->copy();
+        $disabled_median->badd($disabled[$median_upper]);
         $disabled_median->bdiv(2);
-        my $basic_median = $basic[5]->copy();
-        $basic_median->badd($basic[6]);
+        my $basic_median = $basic[$median_lower]->copy();
+        $basic_median->badd($basic[$median_upper]);
         $basic_median->bdiv(2);
-        my $detail_median = $detail[5]->copy();
-        $detail_median->badd($detail[6]);
+        my $detail_median = $detail[$median_lower]->copy();
+        $detail_median->badd($detail[$median_upper]);
         $detail_median->bdiv(2);
-        my $delta_median = $signed[5]->copy();
-        $delta_median->badd($signed[6]);
+        my $delta_median = $signed[$median_lower]->copy();
+        $delta_median->badd($signed[$median_upper]);
         $delta_median->bdiv(2);
-        my $reference_median = $reference_signed[5]->copy();
-        $reference_median->badd($reference_signed[6]);
+        my $reference_median = $reference_signed[$median_lower]->copy();
+        $reference_median->badd($reference_signed[$median_upper]);
         $reference_median->bdiv(2);
         my %expected = (
           'disabled/median' => $disabled_median,
-          'disabled/p95' => $disabled[11]->copy(),
+          'disabled/p95' => $disabled[$p95_index]->copy(),
           'basic/median' => $basic_median,
-          'basic/p95' => $basic[11]->copy(),
+          'basic/p95' => $basic[$p95_index]->copy(),
           'detail/median' => $detail_median,
-          'detail/p95' => $detail[11]->copy(),
+          'detail/p95' => $detail[$p95_index]->copy(),
           'delta/median' => $delta_median,
-          'delta/p95' => $signed[11]->copy(),
+          'delta/p95' => $signed[$p95_index]->copy(),
           'reference/median' => $reference_median,
-          'reference/p95' => $reference_signed[11]->copy(),
+          'reference/p95' => $reference_signed[$p95_index]->copy(),
         );
         for my $level (qw(disabled basic detail delta reference)) {
           for my $stat (qw(median p95)) {

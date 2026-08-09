@@ -31,7 +31,17 @@ namespace rund::measure::telemetry {
 using Clock = std::chrono::steady_clock;
 using Level = rund::telemetry::Level;
 
-constexpr std::size_t kPairs = 12u;
+// One balanced cycle contains the least common multiple of the four Williams
+// operation orders and six level permutations. Five cycles make the
+// nearest-rank p95 the fourth-highest observation.
+constexpr std::size_t kOperationOrders = 4u;
+constexpr std::size_t kSettingOrders = 6u;
+constexpr std::size_t kBalancedPairs = 12u;
+constexpr std::size_t kBalancedRepeats = 5u;
+constexpr std::size_t kPairs = kBalancedPairs * kBalancedRepeats;
+constexpr std::size_t kP95Percent = 95u;
+constexpr std::size_t kP95Rank = (kP95Percent * kPairs + 99u) / 100u;
+constexpr std::size_t kP95Index = kP95Rank - 1u;
 constexpr std::size_t kWarmups = 2u;
 constexpr std::size_t kMetrics = 7u;
 constexpr std::size_t kOperations = 4u;

@@ -109,7 +109,6 @@ void PrintAbsolute(const Operation operation, const Lifecycle lifecycle,
                    const std::string_view unit,
                    const std::array<std::uint64_t, kPairs> &values) {
   const Half median = Average(values[kPairs / 2u - 1u], values[kPairs / 2u]);
-  constexpr std::size_t p95 = (95u * kPairs + 99u) / 100u - 1u;
   std::printf("summary\t%.*s\t%.*s\t%.*s\t%.*s\tmedian\t%.*s\tabsolute\t",
               static_cast<int>(Name(operation).size()), Name(operation).data(),
               static_cast<int>(Name(lifecycle).size()), Name(lifecycle).data(),
@@ -124,7 +123,7 @@ void PrintAbsolute(const Operation operation, const Lifecycle lifecycle,
               static_cast<int>(level.size()), level.data(),
               static_cast<int>(metric.size()), metric.data(),
               static_cast<int>(unit.size()), unit.data(),
-              static_cast<unsigned long long>(values[p95]));
+              static_cast<unsigned long long>(values[kP95Index]));
 }
 
 void PrintDifference(const Operation operation, const Lifecycle lifecycle,
@@ -132,7 +131,6 @@ void PrintDifference(const Operation operation, const Lifecycle lifecycle,
                      const std::string_view metric, const std::string_view unit,
                      const std::array<Delta, kPairs> &values) {
   const Half median = Average(values[kPairs / 2u - 1u], values[kPairs / 2u]);
-  constexpr std::size_t p95 = (95u * kPairs + 99u) / 100u - 1u;
   std::printf("summary\t%.*s\t%.*s\t%.*s\t%.*s\tmedian\t%.*s\t",
               static_cast<int>(Name(operation).size()), Name(operation).data(),
               static_cast<int>(Name(lifecycle).size()), Name(lifecycle).data(),
@@ -141,7 +139,7 @@ void PrintDifference(const Operation operation, const Lifecycle lifecycle,
               static_cast<int>(unit.size()), unit.data());
   PrintDelta(median);
   std::putchar('\n');
-  const std::string_view direction = Name(values[p95].direction);
+  const std::string_view direction = Name(values[kP95Index].direction);
   std::printf("summary\t%.*s\t%.*s\t%.*s\t%.*s\tp95\t%.*s\t%.*s\t%llu\n",
               static_cast<int>(Name(operation).size()), Name(operation).data(),
               static_cast<int>(Name(lifecycle).size()), Name(lifecycle).data(),
@@ -149,7 +147,7 @@ void PrintDifference(const Operation operation, const Lifecycle lifecycle,
               static_cast<int>(metric.size()), metric.data(),
               static_cast<int>(unit.size()), unit.data(),
               static_cast<int>(direction.size()), direction.data(),
-              static_cast<unsigned long long>(values[p95].magnitude));
+              static_cast<unsigned long long>(values[kP95Index].magnitude));
 }
 
 void PrintSummary(const Operation operation, const Lifecycle lifecycle,

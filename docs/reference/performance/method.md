@@ -662,8 +662,8 @@ because neither consumes a prepared expected Record. Disabled installs no sink
 and therefore retains the all-zero event projection. Warm execution must report
 zero storage growth.
 
-Every lifecycle has two untimed warm-up rounds and twelve measured blocks. The
-four operations use this Williams order, repeated three times:
+Every lifecycle has two untimed warm-up rounds and sixty measured blocks. The
+four operations use this Williams order, repeated fifteen times:
 
 ```text
 Live     Record   Scenario Replay
@@ -672,22 +672,25 @@ Replay   Scenario Record   Live
 Scenario Live     Replay   Record
 ```
 
-Thus every operation occupies each ordinal position three times. Within each
-operation block, the twelve level triplets repeat all six permutations of
-Disabled, Basic, and Detail twice. Every level occupies each ordinal position
-four times; Basic precedes Detail in six pairs and follows it in six. Pair IDs
-are retained through samples and deltas; summaries stay scoped to one operation
-and lifecycle. No aggregate across those groups may hide a slow path.
+Thus every operation occupies each ordinal position fifteen times. Within each
+operation block, the sixty level triplets repeat all six permutations of
+Disabled, Basic, and Detail ten times. Every level occupies each ordinal
+position twenty times; Basic precedes Detail in thirty pairs and follows it in
+thirty. Pair IDs are retained through samples and deltas; summaries stay scoped
+to one operation and lifecycle. No aggregate across those groups may hide a
+slow path.
 
 Every sample records steady-clock wall nanoseconds, `RUSAGE_SELF` user-plus-
 system CPU time converted exactly from its microsecond fields to nanoseconds,
 process-wide C++ allocation calls across all threads, and
 `StorageReport::copied_bytes`. Detail also publishes its non-overlapping
 prepare, work, and finish nanoseconds; Disabled and Basic must publish zero for
-all three. For twelve sorted values, the median is the
-exact arithmetic mean of positions six and seven and nearest-rank p95 is
-position twelve because `ceil(0.95 * 12) = 12`. Half-integral medians use a
-`.5` suffix; integer arithmetic prevents binary floating-point rounding.
+all three. For sixty sorted values, the median is the exact arithmetic mean of
+positions thirty and thirty-one and nearest-rank p95 is position fifty-seven
+because `ceil(0.95 * 60) = 57`. The p95 is therefore the fourth-highest
+observation, so one isolated high interruption cannot itself be emitted as
+the p95 order statistic. Half-integral medians use a `.5` suffix; integer
+arithmetic prevents binary floating-point rounding.
 
 The log publishes absolute observations, paired Detail-minus-Basic deltas, and
 paired Basic-minus-Disabled reference deltas for each operation and lifecycle.

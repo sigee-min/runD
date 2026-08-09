@@ -269,8 +269,8 @@ static_assert(kCrossMedian.direction == Direction::Basic &&
 static_assert(kWideMedian.whole ==
                   std::numeric_limits<std::uint64_t>::max() - 1u &&
               kWideMedian.half);
-static_assert(kPairs % 2u == 0u &&
-              (95u * kPairs + 99u) / 100u - 1u == kPairs - 1u);
-
+static_assert(kBalancedPairs % kOperationOrders == 0u &&
+              kBalancedPairs % kSettingOrders == 0u && kPairs % 2u == 0u &&
+              kP95Rank == 57u && kP95Index == 56u);
 
 } // namespace rund::measure::telemetry

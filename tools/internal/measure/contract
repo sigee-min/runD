@@ -151,7 +151,7 @@ my @prefix = (
   "telemetry\t1",
   "identity\tmanifest\tsha256\t$manifest",
   "identity\tartifact\tsha256\t" . ('b' x 64),
-  "config\tpairs\tcount\t12",
+  "config\tpairs\tcount\t60",
   "config\twarmups\tcount\t2",
   "config\toperations\tcount\t4",
   "design\toperations\torder\twilliams",
@@ -185,6 +185,11 @@ my %lifecycle_id = (cold => 1, warm => 2);
 
 sub metric_value {
   my ($operation, $pair, $level, $metric) = @_;
+  # One high wall-time sample exercises the fourth-highest p95 rank without
+  # changing the expected p95 summary below.
+  return $level eq 'disabled' ? 90
+       : $level eq 'basic' ? 1000
+       : 100 if $metric eq 'wall' && $pair == 60;
   my $odd = $pair % 2 == 1;
   return $level eq 'disabled' ? 90
        : $level eq 'basic' ? ($odd ? 100 : 110)
@@ -201,8 +206,9 @@ sub metric_value {
   return $level eq 'detail' ? 2 : 0;
 }
 
+my $pairs = 60;
 for my $lifecycle (@lifecycles) {
-  for my $pair (1 .. 12) {
+  for my $pair (1 .. $pairs) {
     my @pair_operations =
         @{$operation_orders[($pair - 1) % @operation_orders]};
     my @pair_levels = @{$level_orders[($pair - 1) % @level_orders]};
@@ -272,7 +278,7 @@ for my $lifecycle (@lifecycles) {
 for my $operation (@operations) {
   for my $lifecycle (@lifecycles) {
     for my $metric (@metrics) {
-      for my $pair (1 .. 12) {
+      for my $pair (1 .. $pairs) {
         my $basic = metric_value($operation, $pair, 'basic', $metric);
         my $detail = metric_value($operation, $pair, 'detail', $metric);
         my ($direction, $magnitude) = $detail > $basic
@@ -749,6 +755,8 @@ grep -q '^profile	fixture$' "$work/telemetry-observe.tsv"
 grep -q '^live/cold/wall/median	0	ns$' "$work/telemetry-observe.tsv"
 grep -q '^live/cold/allocations/p95	1	count$' \
   "$work/telemetry-observe.tsv"
+grep -q '^summary	live	cold	basic	wall	p95	ns	absolute	110$' \
+  "$telemetry"
 
 # Absolute allocation counts are diagnostic performance observations, not an
 # exact semantic identity. Moving every level by the same allocation leaves
@@ -1583,6 +1591,12 @@ perl -F'\t' -lane \
   "$telemetry" >"$work/telemetry-order.tsv"
 reject telemetry-order measure-telemetry "$work/telemetry-order.tsv" \
   'telemetry sample order mismatch: record/cold/2/detail'
+
+perl -F'\t' -lane \
+  'if ($F[0] eq "sample" && $F[1] eq "record" && $F[2] eq "cold" && $F[3] == 60 && $F[4] eq "detail") { $F[3] = 61 } print join "\t", @F' \
+  "$telemetry" >"$work/telemetry-pair-range.tsv"
+reject telemetry-pair-range measure-telemetry "$work/telemetry-pair-range.tsv" \
+  'invalid telemetry sample pair: 61'
 
 perl -F'\t' -lane \
   'if ($F[0] eq "sample" && $F[1] eq "live" && $F[2] eq "cold" && $F[3] == 1 && $F[4] eq "disabled") { $F[54] = "replay" } print join "\t", @F' \
