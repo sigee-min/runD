@@ -6,6 +6,7 @@
 
 #include <accel/graph/value.hpp>
 #include <accel/kernel/run/binding.hpp>
+#include <rund/compute/program/range.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -87,6 +88,8 @@ struct DeviceOps final {
                            std::span<const CopyRequest>) = nullptr;
   Status (*compile)(DeviceState &, AccelProgram &,
                     const rund::AccelGraph &) = nullptr;
+  RangeSnapshot (*program_ranges)(const AccelProgram &,
+                                  std::span<RangeInfo>) noexcept = nullptr;
   node::accel::detail::KernelScratchPlan (*plan_scratch)(
       const DeviceState &, const rund::AccelKernel &, std::uint64_t,
       std::uint64_t) = nullptr;

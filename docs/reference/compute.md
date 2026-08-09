@@ -669,6 +669,14 @@ temporary roles.
 For an empty exact input, Sum produces the canonical empty output; Min and Max
 reject because their empty range has no public value.
 
+`Program::ranges(span<RangeInfo>)` exposes the frozen physical Range rows
+without allocating or replanning. The returned `RangeSnapshot` reports the
+written and total row counts, so a caller can detect truncation and retry with
+larger caller-owned storage. Each row contains its graph-node ordinal, selected
+Direct/Shared/Prefix/Block candidate, workgroup width, data-stage count, shared
+capacity, scratch bytes, and source/execution fingerprints. This is execution
+evidence for measurement and diagnostics; it is not a candidate-selection API.
+
 `group.values().window({..., .edge = WindowEdge::Clip}).ordered()` constructs
 segment IDs by canonical scan, gathers each fixed-distance neighbor, masks
 neighbors from another segment, and merges in left-to-right distance order.
@@ -1433,8 +1441,8 @@ Batch does not invent an aggregate graph or result.
 For `N` Jobs with fixed submit-and-wait cost `S` and per-Job warm wrapper/device cost
 `C`, serial cost is `N(S + C)`, Batch cost is `S + NC`, and speedup is bounded
 by `N`. At capacity 64, 30x requires `S / C >= 1856 / 34`, approximately
-`54.59`; this is not a claim without a same-input measurement. The official
-Compute route records serial and Batch end-to-end wall medians over the same
+`54.59`; this is not a claim without a same-input measurement. The focused
+Batch diagnostic records serial and Batch end-to-end wall medians over the same
 prepared 64-Job set using four AB and four BA pairs after both paths are warm;
 oracle reads happen only after timing. Submit-wait, kernel, and
 `max(wall - submit_wait, 0)` are diagnostic medians. Vulkan already records

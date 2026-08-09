@@ -197,39 +197,6 @@ static_assert(TransformBulkCost.coefficient_bytes == 83'886'080u);
 static_assert(TransformBulkCost.logical_bytes() == 201'326'592u);
 #endif
 
-[[nodiscard]] constexpr bool
-ValidInflight(const std::uint64_t expected_capacity,
-              const std::uint64_t observed_capacity,
-              const std::uint64_t observed_peak,
-              const std::uint64_t rejections) noexcept {
-  return expected_capacity != 0u && observed_capacity == expected_capacity &&
-         observed_peak != 0u && observed_peak <= observed_capacity &&
-         rejections == 0u;
-}
-
-static_assert(ValidInflight(8u, 8u, 1u, 0u));
-static_assert(ValidInflight(8u, 8u, 8u, 0u));
-static_assert(!ValidInflight(8u, 8u, 0u, 0u));
-static_assert(!ValidInflight(8u, 8u, 9u, 0u));
-static_assert(!ValidInflight(8u, 7u, 5u, 0u));
-static_assert(!ValidInflight(8u, 8u, 5u, 1u));
-
-#if !defined(RUND_COMPUTE_FOCUS)
-inline void AccumulateInflight(rund::compute::Stats &total,
-                               const rund::compute::Stats &job) noexcept {
-  total.backend = job.backend;
-  ::rund::detail::counter::Accumulate(total.command_submits,
-                                      job.command_submits);
-  ::rund::detail::counter::Accumulate(total.dispatches, job.dispatches);
-  ::rund::detail::counter::Accumulate(total.command_capacity_rejections,
-                                      job.command_capacity_rejections);
-  total.command_capacity =
-      std::max(total.command_capacity, job.command_capacity);
-  total.command_inflight_peak =
-      std::max(total.command_inflight_peak, job.command_inflight_peak);
-}
-#endif
-
 inline void PrintStatsColumns() {
   std::fputs(
       ",pipeline_compiles,buffer_allocations,download_events,dispatches,"
@@ -460,19 +427,6 @@ inline bool CheckReference(const Backend backend, const ReferenceKey key,
                static_cast<unsigned long long>(evidence.graph),
                static_cast<unsigned long long>(evidence.output));
   return false;
-}
-
-template <class Stats, class Memory>
-bool ReportHostMap(const char *const host, const std::size_t count,
-                   const double median_us, const Stats &stats,
-                   const Memory &memory, const WarmCounters &warm) {
-  std::printf("%s,cpu,map,%zu,%.3f", host, count, median_us);
-  PrintStats(stats);
-  PrintWarm(warm);
-  std::printf(",%llu,%llu\n",
-              static_cast<unsigned long long>(memory.resident.current),
-              static_cast<unsigned long long>(memory.staging.current));
-  return warm.zero();
 }
 
 template <class ProgramResult, class... Input>

@@ -4,8 +4,11 @@
 #include "../../accel/context/local.hpp"
 #include "../../accel/context/transfer.hpp"
 #include "../../accel/graph/token.hpp"
+#include "../../accel/graph/token/local.hpp"
+#include "../../accel/range_aggregate/model.hpp"
 #include "../job/state.hpp"
 #include "../pipeline/state.hpp"
+#include "../program/range.hpp"
 #include "../program/state.hpp"
 #include "../stats.hpp"
 #include "../status.hpp"
@@ -25,6 +28,25 @@ namespace rund::compute::detail {
 namespace {
 
 constexpr std::size_t TransferCapacity = PipelineTransferCapacity;
+
+RangeSnapshot program_ranges(const AccelProgram &program,
+                             const std::span<RangeInfo> rows) noexcept {
+  RangeSnapshot snapshot{};
+  const auto token = node::accel::detail::LookupKernelToken(
+      program.kernel.owner, program.kernel.kernel_id);
+  if (token == nullptr) {
+    return snapshot;
+  }
+  for (std::size_t index = 0u; index < token->steps.size(); ++index) {
+    const auto *const range =
+        node::accel::detail::RangePlanFor(token->steps[index].operation);
+    if (range != nullptr) {
+      append_program_range(*range, static_cast<std::uint32_t>(index), rows,
+                           snapshot);
+    }
+  }
+  return snapshot;
+}
 
 Status allocate(DeviceState &device, BufferState &buffer,
                 const std::size_t scalar_bytes, const std::size_t count,
@@ -418,6 +440,7 @@ const DeviceOps Operations{
     .download_batch = download_batch,
     .copy_batch = copy_batch,
     .compile = compile,
+    .program_ranges = program_ranges,
     .plan_scratch = plan_scratch,
     .resolve_buffer = resolve_buffer,
     .prepare_job = prepare_job_accel,

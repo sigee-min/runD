@@ -203,6 +203,12 @@ registry. One row owns name, symbol, source, group, profile, resource, and
 optional verification tags. One route table maps groups to executables and
 CTest resources.
 
+A semantic owner with more than one independent contract uses an owner-named
+folder. Each leaf source owns one behavior boundary—such as model, planner,
+source, backend, cache, memory, introspection, or resident transition—and the
+folder-level runner only composes those leaves. CMake lists every leaf directly;
+flat compatibility sources and forwarding aliases are not retained.
+
 The six Runtime-base groups share `node-runtime` but retain six ordered CTest
 processes. The contract runner is one target-neutral OBJECT; a thin generated
 table supplies each executable's selected cases. Focused source partitioning
@@ -356,23 +362,21 @@ and Reactor request/ack, then scales task count, deterministic payload, and
 parked-coroutine memory. Rows report configured and participating workers,
 completion identity, frame high-water, resource limits, and memory observations.
 
-`tools/measure/compute/run` measures CPU, Metal, and Vulkan at declared
-workload sizes. Each timed row has an unmeasured warm-up, validates every
-result, and saturating-sums warm counters immediately after execution. Warm
-resident execution requires zero pipeline compiles, buffer allocations,
-downloads, and uploaded bytes. A required output read and hash/parity check
-occurs after timing; readback counters are correctness evidence and are not
-folded into the warm-zero aggregate.
+`tools/measure/compute/run` measures CPU, Metal, and Vulkan through the public
+Flow and Pipeline API. Its installed Product matrix executes
+`map -> window/pool/rolling -> filter -> reduce` at declared count/window
+crossovers. Cold timing begins before Flow authoring and ends after the first
+typed result. Warm timing contains fifteen consecutive runs of one prepared
+Pipeline and one terminal read after the samples. Bounded rolling reuses one
+capacity at four logical counts with poisoned inactive storage.
 
-A fixed-capacity ledger makes CPU the oracle for domain, numeric, sparse,
-collective, and orchestration rows. Accelerator results must match it. Node
-orchestration additionally proves device waiting parks rather than occupies the
-scheduler worker. `Stats::dispatches` counts algorithmic dispatches;
-`Stats::command_submits` counts physical accelerator queue submissions.
-An argument-free contract process enumerates CPU plus only the native
-backends compiled into that process. An explicit `--backend` selection remains
-the authority for a requested native row and may terminate with its typed
-unavailable reason; neither path substitutes CPU for a requested accelerator.
+An independent scalar oracle owns result parity. `Stats::dispatches` counts
+algorithmic dispatches while `Stats::command_submits` counts queue submissions;
+both are retained alongside readbacks, transfer bytes, frozen Range candidate,
+scratch/retained memory, compile/cache evidence, graph/output hashes, and zero
+warm allocations. The argument-free installed executable enumerates CPU plus
+the native backends compiled into that process. Focused backend modes remain
+current-source diagnostics and cannot publish baseline evidence.
 
 The optional `--resident`, `--collective`, `--sort`, `--bulk`, `--batch`,
 `--pipeline`, `--pipeline-profile`, and `--recurrence` modes are

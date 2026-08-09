@@ -21,7 +21,7 @@ my %ROUTE = (
   },
   'measure-compute' => {
     identity => 'compute', log => 'measure.log', artifact => 'runD-compute-measure',
-    metrics => 145,
+    metrics => 82,
   },
   'measure-flow' => {
     identity => 'flow', log => 'samples.tsv', artifact => 'runD-flow-measure',

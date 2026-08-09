@@ -24,7 +24,7 @@ PERL
 
 compute_metrics=$(route_metrics measure-compute)
 telemetry_metrics=$(route_metrics measure-telemetry)
-[ "$compute_metrics" -eq 145 ] || {
+[ "$compute_metrics" -eq 82 ] || {
   echo "Compute route cardinality changed: $compute_metrics" >&2
   exit 1
 }
@@ -36,12 +36,10 @@ require "$root/tools/internal/measure/schema.pm";
 print RundMeasureSchema::data_rows('Darwin');
 PERL
 )
-[ "$darwin_rows" -eq 325 ] || {
+[ "$darwin_rows" -eq 262 ] || {
   echo "Darwin baseline cardinality changed: $darwin_rows" >&2
   exit 1
 }
-compute_fillers=$((compute_metrics - 11))
-
 system=$(uname -s)
 release=$(uname -r)
 machine=$(uname -m)
@@ -69,23 +67,71 @@ printf '%s\n' \
 
 compute_observation="$work/compute-observation.csv"
 printf '%s\n' \
-  'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
-  'resident_setup,cpu,ok,4,1,10.000,48,48,1,2' \
-  'workload_columns,backend,family,variant,status,input_count,active_count,samples,prime_runs,median_us,input_items_per_s,active_items_per_s,pipeline_compiles,buffer_allocations,download_events,dispatches,command_submits,uploaded_bytes,downloaded_bytes,pipeline_cache_hits,pipeline_cache_evictions,buffer_reuses,descriptor_pool_creations,descriptor_set_allocations,descriptor_reuses,original_dispatches,final_dispatches,fusions,fusion_rejections,internal_roundtrip_bytes,external_roundtrip_bytes,kernel_ns,kernel_samples,shader_compile_ns,spirv_compile_ns,pipeline_create_ns,descriptor_setup_ns,submit_wait_ns,readback_ns,graph_hash,output_hash,workers,participating,tiles,tile_size,vector_chunks,tail_chunks,warm_pipeline_compiles,warm_buffer_allocations,warm_download_events,warm_uploaded_bytes,warm_zero,resident_bytes,staging_bytes' \
-  'workload,metal,fixed_map,fixed_i16_f16_widen,ok,4096,4096,11,1,165.250,24786686.838,24786686.838,0,0,1,1,1,0,16384,0,0,0,0,0,0,1,1,0,0,0,0,3499,1,0,0,0,0,576083,31375,157605815099850567,10370443571796449501,0,0,0,0,0,0,0,0,0,0,1,49152,2' \
-  'inflight_columns,backend,status,k,count,samples,serial_median_us,concurrent_median_us,serial_jobs_per_s,concurrent_jobs_per_s,concurrent_items_per_s,speedup,command_capacity,command_inflight_peak,command_capacity_rejections,graph_hash,output_hash,hash_parity,warm_zero,command_submits,dispatches' \
-  'inflight,vulkan,ok,8,262144,7,10.000,5.000,800000.000,1600000.000,419430400000.000,2.000000,8,8,0,11,12,1,1,8,8' \
-  'batch_columns,backend,status,jobs,elements_per_job,samples,serial_first,batch_first,serial_wall_median_us,batch_wall_median_us,serial_submit_wait_us,batch_submit_wait_us,serial_kernel_us,batch_kernel_us,serial_host_residual_us,batch_host_residual_us,serial_jobs_per_s,batch_jobs_per_s,speedup,paired_speedup,serial_command_submits,batch_command_submits,job_command_submits,serial_dispatches,batch_dispatches,graph_hash,output_hash,hash_parity,warm_zero' \
-  'batch,metal,ok,64,64,8,4,4,10.000,5.000,8.000,3.000,2.000,2.000,2.000,2.000,6400000.000,12800000.000,2.000000,2.000000,64,1,0,64,64,11,12,1,1' \
-  'batch,vulkan,ok,64,64,8,4,4,12.000,6.000,9.000,4.000,3.000,2.000,3.000,2.000,5333333.333,10666666.667,2.000000,2.000000,64,1,0,64,64,11,12,1,1' \
-  'mixed_columns,backends,status,serial_median_us,mixed_median_us,serial_jobs_per_s,mixed_jobs_per_s,external_parks,external_wakes,cpu_graph_hash,cpu_output_hash,metal_graph_hash,metal_output_hash,vulkan_graph_hash,vulkan_output_hash,hash_parity,warm_pipeline_compiles,warm_buffer_allocations,warm_download_events,warm_uploaded_bytes,warm_zero' \
-  'mixed,cpu+metal+vulkan,ok,16.000,8.000,250000.000,500000.000,8,8,11,12,11,12,11,12,1,0,0,0,0,1' \
+  'product_cold_columns,backend,chain,shape,status,capacity,active_count,radius,window_size,stride,candidate,width,stages,shared_capacity,candidate_scratch_bytes,source_hi,source_lo,execution_hi,execution_lo,first_result_us,author_us,compile_us,upload_us,prepare_us,run_us,read_us,dispatches,run_submissions,terminal_submissions,terminal_readbacks,logical_upload_bytes,logical_readback_bytes,transfer_upload_bytes,downloaded_bytes,peak_retained_bytes,resident_peak_bytes,scratch_payload_bytes,scratch_backing_bytes,pipeline_compiles,pipeline_cache_hits,program_cache_hits,program_cache_misses,prepared_templates,graph_hash,output_hash,result' \
+  'product_warm_columns,backend,chain,shape,status,capacity,active_count,radius,window_size,stride,candidate,width,stages,shared_capacity,candidate_scratch_bytes,source_hi,source_lo,execution_hi,execution_lo,samples,warm_p50_us,warm_p95_us,active_elements_per_s,dispatches_per_run,submissions_per_run,terminal_submissions,terminal_readbacks,transition_upload_bytes,downloaded_bytes,peak_retained_bytes,resident_peak_bytes,scratch_payload_bytes,scratch_backing_bytes,warm_pipeline_compiles,warm_cache_hits,warm_buffer_allocations,warm_descriptor_pool_creations,warm_descriptor_set_allocations,warm_allocations,warm_uploaded_bytes,warm_download_events,warm_downloaded_bytes,warm_rebindings,graph_hash,output_hash,result' \
   >"$compute_observation"
-index=1
-while [ "$index" -le "$compute_fillers" ]; do
-  printf 'cold,probe%03u,4,10.000\n' "$index" \
-    >>"$compute_observation"
-  index=$((index + 1))
+
+emit_product_cold() {
+  product_backend=$1
+  product_run_submits=$2
+  product_terminal_submits=$3
+  product_chain=$4
+  product_shape=$5
+  product_capacity=$6
+  product_active=$7
+  product_radius=$8
+  product_window=$9
+  shift 9
+  product_stride=$1
+  printf 'product_cold,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,10.000,1.000,2.000,1.000,2.000,3.000,1.000,4,%s,%s,1,4096,4,4096,4,8192,8192,1024,1024,1,0,0,1,4,11,12,7\n' \
+    "$product_backend" "$product_chain" "$product_shape" \
+    "$product_capacity" "$product_active" "$product_radius" \
+    "$product_window" "$product_stride" "$product_run_submits" \
+    "$product_terminal_submits" >>"$compute_observation"
+}
+
+emit_product_warm() {
+  product_backend=$1
+  product_run_submits=$2
+  product_terminal_submits=$3
+  product_chain=$4
+  product_shape=$5
+  product_capacity=$6
+  product_active=$7
+  product_radius=$8
+  product_window=$9
+  shift 9
+  product_stride=$1
+  printf 'product_warm,%s,%s,%s,ok,%s,%s,%s,%s,%s,prefix,64,4,0,1024,1,2,3,4,15,10.000,10.000,1000000.000,4,%s,%s,1,0,4,8192,8192,1024,1024,0,0,0,0,0,0,0,0,0,0,11,12,7\n' \
+    "$product_backend" "$product_chain" "$product_shape" \
+    "$product_capacity" "$product_active" "$product_radius" \
+    "$product_window" "$product_stride" "$product_run_submits" \
+    "$product_terminal_submits" >>"$compute_observation"
+}
+
+for product_backend in cpu metal vulkan; do
+  product_run_submits=1
+  [ "$product_backend" = cpu ] && product_run_submits=0
+  product_terminal_submits=0
+  [ "$product_backend" = vulkan ] && product_terminal_submits=1
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" window n4096_r4 4096 4096 4 9 1
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" window n4096_r1024 4096 4096 1024 2049 1
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" window n262144_r4 262144 262144 4 9 1
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" window n262144_r1024 262144 262144 1024 2049 1
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" pool n4096_k129_s2 4096 4096 0 129 2
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" pool n262144_k2049_s2 262144 262144 0 2049 2
+  emit_product_cold "$product_backend" "$product_run_submits" "$product_terminal_submits" rolling m262144_r1024_n0 262144 0 1024 2049 1
+
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" window n4096_r4 4096 4096 4 9 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" window n4096_r1024 4096 4096 1024 2049 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" window n262144_r4 262144 262144 4 9 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" window n262144_r1024 262144 262144 1024 2049 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" pool n4096_k129_s2 4096 4096 0 129 2
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" pool n262144_k2049_s2 262144 262144 0 2049 2
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" rolling m262144_r1024_n0 262144 0 1024 2049 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" rolling m262144_r1024_n257 262144 257 1024 2049 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" rolling m262144_r1024_n131072 262144 131072 1024 2049 1
+  emit_product_warm "$product_backend" "$product_run_submits" "$product_terminal_submits" rolling m262144_r1024_n262144 262144 262144 1024 2049 1
 done
 
 scheduler_observation="$work/scheduler-observation.log"
@@ -476,23 +522,33 @@ done
 
 printf '%s\n' \
   'fixture	measure-compute	semantic	exact	0000000000000000000000000000000000000000000000000000000000000000	-	sha256' \
-  'fixture	measure-compute	batch/metal/jobs=64/elements=64/batch_wall_median_us	upper	5.000	12.5	us' \
-  'fixture	measure-compute	batch/metal/jobs=64/elements=64/serial_wall_median_us	upper	10.000	25	us' \
-  'fixture	measure-compute	batch/vulkan/jobs=64/elements=64/batch_wall_median_us	upper	6.000	15	us' \
-  'fixture	measure-compute	batch/vulkan/jobs=64/elements=64/serial_wall_median_us	upper	12.000	30	us' \
-  'fixture	measure-compute	workload/metal/fixed_map/fixed_i16_f16_widen/4096/median_us	upper	165.250	413.125	us' \
-  'fixture	measure-compute	mixed/cpu+metal+vulkan/mixed_median_us	upper	8.000	20	us' \
-  'fixture	measure-compute	mixed/cpu+metal+vulkan/serial_median_us	upper	16.000	40	us' \
-  'fixture	measure-compute	resident/cpu/4/median_us	upper	10.000	25	us' \
-  'fixture	measure-compute	inflight/vulkan/concurrent_median_us	upper	5.000	12.5	us' \
-  'fixture	measure-compute	inflight/vulkan/serial_median_us	upper	10.000	25	us' \
   >>"$baseline"
-index=1
-while [ "$index" -le "$compute_fillers" ]; do
-  printf 'fixture\tmeasure-compute\tcold/probe%03u/4/median_us\tupper\t10.000\t25\tus\n' \
-    "$index" >>"$baseline"
-  index=$((index + 1))
+compute_baseline="$work/compute-baseline.tsv"
+: >"$compute_baseline"
+for product_backend in cpu metal vulkan; do
+  for product_key in \
+    'pool/n262144_k2049_s2' 'pool/n4096_k129_s2' \
+    'rolling/m262144_r1024_n0' \
+    'window/n262144_r1024' 'window/n262144_r4' \
+    'window/n4096_r1024' 'window/n4096_r4'; do
+    printf 'fixture\tmeasure-compute\tproduct/cold/%s/%s/first_result_us\tupper\t10.000\t25\tus\n' \
+      "$product_backend" "$product_key" >>"$compute_baseline"
+  done
 done
+for product_backend in cpu metal vulkan; do
+  for product_key in \
+    'pool/n262144_k2049_s2' 'pool/n4096_k129_s2' \
+    'rolling/m262144_r1024_n0' 'rolling/m262144_r1024_n131072' \
+    'rolling/m262144_r1024_n257' 'rolling/m262144_r1024_n262144' \
+    'window/n262144_r1024' 'window/n262144_r4' \
+    'window/n4096_r1024' 'window/n4096_r4'; do
+    printf 'fixture\tmeasure-compute\tproduct/warm/%s/%s/warm_p50_us\tupper\t10.000\t25\tus\n' \
+      "$product_backend" "$product_key" >>"$compute_baseline"
+    printf 'fixture\tmeasure-compute\tproduct/warm/%s/%s/warm_p95_us\tupper\t10.000\t25\tus\n' \
+      "$product_backend" "$product_key" >>"$compute_baseline"
+  done
+done
+LC_ALL=C sort "$compute_baseline" >>"$baseline"
 
 printf '%s\n' \
   "fixture	measure-flow	semantic	exact	$semantic	-	sha256" \
@@ -665,45 +721,26 @@ perl "$root/tools/internal/measure/compare" \
 [ "$(wc -l <"$work/compute-observe.tsv" | tr -d ' ')" \
   -eq $((compute_metrics + 2)) ]
 grep -q '^profile	fixture$' "$work/compute-observe.tsv"
-grep -q '^resident/cpu/4/median_us	10.000	us$' \
+grep -q '^product/cold/cpu/window/n4096_r4/first_result_us	10.000	us$' \
   "$work/compute-observe.tsv"
-grep -q '^workload/metal/fixed_map/fixed_i16_f16_widen/4096/median_us	165.250	us$' \
+grep -q '^product/warm/metal/rolling/m262144_r1024_n257/warm_p50_us	10.000	us$' \
   "$work/compute-observe.tsv"
-grep -q '^inflight/vulkan/serial_median_us	10.000	us$' \
-  "$work/compute-observe.tsv"
-grep -q '^inflight/vulkan/concurrent_median_us	5.000	us$' \
-  "$work/compute-observe.tsv"
-grep -q '^batch/metal/jobs=64/elements=64/serial_wall_median_us	10.000	us$' \
-  "$work/compute-observe.tsv"
-grep -q '^batch/metal/jobs=64/elements=64/batch_wall_median_us	5.000	us$' \
-  "$work/compute-observe.tsv"
-grep -q '^batch/vulkan/jobs=64/elements=64/serial_wall_median_us	12.000	us$' \
-  "$work/compute-observe.tsv"
-grep -q '^batch/vulkan/jobs=64/elements=64/batch_wall_median_us	6.000	us$' \
-  "$work/compute-observe.tsv"
-grep -q '^mixed/cpu+metal+vulkan/mixed_median_us	8.000	us$' \
+grep -q '^product/warm/vulkan/window/n262144_r1024/warm_p95_us	10.000	us$' \
   "$work/compute-observe.tsv"
 
-sed 's/,800000[.]000,1600000[.]000,419430400000[.]000,2[.]000000,/,1.000,1.000,1.000,99.000000,/' \
+sed 's/,10[.]000,10[.]000,1000000[.]000,4,/,10.000,10.000,999999.000,4,/' \
   "$compute_observation" >"$work/compute-derived.csv"
 perl "$root/tools/internal/measure/compare" \
   "$fixture" measure-compute "$work/compute-derived.csv" observe \
   >"$work/compute-derived.out"
 cmp "$work/compute-observe.tsv" "$work/compute-derived.out"
 
-sed 's/,8,8,0,11,12,1,1,8,8$/,8,5,0,11,12,1,1,8,8/' \
-  "$compute_observation" >"$work/compute-inflight-peak.csv"
+sed 's/,1[.]000,2[.]000,1[.]000,2[.]000,3[.]000,1[.]000,/,9.000,8.000,7.000,6.000,5.000,4.000,/' \
+  "$compute_observation" >"$work/compute-phases.csv"
 perl "$root/tools/internal/measure/compare" \
-  "$fixture" measure-compute "$work/compute-inflight-peak.csv" observe \
-  >"$work/compute-inflight-peak.out"
-cmp "$work/compute-observe.tsv" "$work/compute-inflight-peak.out"
-
-sed 's/,8[.]000,3[.]000,2[.]000,2[.]000,2[.]000,2[.]000,6400000[.]000,12800000[.]000,2[.]000000,2[.]000000,/,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,99.000000,77.000000,/' \
-  "$compute_observation" >"$work/compute-batch-diagnostic.csv"
-perl "$root/tools/internal/measure/compare" \
-  "$fixture" measure-compute "$work/compute-batch-diagnostic.csv" observe \
-  >"$work/compute-batch-diagnostic.out"
-cmp "$work/compute-observe.tsv" "$work/compute-batch-diagnostic.out"
+  "$fixture" measure-compute "$work/compute-phases.csv" observe \
+  >"$work/compute-phases.out"
+cmp "$work/compute-observe.tsv" "$work/compute-phases.out"
 
 perl "$root/tools/internal/measure/compare" \
   "$fixture" measure-graph-services "$graph_observation" observe \
@@ -979,19 +1016,11 @@ print RundMeasureSchema::data_rows($system) + 1;
 PERL
 )
 [ "$(wc -l <"$work/candidate.tsv" | tr -d ' ')" -eq "$expected_rows" ]
-grep -q '^fixture	measure-compute	batch/metal/jobs=64/elements=64/batch_wall_median_us	upper	5.000	12.5	us$' \
+grep -q '^fixture	measure-compute	product/cold/cpu/window/n4096_r4/first_result_us	upper	10.000	25	us$' \
   "$work/candidate.tsv"
-grep -q '^fixture	measure-compute	batch/metal/jobs=64/elements=64/serial_wall_median_us	upper	10.000	25	us$' \
+grep -q '^fixture	measure-compute	product/warm/metal/rolling/m262144_r1024_n257/warm_p50_us	upper	10.000	25	us$' \
   "$work/candidate.tsv"
-grep -q '^fixture	measure-compute	batch/vulkan/jobs=64/elements=64/batch_wall_median_us	upper	6.000	15	us$' \
-  "$work/candidate.tsv"
-grep -q '^fixture	measure-compute	batch/vulkan/jobs=64/elements=64/serial_wall_median_us	upper	12.000	30	us$' \
-  "$work/candidate.tsv"
-grep -q '^fixture	measure-compute	inflight/vulkan/concurrent_median_us	upper	5.000	12.5	us$' \
-  "$work/candidate.tsv"
-grep -q '^fixture	measure-compute	inflight/vulkan/serial_median_us	upper	10.000	25	us$' \
-  "$work/candidate.tsv"
-grep -q '^fixture	measure-compute	resident/cpu/4/median_us	upper	10.000	25	us$' \
+grep -q '^fixture	measure-compute	product/warm/vulkan/window/n262144_r1024/warm_p95_us	upper	10.000	25	us$' \
   "$work/candidate.tsv"
 grep -q '^fixture	measure-scheduler	spawn_complete/warm_median_ns_per_op	upper	9	22.5	ns/op$' \
   "$work/candidate.tsv"
@@ -1519,7 +1548,7 @@ reject_baseline_unit() {
 reject_baseline_unit scheduler-unit measure-scheduler \
   "$scheduler_observation" spawn_complete/cold_ns_per_op ns/op
 reject_baseline_unit compute-unit measure-compute \
-  "$compute_observation" resident/cpu/4/median_us us
+  "$compute_observation" product/cold/cpu/window/n4096_r4/first_result_us us
 reject_baseline_unit flow-unit measure-flow "$flow" graph/median us
 reject_baseline_unit graph-unit measure-graph-services \
   "$graph_observation" latency/us us
@@ -1550,87 +1579,52 @@ printf 'metric\tsample\tunit\tvalue\n\ngraph\tmedian\tus\t10.000\n' \
   >"$work/blank.tsv"
 reject blank measure-flow "$work/blank.tsv" 'empty Flow row'
 
-printf '%s\n' \
-  'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
-  'resident_setup,cpu,ok,4,1,10.000,NaN,48,1,2' >"$work/compute.csv"
+sed 's/,10[.]000,1[.]000,2[.]000,1[.]000,2[.]000,3[.]000,1[.]000,/,NaN,1.000,2.000,1.000,2.000,3.000,1.000,/' \
+  "$compute_observation" >"$work/compute.csv"
 reject compute-nan measure-compute "$work/compute.csv" \
-  'Compute resident_setup/transfer_bytes is not a nonnegative finite decimal: NaN'
+  'Compute product_cold/first_result_us is not a nonnegative finite decimal: NaN'
+
+sed 's/product_cold,cpu,/product_cold,remote,/' \
+  "$compute_observation" >"$work/compute-backend.csv"
+reject compute-backend measure-compute "$work/compute-backend.csv" \
+  'unsupported native Compute backend for product_cold: remote'
+
+sed 's/product_warm,cpu,rolling,m262144_r1024_n257,ok,262144,257,/product_warm,cpu,rolling,m262144_r1024_n257,ok,256,257,/' \
+  "$compute_observation" >"$work/compute-active.csv"
+reject compute-active measure-compute "$work/compute-active.csv" \
+  'Compute product_warm active count exceeds capacity'
+
+sed 's/,prefix,64,4,0,1024,/,retired,64,4,0,1024,/' \
+  "$compute_observation" >"$work/compute-candidate.csv"
+reject compute-candidate measure-compute "$work/compute-candidate.csv" \
+  'Compute product_cold candidate is invalid'
+
+sed 's/,15,10[.]000,10[.]000,1000000[.]000,4,0,0,1,0,4,/,15,10.000,10.000,1000000.000,4,0,0,0,0,4,/' \
+  "$compute_observation" >"$work/compute-readback.csv"
+reject compute-readback measure-compute "$work/compute-readback.csv" \
+  'Compute product_warm must perform exactly one terminal readback'
+
+sed 's/,0,0,0,0,0,0,0,0,0,0,11,12,7$/,0,0,0,0,0,1,0,0,0,0,11,12,7/' \
+  "$compute_observation" >"$work/compute-warm-allocation.csv"
+reject compute-warm-allocation measure-compute \
+  "$work/compute-warm-allocation.csv" \
+  'Compute product warm allocation/transfer changed: warm_allocations'
+
+sed 's/,15,10[.]000,10[.]000,1000000[.]000,/,15,10.000,500.000,1000000.000,/' \
+  "$compute_observation" >"$work/compute-warm-time.csv"
+reject compute-warm-time measure-compute "$work/compute-warm-time.csv" \
+  'product/warm/cpu/window/n4096_r4/warm_p95_us baseline=10.000000 observed=500.000000'
+
+sed '/^product_warm_columns,/ s/graph_hash,output_hash/output_hash,graph_hash/' \
+  "$compute_observation" >"$work/compute-warm-columns.csv"
+reject compute-warm-columns measure-compute \
+  "$work/compute-warm-columns.csv" 'Compute product warm columns changed'
 
 printf '%s\n' \
   'resident_setup_columns,backend,status,count,samples,median_us,transfer_bytes,resident_bytes,graph_hash,output_hash' \
-  'resident_setup,remote,ok,4,1,10.000,48,48,1,2' >"$work/compute-backend.csv"
-reject compute-backend measure-compute "$work/compute-backend.csv" \
-  'unsupported native Compute backend for resident_setup: remote'
-
-sed 's/inflight,vulkan,ok,8,/inflight,vulkan,ok,9,/' \
-  "$compute_observation" >"$work/compute-inflight-k.csv"
-reject compute-inflight-k measure-compute "$work/compute-inflight-k.csv" \
-  'semantic expected='
-
-sed 's/,8,8,0,11,12,1,1,8,8$/,8,0,0,11,12,1,1,8,8/' \
-  "$compute_observation" >"$work/compute-inflight-zero.csv"
-reject compute-inflight-zero measure-compute "$work/compute-inflight-zero.csv" \
-  'Compute inflight command peak is not a positive integer: 0'
-
-sed 's/,8,8,0,11,12,1,1,8,8$/,8,9,0,11,12,1,1,8,8/' \
-  "$compute_observation" >"$work/compute-inflight-over.csv"
-reject compute-inflight-over measure-compute "$work/compute-inflight-over.csv" \
-  'Compute inflight command peak exceeds capacity: peak=9 capacity=8'
-
-sed 's/,8,8,0,11,12,1,1,8,8$/,8,8,0,13,12,1,1,8,8/' \
-  "$compute_observation" >"$work/compute-inflight-hash.csv"
-reject compute-inflight-hash measure-compute \
-  "$work/compute-inflight-hash.csv" 'semantic expected='
-
-sed 's/,11,12,1,1,8,8$/,11,12,1,1,9,8/' \
-  "$compute_observation" >"$work/compute-inflight-counter.csv"
-reject compute-inflight-counter measure-compute \
-  "$work/compute-inflight-counter.csv" 'semantic expected='
-
-sed 's/,10[.]000,5[.]000,800000[.]000,/,10.000,500.000,800000.000,/' \
-  "$compute_observation" >"$work/compute-inflight-time.csv"
-reject compute-inflight-time measure-compute \
-  "$work/compute-inflight-time.csv" \
-  'inflight/vulkan/concurrent_median_us baseline=5.000000 observed=500.000000'
-
-sed 's/,command_submits,dispatches$/,dispatches,command_submits/' \
-  "$compute_observation" >"$work/compute-inflight-columns.csv"
-reject compute-inflight-columns measure-compute \
-  "$work/compute-inflight-columns.csv" 'Compute inflight columns changed'
-
-sed 's/batch,metal,ok,64,64,8,4,4,/batch,metal,ok,63,64,8,4,4,/' \
-  "$compute_observation" >"$work/compute-batch-jobs.csv"
-reject compute-batch-jobs measure-compute "$work/compute-batch-jobs.csv" \
-  'semantic expected='
-
-sed 's/batch,metal,ok,64,64,8,4,4,10[.]000,5[.]000,/batch,metal,ok,64,64,8,4,4,10.000,500.000,/' \
-  "$compute_observation" >"$work/compute-batch-time.csv"
-reject compute-batch-time measure-compute "$work/compute-batch-time.csv" \
-  'batch/metal/jobs=64/elements=64/batch_wall_median_us baseline=5.000000 observed=500.000000'
-
-sed 's/batch,metal,ok,/batch,cpu,ok,/' \
-  "$compute_observation" >"$work/compute-batch-backend.csv"
-reject compute-batch-backend measure-compute \
-  "$work/compute-batch-backend.csv" \
-  'unsupported Compute batch backend: cpu'
-
-sed 's/cpu+metal+vulkan/cpu+metal/' \
-  "$compute_observation" >"$work/compute-mixed-backends.csv"
-reject compute-mixed-backends measure-compute \
-  "$work/compute-mixed-backends.csv" \
-  'unsupported native Compute backend set for mixed: cpu+metal'
-
-sed \
-  -e '/^mixed_columns,/ s/,vulkan_graph_hash,vulkan_output_hash//' \
-  -e '/^mixed,/ s/,11,12,1,0,0,0,0,1$/,1,0,0,0,0,1/' \
-  "$compute_observation" >"$work/compute-mixed-columns.csv"
-reject compute-mixed-columns measure-compute \
-  "$work/compute-mixed-columns.csv" 'Compute mixed columns changed'
-
-sed '/^batch_columns,/ s/output_hash,hash_parity,warm_zero/output_hash,warm_zero,hash_parity/' \
-  "$compute_observation" >"$work/compute-batch-columns.csv"
-reject compute-batch-columns measure-compute \
-  "$work/compute-batch-columns.csv" 'Compute batch columns changed'
+  >"$work/compute-legacy.csv"
+reject compute-legacy measure-compute "$work/compute-legacy.csv" \
+  'unsupported Compute header: resident_setup_columns'
 
 printf '%s\n' \
   'spawn_complete ok=1 reason=ok ops=1 cold_ns_per_op=999999 cold_ns_per_op=10 warm_median_ns_per_op=10' \

@@ -103,6 +103,8 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/admission.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/profile.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/range/introspection.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/range/resident.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/repeat.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/state.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/status.cpp|compute.pipeline"
@@ -224,6 +226,8 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/memory.cpp
   tests/contract/compute/pipeline/admission.cpp
   tests/contract/compute/pipeline/profile.cpp
+  tests/contract/compute/pipeline/range/introspection.cpp
+  tests/contract/compute/pipeline/range/resident.cpp
   tests/contract/compute/pipeline/repeat.cpp
   tests/contract/compute/pipeline/state.cpp
   tests/contract/compute/pipeline/status.cpp

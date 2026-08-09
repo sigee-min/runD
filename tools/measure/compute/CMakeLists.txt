@@ -5,23 +5,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(
     runD-compute-measure
     main.cpp
-    suite/batch.cpp
-    suite/family.cpp
-    suite/host.cpp
-    suite/mixed.cpp
-    suite/resident.cpp
-    suite/sparse.cpp)
+    suite/product.cpp)
   target_link_libraries(runD-compute-measure PRIVATE runD::sdk)
 else()
   add_executable(
     runD-compute-measure EXCLUDE_FROM_ALL
     main.cpp
-    suite/batch.cpp
-    suite/family.cpp
-    suite/host.cpp
-    suite/mixed.cpp
-    suite/resident.cpp
-    suite/sparse.cpp)
+    suite/product.cpp)
   target_link_libraries(runD-compute-measure PRIVATE node)
 
   add_executable(

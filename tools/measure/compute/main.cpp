@@ -62,7 +62,7 @@ int main(const int argc, char **const argv) {
     return 2;
   }
   const unsigned hint = std::thread::hardware_concurrency();
-  const std::uint32_t workers = hint == 0u ? 1u : hint;
+  [[maybe_unused]] const std::uint32_t workers = hint == 0u ? 1u : hint;
   std::printf("hardware_workers,%u\n", workers);
   bool ok = true;
   std::fputs("environment_columns,backend,status,code,error,name,driver,"
@@ -156,76 +156,9 @@ int main(const int argc, char **const argv) {
   for (const Backend backend : kBackends) {
     ok = ReportEnvironment(backend) && ok;
   }
-  std::fputs("warm_columns,backend,family,status,median_us", stdout);
-  PrintStatsColumns();
-  PrintWarmColumns();
-  std::fputs(",resident_bytes,staging_bytes\n", stdout);
-  PrintWorkloadColumns();
-  std::printf("resident_setup_columns,backend,status,count,samples,median_us,"
-              "transfer_bytes,resident_bytes,graph_hash,output_hash\n");
+  PrintProductColumns();
   for (const Backend backend : kBackends) {
-    ok = ResidentSetup(backend, 1024u, 21u) && ok;
-    ok = ResidentSetup(backend, 1u << 20u, 7u) && ok;
-  }
-  ok = Map("map_1_small", rund::compute::Target::cpu(1u), 1024u, 101u) && ok;
-  ok =
-      Map("map_host_small", rund::compute::Target::cpu(workers), 1024u, 101u) &&
-      ok;
-  ok = Map("map_1_large", rund::compute::Target::cpu(1u), 1u << 20u, 21u) && ok;
-  ok = Map("map_host_large", rund::compute::Target::cpu(workers), 1u << 20u,
-           21u) &&
-       ok;
-  std::fputs("host_map_columns,host,backend,family,count,median_us", stdout);
-  PrintStatsColumns();
-  PrintWarmColumns();
-  std::fputs(",resident_bytes,staging_bytes\n", stdout);
-  ok = NodeMap(workers, 1u << 20u, 21u) && ok;
-  std::fputs("orchestration_columns,backend,status,submit_median_us,"
-             "peer_median_us,completion_median_us,total_median_us,"
-             "peer_completed,external_parks,external_wakes,parked,resumed,"
-             "task_workers,configured_compute_workers",
-             stdout);
-  PrintStatsColumns();
-  PrintWarmColumns();
-  std::putchar('\n');
-  for (const Backend backend : kBackends) {
-    ok = NodeOrchestration(backend, workers, 4096u, 21u) && ok;
-  }
-  std::fputs("inflight_columns,backend,status,k,count,samples,serial_median_us,"
-             "concurrent_median_us,serial_jobs_per_s,concurrent_jobs_per_s,"
-             "concurrent_items_per_s,speedup,command_capacity,"
-             "command_inflight_peak,command_capacity_rejections,graph_hash,"
-             "output_hash,hash_parity,warm_zero,command_submits,dispatches\n",
-             stdout);
-  ok = InflightVulkan(workers, 1u << 18u, 7u) && ok;
-  std::fputs(
-      "batch_columns,backend,status,jobs,elements_per_job,samples,"
-      "serial_first,batch_first,serial_wall_median_us,batch_wall_median_us,"
-      "serial_submit_wait_us,"
-      "batch_submit_wait_us,serial_kernel_us,batch_kernel_us,"
-      "serial_host_residual_us,batch_host_residual_us,serial_jobs_per_s,"
-      "batch_jobs_per_s,speedup,paired_speedup,serial_command_submits,"
-      "batch_command_submits,job_command_submits,serial_dispatches,"
-      "batch_dispatches,graph_hash,"
-      "output_hash,hash_parity,warm_zero\n",
-      stdout);
-  ok = BatchJobs(Backend::Metal, 64u, 8u) && ok;
-  ok = BatchJobs(Backend::Vulkan, 64u, 8u) && ok;
-  std::printf(
-      "mixed_columns,backends,status,serial_median_us,mixed_median_us,"
-      "serial_jobs_per_s,mixed_jobs_per_s,external_parks,external_wakes,"
-      "cpu_graph_hash,cpu_output_hash,metal_graph_hash,metal_output_hash,"
-      "vulkan_graph_hash,vulkan_output_hash,"
-      "hash_parity,warm_pipeline_compiles,warm_buffer_allocations,"
-      "warm_download_events,warm_uploaded_bytes,warm_zero\n");
-  ok = Mixed(workers, 4096u, 7u) && ok;
-  for (const Backend backend : kBackends) {
-    ok = FixedWidening32(backend) && ok;
-    ok = FixedWidening64(backend) && ok;
-    ok = SparseWorkloads(backend, 1u << 18u, 5u) && ok;
-    ok = CollectiveWorkloads(backend, 4096u, 7u) && ok;
-    ok = CollectiveWorkloads(backend, 1u << 18u, 5u) && ok;
-    ok = Families(backend) && ok;
+    ok = ProductScenarios(backend) && ok;
   }
   return ok ? 0 : 1;
 #endif

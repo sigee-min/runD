@@ -21,7 +21,7 @@ contracts without defining another product authority.
 | `tools/sanitize/run thread` | Run the TSan concurrency-owner matrix. |
 | `tools/check/leaks` | Run the native lifetime leak owners. |
 | `tools/measure/scheduler/run` | Measure installed scheduler latency, scaling, and memory. |
-| `tools/measure/compute/run` | Measure installed Compute execution, scaling, parity, and warm cost. |
+| `tools/measure/compute/run` | Measure installed public Flow/Pipeline Product chains: cold first result and warm Window/Pool/rolling crossover evidence. |
 | `tools/measure/compute/run --resident <cpu\|metal\|vulkan>` | Isolate current-source resident creation and transfer setup cost. |
 | `tools/measure/compute/run --collective <cpu\|metal\|vulkan>` | Isolate current-source Release collective execution with the CPU oracle retained for native accelerators. |
 | `tools/measure/compute/run --sort <cpu\|metal\|vulkan>` | Isolate current-source Release dense and bounded sparse map/sort execution with the CPU oracle retained for native accelerators. |

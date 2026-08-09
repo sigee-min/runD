@@ -69,14 +69,14 @@ median has a one-observation contamination bound: one arbitrary scheduler
 interruption cannot move `B`, while two degraded observations remain visible
 in `B` rather than being hidden by an allowance.
 
-Every general Compute workload row records `prime_runs = 1`. After the initial
-validated warm-up, each timed `Job::run()` is immediately preceded by one
-completed, untimed run of that same prepared Job. The prime must succeed and
-its warm counters join the row's zero-setup contract. It neither retries nor
-filters a timed sample: the fixed number of timed samples is still retained in
-full and its median is still the timing value. This defines the measured
-boundary as steady prepared execution; idle-to-active submission latency is a
-different observation and is not silently folded into the workload median.
+Each Compute Product row measures one public `Flow` compiled into one prepared
+`Pipeline`. A cold row starts before authoring and ends after the first terminal
+result read. A warm row records fifteen consecutive `Pipeline::run()` samples
+after preparation and performs one terminal read after the samples. No sample
+is retried, filtered, or preceded by a hidden per-sample prime. Bounded rows
+repeat the same prepared capacity at the declared active counts; each phase
+observes its terminal once while atomically publishing the next count and
+poisoned-tail input.
 
 For a new Release source, `tools/measure/admit/run` creates an independent
 three-packet set for each route. Every input must have a passed workload, the
@@ -143,8 +143,8 @@ upper metrics. `workers` is a positive canonical integer and every text host
 fact is nonempty. A reordered row, zero worker count, empty text fact, missing
 metric, or extra metric invalidates the whole table.
 
-The Darwin product schema has exactly 325 data rows: sixteen identities, six
-environment facts, and route cardinalities 95 scheduler, 145 Compute, 5 Flow,
+The Darwin product schema has exactly 262 data rows: sixteen identities, six
+environment facts, and route cardinalities 95 scheduler, 82 Compute, 5 Flow,
 9 graph services, and 49 telemetry. The header is additional. Each route count
 includes its one semantic identity. `tools/internal/measure/schema.pm` is the
 executable cardinality authority; this paragraph records its reviewed Darwin
@@ -357,107 +357,43 @@ compression, and driver behavior require hardware counters and therefore must
 not be inferred from them. End-to-end wall median remains the throughput
 authority; kernel and submit-wait medians remain diagnostics.
 
-Every environment, resident, warm, workload, and orchestration row names one
-of those three backends, and the mixed row names exactly their complete
-set. Their canonical metric keys retain that backend segment. A backend-free
-row in one of those families has no measurement owner and is rejected rather
-than inheriting another backend's limit.
+The installed Compute route is the Product matrix. Every row names exactly one
+of CPU, Metal, or Vulkan and one public chain:
 
-The dense Sort row uses 262,144 descending U32 values. The bounded sparse row
-uses the same physical capacity, a stable one-of-sixteen filter, and 16,384
-active values. Each Program is compiled and made resident before one untimed
-warm-up. Five measured runs time only `Job::run()`, and validation plus explicit
-readback occur outside the interval. Each validation point reads the output
-exactly once; the same final value view owns semantic validation and output-hash
-publication. A row is admissible only when its output is
-sorted, its output hash matches the CPU reference, it submits one prepared
-command stream, and every measured warm run has zero pipeline compiles, buffer
-allocations, uploads, and downloads.
+- `map -> window -> filter -> reduce` at `N = 4096` and `262144`, with radii
+  `4` and `1024`;
+- `map -> pool -> filter -> reduce` with Keep/Clip windows
+  `(N,K,S) = (4096,129,2)` and `(262144,2049,2)`;
+- bounded `map -> rolling Min -> filter -> reduce` at capacity `M = 262144`,
+  radius `1024`, and active counts `0`, `257`, `131072`, and `262144`.
 
-For radix pass `d`, native GPU stability is checked by
+The input, count, result, graph hash, output hash, and selected Range candidate
+are validated against an independent CPU oracle. Inactive bounded elements use
+alternating zero and `UINT32_MAX` poison. A stale capacity tail therefore cannot
+pass by matching the active prefix accidentally.
 
-```text
-destination = bucket_base + prior_block_count + prior_equal_lane_count.
-```
+For each cold row, `first_result_us` encloses public Flow authoring, Program
+compilation, input upload, Pipeline preparation, one execution, and the final
+typed read. Phase durations remain diagnostics. For each warm row,
+`warm_p50_us` and `warm_p95_us` are computed from all fifteen consecutive
+prepared-Pipeline executions. `active_elements_per_s` is derived from p50 and
+never acts as a second timing authority.
 
-The cross-block contract also uses repeated equal keys and original ordinal
-values, so a fast but unstable scatter or reuse of an original-block histogram
-cannot pass by producing only the right key multiset. End-to-end median is the
-performance authority; kernel and submit spans remain diagnostic.
+Every warm run must report zero pipeline compiles, Buffer allocations,
+descriptor-pool creations, descriptor-set allocations, uploads, download
+events, downloaded bytes, and retained-binding mutations. CPU records zero
+execution submissions; each GPU records one. Each phase performs exactly one
+terminal read after its samples. Metal's unified-memory read needs no separate
+submission, while Vulkan's read owns one transfer submission; this physical
+difference is exact semantic evidence rather than a timing adjustment.
 
-The Vulkan in-flight row measures one bounded command envelope twice over the
-same prepared Jobs and canonical input. Serial execution submits and waits for
-each Job before the next submission. Concurrent execution submits the complete
-envelope before waiting in submission order. The completion service may retire
-an earlier slot while the caller is still submitting later Jobs. If claim and
-retirement times are `c_i` and `r_i`, observed occupancy is
-`P = max_t sum_i [c_i <= t < r_i]`; submission order alone does not prove
-`c_k < r_1`. The admissible asynchronous measurement is therefore
-`0 < P <= C` for command capacity `C`, with zero admission rejections. Exact
-capacity saturation and ninth-submission rejection remain owned by the gated
-`runtime.compute-accel` contract, which prevents retirement until all eight
-slots are claimed.
-
-The two end-to-end medians are independent upper metrics. Jobs per second,
-items per second, speedup, and observed in-flight peak are schedule-dependent
-diagnostics and cannot gate or alter semantic identity. Envelope size, input
-count, sample count, command capacity, rejection count, command submits,
-dispatches, warm-cost status, and graph/output hash parity remain in the exact
-semantic projection. Changing this metric set requires a complete five-route
-calibration cut; every timing row must be measured by that cut.
-
-Every concurrent Job contributes completion-local command evidence. The
-measurement folds independent Jobs with the product monoid
-
-```text
-(submits, dispatches, rejections, capacity, peak)
-  = (saturating sum, saturating sum, saturating sum, max, max).
-```
-
-The identity is `(0, 0, 0, 0, 0)`. Addition is associative under unsigned
-saturation and `max` is associative, commutative, and idempotent, so the
-projection is independent of host completion order. No Job submission starts a
-global telemetry epoch; doing so would first wait for older fences and collapse
-the bounded envelope to one effective slot.
-
-The Metal and Vulkan Batch rows measure the same 64 prepared Jobs and
-canonical 64-element input twice. Serial execution runs and waits for every Job
-in order; Batch execution admits that exact retained set to one
-`compute::Batch` and requires one native command submission. Eight paired samples alternate
-serial-then-Batch and Batch-then-serial, four times each, after both paths are
-pre-warmed. They produce independent serial and Batch end-to-end wall medians;
-the per-pair speedup median is diagnostic. Those two wall values are the only
-new baseline timing authorities. Jobs per second and speedup are derived
-diagnostics.
-
-Every measured run has zero warm compilation, allocation, download, and upload
-counters. The serial submit total is exactly 64, the Batch submit total is
-exactly one, and the pre-read Job snapshots contain zero copies of that shared
-submit. Every Job's graph and output hash must match its own serial result, all
-64 outputs must match the canonical value, and Metal and Vulkan hashes
-must agree.
-
-The general Compute workload's `warm_zero` is the conjunction of zero pipeline
-compiles, buffer allocations, descriptor-pool creations, descriptor-set
-allocations, uploads, download events, and downloaded bytes. Internal and
-external producer/consumer roundtrip bytes are algorithmic traffic executed by
-the prepared graph, not warm setup or host-transfer churn; they remain explicit
-per-run diagnostics and do not alter `warm_zero`. Focused Pipeline rows retain
-their stronger, separately named zero-roundtrip contract because their three
-unary steps are required to remain resident without materialization.
-Explicit serial and Batch oracle runs and reads happen only after every timed
-pair, so readback and validation cannot bias either measured order.
-
-For each sample, the route also sums driver submit-wait and kernel spans and
-records `host_residual = max(wall - submit_wait, 0)`. Their medians are
-diagnostic and excluded from both semantic identity and baseline metrics. A
-dominant host residual after one-submit batching points to pre-recording work,
-such as Metal indirect command buffers. Vulkan prepared Jobs already retain one
-secondary command buffer, so their warm command construction is one primary
-timestamp/execute wrapper independent of prepared dispatch count. A dominant
-Vulkan host residual therefore points above native step encoding. A dominant
-submit-wait span instead confirms native submission amortization as the active
-structural lever.
+Dispatches, submissions, readbacks, logical and physical transfer bytes, peak
+retained and resident bytes, logical and backing scratch bytes, cache evidence,
+selected candidate/width/stage/shared-capacity, source and execution identity,
+and graph/output hashes are exact fields. They distinguish multiple dispatches
+inside one submission from multiple submissions and prevent a faster but
+different graph, candidate, or observation boundary from entering the timing
+comparison.
 
 The Metal and Vulkan Pipeline rows reuse the exact same three compiled unary
 Programs and four caller-owned 4,096-element `I32` Buffers for both paths. The
@@ -879,7 +815,7 @@ SHA-256. The three metric and unit sets must be identical and have the fixed
 route cardinality. Semantic identities must match exactly. The projector
 selects the median observation with arbitrary-precision decimal arithmetic,
 preserves its exact numeric spelling for `B`, and writes exactly the canonical
-header plus the row count computed by the shared schema (`325` for the admitted
+  header plus the row count computed by the shared schema (`262` for the admitted
 Darwin profile) to standard output.
 
 After review, apply that complete output as the explicit `baseline.tsv` edit.

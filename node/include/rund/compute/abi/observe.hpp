@@ -2,6 +2,7 @@
 
 #include <rund/compute/abi/model.hpp>
 #include <rund/compute/device/pipeline_memory.hpp>
+#include <rund/compute/program/range.hpp>
 #include <rund/compute/stats.hpp>
 #include <span>
 namespace rund::compute::detail {
@@ -24,6 +25,9 @@ program_memory_snapshot(const std::shared_ptr<ProgramState> &state,
 program_graph_info(const std::shared_ptr<ProgramState> &state) noexcept;
 [[nodiscard]] Result<Backend>
 program_backend(const std::shared_ptr<ProgramState> &state) noexcept;
+[[nodiscard]] RangeSnapshot
+program_ranges(const std::shared_ptr<ProgramState> &state,
+               std::span<RangeInfo> rows) noexcept;
 [[nodiscard]] std::size_t
 program_input_size(const std::shared_ptr<ProgramState> &state,
                    std::size_t index) noexcept;

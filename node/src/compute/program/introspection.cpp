@@ -1,8 +1,14 @@
 #include "output.hpp"
+#include "range.hpp"
 #include "state.hpp"
 
-#include <rund/compute/graph/info.hpp>
+#include "../backend.hpp"
+#include "../cpu/graph.hpp"
 
+#include <rund/compute/graph/info.hpp>
+#include <rund/compute/program/range.hpp>
+
+#include <algorithm>
 #include <cstring>
 
 namespace rund::compute::detail {
@@ -43,6 +49,32 @@ const graph::Info &
 program_graph_info(const std::shared_ptr<ProgramState> &state) noexcept {
   static const graph::Info empty;
   return state == nullptr ? empty : state->graph_info;
+}
+
+RangeSnapshot program_ranges(const std::shared_ptr<ProgramState> &state,
+                             const std::span<RangeInfo> rows) noexcept {
+  RangeSnapshot snapshot{};
+  if (state == nullptr) {
+    return snapshot;
+  }
+  if (state->cpu_graph != nullptr && state->cpu_graph->runtime != nullptr) {
+    const auto &steps = state->cpu_graph->runtime->steps;
+    for (std::size_t index = 0u; index < steps.size(); ++index) {
+      const auto *const primitive =
+          std::get_if<CpuRuntimePrimitive>(&steps[index]);
+      if (primitive != nullptr && primitive->range.has_value()) {
+        append_program_range(*primitive->range,
+                             static_cast<std::uint32_t>(index), rows, snapshot);
+      }
+    }
+    return snapshot;
+  }
+  if (state->accel == nullptr || state->device == nullptr ||
+      state->device->ops == nullptr ||
+      state->device->ops->program_ranges == nullptr) {
+    return snapshot;
+  }
+  return state->device->ops->program_ranges(*state->accel, rows);
 }
 
 std::size_t program_input_size(const std::shared_ptr<ProgramState> &state,

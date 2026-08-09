@@ -62,42 +62,31 @@ if ($project) {
 sub row_key {
   my ($kind, $values) = @_;
   return "environment/$values->{backend}" if $kind eq 'environment';
-  return "resident/$values->{backend}/$values->{count}"
-      if $kind eq 'resident_setup';
-  return "workload/$values->{backend}/$values->{family}/$values->{variant}/$values->{input_count}"
-      if $kind eq 'workload';
-  return "host/$values->{host}/$values->{backend}/$values->{family}/$values->{count}"
-      if $kind eq 'host_map';
-  return "orchestration/$values->{backend}" if $kind eq 'orchestration';
-  return "inflight/$values->{backend}" if $kind eq 'inflight';
-  return "batch/$values->{backend}/jobs=$values->{jobs}/elements=$values->{elements_per_job}"
-      if $kind eq 'batch';
-  return "mixed/$values->{backends}" if $kind eq 'mixed';
-  return "warm/$values->{backend}/$values->{family}" if $kind eq 'warm';
+  return "product/cold/$values->{backend}/$values->{chain}/$values->{shape}"
+      if $kind eq 'product_cold';
+  return "product/warm/$values->{backend}/$values->{chain}/$values->{shape}"
+      if $kind eq 'product_warm';
   fail("unsupported Compute row kind: $kind");
 }
 
 sub timed_compute_field {
   my ($name) = @_;
-  return 1 if $name eq 'median_us' || $name =~ /_median_us\z/;
-  return 0;
+  return $name =~ /\A(?:first_result_us|warm_p50_us|warm_p95_us)\z/;
 }
 
 sub diagnostic_compute_field {
   my ($name) = @_;
-  return 1 if $name eq 'command_inflight_peak';
-  return 1 if $name =~ /(?:submit_wait|kernel|host_residual)_us\z/;
-  return $name =~ /(?:^|_)(?:kernel|shader_compile|spirv_compile|pipeline_create|descriptor_setup|submit_wait|readback)_ns\z/;
+  return $name =~ /\A(?:author_us|compile_us|upload_us|prepare_us|run_us|read_us)\z/;
 }
 
 sub derived_compute_field {
   my ($name) = @_;
-  return $name =~ /(?:items_per_s|jobs_per_s|speedup)\z/;
+  return $name eq 'active_elements_per_s';
 }
 
 sub text_compute_field {
   my ($name) = @_;
-  return $name =~ /\A(?:backend|status|error|name|driver|driver_details|family|variant|host|backends)\z/;
+  return $name =~ /\A(?:backend|status|error|name|driver|driver_details|chain|shape|candidate)\z/;
 }
 
 sub native_compute_backend {
@@ -105,42 +94,39 @@ sub native_compute_backend {
   return defined($value) && $value =~ /\A(?:cpu|metal|vulkan)\z/;
 }
 
-sub validate_inflight_columns {
+sub validate_product_cold_columns {
   my ($columns) = @_;
   my @required = qw(
-      backend status k count samples serial_median_us concurrent_median_us
-      serial_jobs_per_s concurrent_jobs_per_s concurrent_items_per_s speedup
-      command_capacity command_inflight_peak command_capacity_rejections
-      graph_hash output_hash hash_parity warm_zero command_submits dispatches);
+      backend chain shape status capacity active_count radius window_size stride
+      candidate width stages shared_capacity candidate_scratch_bytes source_hi
+      source_lo execution_hi execution_lo first_result_us author_us compile_us
+      upload_us prepare_us run_us read_us dispatches run_submissions
+      terminal_submissions terminal_readbacks logical_upload_bytes
+      logical_readback_bytes transfer_upload_bytes downloaded_bytes
+      peak_retained_bytes resident_peak_bytes scratch_payload_bytes
+      scratch_backing_bytes pipeline_compiles pipeline_cache_hits
+      program_cache_hits program_cache_misses prepared_templates graph_hash
+      output_hash result);
   join("\n", @$columns) eq join("\n", @required)
-      or fail('Compute inflight columns changed');
+      or fail('Compute product cold columns changed');
 }
 
-sub validate_batch_columns {
+sub validate_product_warm_columns {
   my ($columns) = @_;
   my @required = qw(
-      backend status jobs elements_per_job samples serial_first batch_first
-      serial_wall_median_us batch_wall_median_us serial_submit_wait_us batch_submit_wait_us
-      serial_kernel_us batch_kernel_us serial_host_residual_us
-      batch_host_residual_us serial_jobs_per_s batch_jobs_per_s speedup
-      paired_speedup serial_command_submits batch_command_submits job_command_submits
-      serial_dispatches batch_dispatches graph_hash output_hash hash_parity
-      warm_zero);
+      backend chain shape status capacity active_count radius window_size stride
+      candidate width stages shared_capacity candidate_scratch_bytes source_hi
+      source_lo execution_hi execution_lo samples warm_p50_us warm_p95_us
+      active_elements_per_s dispatches_per_run submissions_per_run
+      terminal_submissions terminal_readbacks transition_upload_bytes
+      downloaded_bytes peak_retained_bytes resident_peak_bytes
+      scratch_payload_bytes scratch_backing_bytes warm_pipeline_compiles
+      warm_cache_hits warm_buffer_allocations warm_descriptor_pool_creations
+      warm_descriptor_set_allocations warm_allocations warm_uploaded_bytes
+      warm_download_events warm_downloaded_bytes warm_rebindings graph_hash
+      output_hash result);
   join("\n", @$columns) eq join("\n", @required)
-      or fail('Compute batch columns changed');
-}
-
-sub validate_mixed_columns {
-  my ($columns) = @_;
-  my @required = qw(
-      backends status serial_median_us mixed_median_us serial_jobs_per_s
-      mixed_jobs_per_s external_parks external_wakes cpu_graph_hash
-      cpu_output_hash metal_graph_hash metal_output_hash vulkan_graph_hash
-      vulkan_output_hash hash_parity warm_pipeline_compiles
-      warm_buffer_allocations warm_download_events warm_uploaded_bytes
-      warm_zero);
-  join("\n", @$columns) eq join("\n", @required)
-      or fail('Compute mixed columns changed');
+      or fail('Compute product warm columns changed');
 }
 
 sub validate_compute_values {
@@ -154,11 +140,6 @@ sub validate_compute_values {
     if ($column eq 'backend') {
       native_compute_backend($value)
           or fail("unsupported native Compute backend for $kind: $value");
-      $kind ne 'batch' || $value =~ /\A(?:metal|vulkan)\z/
-          or fail("unsupported Compute batch backend: $value");
-    } elsif ($column eq 'backends') {
-      $value eq 'cpu+metal+vulkan'
-          or fail("unsupported native Compute backend set for $kind: $value");
     }
     if (text_compute_field($column)) {
       if ($column ne 'error' && $column ne 'driver_details') {
@@ -170,16 +151,38 @@ sub validate_compute_values {
   }
 }
 
-sub validate_inflight_values {
-  my ($values) = @_;
-  my $capacity = $values->{command_capacity};
-  my $peak = $values->{command_inflight_peak};
-  $capacity =~ /\A[1-9][0-9]*\z/
-      or fail("Compute inflight command capacity is not a positive integer: $capacity");
-  $peak =~ /\A[1-9][0-9]*\z/
-      or fail("Compute inflight command peak is not a positive integer: $peak");
-  Math::BigFloat->new($peak)->bcmp(Math::BigFloat->new($capacity)) <= 0
-      or fail("Compute inflight command peak exceeds capacity: peak=$peak capacity=$capacity");
+sub validate_product_values {
+  my ($kind, $values) = @_;
+  $values->{status} eq 'ok' or fail("Compute $kind status is not ok");
+  $values->{candidate} =~ /\A(?:direct|shared|prefix|block)\z/
+      or fail("Compute $kind candidate is invalid");
+  Math::BigInt->new($values->{active_count})->bcmp(
+      Math::BigInt->new($values->{capacity})) <= 0
+      or fail("Compute $kind active count exceeds capacity");
+  $values->{terminal_readbacks} eq '1'
+      or fail("Compute $kind must perform exactly one terminal readback");
+  my $expected_run_submissions = $values->{backend} eq 'cpu' ? '0' : '1';
+  my $expected_terminal_submissions =
+      $values->{backend} eq 'vulkan' ? '1' : '0';
+  $values->{terminal_submissions} eq $expected_terminal_submissions
+      or fail("Compute $kind terminal submission count changed");
+  if ($kind eq 'product_cold') {
+    $values->{run_submissions} eq $expected_run_submissions
+        or fail('Compute product cold submission count changed');
+  } else {
+    $values->{samples} eq '15'
+        or fail('Compute product warm sample count changed');
+    $values->{submissions_per_run} eq $expected_run_submissions
+        or fail('Compute product warm submission count changed');
+    for my $name (qw(warm_pipeline_compiles warm_buffer_allocations
+                     warm_descriptor_pool_creations
+                     warm_descriptor_set_allocations warm_allocations
+                     warm_uploaded_bytes warm_download_events
+                     warm_downloaded_bytes warm_rebindings)) {
+      $values->{$name} eq '0'
+          or fail("Compute product warm allocation/transfer changed: $name");
+    }
+  }
 }
 
 sub parse_compute {
@@ -198,7 +201,7 @@ sub parse_compute {
     my $name = $field[0];
     if ($name =~ /\A(.+)_columns\z/) {
       my $kind = $1;
-      $kind =~ /\A(?:environment|resident_setup|workload|host_map|orchestration|inflight|batch|mixed|warm)\z/
+      $kind =~ /\A(?:environment|product_cold|product_warm)\z/
           or fail("unsupported Compute header: $name");
       !exists $headers{$kind} or fail("duplicate Compute header: $kind");
       @field > 1 or fail("empty Compute header: $kind");
@@ -208,9 +211,10 @@ sub parse_compute {
         $column ne '' or fail("empty Compute column for $kind");
         !$seen{$column}++ or fail("duplicate Compute column for $kind: $column");
       }
-      validate_inflight_columns($headers{$kind}) if $kind eq 'inflight';
-      validate_batch_columns($headers{$kind}) if $kind eq 'batch';
-      validate_mixed_columns($headers{$kind}) if $kind eq 'mixed';
+      validate_product_cold_columns($headers{$kind})
+          if $kind eq 'product_cold';
+      validate_product_warm_columns($headers{$kind})
+          if $kind eq 'product_warm';
       push @semantic, join(',', $name, @{$headers{$kind}});
       next;
     }
@@ -220,49 +224,21 @@ sub parse_compute {
       push @semantic, join(',', @field);
       next;
     }
-    if ($name eq 'cold') {
-      @field == 4 or fail("invalid cold row: $line");
-      require_decimal($field[2], "Compute cold/$field[1]/count");
-      require_decimal($field[3], "Compute cold/$field[1]/median_us");
-      my $key = "cold/$field[1]/$field[2]/median_us";
-      record_observation(\%timing, \%units, $key, $field[3], 'us',
-                         'timing');
-      push @semantic, join(',', @field[0 .. 2]);
-      next;
-    }
-    if ($name eq 'fixed_cold') {
-      @field == 5 or fail("invalid fixed cold row: $line");
-      native_compute_backend($field[1])
-          or fail("unsupported native Compute backend for fixed_cold: $field[1]");
-      require_decimal($field[3], "Compute fixed_cold/$field[1]/$field[2]/count");
-      require_decimal($field[4], "Compute fixed_cold/$field[1]/$field[2]/median_us");
-      my $key = "cold/$field[1]/$field[2]/$field[3]/median_us";
-      record_observation(\%timing, \%units, $key, $field[4], 'us',
-                         'timing');
-      push @semantic, join(',', @field[0 .. 3]);
-      next;
-    }
-
     my $kind;
-    if ($name eq 'environment' || $name eq 'resident_setup' ||
-        $name eq 'workload' || $name eq 'orchestration' ||
-        $name eq 'inflight' || $name eq 'batch' || $name eq 'mixed') {
+    if ($name eq 'environment' || $name eq 'product_cold' ||
+        $name eq 'product_warm') {
       $kind = $name;
-    } elsif ($name eq 'standalone' || $name eq 'node') {
-      $kind = 'host_map';
-    } elsif ($name =~ /\A(?:cpu|metal|vulkan)\z/) {
-      $kind = 'warm';
     } else {
       fail("unrecognized Compute row: $line");
     }
     exists $headers{$kind} or fail("missing Compute header for $kind");
     my @columns = @{$headers{$kind}};
-    my @values = $kind eq 'host_map' || $kind eq 'warm' ? @field : @field[1 .. $#field];
+    my @values = @field[1 .. $#field];
     @values == @columns or fail("Compute column count changed for $kind");
     validate_compute_values($kind, \@columns, \@values);
     my %values;
     @values{@columns} = @values;
-    validate_inflight_values(\%values) if $kind eq 'inflight';
+    validate_product_values($kind, \%values) if $kind =~ /\Aproduct_/;
     my $key = row_key($kind, \%values);
     my @exact;
     for my $index (0 .. $#columns) {

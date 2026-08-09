@@ -5,6 +5,7 @@
 #include <rund/compute/buffer.hpp>
 #include <rund/compute/graph/info.hpp>
 #include <rund/compute/job.hpp>
+#include <rund/compute/program/range.hpp>
 #include <rund/compute/program/run.hpp>
 #include <rund/compute/run.hpp>
 #include <span>
@@ -34,6 +35,10 @@ public:
   [[nodiscard]] ::rund::compute::graph::Fingerprint
   fingerprint() const noexcept {
     return graph().fingerprint;
+  }
+  [[nodiscard]] RangeSnapshot
+  ranges(const std::span<RangeInfo> rows) const noexcept {
+    return program_ranges(state_, rows);
   }
   [[nodiscard]] MemoryStats memory() const noexcept {
     return program_memory(state_);
@@ -65,6 +70,7 @@ public:
   using detail::ProgramHandle::memory;
   using detail::ProgramHandle::memory_snapshot;
   using detail::ProgramHandle::operator bool;
+  using detail::ProgramHandle::ranges;
   using detail::ProgramHandle::valid;
   [[nodiscard]] std::size_t size() const noexcept {
     return detail::program_input_size(state_, 0u);
@@ -130,6 +136,7 @@ public:
   using detail::ProgramHandle::memory;
   using detail::ProgramHandle::memory_snapshot;
   using detail::ProgramHandle::operator bool;
+  using detail::ProgramHandle::ranges;
   using detail::ProgramHandle::valid;
   [[nodiscard]] std::size_t size() const noexcept {
     return detail::program_input_size(state_, 0u);
@@ -193,6 +200,7 @@ public:
   using detail::ProgramHandle::memory;
   using detail::ProgramHandle::memory_snapshot;
   using detail::ProgramHandle::operator bool;
+  using detail::ProgramHandle::ranges;
   using detail::ProgramHandle::valid;
   [[nodiscard]] std::size_t input_count() const noexcept {
     return sizeof...(A);
@@ -256,6 +264,7 @@ public:
   using detail::ProgramHandle::memory;
   using detail::ProgramHandle::memory_snapshot;
   using detail::ProgramHandle::operator bool;
+  using detail::ProgramHandle::ranges;
   using detail::ProgramHandle::valid;
   [[nodiscard]] std::size_t input_count() const noexcept {
     return sizeof...(A);

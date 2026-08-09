@@ -43,6 +43,13 @@ CheckBackend(const Backend backend,
   if (const int memory = CheckMemory(*device); memory != 0) {
     return 175 + memory;
   }
+  if (const int range = CheckRangeIntrospection(*device, backend); range != 0) {
+    return 190 + range;
+  }
+  if (const int resident = CheckResidentRangeTransition(*device, backend);
+      resident != 0) {
+    return 195 + resident;
+  }
   if (const int surface = CheckSurface(*device); surface != 0) {
     return 200 + surface;
   }
