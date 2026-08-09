@@ -225,7 +225,6 @@ struct MetalSequence final {
   bool uses_status_arena{};
   bool profile_steps{};
   bool direct_aggregate{};
-  bool trace_active{};
   submission::State<MetalSequence> submission{};
 };
 

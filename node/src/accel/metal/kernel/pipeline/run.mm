@@ -216,7 +216,8 @@ ObserveMetalProfile(MetalSequence &sequence,
   return true;
 }
 
-void CompleteMetalSequence(void *const raw, KernelResult result) noexcept {
+void CompleteMetalSequenceRun(void *const raw, KernelResult result,
+                              const bool trace) noexcept {
   auto *const state = static_cast<submission::State<MetalSequence> *>(raw);
   if (state == nullptr) {
     return;
@@ -226,8 +227,7 @@ void CompleteMetalSequence(void *const raw, KernelResult result) noexcept {
     return;
   }
   MetalSequence *const sequence = claim.owner;
-  if (sequence->trace_active) {
-    sequence->trace_active = false;
+  if (trace) {
     if (result.check.ok) {
       result.check = FoldMetalDispatchTrace(
           sequence->trace,
@@ -260,6 +260,14 @@ void CompleteMetalSequence(void *const raw, KernelResult result) noexcept {
     RecordMetalDispatches(*sequence->adapter, sequence->dispatch_count);
   }
   claim.completion(claim.user, result);
+}
+
+void CompleteMetalSequence(void *const raw, KernelResult result) noexcept {
+  CompleteMetalSequenceRun(raw, result, false);
+}
+
+void CompleteMetalSequenceTrace(void *const raw, KernelResult result) noexcept {
+  CompleteMetalSequenceRun(raw, result, true);
 }
 
 rund::AccelCheck
@@ -326,17 +334,21 @@ rund::AccelCheck SubmitPreparedMetalPipeline(
     const rund::AccelCheck ready =
         EncodeMetalWarmSubmission(*pipeline->adapter, pipeline->warm,
                                   pipeline->trace_commands, command, trace);
-    pipeline->trace_active = ready.ok && trace != nullptr;
-    const rund::AccelCheck submitted =
-        !ready.ok ? ready
-        : trace != nullptr
-            ? QueueMetalDispatchTrace(*pipeline->adapter, command.buffer,
-                                      *trace, CompleteMetalSequence, &state)
-            : QueueCommand(*pipeline->adapter, (__bridge void *)command.buffer,
-                           CompleteMetalSequence, &state,
-                           timing == KernelTiming::Submission);
+    rund::AccelCheck submitted = ready;
+    if (ready.ok) {
+      // Queue publication and terminal Take share this gate, making every
+      // encode-side host write visible before completion observes resources.
+      std::lock_guard lock{state.mutex};
+      submitted = trace != nullptr
+                      ? QueueMetalDispatchTrace(
+                            *pipeline->adapter, command.buffer, *trace,
+                            CompleteMetalSequenceTrace, &state)
+                      : QueueCommand(*pipeline->adapter,
+                                     (__bridge void *)command.buffer,
+                                     CompleteMetalSequence, &state,
+                                     timing == KernelTiming::Submission);
+    }
     if (!submitted.ok) {
-      pipeline->trace_active = false;
       submission::Cancel(state);
     }
     return submitted;

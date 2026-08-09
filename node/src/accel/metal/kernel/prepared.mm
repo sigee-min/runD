@@ -113,7 +113,8 @@ kernel void rund_compute_reset(device uint *target [[buffer(0)]],
   return resources.reset_pipeline != nullptr;
 }
 
-void CompleteMetalPrepared(void *const raw, KernelResult submitted) noexcept {
+void CompleteMetalPreparedRun(void *const raw, KernelResult submitted,
+                              const bool trace) noexcept {
   auto *const state =
       static_cast<submission::State<MetalKernelResources> *>(raw);
   if (state == nullptr) {
@@ -125,8 +126,7 @@ void CompleteMetalPrepared(void *const raw, KernelResult submitted) noexcept {
     return;
   }
   MetalKernelResources &resources = *claim.owner;
-  if (resources.trace_active) {
-    resources.trace_active = false;
+  if (trace) {
     if (submitted.check.ok) {
       submitted.check = FoldMetalDispatchTrace(
           resources.trace,
@@ -148,6 +148,15 @@ void CompleteMetalPrepared(void *const raw, KernelResult submitted) noexcept {
   SetResetStats(submitted.stats, submitted.check.ok, resources.reset_count,
                 resources.reset_bytes);
   claim.completion(claim.user, submitted);
+}
+
+void CompleteMetalPrepared(void *const raw, KernelResult submitted) noexcept {
+  CompleteMetalPreparedRun(raw, submitted, false);
+}
+
+void CompleteMetalPreparedTrace(void *const raw,
+                                KernelResult submitted) noexcept {
+  CompleteMetalPreparedRun(raw, submitted, true);
 }
 
 } // namespace
@@ -343,17 +352,22 @@ rund::AccelCheck SubmitMetalResources(const rund::AccelDevice &pick,
       submission::Cancel(state);
       return encoded;
     }
-    resources->trace_active = timing == KernelTiming::Dispatch;
-    const rund::AccelCheck submitted =
-        resources->trace_active
-            ? QueueMetalDispatchTrace(*context.adapter, command.buffer,
-                                      resources->trace, CompleteMetalPrepared,
-                                      &state)
-            : QueueCommand(*context.adapter, (__bridge void *)command.buffer,
-                           CompleteMetalPrepared, &state,
-                           timing == KernelTiming::Submission);
+    const bool trace = timing == KernelTiming::Dispatch;
+    rund::AccelCheck submitted{};
+    {
+      // Queue publication and terminal Take share this gate, making every
+      // encode-side host write visible before completion observes resources.
+      std::lock_guard lock{state.mutex};
+      submitted =
+          trace
+              ? QueueMetalDispatchTrace(*context.adapter, command.buffer,
+                                        resources->trace,
+                                        CompleteMetalPreparedTrace, &state)
+              : QueueCommand(*context.adapter, (__bridge void *)command.buffer,
+                             CompleteMetalPrepared, &state,
+                             timing == KernelTiming::Submission);
+    }
     if (!submitted.ok) {
-      resources->trace_active = false;
       submission::Cancel(state);
     }
     return submitted;

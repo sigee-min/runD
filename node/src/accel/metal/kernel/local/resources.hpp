@@ -67,7 +67,6 @@ struct MetalKernelResources final {
   std::uint64_t traffic = 0u;
   KernelPreparationMode mode{KernelPreparationMode::Standalone};
   bool shared_scratch{};
-  bool trace_active{};
 
   [[nodiscard]] bool reserve(const std::size_t step_count) {
     entries.resize(step_count);

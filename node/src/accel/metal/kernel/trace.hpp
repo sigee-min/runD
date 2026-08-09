@@ -31,7 +31,6 @@ struct MetalDispatchTrace final {
   MetalAdapter *submit_adapter{};
   KernelCompletion submit_completion{};
   void *submit_user{};
-  std::uint64_t submitted_commands{};
   const char *reason{"compute_telemetry_trace_unavailable"};
   MetalTraceSampling sampling{MetalTraceSampling::None};
   bool failed{};
