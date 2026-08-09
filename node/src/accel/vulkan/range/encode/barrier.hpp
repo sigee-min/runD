@@ -7,16 +7,15 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 namespace {
 
-void EncodeVulkanStencilStageBarrier(
-    const VulkanStencilEncodeResources &stencil, const VkCommandBuffer command,
-    const std::uint32_t stage_index) {
-  if (!StencilRangeUsesGlobalScratch(stencil.range)) {
+void EncodeVulkanRangeBarrier(const VulkanRangeResources &range,
+                              const VkCommandBuffer command,
+                              const std::uint32_t stage_index) {
+  if (!RangeUsesScratch(range.range)) {
     return;
   }
   const VulkanBuffer *scratch0 = nullptr;
   const VulkanBuffer *scratch1 = nullptr;
-  if (!VulkanStencilStageScratchBindings(stencil, stage_index, scratch0,
-                                         scratch1) ||
+  if (!VulkanRangeScratch(range, stage_index, scratch0, scratch1) ||
       scratch0 == nullptr || scratch1 == nullptr) {
     return;
   }
@@ -37,20 +36,18 @@ void EncodeVulkanStencilStageBarrier(
                        count, barriers.data(), 0u, nullptr);
 }
 
-void EncodeVulkanStencilFinishBarrier(
-    const VulkanStencilEncodeResources& stencil,
-    const VkCommandBuffer command) {
+void EncodeVulkanRangeFinishBarrier(const VulkanRangeResources &range,
+                                    const VkCommandBuffer command) {
   std::array<VkBufferMemoryBarrier, 1u> barriers{
-      VulkanDeviceOutputBarrier(*stencil.output),
+      VulkanDeviceOutputBarrier(*range.output),
   };
   vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       kVulkanDeviceOutputStage,
-                       0u, 0u, nullptr,
+                       kVulkanDeviceOutputStage, 0u, 0u, nullptr,
                        static_cast<std::uint32_t>(barriers.size()),
                        barriers.data(), 0u, nullptr);
 }
 
-}  // namespace
+} // namespace
 #endif
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

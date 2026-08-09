@@ -1,15 +1,15 @@
 #include "src/accel/metal/gather/local.hpp"
 #include "src/accel/metal/histogram/local.hpp"
 #include "src/accel/metal/partition/local.hpp"
+#include "src/accel/metal/range/local.hpp"
 #include "src/accel/metal/scatter/local.hpp"
 #include "src/accel/metal/segmented/local.hpp"
-#include "src/accel/metal/stencil/local.hpp"
 #include "src/accel/vulkan/gather/local.hpp"
 #include "src/accel/vulkan/histogram/local.hpp"
 #include "src/accel/vulkan/partition/local.hpp"
+#include "src/accel/vulkan/range/local.hpp"
 #include "src/accel/vulkan/scatter/local.hpp"
 #include "src/accel/vulkan/segmented/local.hpp"
-#include "src/accel/vulkan/stencil/local.hpp"
 #include "stencil/local.hpp"
 
 #include <string>
@@ -27,11 +27,10 @@ namespace {
 
 [[nodiscard]] bool MetalLayoutsMatchHost() {
   using namespace rund::node::accel::detail;
-  constexpr RangeAggregatePlan stencil_range =
-      stencil::PlanStencilSourceVariant(
-          RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, StencilGpuShape::direct(256u),
-          stencil::SourcePlanPath::Direct);
+  constexpr RangePlan stencil_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Sum,
+      rund::kernel::ComputeDomain::U32, stencil::RangeDirectShape(256u),
+      stencil::SourcePlanPath::Direct);
   static_assert(stencil_range.ok());
   return OneLayout(MetalGatherSource(), "struct GatherParams {\n"
                                         "  ulong element_count;\n"
@@ -64,11 +63,8 @@ namespace {
                    "    } \\\n"
                    "    threadgroup_barrier(mem_flags::mem_threadgroup); \\\n"
                    "    if (lane == 0u) { \\") &&
-         OneLayout(MetalStencilSource(
-                       rund::kernel::StencilOp::Sum,
-                       StencilGpuShapeFromRangeAggregatePlan(stencil_range),
-                       stencil_range),
-                   "struct StencilParams {\n"
+         OneLayout(MetalRangeSource(stencil::RequireRangeExec(stencil_range)),
+                   "struct RangeParams {\n"
                    "  ulong element_count;\n"
                    "  ulong radius;\n"
                    "  ulong stage_element_count;\n"
@@ -81,11 +77,10 @@ namespace {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 [[nodiscard]] bool VulkanLayoutsMatchHost() {
   using namespace rund::node::accel::detail;
-  constexpr RangeAggregatePlan stencil_range =
-      stencil::PlanStencilSourceVariant(
-          RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, StencilGpuShape::direct(256u),
-          stencil::SourcePlanPath::Direct);
+  constexpr RangePlan stencil_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Vulkan, rund::kernel::StencilOp::Sum,
+      rund::kernel::ComputeDomain::U32, stencil::RangeDirectShape(256u),
+      stencil::SourcePlanPath::Direct);
   static_assert(stencil_range.ok());
   return OneLayout(
              VulkanGatherSource(rund::kernel::GatherElement::U32, false),
@@ -130,12 +125,7 @@ namespace {
              "    barrier();\n"
              "    if (lane == 0u) {\n") &&
          OneLayout(
-             VulkanStencilSource(
-                 rund::kernel::StencilOp::Sum,
-                 rund::kernel::StencilElement::U32,
-                 rund::kernel::ComputeDomain::U32,
-                 StencilGpuShapeFromRangeAggregatePlan(stencil_range),
-                 stencil_range),
+             VulkanRangeSource(stencil::RequireRangeExec(stencil_range)),
              "layout(set = 0, binding = 0, std430) readonly buffer Params {\n"
              "  uint64_t element_count;\n"
              "  uint64_t radius;\n"

@@ -31,26 +31,18 @@ private:
 };
 
 template <typename Sink>
-[[nodiscard]] bool EmitVulkanStencilSource(
-    Sink &sink, const rund::kernel::StencilOp op,
-    const rund::kernel::StencilElement element,
-    const rund::kernel::ComputeDomain domain, const StencilGpuShape shape,
-    const RangeAggregatePlan
-        &range) noexcept(noexcept(sink.append(std::string_view{}))) {
-  if (!shape.valid() || !range.ok()) {
-    return false;
-  }
-  const RangeAggregateCandidateDisposition candidate =
-      range.candidate().disposition();
-  const bool range_scratch =
-      candidate == RangeAggregateCandidateDisposition::PrefixDifference ||
-      candidate == RangeAggregateCandidateDisposition::BlockPrefixSuffix;
-  const bool wide = element == rund::kernel::StencilElement::U64;
-  const bool signed_extrema =
-      IsSignedDomain(domain) && op != rund::kernel::StencilOp::Sum;
+[[nodiscard]] bool
+EmitVulkanRangeSource(Sink &sink, const RangeExec &execution) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  const RangeOp op = execution.operation();
+  const RangePath candidate = execution.candidate();
+  const bool range_scratch = candidate == RangePath::PrefixDifference ||
+                             candidate == RangePath::BlockPrefixSuffix;
+  const bool wide = execution.wide_elements();
+  const bool signed_extrema = execution.signed_extrema();
+  const RangeGpuShape shape = execution.shape();
   const char *const scalar =
-      candidate == RangeAggregateCandidateDisposition::BlockPrefixSuffix &&
-              signed_extrema
+      candidate == RangePath::BlockPrefixSuffix && signed_extrema
           ? (wide ? "int64_t" : "int")
           : (wide ? "uint64_t" : "uint");
   if (!sink.append(R"glsl(#version 450
@@ -89,75 +81,61 @@ layout(set = 0, binding = 4, std430) buffer Scratch1 {
 )glsl"))) {
     return false;
   }
-  if (candidate == RangeAggregateCandidateDisposition::PrefixDifference &&
+  if (candidate == RangePath::PrefixDifference &&
       (!sink.append("shared ") || !sink.append(scalar) ||
        !sink.append(" range_scan[") ||
        !backend_source_recipe::append_decimal(sink, shape.width()) ||
        !sink.append("];\n"))) {
     return false;
   }
-  if (candidate == RangeAggregateCandidateDisposition::BlockPrefixSuffix &&
+  if (candidate == RangePath::BlockPrefixSuffix &&
       (!sink.append("#define value_type ") || !sink.append(scalar) ||
        !sink.append("\n"))) {
     return false;
   }
-  if (shape.uses_shared_memory() &&
+  if (shape.uses_shared_halo() &&
       (!sink.append("shared ") || !sink.append(wide ? "uint64_t" : "uint") ||
-       !sink.append(" stencil_tile[") ||
+       !sink.append(" range_tile[") ||
        !backend_source_recipe::append_decimal(
            sink, shape.shared_element_capacity()) ||
        !sink.append("];\n"))) {
     return false;
   }
-  if (candidate == RangeAggregateCandidateDisposition::PrefixDifference) {
-    return op == rund::kernel::StencilOp::Sum &&
+  if (candidate == RangePath::PrefixDifference) {
+    return op == RangeOp::Sum &&
            EmitVulkanPrefixDifferenceBody(sink, wide, shape);
   }
-  if (candidate == RangeAggregateCandidateDisposition::BlockPrefixSuffix) {
-    return op != rund::kernel::StencilOp::Sum &&
+  if (candidate == RangePath::BlockPrefixSuffix) {
+    return op != RangeOp::Sum &&
            EmitVulkanBlockPrefixSuffixBody(sink, op, shape);
   }
-  return EmitVulkanStencilBody(sink, op, wide, signed_extrema, shape);
+  return EmitVulkanRangeBody(sink, op, wide, signed_extrema, shape);
 }
 
 } // namespace
 
-std::string VulkanStencilSource(const rund::kernel::StencilOp op,
-                                const rund::kernel::StencilElement element,
-                                const rund::kernel::ComputeDomain domain,
-                                const StencilGpuShape shape,
-                                const RangeAggregatePlan &range) {
-  return backend_source_recipe::materialize([&](auto &sink) {
-    return EmitVulkanStencilSource(sink, op, element, domain, shape, range);
-  });
+std::string VulkanRangeSource(const RangeExec &execution) {
+  return backend_source_recipe::materialize(
+      [&](auto &sink) { return EmitVulkanRangeSource(sink, execution); });
 }
 
-bool VulkanStencilSourceBytes(const rund::kernel::StencilOp op,
-                              const rund::kernel::StencilElement element,
-                              const rund::kernel::ComputeDomain domain,
-                              const StencilGpuShape shape,
-                              const RangeAggregatePlan &range,
-                              std::uint64_t &bytes) noexcept {
+bool VulkanRangeSourceBytes(const RangeExec &execution,
+                            std::uint64_t &bytes) noexcept {
   return backend_source_recipe::bytes(
       [&](backend_source_recipe::CountSink &sink) noexcept {
-        return EmitVulkanStencilSource(sink, op, element, domain, shape, range);
+        return EmitVulkanRangeSource(sink, execution);
       },
       bytes);
 }
 
-bool VulkanStencilSourceMatches(const rund::kernel::StencilOp op,
-                                const rund::kernel::StencilElement element,
-                                const rund::kernel::ComputeDomain domain,
-                                const StencilGpuShape shape,
-                                const RangeAggregatePlan &range,
-                                const std::string_view source,
-                                const std::uint64_t source_hash) noexcept {
+bool VulkanRangeSourceMatches(const RangeExec &execution,
+                              const std::string_view source,
+                              const std::uint64_t source_hash) noexcept {
   if (SourceHash(source) != source_hash) {
     return false;
   }
   MatchSink sink{source};
-  return EmitVulkanStencilSource(sink, op, element, domain, shape, range) &&
-         sink.complete();
+  return EmitVulkanRangeSource(sink, execution) && sink.complete();
 }
 #endif
 

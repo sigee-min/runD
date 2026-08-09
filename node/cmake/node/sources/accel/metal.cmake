@@ -90,9 +90,11 @@ list(APPEND NODE_SOURCES
   src/accel/metal/scatter/reduce/pipeline.mm
   src/accel/metal/scatter/reduce/prepare.mm
   src/accel/metal/scatter/reduce/source.cpp
+  src/accel/metal/range/execute.mm
+  src/accel/metal/range/finish.mm
+  src/accel/metal/range/source.cpp
   src/accel/metal/stencil/execute.mm
   src/accel/metal/stencil/finish.mm
-  src/accel/metal/stencil/source.cpp
   src/accel/metal/scan/encode/buffers.mm
   src/accel/metal/scan/encode/flags.mm
   src/accel/metal/scan/encode/state.mm

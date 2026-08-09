@@ -14,10 +14,10 @@ template <typename T, std::size_t Count>
     const rund::kernel::ComputeDomain domain, const rund::kernel::StencilOp op,
     const rund::kernel::StencilElement element, const rund::kernel::u64 radius,
     const std::array<T, Count> &input,
-    const match_detail::ForcedRangeAggregatePath path) {
-  return MatchesForcedPathReference(
-             pick, scalar, domain, op, element, radius, input,
-             match_detail::ForcedRangeAggregatePath::Direct) &&
+    const match_detail::ForcedRangePath path) {
+  return MatchesForcedPathReference(pick, scalar, domain, op, element, radius,
+                                    input,
+                                    match_detail::ForcedRangePath::Direct) &&
          MatchesForcedPathReference(pick, scalar, domain, op, element, radius,
                                     input, path);
 }
@@ -114,7 +114,7 @@ bool MatchesForcedPrefixDifferenceU32(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane32,
       rund::kernel::ComputeDomain::U32, rund::kernel::StencilOp::Sum,
       rund::kernel::StencilElement::U32, 257u, input,
-      match_detail::ForcedRangeAggregatePath::PrefixDifference);
+      match_detail::ForcedRangePath::PrefixDifference);
 }
 
 bool MatchesForcedPrefixDifferenceU64(const rund::AccelDevice &pick) {
@@ -128,7 +128,7 @@ bool MatchesForcedPrefixDifferenceU64(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane64,
       rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Sum,
       rund::kernel::StencilElement::U64, 257u, input,
-      match_detail::ForcedRangeAggregatePath::PrefixDifference);
+      match_detail::ForcedRangePath::PrefixDifference);
 }
 
 // 65,537 is deliberately one past 256^2.  It creates at least three prefix
@@ -145,7 +145,7 @@ bool MatchesDeepPrefixHierarchyU32(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane32,
       rund::kernel::ComputeDomain::U32, rund::kernel::StencilOp::Sum,
       rund::kernel::StencilElement::U32, 257u, input,
-      match_detail::ForcedRangeAggregatePath::PrefixDifference);
+      match_detail::ForcedRangePath::PrefixDifference);
 }
 
 bool MatchesMinU32(const rund::AccelDevice &pick) {
@@ -243,7 +243,7 @@ bool MatchesForcedBlockPrefixSuffixMinI32(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane32,
       rund::kernel::ComputeDomain::I32, rund::kernel::StencilOp::Min,
       rund::kernel::StencilElement::U32, 257u, input,
-      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+      match_detail::ForcedRangePath::BlockPrefixSuffix);
 }
 
 bool MatchesForcedBlockPrefixSuffixMaxI32(const rund::AccelDevice &pick) {
@@ -258,7 +258,7 @@ bool MatchesForcedBlockPrefixSuffixMaxI32(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane32,
       rund::kernel::ComputeDomain::I32, rund::kernel::StencilOp::Max,
       rund::kernel::StencilElement::U32, 257u, input,
-      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+      match_detail::ForcedRangePath::BlockPrefixSuffix);
 }
 
 bool MatchesForcedBlockPrefixSuffixMinU64(const rund::AccelDevice &pick) {
@@ -274,7 +274,7 @@ bool MatchesForcedBlockPrefixSuffixMinU64(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane64,
       rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Min,
       rund::kernel::StencilElement::U64, 257u, input,
-      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+      match_detail::ForcedRangePath::BlockPrefixSuffix);
 }
 
 bool MatchesForcedBlockPrefixSuffixMaxU64(const rund::AccelDevice &pick) {
@@ -290,7 +290,7 @@ bool MatchesForcedBlockPrefixSuffixMaxU64(const rund::AccelDevice &pick) {
       pick, rund::kernel::ComputeScalar::Lane64,
       rund::kernel::ComputeDomain::U64, rund::kernel::StencilOp::Max,
       rund::kernel::StencilElement::U64, 257u, input,
-      match_detail::ForcedRangeAggregatePath::BlockPrefixSuffix);
+      match_detail::ForcedRangePath::BlockPrefixSuffix);
 }
 
 } // namespace node_accel_contract::stencil

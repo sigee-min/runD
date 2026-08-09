@@ -14,17 +14,14 @@ namespace rund::node::accel::detail {
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
-[[nodiscard]] RangeAggregateCapabilities
-VulkanRangeAggregateCapabilities(const rund::AccelDevice &pick) noexcept;
-
 [[nodiscard]] rund::AccelCheck ExecuteVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings, const RangeAggregatePlan &range);
+    const StencilBinds &bindings, const RangePlan &range);
 [[nodiscard]] rund::AccelCheck PrepareVulkanStencil(
     const rund::AccelDevice &pick, const rund::kernel::StencilDesc &desc,
     const rund::kernel::StencilPlan &plan, rund::kernel::ComputeDomain domain,
-    const StencilBinds &bindings, const RangeAggregatePlan &range,
+    const StencilBinds &bindings, const RangePlan &range,
     std::shared_ptr<void> &resources,
     const VulkanKernelImmutablePipelines *pipelines = nullptr);
 [[nodiscard]] rund::AccelCheck

@@ -19,8 +19,7 @@ namespace {
 
 [[nodiscard]] rund::AccelDevice Pick(const bool) { return PickCpu(); }
 
-rund::Buffer Create(const rund::AccelDevice &pick,
-                    const rund::BufferDesc &desc,
+rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
                     const BackendBufferInitialization) {
   CpuBufferResult created = CreateCpuResidentBuffer(pick, desc);
   return MakeBuffer(pick, desc, created.check, created.ref,
@@ -37,8 +36,8 @@ rund::AccelCheck Upload(const rund::AccelDevice &pick,
 BackendDownload Download(const rund::AccelDevice &pick,
                          const rund::kernel::ResidentBufferRef &ref,
                          const std::shared_ptr<void> &handle, void *data,
-                         const std::uint64_t bytes,
-                         const std::uint64_t offset, const bool) {
+                         const std::uint64_t bytes, const std::uint64_t offset,
+                         const bool) {
   return BackendDownload{.check = DownloadCpuResidentBuffer(
                              pick, ref, handle, data, bytes, offset)};
 }
@@ -56,9 +55,8 @@ rund::node::accel::AccelMemoryStats Memory(const rund::AccelDevice &) noexcept {
   return {};
 }
 
-[[nodiscard]] RangeAggregateCapabilities
-RangeAggregateCapabilitiesForCpu(const rund::AccelDevice &) noexcept {
-  return RangeAggregateCapabilities::cpu();
+[[nodiscard]] RangeCaps CpuRangeCaps(const rund::AccelDevice &) noexcept {
+  return RangeCaps::cpu();
 }
 
 const BackendOps Operations{
@@ -71,7 +69,7 @@ const BackendOps Operations{
     .stats = ReadCpuRuntimeStats,
     .reset = ResetCpuRuntimeStats,
     .memory = Memory,
-    .range_aggregate_capabilities = RangeAggregateCapabilitiesForCpu,
+    .range_caps = CpuRangeCaps,
     .run = RunCpuKernel,
     .prepare = PrepareCpuKernel,
     .run_batch = nullptr,

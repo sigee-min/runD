@@ -10,7 +10,7 @@ namespace rund::node::accel::detail {
 [[nodiscard]] inline bool
 BindMetalScanPlanShape(const rund::kernel::ScanPlan &plan,
                        MetalScanEncodeState &state) {
-  const RangeAggregatePrefixExecution prefix = PlanScanPrefixExecution(plan);
+  const RangePrefixExec prefix = PlanScanPrefixExecution(plan);
   if (!prefix.ok()) {
     return false;
   }

@@ -6,90 +6,72 @@
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-enum class MetalStencilPipelineAssessment : std::uint8_t {
+enum class MetalRangeAssessment : std::uint8_t {
   Ready,
   DifferentShape,
   Unsupported,
   Invalid,
 };
 
-[[nodiscard]] inline std::string
-MetalStencilPipelineLabel(const rund::kernel::StencilOp op,
-                          const rund::kernel::StencilElement element,
-                          const rund::kernel::ComputeDomain domain,
-                          const StencilGpuShape shape,
-                          const RangeAggregatePlan &range) {
-  return MetalPipelineCacheKey(
-      StencilPipelineKey(op, element, domain, shape, range));
+[[nodiscard]] inline std::string MetalRangeLabel(const RangeExec &execution) {
+  return MetalPipelineCacheKey(RangePipelineKey(execution));
 }
 
-[[nodiscard]] inline MetalStencilPipelineAssessment AssessMetalStencilPipeline(
-    MetalAdapter &adapter, const rund::kernel::StencilOp op,
-    const rund::kernel::StencilElement element,
-    const rund::kernel::ComputeDomain domain, const StencilGpuShape shape,
-    const RangeAggregatePlan &range, const std::shared_ptr<void> &owner) {
+[[nodiscard]] inline MetalRangeAssessment
+AssessMetalRange(MetalAdapter &adapter, const RangeExec &execution,
+                 const std::shared_ptr<void> &owner) {
   id<MTLDevice> device = (__bridge id<MTLDevice>)adapter.device.get();
   id<MTLComputePipelineState> pipeline =
       (__bridge id<MTLComputePipelineState>)owner.get();
-  if (device == nil || pipeline == nil || pipeline.device != device ||
-      !shape.valid()) {
-    return MetalStencilPipelineAssessment::Invalid;
+  if (device == nil || pipeline == nil || pipeline.device != device) {
+    return MetalRangeAssessment::Invalid;
   }
 
-  const std::string identity =
-      MetalStencilPipelineLabel(op, element, domain, shape, range);
+  const std::string identity = MetalRangeLabel(execution);
   NSString *const label = [[NSString alloc] initWithBytes:identity.data()
                                                    length:identity.size()
                                                  encoding:NSUTF8StringEncoding];
   if (label == nil || pipeline.label == nil) {
-    return MetalStencilPipelineAssessment::Invalid;
+    return MetalRangeAssessment::Invalid;
   }
   if (![pipeline.label isEqualToString:label]) {
-    return MetalStencilPipelineAssessment::DifferentShape;
+    return MetalRangeAssessment::DifferentShape;
   }
 
   const std::uint64_t maximum_width =
       std::min<std::uint64_t>(device.maxThreadsPerThreadgroup.width,
                               pipeline.maxTotalThreadsPerThreadgroup);
-  const MetalStencilCompiledPipelineSupport support =
-      MetalStencilShapeCompiledPipelineSupport(
-          shape, range, element,
-          MetalStencilCompiledPipelineLimits{
-              .maximum_workgroup_width =
-                  static_cast<rund::kernel::u32>(std::min<std::uint64_t>(
-                      maximum_width,
-                      std::numeric_limits<rund::kernel::u32>::max())),
-              .static_shared_bytes = pipeline.staticThreadgroupMemoryLength,
-              .shared_memory_limit = device.maxThreadgroupMemoryLength,
-          });
-  if (support == MetalStencilCompiledPipelineSupport::Supported) {
-    return MetalStencilPipelineAssessment::Ready;
+  const MetalRangeSupport support = MetalRangeSupports(
+      execution,
+      MetalRangeLimits{
+          .maximum_workgroup_width =
+              static_cast<rund::kernel::u32>(std::min<std::uint64_t>(
+                  maximum_width,
+                  std::numeric_limits<rund::kernel::u32>::max())),
+          .static_shared_bytes = pipeline.staticThreadgroupMemoryLength,
+          .shared_memory_limit = device.maxThreadgroupMemoryLength,
+      });
+  if (support == MetalRangeSupport::Supported) {
+    return MetalRangeAssessment::Ready;
   }
-  return support == MetalStencilCompiledPipelineSupport::Unsupported
-             ? MetalStencilPipelineAssessment::Unsupported
-             : MetalStencilPipelineAssessment::Invalid;
+  return support == MetalRangeSupport::Unsupported
+             ? MetalRangeAssessment::Unsupported
+             : MetalRangeAssessment::Invalid;
 }
 
-[[nodiscard]] inline MetalStencilPipelineAttempt
-CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
-                                   const rund::kernel::StencilOp op,
-                                   const rund::kernel::StencilElement element,
-                                   const rund::kernel::ComputeDomain domain,
-                                   const StencilGpuShape shape,
-                                   const RangeAggregatePlan &range,
-                                   std::shared_ptr<void> &out) {
+[[nodiscard]] inline MetalRangeAttempt
+CompileMetalRangeLibrary(MetalAdapter &adapter, const RangeExec &execution,
+                         std::shared_ptr<void> &out) {
   out.reset();
-  std::string source =
-      PipelinePrivateMetalSource(MetalStencilSource(op, shape, range));
+  std::string source = PipelinePrivateMetalSource(MetalRangeSource(execution));
   if (source.empty()) {
-    return {MetalStencilPipelineAttemptStatus::Failed,
-            "compute_pipeline_capacity"};
+    return {MetalRangeAttemptStatus::Failed, "compute_pipeline_capacity"};
   }
   std::shared_ptr<void> library_owner =
       LookupMetalSourceLibrary(adapter, source);
   id<MTLDevice> device = (__bridge id<MTLDevice>)adapter.device.get();
   if (device == nil) {
-    return {MetalStencilPipelineAttemptStatus::Failed,
+    return {MetalRangeAttemptStatus::Failed,
             "accel_metal_pipeline_unavailable"};
   }
   bool publish_library = false;
@@ -108,9 +90,8 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
     }
   };
   id<MTLLibrary> library = (__bridge id<MTLLibrary>)library_owner.get();
-  const std::string function_name = StencilFunctionName(op, element, domain);
-  const std::string identity =
-      MetalStencilPipelineLabel(op, element, domain, shape, range);
+  const std::string function_name = RangeFunctionName(execution);
+  const std::string identity = MetalRangeLabel(execution);
   NSString *const function =
       [[NSString alloc] initWithBytes:function_name.data()
                                length:function_name.size()
@@ -120,14 +101,14 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
                                                  encoding:NSUTF8StringEncoding];
   if (library == nil || function == nil || label == nil) {
     record_unpublished_library();
-    return {MetalStencilPipelineAttemptStatus::Failed,
+    return {MetalRangeAttemptStatus::Failed,
             "accel_metal_pipeline_unavailable"};
   }
 
   id<MTLFunction> native_function = [library newFunctionWithName:function];
   if (native_function == nil) {
     record_unpublished_library();
-    return {MetalStencilPipelineAttemptStatus::Failed,
+    return {MetalRangeAttemptStatus::Failed,
             "accel_metal_pipeline_unavailable"};
   }
   MTLComputePipelineDescriptor *const descriptor =
@@ -149,18 +130,18 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
   if (out == nullptr) {
     RecordMetalUncachedPipelineCompile(adapter, pipeline_create_ns);
     record_unpublished_library();
-    return {MetalStencilPipelineAttemptStatus::Failed,
+    return {MetalRangeAttemptStatus::Failed,
             "accel_metal_pipeline_unavailable"};
   }
-  const MetalStencilPipelineAssessment assessment = AssessMetalStencilPipeline(
-      adapter, op, element, domain, shape, range, out);
-  if (assessment != MetalStencilPipelineAssessment::Ready) {
+  const MetalRangeAssessment assessment =
+      AssessMetalRange(adapter, execution, out);
+  if (assessment != MetalRangeAssessment::Ready) {
     RecordMetalUncachedPipelineCompile(adapter, pipeline_create_ns);
     record_unpublished_library();
     out.reset();
-    return {assessment == MetalStencilPipelineAssessment::Unsupported
-                ? MetalStencilPipelineAttemptStatus::Unsupported
-                : MetalStencilPipelineAttemptStatus::Failed,
+    return {assessment == MetalRangeAssessment::Unsupported
+                ? MetalRangeAttemptStatus::Unsupported
+                : MetalRangeAttemptStatus::Failed,
             "accel_metal_pipeline_unavailable"};
   }
   if (publish_library) {
@@ -172,12 +153,11 @@ CompileMetalStencilPipelineLibrary(MetalAdapter &adapter,
     if (published.status == MetalSourceLibraryPublishStatus::Failed) {
       RecordMetalUncachedPipelineCompile(adapter, pipeline_create_ns);
       out.reset();
-      return {MetalStencilPipelineAttemptStatus::Failed,
-              "compute_pipeline_capacity"};
+      return {MetalRangeAttemptStatus::Failed, "compute_pipeline_capacity"};
     }
     library_owner = published.library;
   }
-  return {MetalStencilPipelineAttemptStatus::Ready, "ok", pipeline_create_ns};
+  return {MetalRangeAttemptStatus::Ready, "ok", pipeline_create_ns};
 }
 #endif
 

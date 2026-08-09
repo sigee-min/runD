@@ -11,6 +11,9 @@ Implementation authority:
 
 - `/node/src/accel/range_aggregate/model.hpp`
 - `/node/src/accel/range_aggregate/plan.hpp`
+- `/node/src/accel/range_aggregate/execution.hpp`
+- `/node/src/accel/metal/range/local.hpp`
+- `/node/src/accel/vulkan/range/local.hpp`
 - `/node/src/accel/scan/prefix.hpp` for the native Scan projection
 
 Verification authority:
@@ -20,14 +23,23 @@ Verification authority:
 The entry point is
 
 ```cpp fragment
-PlanRangeAggregate(const RangeAggregateShape &,
-                   const RangeAggregateCapabilities &) noexcept
+PlanRange(const RangeShape &,
+                   const RangeCaps &) noexcept
 ```
 
 and is the only candidate-selection function. Callers project an already
-validated primitive into `RangeAggregateTraits` and `RangeAggregateShape`,
+validated primitive into `RangeTraits` and `RangeShape`,
 then freeze the returned plan. Backend callers do not apply a second radius or
 device-name threshold.
+
+`RangeExec` is the one backend-neutral physical projection of that frozen
+plan. It derives source identity, workgroup shape, stage parameters,
+descriptor demand, shared allocation, dispatch topology, and typed temporary
+bindings. Metal and Vulkan consume that value for source materialization,
+pipeline/cache lookup, stage preparation, and dispatch. A primitive adapter
+supplies only authenticated input/output bindings and maps its public
+validation and result boundary; `MetalRangeBinds` and `VulkanRangeBinds` make
+that handoff an exclusive two-binding value.
 
 ## Algebra, shape, and capabilities
 
@@ -151,13 +163,14 @@ and last live stage. PrefixDifference exposes prefix values and per-level block
 summaries. BlockPrefixSuffix exposes distinct forward and backward value
 roles. Direct and SharedHalo have no global temporary.
 
-`RangeAggregatePrefixExecution` is the common source-private stage derivation
-for associative prefix work. Its hierarchical form derives PrefixDifference's
+`RangePrefixExec` is the common source-private stage derivation for
+associative prefix work. Its hierarchical form derives PrefixDifference's
 recursive block, summary, and reverse-fixup stages. Its flat block-total form
 derives native Scan's block, total-prefix, and offset stages from a frozen
-`ScanPlan`. The substrate derives physical stages, temporary roles, and the
-fixed Scan source width; each primitive retains its own semantic result,
-overflow, and public-output authority. It is not a second candidate selector.
+`ScanPlan`. Scan is the prefix-only adapter: its native inclusive/exclusive
+source and result law consume that shared flat derivation, while `RangeExec`
+owns the window-family source and dispatch projection. Each primitive retains
+its semantic result, overflow, and public-output authority.
 
 The plan stores a compact immutable derivation rather than owning a vector or
 allocating. These are placement-free requirements:
@@ -172,6 +185,12 @@ RangeAggregate planner
 Dispatch-local shared bytes remain pipeline resource metadata and never enter
 the global arena. The existing Pipeline memory planner remains the sole
 physical placement and reuse authority.
+
+Stencil is the current window adapter. It supplies Clamp semantics, the public
+Stencil descriptor/hash, resident overlap rejection, and public error
+projection; selected source, cache identity, temporary binding, and stage
+dispatch arrive from `RangeExec`. Pooling and rolling aggregates require their
+own semantic adapters before they can enter this execution path.
 
 ## Identity
 

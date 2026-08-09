@@ -4,7 +4,9 @@
 #include <accel/device.hpp>
 
 #include "../../buffer/resident/batch.hpp"
-#include "../local.hpp"
+#include "../../range/local.hpp"
+
+#include <optional>
 
 namespace rund::node::accel::detail {
 
@@ -12,19 +14,22 @@ namespace rund::node::accel::detail {
 [[nodiscard]] inline rund::AccelCheck
 LookupMetalStencilResidentBuffers(const rund::AccelDevice &pick,
                                   const StencilBinds &bindings,
-                                  MetalStencilEncodeResources &resources) {
+                                  std::optional<MetalRangeBinds> &out) {
+  out.reset();
+  MetalResidentBufferResult input{};
+  MetalResidentBufferResult output{};
   MetalResidentReq reqs[] = {
-      {bindings.input, bindings.input_handle, &resources.input},
-      {bindings.output, bindings.output_handle, &resources.output}};
+      {bindings.input, bindings.input_handle, &input},
+      {bindings.output, bindings.output_handle, &output}};
   LookupMetalResidentBatch(pick, reqs, "accel_metal_resident_id_unavailable");
-  if (resources.input.check.ok && resources.output.check.ok &&
-      resources.input.device_buffer != nullptr &&
-      resources.output.device_buffer != nullptr) {
+  const char *const reason =
+      !input.check.ok ? input.check.reason : output.check.reason;
+  std::optional<MetalRangeBinds> range =
+      MetalRangeBinds::make(std::move(input), std::move(output));
+  if (range.has_value()) {
+    out = std::move(range);
     return rund::AccelCheck{true, "ok"};
   }
-  const char *const reason = !resources.input.check.ok
-                                 ? resources.input.check.reason
-                                 : resources.output.check.reason;
   return rund::AccelCheck{false, reason};
 }
 #endif

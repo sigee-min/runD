@@ -6,12 +6,13 @@
 #include "src/accel/range_aggregate/plan.hpp"
 #include "src/accel/stencil/shape.hpp"
 
+#include <cassert>
 #include <limits>
 #include <optional>
 
 namespace node_accel_contract::stencil {
 
-// Source contracts deliberately construct the same frozen RangeAggregatePlan
+// Source contracts deliberately construct the same frozen RangePlan
 // consumed by the backend.  The support mask describes the legal source path;
 // it is not a second candidate selector.
 enum class SourcePlanPath : std::uint8_t {
@@ -21,101 +22,124 @@ enum class SourcePlanPath : std::uint8_t {
   BlockPrefixSuffix,
 };
 
+// Contract fixtures use only the three concrete widths admitted by the
+// execution contract.  Production code keeps factory failure explicit; this
+// helper makes those already-validated fixture literals concise without
+// reintroducing a second shape representation.
+[[nodiscard]] constexpr rund::node::accel::detail::RangeGpuShape
+RangeDirectShape(const rund::kernel::u32 width) noexcept {
+  using namespace rund::node::accel::detail;
+  const std::optional<RangeGpuShape> shape = RangeGpuShape::direct(width);
+  assert(shape.has_value());
+  return *shape;
+}
+
+[[nodiscard]] constexpr rund::node::accel::detail::RangeGpuShape
+RangeSharedShape(const rund::kernel::u32 width,
+                 const rund::kernel::u32 shared_radius_capacity) noexcept {
+  using namespace rund::node::accel::detail;
+  const std::optional<RangeGpuShape> shape =
+      RangeGpuShape::shared_halo(width, shared_radius_capacity);
+  assert(shape.has_value());
+  return *shape;
+}
+
+[[nodiscard]] constexpr rund::node::accel::detail::RangeGpuShape
+RequireRangeShape(const rund::node::accel::detail::RangePlan &plan) noexcept {
+  using namespace rund::node::accel::detail;
+  const std::optional<RangeGpuShape> shape = RangeGpuShapeFor(plan);
+  assert(shape.has_value());
+  return *shape;
+}
+
+[[nodiscard]] constexpr rund::node::accel::detail::RangeExec
+RequireRangeExec(const rund::node::accel::detail::RangePlan &plan) noexcept {
+  using namespace rund::node::accel::detail;
+  const std::optional<RangeExec> execution = RangeExec::from(plan);
+  assert(execution.has_value());
+  return *execution;
+}
+
 [[nodiscard]] constexpr std::uint8_t
 SourcePlanWidthMask(const rund::kernel::u32 width) noexcept {
   using namespace rund::node::accel::detail;
-  return width == 64u    ? kRangeAggregateWidth64Bit
-         : width == 128u ? kRangeAggregateWidth128Bit
-         : width == 256u ? kRangeAggregateWidth256Bit
+  return width == 64u    ? kRangeWidth64Bit
+         : width == 128u ? kRangeWidth128Bit
+         : width == 256u ? kRangeWidth256Bit
                          : 0u;
 }
 
-[[nodiscard]] constexpr rund::node::accel::detail::RangeAggregatePlan
+[[nodiscard]] constexpr rund::node::accel::detail::RangePlan
 PlanStencilSourceVariant(
-    const rund::node::accel::detail::RangeAggregateSourceVariant backend,
+    const rund::node::accel::detail::RangeSource backend,
     const rund::kernel::StencilOp operation,
     const rund::kernel::ComputeDomain domain,
-    const rund::node::accel::detail::StencilGpuShape physical_shape,
+    const rund::node::accel::detail::RangeGpuShape physical_shape,
     const SourcePlanPath path) noexcept {
   using namespace rund::node::accel::detail;
-  const std::optional<RangeAggregateTraits> traits =
+  const std::optional<RangeTraits> traits =
       operation == rund::kernel::StencilOp::Sum
-          ? RangeAggregateTraits::sum_modulo(domain)
-      : operation == rund::kernel::StencilOp::Min
-          ? RangeAggregateTraits::minimum(domain)
-      : operation == rund::kernel::StencilOp::Max
-          ? RangeAggregateTraits::maximum(domain)
-          : std::nullopt;
-  if (!traits.has_value() || !physical_shape.valid()) {
-    return RangeAggregatePlan::rejected(
-        "compute_range_aggregate_shape_invalid");
+          ? RangeTraits::sum_modulo(domain)
+      : operation == rund::kernel::StencilOp::Min ? RangeTraits::minimum(domain)
+      : operation == rund::kernel::StencilOp::Max ? RangeTraits::maximum(domain)
+                                                  : std::nullopt;
+  if (!traits.has_value()) {
+    return RangePlan::rejected("compute_range_aggregate_shape_invalid");
   }
   const rund::kernel::u64 radius =
       path == SourcePlanPath::SharedHalo
-          ? physical_shape.radius_cap()
+          ? physical_shape.shared_radius_capacity()
           : static_cast<rund::kernel::u64>(physical_shape.width());
   const rund::kernel::u64 count =
       static_cast<rund::kernel::u64>(physical_shape.width()) * 3u + 3u;
-  const std::optional<RangeAggregateShape> shape = RangeAggregateShape::window(
-      *traits, RangeAggregateBoundary::Clamp, count, radius,
+  const std::optional<RangeShape> shape = RangeShape::window(
+      *traits, RangeBoundary::Clamp, count, radius,
       traits->domain() == rund::kernel::ComputeDomain::I64 ||
               traits->domain() == rund::kernel::ComputeDomain::U64 ||
               traits->domain() == rund::kernel::ComputeDomain::Fixed
           ? 8u
           : 4u);
   if (!shape.has_value()) {
-    return RangeAggregatePlan::rejected(
-        "compute_range_aggregate_shape_invalid");
+    return RangePlan::rejected("compute_range_aggregate_shape_invalid");
   }
-  const std::uint8_t direct =
-      RangeAggregateSupportBit(RangeAggregateSupport::Direct);
+  const std::uint8_t direct = RangeSupportBit(RangeSupport::Direct);
   const std::uint8_t support =
       path == SourcePlanPath::Direct ? direct
       : path == SourcePlanPath::SharedHalo
-          ? static_cast<std::uint8_t>(
-                direct |
-                RangeAggregateSupportBit(RangeAggregateSupport::SharedHalo))
+          ? static_cast<std::uint8_t>(direct |
+                                      RangeSupportBit(RangeSupport::SharedHalo))
       : path == SourcePlanPath::PrefixDifference
           ? static_cast<std::uint8_t>(
-                direct | RangeAggregateSupportBit(
-                             RangeAggregateSupport::PrefixDifference))
+                direct | RangeSupportBit(RangeSupport::PrefixDifference))
           : static_cast<std::uint8_t>(
-                direct | RangeAggregateSupportBit(
-                             RangeAggregateSupport::BlockPrefixSuffix));
+                direct | RangeSupportBit(RangeSupport::BlockPrefixSuffix));
   const rund::kernel::u64 shared_bytes =
       path == SourcePlanPath::SharedHalo
-          ? static_cast<rund::kernel::u64>(physical_shape.width() +
-                                           2u * physical_shape.radius_cap()) *
+          ? static_cast<rund::kernel::u64>(
+                physical_shape.width() +
+                2u * physical_shape.shared_radius_capacity()) *
                 shape->element_bytes()
       : path == SourcePlanPath::PrefixDifference
           ? static_cast<rund::kernel::u64>(physical_shape.width()) *
                 shape->element_bytes()
           : 0u;
-  const std::optional<RangeAggregateCapabilities> capabilities =
-      RangeAggregateCapabilities::gpu(
-          backend, SourcePlanWidthMask(physical_shape.width()),
-          physical_shape.width(),
-          shared_bytes == 0u ? 0u : kRangeAggregateSharedMemoryReserve,
-          shared_bytes == 0u
-              ? 0u
-              : shared_bytes * kRangeAggregateSharedMemoryReserve,
-          std::numeric_limits<rund::kernel::u32>::max(), support);
+  const std::optional<RangeCaps> capabilities = RangeCaps::gpu(
+      backend, SourcePlanWidthMask(physical_shape.width()),
+      physical_shape.width(), shared_bytes == 0u ? 0u : kRangeSharedReserve,
+      shared_bytes == 0u ? 0u : shared_bytes * kRangeSharedReserve,
+      std::numeric_limits<rund::kernel::u32>::max(), support);
   if (!capabilities.has_value()) {
-    return RangeAggregatePlan::rejected(
-        "compute_range_aggregate_capabilities_invalid");
+    return RangePlan::rejected("compute_range_aggregate_capabilities_invalid");
   }
-  const RangeAggregatePlan plan = PlanRangeAggregate(*shape, *capabilities);
-  const RangeAggregateCandidateDisposition expected =
-      path == SourcePlanPath::Direct
-          ? RangeAggregateCandidateDisposition::Direct
-      : path == SourcePlanPath::SharedHalo
-          ? RangeAggregateCandidateDisposition::SharedHalo
-      : path == SourcePlanPath::PrefixDifference
-          ? RangeAggregateCandidateDisposition::PrefixDifference
-          : RangeAggregateCandidateDisposition::BlockPrefixSuffix;
+  const RangePlan plan = PlanRange(*shape, *capabilities);
+  const RangePath expected =
+      path == SourcePlanPath::Direct             ? RangePath::Direct
+      : path == SourcePlanPath::SharedHalo       ? RangePath::SharedHalo
+      : path == SourcePlanPath::PrefixDifference ? RangePath::PrefixDifference
+                                                 : RangePath::BlockPrefixSuffix;
   return plan.ok() && plan.candidate().disposition() == expected
              ? plan
-             : RangeAggregatePlan::rejected(
+             : RangePlan::rejected(
                    "compute_range_aggregate_candidate_unavailable");
 }
 

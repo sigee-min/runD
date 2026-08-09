@@ -26,15 +26,15 @@ namespace {
 inline constexpr std::uint32_t kRangeScratchRoleTag = 0x52410000u;
 
 [[nodiscard]] constexpr std::uint32_t
-range_role_value(const RangeTemporaryRole role) noexcept {
+range_role_value(const RangeTempRole role) noexcept {
   switch (role) {
-  case RangeTemporaryRole::PrefixValues:
+  case RangeTempRole::PrefixValues:
     return 0u;
-  case RangeTemporaryRole::BlockSummaries:
+  case RangeTempRole::BlockSummaries:
     return 1u;
-  case RangeTemporaryRole::ForwardValues:
+  case RangeTempRole::ForwardValues:
     return 2u;
-  case RangeTemporaryRole::BackwardValues:
+  case RangeTempRole::BackwardValues:
     return 3u;
   }
   return std::numeric_limits<std::uint32_t>::max();
@@ -450,9 +450,8 @@ FindKernelScratchPlacement(const KernelScratchBatchPlan &plan,
   return found == plan.placements().end() ? nullptr : &*found;
 }
 
-KernelScratchRole
-KernelScratchRoleForRangeTemporary(const RangeTemporaryRole role,
-                                   const std::uint8_t ordinal) noexcept {
+KernelScratchRole ScratchRoleForRangeTemp(const RangeTempRole role,
+                                          const std::uint8_t ordinal) noexcept {
   const std::uint32_t value = range_role_value(role);
   return value == std::numeric_limits<std::uint32_t>::max()
              ? KernelScratchRole{}
@@ -460,11 +459,10 @@ KernelScratchRoleForRangeTemporary(const RangeTemporaryRole role,
                                        ordinal);
 }
 
-KernelScratchRequirement KernelScratchRequirementForRangeTemporary(
-    const RangeTemporaryRequirement &requirement) noexcept {
+KernelScratchRequirement
+ScratchReqForRangeTemp(const RangeTempReq &requirement) noexcept {
   return KernelScratchRequirement{
-      .role = KernelScratchRoleForRangeTemporary(requirement.role,
-                                                 requirement.ordinal),
+      .role = ScratchRoleForRangeTemp(requirement.role, requirement.ordinal),
       .bytes = requirement.bytes,
       .alignment = requirement.alignment,
       .first_stage = requirement.first_stage,
@@ -472,23 +470,22 @@ KernelScratchRequirement KernelScratchRequirementForRangeTemporary(
   };
 }
 
-KernelScratchBatchPlan
-PlanRangeAggregateScratch(const RangeAggregatePlan &plan,
-                          const std::uint64_t backing_alignment,
-                          const std::uint64_t page_bytes) {
+KernelScratchBatchPlan PlanRangeScratch(const RangePlan &plan,
+                                        const std::uint64_t backing_alignment,
+                                        const std::uint64_t page_bytes) {
   if (!plan.ok()) {
     return KernelScratchBatchPlan::failure(plan.reason());
   }
   const std::size_t stage_count = plan.stage_count();
   const std::size_t temporary_count = plan.temporary_count();
-  if (stage_count == 0u || stage_count > kRangeAggregateStageCapacity ||
-      temporary_count > kRangeTemporaryCapacity) {
+  if (stage_count == 0u || stage_count > kRangeStageCap ||
+      temporary_count > kRangeTempCap) {
     return KernelScratchBatchPlan::failure("accel_kernel_scratch_invalid");
   }
-  std::array<KernelScratchRequirement, kRangeTemporaryCapacity> requirements{};
+  std::array<KernelScratchRequirement, kRangeTempCap> requirements{};
   for (std::size_t index = 0u; index < temporary_count; ++index) {
-    const RangeTemporaryRequirement temporary = plan.temporary(index);
-    requirements[index] = KernelScratchRequirementForRangeTemporary(temporary);
+    const RangeTempReq temporary = plan.temporary(index);
+    requirements[index] = ScratchReqForRangeTemp(temporary);
     if (!requirements[index].valid() ||
         requirements[index].last_stage >= stage_count) {
       return KernelScratchBatchPlan::failure("accel_kernel_scratch_invalid");
@@ -501,11 +498,10 @@ PlanRangeAggregateScratch(const RangeAggregatePlan &plan,
 }
 
 const KernelScratchPlacement *
-FindRangeAggregateScratchPlacement(const KernelScratchBatchPlan &plan,
-                                   const RangeTemporaryRole role,
-                                   const std::uint8_t ordinal) noexcept {
-  return FindKernelScratchPlacement(
-      plan, KernelScratchRoleForRangeTemporary(role, ordinal));
+FindRangeScratch(const KernelScratchBatchPlan &plan, const RangeTempRole role,
+                 const std::uint8_t ordinal) noexcept {
+  return FindKernelScratchPlacement(plan,
+                                    ScratchRoleForRangeTemp(role, ordinal));
 }
 
 KernelScratchPlan PlanKernelScratch(const rund::AccelContext &context,
@@ -526,9 +522,9 @@ KernelScratchPlan PlanKernelScratch(const rund::AccelContext &context,
   std::uint64_t payload_bytes = 0u;
   for (const KernelExecutionStep &step : execution.steps) {
     if (step.operation.kind() == rund::kernel::NodeKind::Stencil) {
-      const KernelScratchBatchPlan batch = PlanRangeAggregateScratch(
-          step.operation.get<operation::Stencil>().range, alignment,
-          page_bytes);
+      const KernelScratchBatchPlan batch =
+          PlanRangeScratch(step.operation.get<operation::Stencil>().range,
+                           alignment, page_bytes);
       if (!batch.ok()) {
         return KernelScratchPlan{.reason = batch.reason()};
       }

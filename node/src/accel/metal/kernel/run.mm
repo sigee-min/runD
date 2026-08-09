@@ -14,6 +14,7 @@
 #include "../partition/local.hpp"
 #include "../pipeline/guard.hpp"
 #include "../pipeline/source_recipe.hpp"
+#include "../range/local.hpp"
 #include "../reduce/local.hpp"
 #include "../runtime/map/source_upper.hpp"
 #include "../scan/source.hpp"
@@ -22,7 +23,6 @@
 #include "../segmented/local.hpp"
 #include "../segmented/reduce/model.hpp"
 #include "../sort/source.hpp"
-#include "../stencil/local.hpp"
 #include "manifest.hpp"
 #include "ops/prepare.hpp"
 #include "pipeline/build.hpp"
@@ -109,10 +109,7 @@ AddAlignedMetalParameterBytes(std::uint64_t &target,
     out = 8u;
     break;
   case rund::kernel::NodeKind::Stencil:
-    out = StencilRangeUsesGlobalScratch(
-              step.operation.get<operation::Stencil>().range)
-              ? 5u
-              : 3u;
+    out = RangeDescriptorCount(step.operation.get<operation::Stencil>().range);
     break;
   case rund::kernel::NodeKind::Transform:
     out = 6u;
@@ -422,9 +419,11 @@ MetalSegmentedReducePipelineSourceRecipe(
 }
 
 [[nodiscard]] MetalPipelineSourceRecipe
-MetalStencilPipelineSourceRecipe(const operation::Stencil &active) noexcept {
+MetalRangeSourceRecipe(const operation::Stencil &active) noexcept {
+  const std::optional<RangeExec> execution = RangeExec::from(active.range);
   std::uint64_t raw_upper = 0u;
-  return MetalStencilSourceUpperBytes(active.plan.op, active.range, raw_upper)
+  return execution.has_value() &&
+                 MetalRangeSourceUpperBytes(*execution, raw_upper)
              ? MetalSourceRecipe(0x6d6574616c73746eull, raw_upper, 4u,
                                  active.range.stage_count())
              : MetalPipelineSourceRecipe{};
@@ -555,7 +554,7 @@ MetalNumericPipelineSourceRecipe() noexcept {
     route = sizeof(MetalScatterReduceResources);
     break;
   case rund::kernel::NodeKind::Stencil:
-    route = sizeof(MetalStencilEncodeResources);
+    route = sizeof(MetalRangeResources);
     break;
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
@@ -770,8 +769,8 @@ PreparedBackendManifest BuildMetalBackendManifest(
     dimensions(1u, step.operation.get<operation::Stencil>().range.stage_count(),
                1u);
     if (!AddMetalPipelineSourceRecipe(
-            manifest, MetalStencilPipelineSourceRecipe(
-                          step.operation.get<operation::Stencil>()))) {
+            manifest,
+            MetalRangeSourceRecipe(step.operation.get<operation::Stencil>()))) {
       return manifest;
     }
     break;

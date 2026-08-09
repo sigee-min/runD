@@ -3,6 +3,7 @@
 
 #include "../../context/internal/admission.hpp"
 #include "../../range_aggregate/plan.hpp"
+#include "../../stencil/shape.hpp"
 #include "local.hpp"
 
 #include <kernel/program/compute/stencil/plan.hpp>
@@ -25,19 +26,18 @@ const char *AdmitStencilNode(const rund::AccelGraphNode &node,
     return "accel_kernel_graph_invalid";
   }
 
-  const std::optional<RangeAggregateShape> shape =
-      RangeAggregateShape::from_stencil(plan, domain);
+  const std::optional<RangeShape> shape = StencilRangeShape(plan, domain);
   if (!shape.has_value()) {
     return "accel_kernel_graph_invalid";
   }
   if (!admission.check.ok || admission.pick == nullptr ||
       admission.pick->ops == nullptr ||
-      admission.pick->ops->range_aggregate_capabilities == nullptr) {
+      admission.pick->ops->range_caps == nullptr) {
     return "accel_kernel_stencil_backend_unsupported";
   }
-  const RangeAggregateCapabilities capabilities =
-      admission.pick->ops->range_aggregate_capabilities(admission.pick->raw);
-  const RangeAggregatePlan range = PlanRangeAggregate(*shape, capabilities);
+  const RangeCaps capabilities =
+      admission.pick->ops->range_caps(admission.pick->raw);
+  const RangePlan range = PlanRange(*shape, capabilities);
   if (!range.ok()) {
     return "accel_kernel_stencil_backend_unsupported";
   }

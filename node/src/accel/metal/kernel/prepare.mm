@@ -8,6 +8,7 @@
 #include "../histogram/local.hpp"
 #include "../numeric/state.hpp"
 #include "../partition/local.hpp"
+#include "../range/local.hpp"
 #include "../reduce/local.hpp"
 #include "../scan/kernel/local.hpp"
 #include "../scatter/local.hpp"
@@ -16,7 +17,6 @@
 #include "../segmented/local.hpp"
 #include "../segmented/reduce/model.hpp"
 #include "../sort/local.hpp"
-#include "../stencil/local.hpp"
 #include "local.hpp"
 #include "ops/table.hpp"
 
@@ -225,7 +225,7 @@ MetalPrimitiveResource(const std::shared_ptr<void> &resource) noexcept {
   }
   case rund::kernel::NodeKind::Stencil: {
     const auto *const raw =
-        MetalPrimitiveResource<MetalStencilEncodeResources>(resource);
+        MetalPrimitiveResource<MetalRangeResources>(resource);
     if (raw == nullptr || raw->stage_count == 0u ||
         raw->stage_count > frozen->stages.size()) {
       break;
@@ -364,8 +364,8 @@ PublishMetalProgramTemplate(const BackendRun &probe,
       probe.original_dispatch_count ^ probe.final_dispatch_count;
   std::shared_ptr<void> published = resources.program;
   const rund::AccelCheck stored = PublishPreparedKernelTemplate(
-      *templates, probe.steps[0u].step, variant_hi, variant_lo,
-      *probe.ops, MatchMetalProgramTemplate, &probe, published);
+      *templates, probe.steps[0u].step, variant_hi, variant_lo, *probe.ops,
+      MatchMetalProgramTemplate, &probe, published);
   if (!stored.ok) {
     return stored;
   }

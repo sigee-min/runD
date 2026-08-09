@@ -1,51 +1,49 @@
 #pragma once
 
 #include "../../../kernel/backend/source_recipe.hpp"
-#include "../../../stencil/shape.hpp"
-
 #include <string_view>
 
 template <typename Sink>
-[[nodiscard]] bool EmitVulkanStencilUpdate(
-    Sink &sink, const rund::kernel::StencilOp op, const bool wide,
+[[nodiscard]] bool EmitVulkanRangeUpdate(
+    Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
     const bool signed_extrema,
     const bool shared) noexcept(noexcept(sink.append(std::string_view{}))) {
   if (shared) {
-    if (op == rund::kernel::StencilOp::Min) {
+    if (op == rund::node::accel::detail::RangeOp::Minimum) {
       return sink.append(
           signed_extrema
               ? (wide ? "      value = min(value, "
-                        "min(int64_t(stencil_tile[center - step]), "
-                        "int64_t(stencil_tile[center + step])));\n"
-                      : "      value = min(value, min(int(stencil_tile[center "
-                        "- step]), int(stencil_tile[center + step])));\n")
+                        "min(int64_t(range_tile[center - step]), "
+                        "int64_t(range_tile[center + step])));\n"
+                      : "      value = min(value, min(int(range_tile[center "
+                        "- step]), int(range_tile[center + step])));\n")
               : (wide ? "      value = min(value, "
-                        "min(uint64_t(stencil_tile[center - step]), "
-                        "uint64_t(stencil_tile[center + step])));\n"
-                      : "      value = min(value, min(stencil_tile[center - "
-                        "step], stencil_tile[center + step]));\n"));
+                        "min(uint64_t(range_tile[center - step]), "
+                        "uint64_t(range_tile[center + step])));\n"
+                      : "      value = min(value, min(range_tile[center - "
+                        "step], range_tile[center + step]));\n"));
     }
-    if (op == rund::kernel::StencilOp::Max) {
+    if (op == rund::node::accel::detail::RangeOp::Maximum) {
       return sink.append(
           signed_extrema
               ? (wide ? "      value = max(value, "
-                        "max(int64_t(stencil_tile[center - step]), "
-                        "int64_t(stencil_tile[center + step])));\n"
-                      : "      value = max(value, max(int(stencil_tile[center "
-                        "- step]), int(stencil_tile[center + step])));\n")
+                        "max(int64_t(range_tile[center - step]), "
+                        "int64_t(range_tile[center + step])));\n"
+                      : "      value = max(value, max(int(range_tile[center "
+                        "- step]), int(range_tile[center + step])));\n")
               : (wide ? "      value = max(value, "
-                        "max(uint64_t(stencil_tile[center - step]), "
-                        "uint64_t(stencil_tile[center + step])));\n"
-                      : "      value = max(value, max(stencil_tile[center - "
-                        "step], stencil_tile[center + step]));\n"));
+                        "max(uint64_t(range_tile[center - step]), "
+                        "uint64_t(range_tile[center + step])));\n"
+                      : "      value = max(value, max(range_tile[center - "
+                        "step], range_tile[center + step]));\n"));
     }
     return sink.append(
-        wide ? "      value += uint64_t(stencil_tile[center - step]) + "
-               "uint64_t(stencil_tile[center + step]);\n"
-             : "      value += stencil_tile[center - step] + "
-               "stencil_tile[center + step];\n");
+        wide ? "      value += uint64_t(range_tile[center - step]) + "
+               "uint64_t(range_tile[center + step]);\n"
+             : "      value += range_tile[center - step] + "
+               "range_tile[center + step];\n");
   }
-  if (op == rund::kernel::StencilOp::Min) {
+  if (op == rund::node::accel::detail::RangeOp::Minimum) {
     return sink.append(
         signed_extrema
             ? (wide ? "    value = min(value, min(int64_t(input_values[left]), "
@@ -58,7 +56,7 @@ template <typename Sink>
                     : "    value = min(value, min(input_values[left], "
                       "input_values[right]));\n"));
   }
-  if (op == rund::kernel::StencilOp::Max) {
+  if (op == rund::node::accel::detail::RangeOp::Maximum) {
     return sink.append(
         signed_extrema
             ? (wide ? "    value = max(value, max(int64_t(input_values[left]), "
@@ -78,10 +76,10 @@ template <typename Sink>
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitVulkanStencilSharedBody(
-    Sink &sink, const rund::kernel::StencilOp op, const bool wide,
+[[nodiscard]] bool EmitVulkanRangeSharedBody(
+    Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
     const bool signed_extrema,
-    const rund::node::accel::detail::StencilGpuShape
+    const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   if (!sink.append(R"glsl(  const uint64_t active_lanes =
@@ -101,20 +99,23 @@ template <typename Sink>
       !sink.append(wide ? "uint64_t" : "uint") ||
       !sink.append(
           R"glsl( center_value = input_values[uint(group_base + uint64_t(lane))];
-      stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+      range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u + lane] = center_value;
       if (left_inputs == 0u && lane == 0u) {
         for (uint slot = 0u; uint64_t(slot) < params.radius; ++slot) {
-          stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+          range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u - uint(params.radius) + slot] = center_value;
         }
       }
       if (right_inputs == 0u && uint64_t(lane) + uint64_t(1) == active_lanes) {
         for (uint slot = 0u; uint64_t(slot) < params.radius; ++slot) {
-          stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+          range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + slot] = center_value;
         }
       }
@@ -124,14 +125,16 @@ template <typename Sink>
       !sink.append(wide ? "uint64_t" : "uint") ||
       !sink.append(
           R"glsl( left_value = input_values[uint(group_base - uint64_t(left_inputs) + uint64_t(lane))];
-      stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+      range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u - left_inputs + lane] = left_value;
       if (lane == 0u && uint64_t(left_inputs) < params.radius) {
         for (uint slot = 0u;
              uint64_t(slot) < params.radius - uint64_t(left_inputs); ++slot) {
-          stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+          range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u - uint(params.radius) + slot] = left_value;
         }
       }
@@ -141,13 +144,15 @@ template <typename Sink>
       !sink.append(wide ? "uint64_t" : "uint") ||
       !sink.append(
           R"glsl( right_value = input_values[uint(group_end + uint64_t(lane))];
-      stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+      range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + lane] = right_value;
       if (lane + 1u == right_inputs && uint64_t(right_inputs) < params.radius) {
         for (uint slot = right_inputs; uint64_t(slot) < params.radius; ++slot) {
-          stencil_tile[)glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+          range_tile[)glsl") ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append(R"glsl(u + uint(active_lanes) + slot] = right_value;
         }
       }
@@ -156,19 +161,20 @@ template <typename Sink>
     if (uint64_t(lane) >= active_lanes) { return; }
     const uint gid = uint(group_base + uint64_t(lane));
     const uint center = )glsl") ||
-      !backend_source_recipe::append_decimal(sink, shape.radius_cap()) ||
+      !backend_source_recipe::append_decimal(sink,
+                                             shape.shared_radius_capacity()) ||
       !sink.append("u + lane;\n") ||
       !sink.append(
           signed_extrema
-              ? (wide ? "    int64_t value = int64_t(stencil_tile[center]);\n"
-                      : "    int value = int(stencil_tile[center]);\n")
+              ? (wide ? "    int64_t value = int64_t(range_tile[center]);\n"
+                      : "    int value = int(range_tile[center]);\n")
               : (wide ? "    uint64_t value = "
-                        "uint64_t(stencil_tile[center]);\n"
-                      : "    uint value = stencil_tile[center];\n")) ||
+                        "uint64_t(range_tile[center]);\n"
+                      : "    uint value = range_tile[center];\n")) ||
       !sink.append(
           R"glsl(    for (uint step = 1u; uint64_t(step) <= params.radius; ++step) {
 )glsl") ||
-      !EmitVulkanStencilUpdate(sink, op, wide, signed_extrema, true) ||
+      !EmitVulkanRangeUpdate(sink, op, wide, signed_extrema, true) ||
       !sink.append("    }\n    output_values[gid] = ") ||
       !sink.append(wide ? "uint64_t(value)" : "uint(value)") ||
       !sink.append(R"glsl(;
@@ -180,8 +186,8 @@ template <typename Sink>
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitVulkanStencilDirectBody(
-    Sink &sink, const rund::kernel::StencilOp op, const bool wide,
+[[nodiscard]] bool EmitVulkanRangeDirectBody(
+    Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
     const bool
         signed_extrema) noexcept(noexcept(sink.append(std::string_view{}))) {
   if (!sink.append(R"glsl(  const uint gid = uint(group_base + uint64_t(lane));
@@ -200,7 +206,7 @@ template <typename Sink>
 )glsl")) {
     return false;
   }
-  if (!EmitVulkanStencilUpdate(sink, op, wide, signed_extrema, false)) {
+  if (!EmitVulkanRangeUpdate(sink, op, wide, signed_extrema, false)) {
     return false;
   }
   return sink.append("  }\n  output_values[gid] = ") &&
@@ -208,16 +214,15 @@ template <typename Sink>
          sink.append(";\n}\n");
 }
 
-[[nodiscard]] constexpr std::uint32_t VulkanStencilStageValue(
-    const rund::node::accel::detail::RangeAggregateStageDisposition
-        stage) noexcept {
+[[nodiscard]] constexpr std::uint32_t VulkanRangeStageValue(
+    const rund::node::accel::detail::RangeStageKind stage) noexcept {
   return static_cast<std::uint32_t>(stage);
 }
 
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanPrefixDifferenceBody(
     Sink &sink, const bool wide,
-    const rund::node::accel::detail::StencilGpuShape
+    const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   const char *const scalar = wide ? "uint64_t" : "uint";
@@ -228,12 +233,10 @@ template <typename Sink>
       !sink.append(R"glsl();
   if (params.stage == )glsl") ||
       !backend_source_recipe::append_decimal(
-          sink, VulkanStencilStageValue(
-                    RangeAggregateStageDisposition::PrefixBlock)) ||
+          sink, VulkanRangeStageValue(RangeStageKind::PrefixBlock)) ||
       !sink.append(R"glsl(u || params.stage == )glsl") ||
       !backend_source_recipe::append_decimal(
-          sink, VulkanStencilStageValue(
-                    RangeAggregateStageDisposition::PrefixSummary)) ||
+          sink, VulkanRangeStageValue(RangeStageKind::PrefixSummary)) ||
       !sink.append(R"glsl(u) {
     const uint64_t index = group_base + uint64_t(lane);
     const bool is_active = index < params.stage_element_count;
@@ -241,8 +244,7 @@ template <typename Sink>
       !sink.append(scalar) || !sink.append(R"glsl( value = is_active
         ? (params.stage == )glsl") ||
       !backend_source_recipe::append_decimal(
-          sink, VulkanStencilStageValue(
-                    RangeAggregateStageDisposition::PrefixBlock)) ||
+          sink, VulkanRangeStageValue(RangeStageKind::PrefixBlock)) ||
       !sink.append(R"glsl(u ? input_values[uint(index)]
                             : scratch0_values[uint(index)])
         : )glsl") ||
@@ -290,8 +292,7 @@ template <typename Sink>
   }
   if (params.stage == )glsl") ||
       !backend_source_recipe::append_decimal(
-          sink, VulkanStencilStageValue(
-                    RangeAggregateStageDisposition::PrefixFixup)) ||
+          sink, VulkanRangeStageValue(RangeStageKind::PrefixFixup)) ||
       !sink.append(R"glsl(u) {
     const uint64_t index = group_base + uint64_t(lane);
     if (index < params.stage_element_count && gl_WorkGroupID.x != 0u) {
@@ -331,20 +332,19 @@ template <typename Sink>
 
 template <typename Sink>
 [[nodiscard]] bool EmitVulkanBlockPrefixSuffixBody(
-    Sink &sink, const rund::kernel::StencilOp op,
-    const rund::node::accel::detail::StencilGpuShape
+    Sink &sink, const rund::node::accel::detail::RangeOp op,
+    const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   const char *const combine =
-      op == rund::kernel::StencilOp::Min ? "min" : "max";
+      op == rund::node::accel::detail::RangeOp::Minimum ? "min" : "max";
   if (!sink.append(R"glsl(void main() {
   const uint64_t block = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
       !backend_source_recipe::append_decimal(sink, shape.width()) ||
       !sink.append(R"glsl() + uint64_t(gl_LocalInvocationID.x);
   if (params.stage == )glsl") ||
       !backend_source_recipe::append_decimal(
-          sink, VulkanStencilStageValue(
-                    RangeAggregateStageDisposition::BlockPrefixSuffix)) ||
+          sink, VulkanRangeStageValue(RangeStageKind::BlockPrefixSuffix)) ||
       !sink.append(R"glsl(u) {
     if (block >= params.stage_aux_count) { return; }
     const uint64_t window = params.radius * uint64_t(2) + uint64_t(1);
@@ -390,21 +390,21 @@ template <typename Sink>
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitVulkanStencilBody(
-    Sink &sink, const rund::kernel::StencilOp op, const bool wide,
+[[nodiscard]] bool EmitVulkanRangeBody(
+    Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
     const bool signed_extrema,
-    const rund::node::accel::detail::StencilGpuShape
+    const rund::node::accel::detail::RangeGpuShape
         shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
-  if (!shape.valid() || !sink.append(R"glsl(void main() {
+  if (!sink.append(R"glsl(void main() {
   const uint lane = gl_LocalInvocationID.x;
   const uint64_t group_base = uint64_t(gl_WorkGroupID.x) * uint64_t()glsl") ||
       !backend_source_recipe::append_decimal(sink, shape.width()) ||
       !sink.append(");\n")) {
     return false;
   }
-  if (shape.uses_shared_memory()) {
-    return EmitVulkanStencilSharedBody(sink, op, wide, signed_extrema, shape);
+  if (shape.uses_shared_halo()) {
+    return EmitVulkanRangeSharedBody(sink, op, wide, signed_extrema, shape);
   }
-  return EmitVulkanStencilDirectBody(sink, op, wide, signed_extrema);
+  return EmitVulkanRangeDirectBody(sink, op, wide, signed_extrema);
 }

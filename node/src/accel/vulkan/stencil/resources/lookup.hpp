@@ -2,8 +2,8 @@
 
 #include <accel/device.hpp>
 
+#include "../../../stencil/vulkan.hpp"
 #include "../../buffer/resident/batch.hpp"
-#include "../local.hpp"
 
 namespace rund::node::accel::detail {
 

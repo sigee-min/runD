@@ -122,11 +122,13 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/scatter/reduce/pipeline.cpp
   src/accel/vulkan/scatter/reduce/prepare.cpp
   src/accel/vulkan/scatter/reduce/source.cpp
-  src/accel/vulkan/stencil/descriptor.cpp
+  src/accel/vulkan/range/descriptor.cpp
+  src/accel/vulkan/range/execute.cpp
+  src/accel/vulkan/range/finish.cpp
+  src/accel/vulkan/range/pipeline.cpp
+  src/accel/vulkan/range/source.cpp
   src/accel/vulkan/stencil/execute.cpp
   src/accel/vulkan/stencil/finish.cpp
-  src/accel/vulkan/stencil/pipeline.cpp
-  src/accel/vulkan/stencil/source.cpp
   src/accel/vulkan/scan/descriptor.cpp
   src/accel/vulkan/scan/execute.cpp
   src/accel/vulkan/scan/execute/buffers.cpp

@@ -3,13 +3,13 @@
 #include "../backend/usage.hpp"
 #include "../kernel/backend/execute.hpp"
 
-#include "../stencil/vulkan.hpp"
 #include "adapter/api.hpp"
 #include "buffer/create/telemetry.hpp"
 #include "buffer/resident/model.hpp"
 #include "kernel.hpp"
 #include "kernel/manifest.hpp"
 #include "ops.hpp"
+#include "range/api.hpp"
 
 #include <node/accel/buffer.hpp>
 
@@ -206,7 +206,7 @@ const BackendOps Operations{
     .stats = Stats,
     .reset = Reset,
     .memory = Memory,
-    .range_aggregate_capabilities = VulkanRangeAggregateCapabilities,
+    .range_caps = VulkanRangeCaps,
     .run = RunVulkanKernel,
     .prepare = PrepareVulkanKernel,
     .plan_pipeline_private = PlanVulkanPipelinePrivateKernel,

@@ -244,30 +244,28 @@ ScratchPrimitive(const rund::compute::detail::Primitive kind,
   }
 
   constexpr std::uint8_t direct_prefix =
-      RangeAggregateSupportBit(RangeAggregateSupport::Direct) |
-      RangeAggregateSupportBit(RangeAggregateSupport::PrefixDifference);
+      RangeSupportBit(RangeSupport::Direct) |
+      RangeSupportBit(RangeSupport::PrefixDifference);
   const auto sum_traits =
-      RangeAggregateTraits::sum_modulo(rund::kernel::ComputeDomain::U32);
+      RangeTraits::sum_modulo(rund::kernel::ComputeDomain::U32);
   const auto sum_shape =
       sum_traits.has_value()
-          ? RangeAggregateShape::window(
-                *sum_traits, RangeAggregateBoundary::Clamp, 4097u, 4097u, 4u)
+          ? RangeShape::window(*sum_traits, RangeBoundary::Clamp, 4097u, 4097u,
+                               4u)
           : std::nullopt;
-  const auto prefix_caps = RangeAggregateCapabilities::gpu(
-      RangeAggregateSourceVariant::Metal, kRangeAggregateWidth64Bit, 64u, 4u,
-      32768u, std::numeric_limits<std::uint32_t>::max(), direct_prefix);
+  const auto prefix_caps =
+      RangeCaps::gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+                     std::numeric_limits<std::uint32_t>::max(), direct_prefix);
   if (!sum_shape.has_value() || !prefix_caps.has_value()) {
     return 7;
   }
-  const RangeAggregatePlan prefix_plan =
-      PlanRangeAggregate(*sum_shape, *prefix_caps);
+  const RangePlan prefix_plan = PlanRange(*sum_shape, *prefix_caps);
   const KernelScratchBatchPlan prefix_scratch =
-      PlanRangeAggregateScratch(prefix_plan, 16u, 32768u);
+      PlanRangeScratch(prefix_plan, 16u, 32768u);
   const KernelScratchBatchPlan prefix_repeated =
-      PlanRangeAggregateScratch(prefix_plan, 16u, 32768u);
+      PlanRangeScratch(prefix_plan, 16u, 32768u);
   if (!prefix_plan.ok() ||
-      prefix_plan.candidate().disposition() !=
-          RangeAggregateCandidateDisposition::PrefixDifference ||
+      prefix_plan.candidate().disposition() != RangePath::PrefixDifference ||
       !prefix_scratch.ok() || prefix_scratch.page_count() != 1u ||
       prefix_scratch.last_bytes() != 16688u ||
       prefix_scratch.backing_bytes() != 16688u ||
@@ -278,61 +276,49 @@ ScratchPrimitive(const rund::compute::detail::Primitive kind,
     return 8;
   }
   for (std::size_t index = 0u; index < prefix_plan.temporary_count(); ++index) {
-    const RangeTemporaryRequirement temporary = prefix_plan.temporary(index);
+    const RangeTempReq temporary = prefix_plan.temporary(index);
     const KernelScratchRequirement projected =
-        KernelScratchRequirementForRangeTemporary(temporary);
+        ScratchReqForRangeTemp(temporary);
     const KernelScratchPlacement *const placed =
-        FindRangeAggregateScratchPlacement(prefix_scratch, temporary.role,
-                                           temporary.ordinal);
+        FindRangeScratch(prefix_scratch, temporary.role, temporary.ordinal);
     if (!projected.valid() || placed == nullptr ||
         placed->requirement != projected) {
       return 9;
     }
   }
-  if (KernelScratchRoleForRangeTemporary(static_cast<RangeTemporaryRole>(255u),
-                                         0u)
-          .valid() ||
-      KernelScratchRoleForRangeTemporary(RangeTemporaryRole::PrefixValues,
-                                         0u) ==
-          KernelScratchRoleForRangeTemporary(RangeTemporaryRole::BlockSummaries,
-                                             0u) ||
-      KernelScratchRoleForRangeTemporary(RangeTemporaryRole::PrefixValues,
-                                         0u) ==
-          KernelScratchRoleForRangeTemporary(RangeTemporaryRole::PrefixValues,
-                                             1u)) {
+  if (ScratchRoleForRangeTemp(static_cast<RangeTempRole>(255u), 0u).valid() ||
+      ScratchRoleForRangeTemp(RangeTempRole::PrefixValues, 0u) ==
+          ScratchRoleForRangeTemp(RangeTempRole::BlockSummaries, 0u) ||
+      ScratchRoleForRangeTemp(RangeTempRole::PrefixValues, 0u) ==
+          ScratchRoleForRangeTemp(RangeTempRole::PrefixValues, 1u)) {
     return 10;
   }
 
   constexpr std::uint8_t direct_block =
-      RangeAggregateSupportBit(RangeAggregateSupport::Direct) |
-      RangeAggregateSupportBit(RangeAggregateSupport::BlockPrefixSuffix);
+      RangeSupportBit(RangeSupport::Direct) |
+      RangeSupportBit(RangeSupport::BlockPrefixSuffix);
   const auto minimum_traits =
-      RangeAggregateTraits::minimum(rund::kernel::ComputeDomain::U32);
+      RangeTraits::minimum(rund::kernel::ComputeDomain::U32);
   const auto minimum_shape =
       minimum_traits.has_value()
-          ? RangeAggregateShape::window(*minimum_traits,
-                                        RangeAggregateBoundary::Clamp, 4097u,
-                                        4097u, 4u)
+          ? RangeShape::window(*minimum_traits, RangeBoundary::Clamp, 4097u,
+                               4097u, 4u)
           : std::nullopt;
-  const auto block_caps = RangeAggregateCapabilities::gpu(
-      RangeAggregateSourceVariant::Vulkan, kRangeAggregateWidth64Bit, 64u, 0u,
-      0u, std::numeric_limits<std::uint32_t>::max(), direct_block);
+  const auto block_caps =
+      RangeCaps::gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                     std::numeric_limits<std::uint32_t>::max(), direct_block);
   if (!minimum_shape.has_value() || !block_caps.has_value()) {
     return 11;
   }
-  const RangeAggregatePlan block_plan =
-      PlanRangeAggregate(*minimum_shape, *block_caps);
+  const RangePlan block_plan = PlanRange(*minimum_shape, *block_caps);
   const KernelScratchBatchPlan block_scratch =
-      PlanRangeAggregateScratch(block_plan, 16u, 65536u);
+      PlanRangeScratch(block_plan, 16u, 65536u);
   const KernelScratchPlacement *const forward =
-      FindRangeAggregateScratchPlacement(block_scratch,
-                                         RangeTemporaryRole::ForwardValues, 0u);
+      FindRangeScratch(block_scratch, RangeTempRole::ForwardValues, 0u);
   const KernelScratchPlacement *const backward =
-      FindRangeAggregateScratchPlacement(
-          block_scratch, RangeTemporaryRole::BackwardValues, 0u);
+      FindRangeScratch(block_scratch, RangeTempRole::BackwardValues, 0u);
   if (!block_plan.ok() ||
-      block_plan.candidate().disposition() !=
-          RangeAggregateCandidateDisposition::BlockPrefixSuffix ||
+      block_plan.candidate().disposition() != RangePath::BlockPrefixSuffix ||
       !block_scratch.ok() || block_scratch.page_count() != 2u ||
       block_scratch.last_bytes() != 49168u ||
       block_scratch.backing_bytes() != 114704u ||
@@ -345,12 +331,11 @@ ScratchPrimitive(const rund::compute::detail::Primitive kind,
     return 12;
   }
 
-  const RangeAggregatePlan direct_plan =
-      PlanRangeAggregate(*sum_shape, RangeAggregateCapabilities::cpu());
+  const RangePlan direct_plan = PlanRange(*sum_shape, RangeCaps::cpu());
   const KernelScratchBatchPlan direct_scratch =
-      PlanRangeAggregateScratch(direct_plan, 16u, 32768u);
-  const KernelScratchBatchPlan rejected_scratch = PlanRangeAggregateScratch(
-      RangeAggregatePlan::rejected("range_rejected"), 16u, 32768u);
+      PlanRangeScratch(direct_plan, 16u, 32768u);
+  const KernelScratchBatchPlan rejected_scratch =
+      PlanRangeScratch(RangePlan::rejected("range_rejected"), 16u, 32768u);
   if (!direct_scratch.ok() || direct_scratch.page_count() != 0u ||
       direct_scratch.payload_bytes() != 0u || rejected_scratch.ok() ||
       std::string_view{rejected_scratch.reason()} != "range_rejected") {

@@ -14,9 +14,9 @@
 
 namespace rund::node::accel::detail {
 
-class RangeAggregatePlan;
-struct RangeTemporaryRequirement;
-enum class RangeTemporaryRole : std::uint8_t;
+class RangePlan;
+struct RangeTempReq;
+enum class RangeTempRole : std::uint8_t;
 
 class KernelScratchRole final {
 public:
@@ -109,9 +109,8 @@ private:
                          std::uint64_t backing_alignment,
                          std::uint64_t page_bytes);
   friend KernelScratchBatchPlan
-  PlanRangeAggregateScratch(const RangeAggregatePlan &plan,
-                            std::uint64_t backing_alignment,
-                            std::uint64_t page_bytes);
+  PlanRangeScratch(const RangePlan &plan, std::uint64_t backing_alignment,
+                   std::uint64_t page_bytes);
 
   enum class State : std::uint8_t {
     Failed,
@@ -232,22 +231,18 @@ FindKernelScratchPlacement(const KernelScratchBatchPlan &plan,
                            KernelScratchRole role) noexcept;
 
 [[nodiscard]] KernelScratchRole
-KernelScratchRoleForRangeTemporary(RangeTemporaryRole role,
-                                   std::uint8_t ordinal) noexcept;
+ScratchRoleForRangeTemp(RangeTempRole role, std::uint8_t ordinal) noexcept;
 
 [[nodiscard]] KernelScratchRequirement
-KernelScratchRequirementForRangeTemporary(
-    const RangeTemporaryRequirement &requirement) noexcept;
+ScratchReqForRangeTemp(const RangeTempReq &requirement) noexcept;
 
 [[nodiscard]] KernelScratchBatchPlan
-PlanRangeAggregateScratch(const RangeAggregatePlan &plan,
-                          std::uint64_t backing_alignment,
-                          std::uint64_t page_bytes);
+PlanRangeScratch(const RangePlan &plan, std::uint64_t backing_alignment,
+                 std::uint64_t page_bytes);
 
 [[nodiscard]] const KernelScratchPlacement *
-FindRangeAggregateScratchPlacement(const KernelScratchBatchPlan &plan,
-                                   RangeTemporaryRole role,
-                                   std::uint8_t ordinal) noexcept;
+FindRangeScratch(const KernelScratchBatchPlan &plan, RangeTempRole role,
+                 std::uint8_t ordinal) noexcept;
 
 [[nodiscard]] KernelScratchPlan
 PlanKernelScratch(const rund::AccelContext &context,

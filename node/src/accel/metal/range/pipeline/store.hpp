@@ -6,9 +6,9 @@ namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 [[nodiscard]] inline MetalNamedPipelinePublishResult
-StoreMetalStencilPipeline(MetalAdapter &adapter, const std::string &key,
-                          std::shared_ptr<void> pipeline,
-                          std::uint64_t compile_ns) {
+StoreMetalRangePipeline(MetalAdapter &adapter, const std::string &key,
+                        std::shared_ptr<void> pipeline,
+                        std::uint64_t compile_ns) {
   return PublishMetalNamedPipeline(adapter, key, std::move(pipeline),
                                    compile_ns);
 }

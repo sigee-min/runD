@@ -127,7 +127,7 @@ width, serial lane-zero domain branch, status binding in `prefix`, retry, or
 fallback.
 
 The source-private `PlanScanPrefixExecution` projects each frozen Kernel
-`ScanPlan` into the shared `RangeAggregatePrefixExecution` flat block-total
+`ScanPlan` into the shared `RangePrefixExec` flat block-total
 stage graph. It supplies the one native 128-lane source width, full logical
 block count, block-total temporary role, and one- or three-stage lifetime used
 by both Metal and Vulkan preparation. The Pipeline scratch planner and direct

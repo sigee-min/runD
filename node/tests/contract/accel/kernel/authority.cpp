@@ -34,6 +34,8 @@
 #include "src/accel/metal/kernel/pipeline/state.hpp"
 #include "src/accel/metal/numeric/source.hpp"
 #include "src/accel/metal/partition/local.hpp"
+#include "src/accel/metal/range/local.hpp"
+#include "src/accel/metal/range/pipeline/name.hpp"
 #include "src/accel/metal/reduce/local.hpp"
 #include "src/accel/metal/runtime/map/api.hpp"
 #include "src/accel/metal/runtime/map/control.hpp"
@@ -44,8 +46,6 @@
 #include "src/accel/metal/segmented/local.hpp"
 #include "src/accel/metal/segmented/reduce/model.hpp"
 #include "src/accel/metal/sort/source.hpp"
-#include "src/accel/metal/stencil/local.hpp"
-#include "src/accel/metal/stencil/pipeline/name.hpp"
 #include "src/accel/sort/block/metal.hpp"
 #include "stencil/local.hpp"
 #endif
@@ -2523,19 +2523,17 @@ static_assert(PreparedControlPhaseCodesAreChecked());
                   node_accel_contract::stencil::SourcePlanPath::
                       BlockPrefixSuffix};
     for (const node_accel_contract::stencil::SourcePlanPath path : paths) {
-      const StencilGpuShape requested =
+      const RangeGpuShape requested =
           path == node_accel_contract::stencil::SourcePlanPath::SharedHalo
-              ? StencilGpuShape::shared(128u, 128u)
-              : StencilGpuShape::direct(128u);
-      const RangeAggregatePlan range =
+              ? stencil::RangeSharedShape(128u, 128u)
+              : stencil::RangeDirectShape(128u);
+      const RangePlan range =
           node_accel_contract::stencil::PlanStencilSourceVariant(
-              RangeAggregateSourceVariant::Metal, op,
-              rund::kernel::ComputeDomain::U32, requested, path);
-      const StencilGpuShape shape =
-          StencilGpuShapeFromRangeAggregatePlan(range);
-      if (!range.ok() || !shape.valid() ||
-          !MetalStencilSourceUpperBytes(op, range, bytes) ||
-          !exact(MetalStencilSource(op, shape, range), bytes)) {
+              RangeSource::Metal, op, rund::kernel::ComputeDomain::U32,
+              requested, path);
+      const RangeExec execution = stencil::RequireRangeExec(range);
+      if (!range.ok() || !MetalRangeSourceUpperBytes(execution, bytes) ||
+          !exact(MetalRangeSource(execution), bytes)) {
         return false;
       }
     }
@@ -2581,26 +2579,42 @@ static_assert(PreparedControlPhaseCodesAreChecked());
     return false;
   }
 
-  constexpr StencilGpuShape shape64 = StencilGpuShape::shared(64u, 64u);
-  constexpr StencilGpuShape shape128 = StencilGpuShape::shared(128u, 128u);
-  return StencilPipelineKey(rund::kernel::StencilOp::Sum,
-                            rund::kernel::StencilElement::U32,
-                            rund::kernel::ComputeDomain::U32, shape64) ==
-             StencilPipelineKey(rund::kernel::StencilOp::Sum,
-                                rund::kernel::StencilElement::U32,
-                                rund::kernel::ComputeDomain::I32, shape64) &&
-         StencilPipelineKey(rund::kernel::StencilOp::Sum,
-                            rund::kernel::StencilElement::U32,
-                            rund::kernel::ComputeDomain::U32, shape64) !=
-             StencilPipelineKey(rund::kernel::StencilOp::Sum,
-                                rund::kernel::StencilElement::U32,
-                                rund::kernel::ComputeDomain::U32, shape128) &&
-         StencilPipelineKey(rund::kernel::StencilOp::Min,
-                            rund::kernel::StencilElement::U32,
-                            rund::kernel::ComputeDomain::U32, shape64) !=
-             StencilPipelineKey(rund::kernel::StencilOp::Min,
-                                rund::kernel::StencilElement::U32,
-                                rund::kernel::ComputeDomain::I32, shape64);
+  constexpr RangePlan sum_u32 =
+      node_accel_contract::stencil::PlanStencilSourceVariant(
+          RangeSource::Metal, rund::kernel::StencilOp::Sum,
+          rund::kernel::ComputeDomain::U32, stencil::RangeSharedShape(64u, 64u),
+          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
+  constexpr RangePlan sum_i32 =
+      node_accel_contract::stencil::PlanStencilSourceVariant(
+          RangeSource::Metal, rund::kernel::StencilOp::Sum,
+          rund::kernel::ComputeDomain::I32, stencil::RangeSharedShape(64u, 64u),
+          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
+  constexpr RangePlan sum_w128 =
+      node_accel_contract::stencil::PlanStencilSourceVariant(
+          RangeSource::Metal, rund::kernel::StencilOp::Sum,
+          rund::kernel::ComputeDomain::U32,
+          stencil::RangeSharedShape(128u, 128u),
+          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
+  constexpr RangePlan minimum_i32 =
+      node_accel_contract::stencil::PlanStencilSourceVariant(
+          RangeSource::Metal, rund::kernel::StencilOp::Min,
+          rund::kernel::ComputeDomain::I32, stencil::RangeSharedShape(64u, 64u),
+          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
+  static_assert(sum_u32.ok() && sum_i32.ok() && sum_w128.ok() &&
+                minimum_i32.ok());
+  const RangeExec sum_u32_execution = stencil::RequireRangeExec(sum_u32);
+  const RangeExec sum_i32_execution = stencil::RequireRangeExec(sum_i32);
+  const RangeExec sum_w128_execution = stencil::RequireRangeExec(sum_w128);
+  const RangeExec minimum_i32_execution =
+      stencil::RequireRangeExec(minimum_i32);
+  return RangePipelineKey(sum_u32_execution) ==
+             RangePipelineKey(sum_u32_execution) &&
+         RangePipelineKey(sum_u32_execution) !=
+             RangePipelineKey(sum_i32_execution) &&
+         RangePipelineKey(sum_u32_execution) !=
+             RangePipelineKey(sum_w128_execution) &&
+         RangePipelineKey(sum_i32_execution) !=
+             RangePipelineKey(minimum_i32_execution);
 #else
   return true;
 #endif
@@ -2859,31 +2873,25 @@ static_assert(PreparedControlPhaseCodesAreChecked());
   };
   constexpr rund::kernel::StencilPlan stencil_plan =
       rund::kernel::PlanStencil(stencil_desc);
-  constexpr std::optional<RangeAggregateShape> stencil_shape =
-      RangeAggregateShape::from_stencil(stencil_plan,
-                                        rund::kernel::ComputeDomain::U32);
-  constexpr std::optional<RangeAggregateCapabilities> stencil_capabilities =
-      RangeAggregateCapabilities::gpu(
-          RangeAggregateSourceVariant::Metal, kRangeAggregateWidth64Bit, 64u,
-          0u, 0u, std::numeric_limits<rund::kernel::u32>::max(),
-          RangeAggregateSupportBit(RangeAggregateSupport::Direct));
-  constexpr RangeAggregatePlan stencil_range =
+  constexpr std::optional<RangeShape> stencil_shape =
+      StencilRangeShape(stencil_plan, rund::kernel::ComputeDomain::U32);
+  constexpr std::optional<RangeCaps> stencil_capabilities =
+      RangeCaps::gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                     std::numeric_limits<rund::kernel::u32>::max(),
+                     RangeSupportBit(RangeSupport::Direct));
+  constexpr RangePlan stencil_range =
       stencil_shape.has_value() && stencil_capabilities.has_value()
-          ? PlanRangeAggregate(*stencil_shape, *stencil_capabilities)
-          : RangeAggregatePlan::rejected(
+          ? PlanRange(*stencil_shape, *stencil_capabilities)
+          : RangePlan::rejected(
                 "compute_range_aggregate_candidate_unavailable");
   static_assert(stencil_plan.ok && stencil_range.ok() &&
-                stencil_range.candidate().disposition() ==
-                    RangeAggregateCandidateDisposition::Direct);
+                stencil_range.candidate().disposition() == RangePath::Direct);
   auto &stencil = step.operation.set<operation::Stencil>(
       stencil_desc, stencil_plan, stencil_range);
-  if (!verify(
-          step, 1u, 1u, 1u, 3u,
-          guarded_size(MetalStencilSource(
-                           stencil.plan.op,
-                           StencilGpuShapeFromRangeAggregatePlan(stencil.range),
-                           stencil.range),
-                       4u))) {
+  if (!verify(step, 1u, 1u, 1u, 3u,
+              guarded_size(
+                  MetalRangeSource(stencil::RequireRangeExec(stencil.range)),
+                  4u))) {
     return false;
   }
   const std::uint64_t numeric_source_bytes =

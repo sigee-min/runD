@@ -23,7 +23,7 @@
 namespace node_accel_contract::stencil {
 namespace match_detail {
 
-enum class ForcedRangeAggregatePath : std::uint8_t {
+enum class ForcedRangePath : std::uint8_t {
   Direct,
   PrefixDifference,
   BlockPrefixSuffix,
@@ -45,46 +45,40 @@ BackendLastError(const rund::AccelDevice &pick) {
   return false;
 }
 
-[[nodiscard]] inline std::optional<
-    rund::node::accel::detail::RangeAggregateCapabilities>
-ForcedCapabilities(
-    const rund::node::accel::detail::RangeAggregateCapabilities &base,
-    const ForcedRangeAggregatePath path) noexcept {
+[[nodiscard]] inline std::optional<rund::node::accel::detail::RangeCaps>
+ForcedCapabilities(const rund::node::accel::detail::RangeCaps &base,
+                   const ForcedRangePath path) noexcept {
   using namespace rund::node::accel::detail;
-  std::uint8_t support =
-      RangeAggregateSupportBit(RangeAggregateSupport::Direct);
+  std::uint8_t support = RangeSupportBit(RangeSupport::Direct);
   switch (path) {
-  case ForcedRangeAggregatePath::Direct:
+  case ForcedRangePath::Direct:
     break;
-  case ForcedRangeAggregatePath::PrefixDifference:
-    support |=
-        RangeAggregateSupportBit(RangeAggregateSupport::PrefixDifference);
+  case ForcedRangePath::PrefixDifference:
+    support |= RangeSupportBit(RangeSupport::PrefixDifference);
     break;
-  case ForcedRangeAggregatePath::BlockPrefixSuffix:
-    support |=
-        RangeAggregateSupportBit(RangeAggregateSupport::BlockPrefixSuffix);
+  case ForcedRangePath::BlockPrefixSuffix:
+    support |= RangeSupportBit(RangeSupport::BlockPrefixSuffix);
     break;
   }
-  return RangeAggregateCapabilities::gpu(
-      base.source_variant(), base.legal_width_mask(),
-      base.maximum_threads_per_workgroup(),
-      base.shared_memory_occupancy_budget(), base.shared_memory_limit(),
-      base.maximum_group_count(), support);
+  return RangeCaps::gpu(base.source_variant(), base.legal_width_mask(),
+                        base.maximum_threads_per_workgroup(),
+                        base.shared_memory_occupancy_budget(),
+                        base.shared_memory_limit(), base.maximum_group_count(),
+                        support);
 }
 
-[[nodiscard]] constexpr rund::node::accel::detail::
-    RangeAggregateCandidateDisposition
-    ExpectedCandidate(const ForcedRangeAggregatePath path) noexcept {
+[[nodiscard]] constexpr rund::node::accel::detail::RangePath
+ExpectedCandidate(const ForcedRangePath path) noexcept {
   using namespace rund::node::accel::detail;
   switch (path) {
-  case ForcedRangeAggregatePath::Direct:
-    return RangeAggregateCandidateDisposition::Direct;
-  case ForcedRangeAggregatePath::PrefixDifference:
-    return RangeAggregateCandidateDisposition::PrefixDifference;
-  case ForcedRangeAggregatePath::BlockPrefixSuffix:
-    return RangeAggregateCandidateDisposition::BlockPrefixSuffix;
+  case ForcedRangePath::Direct:
+    return RangePath::Direct;
+  case ForcedRangePath::PrefixDifference:
+    return RangePath::PrefixDifference;
+  case ForcedRangePath::BlockPrefixSuffix:
+    return RangePath::BlockPrefixSuffix;
   }
-  return RangeAggregateCandidateDisposition::Direct;
+  return RangePath::Direct;
 }
 
 } // namespace match_detail
@@ -153,7 +147,7 @@ template <typename T, std::size_t Count>
     const rund::kernel::ComputeDomain domain, const rund::kernel::StencilOp op,
     const rund::kernel::StencilElement element, const rund::kernel::u64 radius,
     const std::array<T, Count> &input,
-    const match_detail::ForcedRangeAggregatePath path) {
+    const match_detail::ForcedRangePath path) {
   namespace detail = rund::node::accel::detail;
   namespace fix = node_accel_contract::primitive;
   namespace run = node_accel_contract::stencil::match;
@@ -196,20 +190,20 @@ template <typename T, std::size_t Count>
       .radius = radius,
   };
   const rund::kernel::StencilPlan semantic = rund::kernel::PlanStencil(desc);
-  const std::optional<detail::RangeAggregateShape> shape =
-      detail::RangeAggregateShape::from_stencil(semantic, domain);
-  const detail::RangeAggregateCapabilities base =
+  const std::optional<detail::RangeShape> shape =
+      detail::StencilRangeShape(semantic, domain);
+  const detail::RangeCaps base =
       admission.pick->raw.api == rund::AccelApi::Metal
-          ? detail::MetalRangeAggregateCapabilities(admission.pick->raw)
+          ? detail::MetalRangeCaps(admission.pick->raw)
       : admission.pick->raw.api == rund::AccelApi::Vulkan
-          ? detail::VulkanRangeAggregateCapabilities(admission.pick->raw)
-          : detail::RangeAggregateCapabilities::unavailable();
-  const std::optional<detail::RangeAggregateCapabilities> capabilities =
+          ? detail::VulkanRangeCaps(admission.pick->raw)
+          : detail::RangeCaps::unavailable();
+  const std::optional<detail::RangeCaps> capabilities =
       match_detail::ForcedCapabilities(base, path);
-  const detail::RangeAggregatePlan range =
+  const detail::RangePlan range =
       shape.has_value() && capabilities.has_value()
-          ? detail::PlanRangeAggregate(*shape, *capabilities)
-          : detail::RangeAggregatePlan::rejected(
+          ? detail::PlanRange(*shape, *capabilities)
+          : detail::RangePlan::rejected(
                 "compute_range_aggregate_candidate_unavailable");
   if (!semantic.ok || !range.ok() ||
       range.candidate().disposition() !=

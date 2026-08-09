@@ -14,11 +14,12 @@ Public support surface:
 Implementation authority:
 
 - `/node/src/accel/stencil.hpp`
-- `/node/src/accel/stencil/model.hpp` as the sole host parameter ABI owner
 - `/node/src/accel/range_aggregate/{model,plan}.hpp` as the sole
   algorithm/capability/cost selector
-- `/node/src/accel/stencil/shape.{hpp,cpp}` as the pure Stencil-to-frozen-plan
-  ABI, dispatch, descriptor, and resident-span projection
+- `/node/src/accel/range_aggregate/execution.hpp` as the generic `RangeParams`
+  host parameter ABI owner
+- `/node/src/accel/stencil/shape.{hpp,cpp}` as the sole Stencil semantic
+  projection, descriptor, dispatch, and resident-span owner
 - `/node/src/accel/primitive/shape.hpp`
 - `/node/src/accel/cpu/stencil.cpp`
 - `/node/src/accel/metal/stencil*`
@@ -73,8 +74,8 @@ inter-thread races from becoming Stencil semantics.
 ## Frozen RangeAggregate execution
 
 Graph admission projects the accepted Kernel descriptor into
-`RangeAggregateTraits` and `RangeAggregateShape`, takes one backend capability
-snapshot, and freezes `PlanRangeAggregate(...)` before the execution token is
+`RangeTraits` and `RangeShape`, takes one backend capability
+snapshot, and freezes `PlanRange(...)` before the execution token is
 minted. `HashStencil`, the public graph descriptor, and the CPU reference stay
 semantic authorities; the frozen plan is a resident execution authority only.
 
@@ -89,11 +90,13 @@ The planner may select the following exact execution families:
 
 `/node/docs/contracts/accel/range-aggregate.md` owns legality, cost formulas,
 candidate dominance, tie-breaking, and the large-radius `O(N)` proofs. The
-Stencil projection never ranks a second candidate set. It maps the selected
-plan to a backend workgroup width, per-stage dispatch shape, descriptor count,
-dispatch-local shared bytes, and typed global temporary requirements.
+Stencil projection never ranks a second candidate set. `RangeExec` maps the
+selected plan to a backend workgroup width, per-stage dispatch shape,
+descriptor count, dispatch-local shared bytes, and typed global temporary
+requirements. Stencil supplies only Clamp semantics, public resident bindings,
+and public result/error mapping to that executor.
 
-`StencilParams` carries the immutable logical window plus the active stage:
+`RangeParams` carries the immutable logical window plus the active stage:
 
 ```text
 element_count, radius,
@@ -126,7 +129,7 @@ scratch planner alone assigns their arena placements; serial stages reuse its
 component-wise envelope and warm execution performs no allocation. Threadgroup
 shared memory remains pipeline metadata rather than arena storage.
 
-Metal and Vulkan prepare one resident pipeline, parameter buffer, and
+Metal and Vulkan prepare one generic range pipeline, parameter buffer, and
 descriptor set for every frozen stage. A global-memory barrier separates
 dependent range stages. The backend manifest and immutable-template capacity
 record the exact frozen stage count and descriptor demand. A failed prepare
@@ -146,8 +149,8 @@ and element width. The execution identity additionally contains `N`, `r`, the
 complete stage graph, temporary requirements, and exact modeled cost. Metal
 pipeline labels and Vulkan artifact/source matching consume the source identity;
 manifest reservation, immutable-template reuse, parameter dispatch, and scratch
-placement consume the frozen execution plan. A pipeline is reusable only when
-that complete source identity matches.
+placement consume `RangeExec`. A pipeline is reusable only when that complete
+source identity matches.
 
 The stencil contract verifies Direct, SharedHalo, PrefixDifference, and
 BlockPrefixSuffix results against the unchanged CPU reference across tails,

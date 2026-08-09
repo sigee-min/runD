@@ -7,35 +7,34 @@
 
 namespace rund::node::accel::detail {
 
-[[nodiscard]] inline const char *
-MetalStencilSourceOpName(const rund::kernel::StencilOp op) noexcept {
-  if (op == rund::kernel::StencilOp::Min) {
+[[nodiscard]] inline const char *MetalRangeOpName(const RangeOp op) noexcept {
+  if (op == RangeOp::Minimum) {
     return "min";
   }
-  if (op == rund::kernel::StencilOp::Max) {
+  if (op == RangeOp::Maximum) {
     return "max";
   }
   return "sum";
 }
 
 [[nodiscard]] inline const char *
-MetalStencilDirectUpdateLine(const rund::kernel::StencilOp op) noexcept {
-  if (op == rund::kernel::StencilOp::Min) {
+MetalRangeDirectUpdate(const RangeOp op) noexcept {
+  if (op == RangeOp::Minimum) {
     return "    value = min(value, min(input[left], input[right]));\n";
   }
-  if (op == rund::kernel::StencilOp::Max) {
+  if (op == RangeOp::Maximum) {
     return "    value = max(value, max(input[left], input[right]));\n";
   }
   return "    value += input[left] + input[right];\n";
 }
 
 [[nodiscard]] inline const char *
-MetalStencilSharedUpdateLine(const rund::kernel::StencilOp op) noexcept {
-  if (op == rund::kernel::StencilOp::Min) {
+MetalRangeSharedUpdate(const RangeOp op) noexcept {
+  if (op == RangeOp::Minimum) {
     return "      value = min(value, min(tile[center - step], "
            "tile[center + step]));\n";
   }
-  if (op == rund::kernel::StencilOp::Max) {
+  if (op == RangeOp::Maximum) {
     return "      value = max(value, max(tile[center - step], "
            "tile[center + step]));\n";
   }
@@ -43,12 +42,12 @@ MetalStencilSharedUpdateLine(const rund::kernel::StencilOp op) noexcept {
 }
 
 template <typename Sink>
-inline void
-AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
-                         const StencilGpuShape shape, const char *const type,
-                         const char *const suffix) {
-  source += "kernel void rund_compute_stencil_";
-  source += MetalStencilSourceOpName(op);
+inline void AppendMetalRangeKernel(Sink &source, const RangeOp op,
+                                   const RangeGpuShape shape,
+                                   const char *const type,
+                                   const char *const suffix) {
+  source += "kernel void rund_range_";
+  source += MetalRangeOpName(op);
   source += "_";
   source += suffix;
   source += R"MSL((
@@ -58,11 +57,11 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     device )MSL";
   source += type;
   source += R"MSL(* output [[buffer(1)]],
-    constant StencilParams& params [[buffer(2)]],
+    constant RangeParams& params [[buffer(2)]],
     uint tid [[thread_index_in_threadgroup]],
     uint group [[threadgroup_position_in_grid]]) {
 )MSL";
-  if (shape.uses_shared_memory()) {
+  if (shape.uses_shared_halo()) {
     source += "  threadgroup ";
     source += type;
     source += " tile[";
@@ -72,7 +71,7 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
   source += R"MSL(  const ulong group_base = ulong(group) * )MSL";
   (void)source.decimal(shape.width());
   source += "ul;\n";
-  if (shape.uses_shared_memory()) {
+  if (shape.uses_shared_halo()) {
     source +=
         R"MSL(  const ulong active_lanes = group_base >= params.element_count
                                  ? 0ul
@@ -90,19 +89,19 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     source += type;
     source += R"MSL( center_value = input[group_base + ulong(tid)];
       tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + tid] = center_value;
       if (left_inputs == 0u && tid == 0u) {
         for (uint slot = 0u; ulong(slot) < params.radius; ++slot) {
           tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u - uint(params.radius) + slot] = center_value;
         }
       }
       if (right_inputs == 0u && ulong(tid) + 1ul == active_lanes) {
         for (uint slot = 0u; ulong(slot) < params.radius; ++slot) {
           tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + uint(active_lanes) + slot] = center_value;
         }
       }
@@ -113,13 +112,13 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     source +=
         R"MSL( left_value = input[group_base - ulong(left_inputs) + ulong(tid)];
       tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u - left_inputs + tid] = left_value;
       if (tid == 0u && ulong(left_inputs) < params.radius) {
         for (uint slot = 0u;
              ulong(slot) < params.radius - ulong(left_inputs); ++slot) {
           tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u - uint(params.radius) + slot] = left_value;
         }
       }
@@ -129,12 +128,12 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     source += type;
     source += R"MSL( right_value = input[group_end + ulong(tid)];
       tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + uint(active_lanes) + tid] = right_value;
       if (tid + 1u == right_inputs && ulong(right_inputs) < params.radius) {
         for (uint slot = right_inputs; ulong(slot) < params.radius; ++slot) {
           tile[)MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + uint(active_lanes) + slot] = right_value;
         }
       }
@@ -143,14 +142,14 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
     if (ulong(tid) >= active_lanes) { return; }
     const ulong i = group_base + ulong(tid);
     const uint center = )MSL";
-    (void)source.decimal(shape.radius_cap());
+    (void)source.decimal(shape.shared_radius_capacity());
     source += R"MSL(u + tid;
     )MSL";
     source += type;
     source += R"MSL( value = tile[center];
     for (uint step = 1u; ulong(step) <= params.radius; ++step) {
 )MSL";
-    source += MetalStencilSharedUpdateLine(op);
+    source += MetalRangeSharedUpdate(op);
     source += R"MSL(    }
     output[i] = value;
   }
@@ -168,7 +167,7 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
         i + step >= params.element_count ? params.element_count - 1ul
                                          : i + step;
 )MSL";
-  source += MetalStencilDirectUpdateLine(op);
+  source += MetalRangeDirectUpdate(op);
   source += R"MSL(  }
   output[i] = value;
 }
@@ -176,16 +175,16 @@ AppendMetalStencilKernel(Sink &source, const rund::kernel::StencilOp op,
 }
 
 [[nodiscard]] constexpr std::uint32_t
-MetalStencilStageValue(const RangeAggregateStageDisposition stage) noexcept {
+MetalRangeStageValue(const RangeStageKind stage) noexcept {
   return static_cast<std::uint32_t>(stage);
 }
 
 template <typename Sink>
 inline void AppendMetalPrefixDifferenceKernel(Sink &source,
-                                              const StencilGpuShape shape,
+                                              const RangeGpuShape shape,
                                               const char *const type,
                                               const char *const suffix) {
-  source += "kernel void rund_compute_stencil_sum_";
+  source += "kernel void rund_range_sum_";
   source += suffix;
   source += R"MSL((
     device const )MSL";
@@ -194,7 +193,7 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
     device )MSL";
   source += type;
   source += R"MSL(* output [[buffer(1)]],
-    constant StencilParams& params [[buffer(2)]],
+    constant RangeParams& params [[buffer(2)]],
     device )MSL";
   source += type;
   source += R"MSL(* scratch0 [[buffer(3)]],
@@ -212,11 +211,9 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
   (void)source.decimal(shape.width());
   source += R"MSL(ul;
   if (params.stage == )MSL";
-  (void)source.decimal(
-      MetalStencilStageValue(RangeAggregateStageDisposition::PrefixBlock));
+  (void)source.decimal(MetalRangeStageValue(RangeStageKind::PrefixBlock));
   source += R"MSL(u || params.stage == )MSL";
-  (void)source.decimal(
-      MetalStencilStageValue(RangeAggregateStageDisposition::PrefixSummary));
+  (void)source.decimal(MetalRangeStageValue(RangeStageKind::PrefixSummary));
   source += R"MSL(u) {
     const ulong i = group_base + ulong(tid);
     const bool active = i < params.stage_element_count;
@@ -224,8 +221,7 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
   source += type;
   source += R"MSL( value = active
         ? (params.stage == )MSL";
-  (void)source.decimal(
-      MetalStencilStageValue(RangeAggregateStageDisposition::PrefixBlock));
+  (void)source.decimal(MetalRangeStageValue(RangeStageKind::PrefixBlock));
   source += R"MSL(u ? input[i] : scratch0[i])
         : )MSL";
   source += type;
@@ -271,8 +267,7 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
     return;
   }
   if (params.stage == )MSL";
-  (void)source.decimal(
-      MetalStencilStageValue(RangeAggregateStageDisposition::PrefixFixup));
+  (void)source.decimal(MetalRangeStageValue(RangeStageKind::PrefixFixup));
   source += R"MSL(u) {
     const ulong i = group_base + ulong(tid);
     if (i < params.stage_element_count && group != 0u) {
@@ -303,13 +298,12 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
 }
 
 template <typename Sink>
-inline void AppendMetalBlockPrefixSuffixKernel(Sink &source,
-                                               const rund::kernel::StencilOp op,
-                                               const StencilGpuShape shape,
+inline void AppendMetalBlockPrefixSuffixKernel(Sink &source, const RangeOp op,
+                                               const RangeGpuShape shape,
                                                const char *const type,
                                                const char *const suffix) {
-  source += "kernel void rund_compute_stencil_";
-  source += MetalStencilSourceOpName(op);
+  source += "kernel void rund_range_";
+  source += MetalRangeOpName(op);
   source += "_";
   source += suffix;
   source += R"MSL((
@@ -319,7 +313,7 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source,
     device )MSL";
   source += type;
   source += R"MSL(* output [[buffer(1)]],
-    constant StencilParams& params [[buffer(2)]],
+    constant RangeParams& params [[buffer(2)]],
     device )MSL";
   source += type;
   source += R"MSL(* forward_values [[buffer(3)]],
@@ -332,8 +326,7 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source,
   (void)source.decimal(shape.width());
   source += R"MSL(ul + ulong(tid);
   if (params.stage == )MSL";
-  (void)source.decimal(MetalStencilStageValue(
-      RangeAggregateStageDisposition::BlockPrefixSuffix));
+  (void)source.decimal(MetalRangeStageValue(RangeStageKind::BlockPrefixSuffix));
   source += R"MSL(u) {
     if (base >= params.stage_aux_count) { return; }
     const ulong window = params.radius * 2ul + 1ul;
@@ -349,7 +342,7 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source,
                  : input[params.element_count - 1ul]);
       if (index == begin) { forward_values[index] = value; }
       else { forward_values[index] = )MSL";
-  source += op == rund::kernel::StencilOp::Min ? "min" : "max";
+  source += op == RangeOp::Minimum ? "min" : "max";
   source += R"MSL((forward_values[index - 1ul], value); }
     }
     for (ulong cursor = end; cursor > begin;) {
@@ -363,7 +356,7 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source,
                  : input[params.element_count - 1ul]);
       if (index + 1ul == end) { backward_values[index] = value; }
       else { backward_values[index] = )MSL";
-  source += op == rund::kernel::StencilOp::Min ? "min" : "max";
+  source += op == RangeOp::Minimum ? "min" : "max";
   source += R"MSL((value, backward_values[index + 1ul]); }
       cursor = index;
     }
@@ -373,28 +366,25 @@ inline void AppendMetalBlockPrefixSuffixKernel(Sink &source,
   if (i >= params.element_count) { return; }
   const ulong right = i + params.radius * 2ul;
   output[i] = )MSL";
-  source += op == rund::kernel::StencilOp::Min ? "min" : "max";
+  source += op == RangeOp::Minimum ? "min" : "max";
   source += R"MSL((backward_values[i], forward_values[right]);
 }
 )MSL";
 }
 
 template <typename Sink>
-[[nodiscard]] bool EmitMetalStencilSource(
-    Sink &sink, const rund::kernel::StencilOp op, const StencilGpuShape shape,
-    const RangeAggregatePlan
-        &range) noexcept(noexcept(sink.append(std::string_view{}))) {
-  if (!shape.valid() || !range.ok()) {
-    return false;
-  }
-  const RangeAggregateCandidateDisposition candidate =
-      range.candidate().disposition();
+[[nodiscard]] bool
+EmitMetalRangeSource(Sink &sink, const RangeExec &execution) noexcept(
+    noexcept(sink.append(std::string_view{}))) {
+  const RangeOp op = execution.operation();
+  const RangeGpuShape shape = execution.shape();
+  const RangePath candidate = execution.candidate();
   backend_source_recipe::SourceBuilder<Sink> source{sink};
   source += R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 
-struct StencilParams {
+struct RangeParams {
   ulong element_count;
   ulong radius;
   ulong stage_element_count;
@@ -404,17 +394,16 @@ struct StencilParams {
 };
 
 )MSL";
-  if (candidate == RangeAggregateCandidateDisposition::PrefixDifference) {
-    if (op != rund::kernel::StencilOp::Sum) {
+  if (candidate == RangePath::PrefixDifference) {
+    if (op != RangeOp::Sum) {
       return false;
     }
     AppendMetalPrefixDifferenceKernel(source, shape, "uint", "u32");
     AppendMetalPrefixDifferenceKernel(source, shape, "ulong", "u64");
     AppendMetalPrefixDifferenceKernel(source, shape, "uint", "i32");
     AppendMetalPrefixDifferenceKernel(source, shape, "ulong", "i64");
-  } else if (candidate ==
-             RangeAggregateCandidateDisposition::BlockPrefixSuffix) {
-    if (op == rund::kernel::StencilOp::Sum) {
+  } else if (candidate == RangePath::BlockPrefixSuffix) {
+    if (op == RangeOp::Sum) {
       return false;
     }
     AppendMetalBlockPrefixSuffixKernel(source, op, shape, "uint", "u32");
@@ -422,14 +411,12 @@ struct StencilParams {
     AppendMetalBlockPrefixSuffixKernel(source, op, shape, "int", "i32");
     AppendMetalBlockPrefixSuffixKernel(source, op, shape, "long", "i64");
   } else {
-    AppendMetalStencilKernel(source, op, shape, "uint", "u32");
-    AppendMetalStencilKernel(source, op, shape, "ulong", "u64");
-    AppendMetalStencilKernel(
-        source, op, shape, op == rund::kernel::StencilOp::Sum ? "uint" : "int",
-        "i32");
-    AppendMetalStencilKernel(
-        source, op, shape,
-        op == rund::kernel::StencilOp::Sum ? "ulong" : "long", "i64");
+    AppendMetalRangeKernel(source, op, shape, "uint", "u32");
+    AppendMetalRangeKernel(source, op, shape, "ulong", "u64");
+    AppendMetalRangeKernel(source, op, shape,
+                           op == RangeOp::Sum ? "uint" : "int", "i32");
+    AppendMetalRangeKernel(source, op, shape,
+                           op == RangeOp::Sum ? "ulong" : "long", "i64");
   }
   return source.valid();
 }

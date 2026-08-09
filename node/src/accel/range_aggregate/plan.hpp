@@ -14,7 +14,7 @@
 #include <utility>
 
 namespace rund::node::accel::detail {
-namespace range_aggregate_plan_detail {
+namespace range_plan_detail {
 
 inline constexpr rund::kernel::u128 kU128Maximum =
     ~static_cast<rund::kernel::u128>(0u);
@@ -66,14 +66,14 @@ Groups(const rund::kernel::u64 count, const rund::kernel::u32 width) noexcept {
 }
 
 [[nodiscard]] constexpr bool
-FitsGroups(const RangeAggregateCapabilities &capabilities,
+FitsGroups(const RangeCaps &capabilities,
            const rund::kernel::u64 groups) noexcept {
   return groups != 0u && (capabilities.cpu_only() ||
                           groups <= capabilities.maximum_group_count());
 }
 
 [[nodiscard]] constexpr rund::kernel::u32
-SharedRadiusCapacity(const RangeAggregateCapabilities &capabilities,
+SharedRadiusCapacity(const RangeCaps &capabilities,
                      const rund::kernel::u32 width,
                      const rund::kernel::u32 element_bytes) noexcept {
   const rund::kernel::u32 occupancy =
@@ -92,7 +92,7 @@ SharedRadiusCapacity(const RangeAggregateCapabilities &capabilities,
 }
 
 [[nodiscard]] constexpr bool
-SharedBudgetFits(const RangeAggregateCapabilities &capabilities,
+SharedBudgetFits(const RangeCaps &capabilities,
                  const rund::kernel::u64 shared_bytes) noexcept {
   const rund::kernel::u32 occupancy =
       capabilities.shared_memory_occupancy_budget();
@@ -102,29 +102,28 @@ SharedBudgetFits(const RangeAggregateCapabilities &capabilities,
 
 struct CandidateEvaluation final {
   explicit constexpr CandidateEvaluation(
-      const RangeAggregateCandidate candidate_value) noexcept
+      const RangeCandidate candidate_value) noexcept
       : candidate(candidate_value) {}
 
-  RangeAggregateCandidate candidate;
-  RangeAggregateCost cost{};
-  std::array<RangeAggregateStagePlan, kRangeAggregateStageCapacity> stages{};
+  RangeCandidate candidate;
+  RangeCost cost{};
+  std::array<RangeStagePlan, kRangeStageCap> stages{};
   std::size_t stage_count{};
-  std::array<RangeTemporaryRequirement, kRangeTemporaryCapacity> temporaries{};
+  std::array<RangeTempReq, kRangeTempCap> temporaries{};
   std::size_t temporary_count{};
 };
 
 [[nodiscard]] constexpr bool
-AppendStage(CandidateEvaluation &evaluation,
-            const RangeAggregateCapabilities &capabilities,
-            const RangeAggregateStageDisposition disposition,
-            const std::uint8_t level, const rund::kernel::u64 element_count,
+AppendStage(CandidateEvaluation &evaluation, const RangeCaps &capabilities,
+            const RangeStageKind disposition, const std::uint8_t level,
+            const rund::kernel::u64 element_count,
             const rund::kernel::u64 groups, const rund::kernel::u32 width,
             bool &overflow) noexcept {
   if (evaluation.stage_count == evaluation.stages.size() ||
       !FitsGroups(capabilities, groups)) {
     return false;
   }
-  evaluation.stages[evaluation.stage_count++] = RangeAggregateStagePlan{
+  evaluation.stages[evaluation.stage_count++] = RangeStagePlan{
       .disposition = disposition,
       .level = level,
       .element_count = element_count,
@@ -146,7 +145,7 @@ AppendStage(CandidateEvaluation &evaluation,
 }
 
 [[nodiscard]] constexpr bool
-AppendTemporary(CandidateEvaluation &evaluation, const RangeTemporaryRole role,
+AppendTemporary(CandidateEvaluation &evaluation, const RangeTempRole role,
                 const std::uint8_t ordinal, const rund::kernel::u64 bytes,
                 const rund::kernel::u64 alignment,
                 const std::uint8_t first_stage, const std::uint8_t last_stage,
@@ -162,19 +161,18 @@ AppendTemporary(CandidateEvaluation &evaluation, const RangeTemporaryRole role,
   }
   evaluation.cost.scratch_bytes = scratch;
   evaluation.temporaries[evaluation.temporary_count++] =
-      RangeTemporaryRequirement{.role = role,
-                                .ordinal = ordinal,
-                                .bytes = bytes,
-                                .alignment = alignment,
-                                .first_stage = first_stage,
-                                .last_stage = last_stage};
+      RangeTempReq{.role = role,
+                   .ordinal = ordinal,
+                   .bytes = bytes,
+                   .alignment = alignment,
+                   .first_stage = first_stage,
+                   .last_stage = last_stage};
   return true;
 }
 
 [[nodiscard]] constexpr std::optional<CandidateEvaluation>
-BuildDirect(const RangeAggregateShape &shape,
-            const RangeAggregateCapabilities &capabilities,
-            const RangeAggregateCandidate candidate, bool &overflow) noexcept {
+BuildDirect(const RangeShape &shape, const RangeCaps &capabilities,
+            const RangeCandidate candidate, bool &overflow) noexcept {
   CandidateEvaluation evaluation{candidate};
   rund::kernel::u128 twice_radius = 0u;
   rund::kernel::u128 window = 0u;
@@ -195,9 +193,9 @@ BuildDirect(const RangeAggregateShape &shape,
   const bool cpu = candidate.width() == 0u;
   const rund::kernel::u64 groups =
       cpu ? 1u : Groups(shape.element_count(), candidate.width());
-  if (!AppendStage(
-          evaluation, capabilities, RangeAggregateStageDisposition::Direct, 0u,
-          shape.element_count(), groups, candidate.width(), overflow)) {
+  if (!AppendStage(evaluation, capabilities, RangeStageKind::Direct, 0u,
+                   shape.element_count(), groups, candidate.width(),
+                   overflow)) {
     return std::nullopt;
   }
   if (cpu) {
@@ -207,10 +205,8 @@ BuildDirect(const RangeAggregateShape &shape,
 }
 
 [[nodiscard]] constexpr std::optional<CandidateEvaluation>
-BuildSharedHalo(const RangeAggregateShape &shape,
-                const RangeAggregateCapabilities &capabilities,
-                const RangeAggregateCandidate candidate,
-                bool &overflow) noexcept {
+BuildSharedHalo(const RangeShape &shape, const RangeCaps &capabilities,
+                const RangeCandidate candidate, bool &overflow) noexcept {
   if (candidate.radius_capacity() < shape.radius()) {
     return std::nullopt;
   }
@@ -251,9 +247,9 @@ BuildSharedHalo(const RangeAggregateShape &shape,
       !Multiply(shape.radius(), 2u, twice_radius) ||
       !Multiply(shape.element_count(), twice_radius,
                 evaluation.cost.combine_ops) ||
-      !AppendStage(
-          evaluation, capabilities, RangeAggregateStageDisposition::SharedHalo,
-          0u, shape.element_count(), groups, candidate.width(), overflow)) {
+      !AppendStage(evaluation, capabilities, RangeStageKind::SharedHalo, 0u,
+                   shape.element_count(), groups, candidate.width(),
+                   overflow)) {
     overflow = true;
     return std::nullopt;
   }
@@ -261,10 +257,8 @@ BuildSharedHalo(const RangeAggregateShape &shape,
 }
 
 [[nodiscard]] constexpr std::optional<CandidateEvaluation>
-BuildPrefixDifference(const RangeAggregateShape &shape,
-                      const RangeAggregateCapabilities &capabilities,
-                      const RangeAggregateCandidate candidate,
-                      bool &overflow) noexcept {
+BuildPrefixDifference(const RangeShape &shape, const RangeCaps &capabilities,
+                      const RangeCandidate candidate, bool &overflow) noexcept {
   if (!shape.traits().associative() || !shape.traits().has_identity() ||
       !shape.traits().invertible()) {
     return std::nullopt;
@@ -276,15 +270,14 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
     return std::nullopt;
   }
   evaluation.cost.shared_bytes = local_shared;
-  const RangeAggregatePrefixExecution hierarchy =
-      PlanRangeAggregatePrefixHierarchy(
-          shape.element_count(), candidate.width(), shape.element_bytes(),
-          capabilities.maximum_group_count());
+  const RangePrefixExec hierarchy = PlanRangePrefixTree(
+      shape.element_count(), candidate.width(), shape.element_bytes(),
+      capabilities.maximum_group_count());
   if (!hierarchy.ok() || hierarchy.stage_count() == 0u ||
       hierarchy.stage_count() >= std::numeric_limits<std::uint8_t>::max()) {
     return std::nullopt;
   }
-  if (!AppendTemporary(evaluation, RangeTemporaryRole::PrefixValues, 0u,
+  if (!AppendTemporary(evaluation, RangeTempRole::PrefixValues, 0u,
                        shape.payload_bytes(), shape.element_bytes(), 0u,
                        static_cast<std::uint8_t>(hierarchy.stage_count()),
                        overflow)) {
@@ -292,14 +285,14 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
   }
 
   for (std::size_t index = 0u; index < hierarchy.stage_count(); ++index) {
-    const RangeAggregateStagePlan stage = hierarchy.stage(index);
+    const RangeStagePlan stage = hierarchy.stage(index);
     if (!AppendStage(evaluation, capabilities, stage.disposition, stage.level,
                      stage.element_count, stage.groups, stage.width,
                      overflow)) {
       return std::nullopt;
     }
-    if (stage.disposition == RangeAggregateStageDisposition::PrefixBlock ||
-        stage.disposition == RangeAggregateStageDisposition::PrefixSummary) {
+    if (stage.disposition == RangeStageKind::PrefixBlock ||
+        stage.disposition == RangeStageKind::PrefixSummary) {
       if (!AccumulateBytes(evaluation.cost.global_read_bytes,
                            stage.element_count, shape.element_bytes()) ||
           !AccumulateBytes(evaluation.cost.global_write_bytes,
@@ -313,9 +306,8 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
         bool found = false;
         for (std::size_t temporary_index = 0u;
              temporary_index < hierarchy.temporary_count(); ++temporary_index) {
-          const RangeTemporaryRequirement temporary =
-              hierarchy.temporary(temporary_index);
-          if (temporary.role != RangeTemporaryRole::BlockSummaries ||
+          const RangeTempReq temporary = hierarchy.temporary(temporary_index);
+          if (temporary.role != RangeTempRole::BlockSummaries ||
               temporary.ordinal != stage.level) {
             continue;
           }
@@ -334,7 +326,7 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
       }
       continue;
     }
-    if (stage.disposition != RangeAggregateStageDisposition::PrefixFixup) {
+    if (stage.disposition != RangeStageKind::PrefixFixup) {
       overflow = true;
       return std::nullopt;
     }
@@ -363,8 +355,7 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
   if (!Multiply(shape.radius(), 2u, endpoint_reads) ||
       !Add(shape.element_count(), left_prefix_reads, output_reads) ||
       !Add(output_reads, endpoint_reads, output_reads) ||
-      !AppendStage(evaluation, capabilities,
-                   RangeAggregateStageDisposition::PrefixWindow, 0u,
+      !AppendStage(evaluation, capabilities, RangeStageKind::PrefixWindow, 0u,
                    shape.element_count(), output_groups, candidate.width(),
                    overflow) ||
       !AccumulateBytes(evaluation.cost.global_read_bytes, output_reads,
@@ -381,9 +372,8 @@ BuildPrefixDifference(const RangeAggregateShape &shape,
 }
 
 [[nodiscard]] constexpr std::optional<CandidateEvaluation>
-BuildBlockPrefixSuffix(const RangeAggregateShape &shape,
-                       const RangeAggregateCapabilities &capabilities,
-                       const RangeAggregateCandidate candidate,
+BuildBlockPrefixSuffix(const RangeShape &shape, const RangeCaps &capabilities,
+                       const RangeCandidate candidate,
                        bool &overflow) noexcept {
   if (!shape.traits().associative() || !shape.traits().has_identity() ||
       !shape.traits().idempotent() || !shape.traits().ordered()) {
@@ -415,15 +405,13 @@ BuildBlockPrefixSuffix(const RangeAggregateShape &shape,
   }
 
   CandidateEvaluation evaluation{candidate};
-  if (!AppendTemporary(evaluation, RangeTemporaryRole::ForwardValues, 0u,
+  if (!AppendTemporary(evaluation, RangeTempRole::ForwardValues, 0u,
                        value_bytes, shape.element_bytes(), 0u, 1u, overflow) ||
-      !AppendTemporary(evaluation, RangeTemporaryRole::BackwardValues, 0u,
+      !AppendTemporary(evaluation, RangeTempRole::BackwardValues, 0u,
                        value_bytes, shape.element_bytes(), 0u, 1u, overflow) ||
-      !AppendStage(evaluation, capabilities,
-                   RangeAggregateStageDisposition::BlockPrefixSuffix, 0u,
-                   padded, prepare_groups, candidate.width(), overflow) ||
-      !AppendStage(evaluation, capabilities,
-                   RangeAggregateStageDisposition::BlockWindow, 0u,
+      !AppendStage(evaluation, capabilities, RangeStageKind::BlockPrefixSuffix,
+                   0u, padded, prepare_groups, candidate.width(), overflow) ||
+      !AppendStage(evaluation, capabilities, RangeStageKind::BlockWindow, 0u,
                    shape.element_count(), output_groups, candidate.width(),
                    overflow) ||
       !AccumulateBytes(evaluation.cost.global_read_bytes,
@@ -446,9 +434,8 @@ BuildBlockPrefixSuffix(const RangeAggregateShape &shape,
   return evaluation;
 }
 
-[[nodiscard]] constexpr bool
-LessOrEqual(const RangeAggregateCost &left,
-            const RangeAggregateCost &right) noexcept {
+[[nodiscard]] constexpr bool LessOrEqual(const RangeCost &left,
+                                         const RangeCost &right) noexcept {
   return left.global_read_bytes <= right.global_read_bytes &&
          left.global_write_bytes <= right.global_write_bytes &&
          left.combine_ops <= right.combine_ops &&
@@ -460,9 +447,8 @@ LessOrEqual(const RangeAggregateCost &left,
          left.launched_lanes <= right.launched_lanes;
 }
 
-[[nodiscard]] constexpr bool
-Dominates(const RangeAggregateCost &left,
-          const RangeAggregateCost &right) noexcept {
+[[nodiscard]] constexpr bool Dominates(const RangeCost &left,
+                                       const RangeCost &right) noexcept {
   return LessOrEqual(left, right) && !(left == right);
 }
 
@@ -520,8 +506,8 @@ public:
     add64(static_cast<std::uint64_t>(value));
   }
 
-  [[nodiscard]] constexpr RangeAggregateIdentity finish() const noexcept {
-    return RangeAggregateIdentity{.hi = hi_, .lo = lo_};
+  [[nodiscard]] constexpr RangeIdentity finish() const noexcept {
+    return RangeIdentity{.hi = hi_, .lo = lo_};
   }
 
 private:
@@ -535,10 +521,9 @@ private:
   std::uint64_t lo_{0xbb67ae8584caa73bull};
 };
 
-[[nodiscard]] constexpr RangeAggregateIdentity
-SourceIdentity(const RangeAggregateShape &shape,
-               const RangeAggregateCapabilities &capabilities,
-               const RangeAggregateCandidate candidate) noexcept {
+[[nodiscard]] constexpr RangeIdentity
+SourceIdentity(const RangeShape &shape, const RangeCaps &capabilities,
+               const RangeCandidate candidate) noexcept {
   IdentityBuilder identity{};
   identity.add(0x72616e67652d7372ull); // "range-sr"
   identity.add(1u);
@@ -554,10 +539,10 @@ SourceIdentity(const RangeAggregateShape &shape,
   return identity.finish();
 }
 
-[[nodiscard]] constexpr RangeAggregateIdentity
-ExecutionIdentity(const RangeAggregateShape &shape,
+[[nodiscard]] constexpr RangeIdentity
+ExecutionIdentity(const RangeShape &shape,
                   const CandidateEvaluation &evaluation,
-                  const RangeAggregateIdentity source_identity) noexcept {
+                  const RangeIdentity source_identity) noexcept {
   IdentityBuilder identity{};
   identity.add(0x72616e67652d6578ull); // "range-ex"
   identity.add(source_identity.hi);
@@ -566,7 +551,7 @@ ExecutionIdentity(const RangeAggregateShape &shape,
   identity.add(shape.radius());
   identity.add(evaluation.stage_count);
   for (std::size_t index = 0u; index < evaluation.stage_count; ++index) {
-    const RangeAggregateStagePlan &stage = evaluation.stages[index];
+    const RangeStagePlan &stage = evaluation.stages[index];
     identity.add(static_cast<std::uint8_t>(stage.disposition));
     identity.add(stage.level);
     identity.add(stage.element_count);
@@ -575,7 +560,7 @@ ExecutionIdentity(const RangeAggregateShape &shape,
   }
   identity.add(evaluation.temporary_count);
   for (std::size_t index = 0u; index < evaluation.temporary_count; ++index) {
-    const RangeTemporaryRequirement &temporary = evaluation.temporaries[index];
+    const RangeTempReq &temporary = evaluation.temporaries[index];
     identity.add(static_cast<std::uint8_t>(temporary.role));
     identity.add(temporary.ordinal);
     identity.add(temporary.bytes);
@@ -595,25 +580,22 @@ ExecutionIdentity(const RangeAggregateShape &shape,
   return identity.finish();
 }
 
-} // namespace range_aggregate_plan_detail
+} // namespace range_plan_detail
 
-[[nodiscard]] constexpr RangeAggregatePlan
-PlanRangeAggregate(const RangeAggregateShape &shape,
-                   const RangeAggregateCapabilities &capabilities) noexcept {
-  using namespace range_aggregate_plan_detail;
+[[nodiscard]] constexpr RangePlan
+PlanRange(const RangeShape &shape, const RangeCaps &capabilities) noexcept {
+  using namespace range_plan_detail;
   if (!shape.valid()) {
-    return RangeAggregatePlan::rejected(
-        "compute_range_aggregate_shape_invalid");
+    return RangePlan::rejected("compute_range_aggregate_shape_invalid");
   }
   if (!capabilities.valid()) {
-    return RangeAggregatePlan::rejected(
+    return RangePlan::rejected(
         capabilities.available()
             ? "compute_range_aggregate_capabilities_invalid"
             : "compute_range_aggregate_unavailable");
   }
 
-  std::array<std::optional<CandidateEvaluation>,
-             kRangeAggregateCandidateCapacity>
+  std::array<std::optional<CandidateEvaluation>, kRangeCandidateCap>
       evaluations{};
   std::size_t evaluation_count = 0u;
   bool saw_overflow = false;
@@ -624,43 +606,43 @@ PlanRangeAggregate(const RangeAggregateShape &shape,
   };
 
   if (capabilities.cpu_only()) {
-    append(BuildDirect(shape, capabilities,
-                       RangeAggregateCandidate::direct_cpu(), saw_overflow));
+    append(BuildDirect(shape, capabilities, RangeCandidate::direct_cpu(),
+                       saw_overflow));
   } else {
-    for (const rund::kernel::u32 width : kRangeAggregateWorkgroupWidths) {
+    for (const rund::kernel::u32 width : kRangeWidths) {
       if (!capabilities.supports_width(width)) {
         continue;
       }
-      if (capabilities.supports(RangeAggregateSupport::Direct)) {
-        const std::optional<RangeAggregateCandidate> candidate =
-            RangeAggregateCandidate::direct_gpu(width);
+      if (capabilities.supports(RangeSupport::Direct)) {
+        const std::optional<RangeCandidate> candidate =
+            RangeCandidate::direct_gpu(width);
         if (candidate.has_value()) {
           append(BuildDirect(shape, capabilities, *candidate, saw_overflow));
         }
       }
-      if (capabilities.supports(RangeAggregateSupport::SharedHalo)) {
+      if (capabilities.supports(RangeSupport::SharedHalo)) {
         const rund::kernel::u32 capacity =
             SharedRadiusCapacity(capabilities, width, shape.element_bytes());
-        const std::optional<RangeAggregateCandidate> candidate =
-            RangeAggregateCandidate::shared_halo(width, capacity);
+        const std::optional<RangeCandidate> candidate =
+            RangeCandidate::shared_halo(width, capacity);
         if (candidate.has_value()) {
           append(
               BuildSharedHalo(shape, capabilities, *candidate, saw_overflow));
         }
       }
-      if (capabilities.supports(RangeAggregateSupport::PrefixDifference) &&
+      if (capabilities.supports(RangeSupport::PrefixDifference) &&
           shape.traits().invertible()) {
-        const std::optional<RangeAggregateCandidate> candidate =
-            RangeAggregateCandidate::prefix_difference(width);
+        const std::optional<RangeCandidate> candidate =
+            RangeCandidate::prefix_difference(width);
         if (candidate.has_value()) {
           append(BuildPrefixDifference(shape, capabilities, *candidate,
                                        saw_overflow));
         }
       }
-      if (capabilities.supports(RangeAggregateSupport::BlockPrefixSuffix) &&
+      if (capabilities.supports(RangeSupport::BlockPrefixSuffix) &&
           shape.traits().idempotent() && shape.traits().ordered()) {
-        const std::optional<RangeAggregateCandidate> candidate =
-            RangeAggregateCandidate::block_prefix_suffix(width);
+        const std::optional<RangeCandidate> candidate =
+            RangeCandidate::block_prefix_suffix(width);
         if (candidate.has_value()) {
           append(BuildBlockPrefixSuffix(shape, capabilities, *candidate,
                                         saw_overflow));
@@ -670,12 +652,12 @@ PlanRangeAggregate(const RangeAggregateShape &shape,
   }
 
   if (evaluation_count == 0u) {
-    return RangeAggregatePlan::rejected(
+    return RangePlan::rejected(
         saw_overflow ? "compute_range_aggregate_cost_overflow"
                      : "compute_range_aggregate_candidate_unavailable");
   }
 
-  std::array<bool, kRangeAggregateCandidateCapacity> pareto{};
+  std::array<bool, kRangeCandidateCap> pareto{};
   std::size_t pareto_count = 0u;
   for (std::size_t index = 0u; index < evaluation_count; ++index) {
     bool dominated = false;
@@ -700,23 +682,22 @@ PlanRangeAggregate(const RangeAggregateShape &shape,
   }
   if (selected == evaluation_count || evaluation_count > 255u ||
       pareto_count > 255u) {
-    return RangeAggregatePlan::rejected(
-        "compute_range_aggregate_candidate_unavailable");
+    return RangePlan::rejected("compute_range_aggregate_candidate_unavailable");
   }
 
   const CandidateEvaluation &choice = *evaluations[selected];
-  const RangeAggregateIdentity source_identity =
+  const RangeIdentity source_identity =
       SourceIdentity(shape, capabilities, choice.candidate);
-  const RangeAggregateIdentity execution_identity =
+  const RangeIdentity execution_identity =
       ExecutionIdentity(shape, choice, source_identity);
-  return RangeAggregatePlan::selected(
-      shape, choice.candidate, choice.cost, choice.stage_count,
-      choice.temporary_count, static_cast<std::uint8_t>(evaluation_count),
-      static_cast<std::uint8_t>(pareto_count), source_identity,
-      execution_identity);
+  return RangePlan::selected(shape, choice.candidate, choice.cost,
+                             choice.stage_count, choice.temporary_count,
+                             static_cast<std::uint8_t>(evaluation_count),
+                             static_cast<std::uint8_t>(pareto_count),
+                             source_identity, execution_identity);
 }
 
-static_assert(std::is_nothrow_move_constructible_v<RangeAggregatePlan>);
-static_assert(std::is_nothrow_move_assignable_v<RangeAggregatePlan>);
+static_assert(std::is_nothrow_move_constructible_v<RangePlan>);
+static_assert(std::is_nothrow_move_assignable_v<RangePlan>);
 
 } // namespace rund::node::accel::detail

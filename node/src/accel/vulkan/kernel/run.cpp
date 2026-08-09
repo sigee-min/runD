@@ -15,6 +15,7 @@
 #include "../numeric/source.hpp"
 #include "../numeric/state.hpp"
 #include "../partition/local.hpp"
+#include "../range/local.hpp"
 #include "../reduce/local.hpp"
 #include "../scan/local.hpp"
 #include "../scan/source.hpp"
@@ -23,7 +24,6 @@
 #include "../segmented/local.hpp"
 #include "../segmented/reduce/model.hpp"
 #include "../sort/local/state.hpp"
-#include "../stencil/local.hpp"
 #include "manifest.hpp"
 #include "ops/prepare.hpp"
 #include "pipeline/capacity.hpp"
@@ -394,7 +394,7 @@ PlanVulkanStepStructure(const KernelExecutionStep &step,
     route = sizeof(VulkanScatterReduceResources);
     break;
   case rund::kernel::NodeKind::Stencil:
-    route = sizeof(VulkanStencilEncodeResources);
+    route = sizeof(VulkanRangeResources);
     break;
   case rund::kernel::NodeKind::Transform:
   case rund::kernel::NodeKind::Matrix:
@@ -1189,9 +1189,12 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
   }
   case rund::kernel::NodeKind::Stencil: {
     const auto &active = step.operation.get<operation::Stencil>();
+    const std::optional<RangeExec> execution = RangeExec::from(active.range);
+    if (!execution.has_value()) {
+      return manifest;
+    }
     const std::uint64_t stage_count = active.range.stage_count();
-    const std::uint32_t descriptor_count =
-        StencilRangeDescriptorCount(active.range);
+    const std::uint32_t descriptor_count = execution->descriptor_count();
     std::uint64_t descriptor_bindings = 0u;
     if (!active.range.ok() || stage_count == 0u ||
         !rund::kernel::checked::mul(stage_count, descriptor_count,
@@ -1207,10 +1210,7 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
                                 .descriptor_lease_count = stage_count,
                                 .descriptor_dependency_count = stage_count};
     std::uint64_t source_bytes = 0u;
-    if (!VulkanStencilSourceBytes(
-            active.desc.op, active.desc.element, plan.domain,
-            StencilGpuShapeFromRangeAggregatePlan(active.range), active.range,
-            source_bytes) ||
+    if (!VulkanRangeSourceBytes(*execution, source_bytes) ||
         !AddPreparedBackendCacheDependency(
             manifest, PreparedBackendCacheDependency{
                           .source_recipe = 0x76756c6b2e737465ull,

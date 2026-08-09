@@ -10,6 +10,7 @@
 #include "../numeric/resource.hpp"
 #include "../numeric/source.hpp"
 #include "../partition/local.hpp"
+#include "../range/local.hpp"
 #include "../reduce/local.hpp"
 #include "../scan/local.hpp"
 #include "../scan/pipeline.hpp"
@@ -19,7 +20,6 @@
 #include "../segmented/local.hpp"
 #include "../segmented/reduce/model.hpp"
 #include "../sort/local/api.hpp"
-#include "../stencil/local.hpp"
 #include "local.hpp"
 #include "ops/table.hpp"
 #include "reset_source.hpp"
@@ -444,18 +444,16 @@ AcquireVulkanNumericStepPipeline(VulkanAdapter &adapter,
   }
   case rund::kernel::NodeKind::Stencil: {
     const auto *const active = OperationFor<operation::Stencil>(step);
-    complete = active != nullptr && active->range.ok() &&
-               StencilGpuShapeFromRangeAggregatePlan(active->range).valid();
+    const std::optional<RangeExec> execution =
+        active == nullptr ? std::nullopt : RangeExec::from(active->range);
+    complete = execution.has_value();
     if (complete) {
-      const std::uint32_t descriptor_count =
-          StencilRangeDescriptorCount(active->range);
+      const std::uint32_t descriptor_count = execution->descriptor_count();
       for (std::size_t index = 0u; index < active->range.stage_count();
            ++index) {
         complete =
-            complete &&
-            add(AcquireStencilPipeline(*adapter, active->desc,
-                                       step.planned->domain, active->range),
-                descriptor_count);
+            complete && add(AcquireVulkanRangePipeline(*adapter, *execution),
+                            descriptor_count);
       }
     }
     break;

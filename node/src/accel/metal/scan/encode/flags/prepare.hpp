@@ -64,8 +64,7 @@ namespace rund::node::accel::detail {
   state.element_count = plan.element_count;
   state.block_size = plan.block_size;
   state.block_count = plan.block_count;
-  const RangeAggregatePrefixExecution prefix_execution =
-      PlanScanPrefixExecution(plan);
+  const RangePrefixExec prefix_execution = PlanScanPrefixExecution(plan);
   if (!prefix_execution.ok()) {
     SetMetalLastError(adapter, "compute_scan_invalid");
     return rund::AccelCheck{false, "compute_scan_invalid"};

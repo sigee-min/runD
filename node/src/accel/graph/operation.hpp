@@ -78,13 +78,13 @@ public:
 
   constexpr Stencil(rund::kernel::StencilDesc descriptor,
                     rund::kernel::StencilPlan semantic_plan,
-                    RangeAggregatePlan aggregate_plan) noexcept
+                    RangePlan aggregate_plan) noexcept
       : desc(std::move(descriptor)), plan(std::move(semantic_plan)),
         range(std::move(aggregate_plan)) {}
 
   rund::kernel::StencilDesc desc;
   rund::kernel::StencilPlan plan;
-  RangeAggregatePlan range;
+  RangePlan range;
 };
 
 static_assert(std::is_nothrow_move_constructible_v<Stencil>);

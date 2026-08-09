@@ -1,20 +1,22 @@
 #include <accel/check.hpp>
 
-#include "../collective/finish.hpp"
-#include "local.hpp"
+#include "../../stencil/vulkan.hpp"
+#include "../range/local.hpp"
+
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
 rund::AccelCheck FinishVulkanStencil(VulkanAdapter &adapter,
                                      const std::shared_ptr<void> &resources) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  VulkanStencilEncodeResources *stencil = nullptr;
-  const rund::AccelCheck check = LoadVulkanFinishResources(
-      adapter, resources, "compute_stencil_invalid", stencil);
-  if (!check.ok) {
-    return check;
+  const rund::AccelCheck check = FinishVulkanRange(adapter, resources);
+  if (!check.ok &&
+      std::string_view{check.reason} == "compute_range_aggregate_invalid") {
+    SetVulkanLastError(adapter, "compute_stencil_invalid");
+    return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
-  return AcceptVulkanDispatches(adapter, stencil->range.stage_count());
+  return check;
 #else
   (void)adapter;
   (void)resources;

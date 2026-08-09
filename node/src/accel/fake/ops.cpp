@@ -34,8 +34,7 @@ namespace {
 
 [[nodiscard]] BackendDownload RejectDownload(
     const rund::AccelDevice &, const rund::kernel::ResidentBufferRef &,
-    const std::shared_ptr<void> &, void *, std::uint64_t, std::uint64_t,
-    bool) {
+    const std::shared_ptr<void> &, void *, std::uint64_t, std::uint64_t, bool) {
   return {};
 }
 
@@ -57,9 +56,8 @@ Memory(const rund::AccelDevice &) noexcept {
   return {};
 }
 
-[[nodiscard]] RangeAggregateCapabilities
-RangeAggregateCapabilitiesForFake(const rund::AccelDevice &) noexcept {
-  return RangeAggregateCapabilities::unavailable();
+[[nodiscard]] RangeCaps FakeRangeCaps(const rund::AccelDevice &) noexcept {
+  return RangeCaps::unavailable();
 }
 
 const BackendOps Operations{
@@ -71,7 +69,7 @@ const BackendOps Operations{
     .stats = Stats,
     .reset = Reset,
     .memory = Memory,
-    .range_aggregate_capabilities = RangeAggregateCapabilitiesForFake,
+    .range_caps = FakeRangeCaps,
     .run = RunFakeKernel,
     .prepare = PrepareFakeKernel,
     .run_batch = nullptr,

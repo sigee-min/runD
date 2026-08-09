@@ -6,12 +6,12 @@
 #include "src/accel/kernel/preparation.hpp"
 #include "src/accel/metal/pipeline/cache.hpp"
 #include "src/accel/metal/pipeline/template.hpp"
-#include "src/accel/metal/stencil/local.hpp"
+#include "src/accel/metal/range/local.hpp"
 #include "src/accel/range_aggregate/plan.hpp"
 #include "src/accel/source/hash.hpp"
 #include "src/accel/stencil/shape.hpp"
 #include "src/accel/vulkan/kernel/pipeline/template.hpp"
-#include "src/accel/vulkan/stencil/local.hpp"
+#include "src/accel/vulkan/range/local.hpp"
 #include "stencil/local.hpp"
 #include "stencil/match/run.hpp"
 #include <node/accel/buffer.hpp>
@@ -37,185 +37,167 @@ namespace {
   return false;
 }
 
-[[nodiscard]] rund::node::accel::detail::RangeAggregatePlan
+[[nodiscard]] rund::node::accel::detail::RangePlan
 MetalStencilRangePlan(const rund::AccelDevice &pick,
                       const rund::kernel::StencilPlan &plan,
                       const rund::kernel::ComputeDomain domain) noexcept {
   using namespace rund::node::accel::detail;
-  const std::optional<RangeAggregateShape> shape =
-      RangeAggregateShape::from_stencil(plan, domain);
-  return shape.has_value()
-             ? PlanRangeAggregate(*shape, MetalRangeAggregateCapabilities(pick))
-             : RangeAggregatePlan::rejected("accel_kernel_graph_invalid");
+  const std::optional<RangeShape> shape = StencilRangeShape(plan, domain);
+  return shape.has_value() ? PlanRange(*shape, MetalRangeCaps(pick))
+                           : RangePlan::rejected("accel_kernel_graph_invalid");
 }
 
-[[nodiscard, maybe_unused]] rund::node::accel::detail::RangeAggregatePlan
+[[nodiscard, maybe_unused]] rund::node::accel::detail::RangePlan
 VulkanStencilRangePlan(const rund::AccelDevice &pick,
                        const rund::kernel::StencilPlan &plan,
                        const rund::kernel::ComputeDomain domain) noexcept {
   using namespace rund::node::accel::detail;
-  const std::optional<RangeAggregateShape> shape =
-      RangeAggregateShape::from_stencil(plan, domain);
-  return shape.has_value()
-             ? PlanRangeAggregate(*shape,
-                                  VulkanRangeAggregateCapabilities(pick))
-             : RangeAggregatePlan::rejected("accel_kernel_graph_invalid");
+  const std::optional<RangeShape> shape = StencilRangeShape(plan, domain);
+  return shape.has_value() ? PlanRange(*shape, VulkanRangeCaps(pick))
+                           : RangePlan::rejected("accel_kernel_graph_invalid");
 }
 
 [[nodiscard]] bool SignedStencilSourcesCarryDomainOrder() {
   using namespace rund::node::accel::detail;
-  constexpr StencilGpuShape requested = StencilGpuShape::shared(64u, 64u);
-  constexpr RangeAggregatePlan metal_range = stencil::PlanStencilSourceVariant(
-      RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Min,
+  constexpr RangeGpuShape requested = stencil::RangeSharedShape(64u, 64u);
+  constexpr RangePlan metal_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Min,
       rund::kernel::ComputeDomain::I32, requested,
       stencil::SourcePlanPath::SharedHalo);
   static_assert(metal_range.ok());
-  const std::string metal = rund::node::accel::detail::MetalStencilSource(
-      rund::kernel::StencilOp::Min,
-      StencilGpuShapeFromRangeAggregatePlan(metal_range), metal_range);
-  if (metal.find("rund_compute_stencil_min_i32") == std::string::npos ||
+  const std::string metal = rund::node::accel::detail::MetalRangeSource(
+      stencil::RequireRangeExec(metal_range));
+  if (metal.find("rund_range_min_i32") == std::string::npos ||
       metal.find("device const int* input") == std::string::npos) {
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  constexpr RangeAggregatePlan vulkan_range = stencil::PlanStencilSourceVariant(
-      RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Min,
+  constexpr RangePlan vulkan_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Vulkan, rund::kernel::StencilOp::Min,
       rund::kernel::ComputeDomain::I32, requested,
       stencil::SourcePlanPath::SharedHalo);
   static_assert(vulkan_range.ok());
-  const std::string vulkan = rund::node::accel::detail::VulkanStencilSource(
-      rund::kernel::StencilOp::Min, rund::kernel::StencilElement::U32,
-      rund::kernel::ComputeDomain::I32,
-      StencilGpuShapeFromRangeAggregatePlan(vulkan_range), vulkan_range);
-  if (vulkan.find("int value = int(stencil_tile[center])") ==
-      std::string::npos) {
+  const std::string vulkan = rund::node::accel::detail::VulkanRangeSource(
+      stencil::RequireRangeExec(vulkan_range));
+  if (vulkan.find("int value = int(range_tile[center])") == std::string::npos) {
     return false;
   }
 #endif
   return true;
 }
 
-[[nodiscard]] constexpr bool StencilPhysicalDispatchHelpersAreExact() noexcept {
+[[nodiscard]] constexpr bool RangeDispatchIsExact() noexcept {
   using namespace rund::node::accel::detail;
   constexpr rund::kernel::u64 u32_groups =
       std::numeric_limits<rund::kernel::u32>::max();
-  for (const rund::kernel::u32 width : kRangeAggregateWorkgroupWidths) {
-    const StencilGpuShape shape = StencilGpuShape::shared(width, width);
+  for (const rund::kernel::u32 width : kRangeWidths) {
+    const RangeGpuShape shape = stencil::RangeSharedShape(width, width);
     const rund::kernel::u64 u32_group_elements = u32_groups * width;
-    const rund::kernel::u64 vulkan_u32_groups = StencilPhysicalGroupCount(
+    const rund::kernel::u64 vulkan_u32_groups = RangePhysicalGroupCount(
         std::numeric_limits<rund::kernel::u32>::max(), shape);
-    if (!shape.valid() || shape.shared_element_capacity() != 3u * width ||
-        StencilPhysicalGroupCount(0u, shape) != 0u ||
-        StencilPhysicalGroupCount(1u, shape) != 1u ||
-        StencilPhysicalGroupCount(width, shape) != 1u ||
-        StencilPhysicalGroupCount(width + 1u, shape) != 2u ||
-        !StencilPhysicalGroupsFit(7u * width, 7u, shape) ||
-        StencilPhysicalGroupsFit(7u * width + 1u, 7u, shape) ||
-        !StencilPhysicalGroupsFit(u32_group_elements, u32_groups, shape) ||
-        StencilPhysicalGroupsFit(u32_group_elements + 1u, u32_groups, shape) ||
-        StencilPhysicalGroupsFit(u32_group_elements + 1u, u32_groups + 1u,
-                                 shape) ||
-        !StencilVulkanDispatchFits(
-            std::numeric_limits<rund::kernel::u32>::max(), vulkan_u32_groups,
-            shape) ||
-        StencilVulkanDispatchFits(
+    if (shape.shared_element_capacity() != 3u * width ||
+        RangePhysicalGroupCount(0u, shape) != 0u ||
+        RangePhysicalGroupCount(1u, shape) != 1u ||
+        RangePhysicalGroupCount(width, shape) != 1u ||
+        RangePhysicalGroupCount(width + 1u, shape) != 2u ||
+        !RangePhysicalGroupsFit(7u * width, 7u, shape) ||
+        RangePhysicalGroupsFit(7u * width + 1u, 7u, shape) ||
+        !RangePhysicalGroupsFit(u32_group_elements, u32_groups, shape) ||
+        RangePhysicalGroupsFit(u32_group_elements + 1u, u32_groups, shape) ||
+        RangePhysicalGroupsFit(u32_group_elements + 1u, u32_groups + 1u,
+                               shape) ||
+        !RangeVulkanDispatchFits(std::numeric_limits<rund::kernel::u32>::max(),
+                                 vulkan_u32_groups, shape) ||
+        RangeVulkanDispatchFits(
             static_cast<rund::kernel::u64>(
                 std::numeric_limits<rund::kernel::u32>::max()) +
                 1u,
             vulkan_u32_groups + 1u, shape) ||
-        StencilPhysicalGroupsFit(1u, 0u, shape)) {
+        RangePhysicalGroupsFit(1u, 0u, shape)) {
       return false;
     }
   }
   return true;
 }
 
-static_assert(StencilPhysicalDispatchHelpersAreExact());
+static_assert(RangeDispatchIsExact());
 
-[[nodiscard]] constexpr bool StencilFrozenPlanProjectionIsExact() noexcept {
+[[nodiscard]] constexpr bool RangePlanProjectionIsExact() noexcept {
   using namespace rund::node::accel::detail;
-  constexpr std::uint8_t direct =
-      RangeAggregateSupportBit(RangeAggregateSupport::Direct);
+  constexpr std::uint8_t direct = RangeSupportBit(RangeSupport::Direct);
   constexpr std::uint8_t direct_shared =
-      direct | RangeAggregateSupportBit(RangeAggregateSupport::SharedHalo);
+      direct | RangeSupportBit(RangeSupport::SharedHalo);
   constexpr std::uint8_t direct_prefix =
-      direct |
-      RangeAggregateSupportBit(RangeAggregateSupport::PrefixDifference);
+      direct | RangeSupportBit(RangeSupport::PrefixDifference);
   constexpr std::uint8_t direct_block =
-      direct |
-      RangeAggregateSupportBit(RangeAggregateSupport::BlockPrefixSuffix);
-  constexpr auto shared_capabilities = RangeAggregateCapabilities::gpu(
-      RangeAggregateSourceVariant::Vulkan, kRangeAggregateWidth128Bit, 128u, 4u,
+      direct | RangeSupportBit(RangeSupport::BlockPrefixSuffix);
+  constexpr auto shared_capabilities = RangeCaps::gpu(
+      RangeSource::Vulkan, kRangeWidth128Bit, 128u, 4u,
       (128u + 2u * 7u) * 8u * 4u, std::numeric_limits<rund::kernel::u32>::max(),
       direct_shared);
-  constexpr auto direct_capabilities = RangeAggregateCapabilities::gpu(
-      RangeAggregateSourceVariant::Metal, kRangeAggregateWidth128Bit, 128u, 0u,
-      0u, std::numeric_limits<rund::kernel::u32>::max(), direct);
-  constexpr auto prefix_capabilities = RangeAggregateCapabilities::gpu(
-      RangeAggregateSourceVariant::Metal, kRangeAggregateWidth64Bit, 64u, 4u,
-      32768u, std::numeric_limits<rund::kernel::u32>::max(), direct_prefix);
-  constexpr auto block_capabilities = RangeAggregateCapabilities::gpu(
-      RangeAggregateSourceVariant::Vulkan, kRangeAggregateWidth64Bit, 64u, 0u,
-      0u, std::numeric_limits<rund::kernel::u32>::max(), direct_block);
+  constexpr auto direct_capabilities =
+      RangeCaps::gpu(RangeSource::Metal, kRangeWidth128Bit, 128u, 0u, 0u,
+                     std::numeric_limits<rund::kernel::u32>::max(), direct);
+  constexpr auto prefix_capabilities = RangeCaps::gpu(
+      RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+      std::numeric_limits<rund::kernel::u32>::max(), direct_prefix);
+  constexpr auto block_capabilities = RangeCaps::gpu(
+      RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+      std::numeric_limits<rund::kernel::u32>::max(), direct_block);
   constexpr auto sum_u64 =
-      RangeAggregateTraits::sum_modulo(rund::kernel::ComputeDomain::U64);
+      RangeTraits::sum_modulo(rund::kernel::ComputeDomain::U64);
   constexpr auto sum_u32 =
-      RangeAggregateTraits::sum_modulo(rund::kernel::ComputeDomain::U32);
+      RangeTraits::sum_modulo(rund::kernel::ComputeDomain::U32);
   constexpr auto minimum =
-      RangeAggregateTraits::minimum(rund::kernel::ComputeDomain::I32);
-  constexpr auto shared_shape = RangeAggregateShape::window(
-      *sum_u64, RangeAggregateBoundary::Clamp, 129u, 7u, 8u);
-  constexpr auto direct_shape = RangeAggregateShape::window(
-      *sum_u32, RangeAggregateBoundary::Clamp, 65u, 65u, 4u);
-  constexpr auto prefix_shape = RangeAggregateShape::window(
-      *sum_u32, RangeAggregateBoundary::Clamp, 515u, 515u, 4u);
-  constexpr auto block_shape = RangeAggregateShape::window(
-      *minimum, RangeAggregateBoundary::Clamp, 515u, 515u, 4u);
-  constexpr RangeAggregatePlan shared_plan =
-      PlanRangeAggregate(*shared_shape, *shared_capabilities);
-  constexpr RangeAggregatePlan direct_plan =
-      PlanRangeAggregate(*direct_shape, *direct_capabilities);
-  constexpr RangeAggregatePlan prefix_plan =
-      PlanRangeAggregate(*prefix_shape, *prefix_capabilities);
-  constexpr RangeAggregatePlan block_plan =
-      PlanRangeAggregate(*block_shape, *block_capabilities);
-  constexpr RangeAggregatePlan cpu_plan =
-      PlanRangeAggregate(*direct_shape, RangeAggregateCapabilities::cpu());
-  constexpr RangeAggregatePlan unavailable_plan = PlanRangeAggregate(
-      *direct_shape, RangeAggregateCapabilities::unavailable());
-  constexpr RangeAggregatePlan metal_direct_range =
-      stencil::PlanStencilSourceVariant(
-          RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, StencilGpuShape::direct(64u),
-          stencil::SourcePlanPath::Direct);
+      RangeTraits::minimum(rund::kernel::ComputeDomain::I32);
+  constexpr auto shared_shape =
+      RangeShape::window(*sum_u64, RangeBoundary::Clamp, 129u, 7u, 8u);
+  constexpr auto direct_shape =
+      RangeShape::window(*sum_u32, RangeBoundary::Clamp, 65u, 65u, 4u);
+  constexpr auto prefix_shape =
+      RangeShape::window(*sum_u32, RangeBoundary::Clamp, 515u, 515u, 4u);
+  constexpr auto block_shape =
+      RangeShape::window(*minimum, RangeBoundary::Clamp, 515u, 515u, 4u);
+  constexpr RangePlan shared_plan =
+      PlanRange(*shared_shape, *shared_capabilities);
+  constexpr RangePlan direct_plan =
+      PlanRange(*direct_shape, *direct_capabilities);
+  constexpr RangePlan prefix_plan =
+      PlanRange(*prefix_shape, *prefix_capabilities);
+  constexpr RangePlan block_plan = PlanRange(*block_shape, *block_capabilities);
+  constexpr RangePlan cpu_plan = PlanRange(*direct_shape, RangeCaps::cpu());
+  constexpr RangePlan unavailable_plan =
+      PlanRange(*direct_shape, RangeCaps::unavailable());
+  constexpr RangePlan metal_direct_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Sum,
+      rund::kernel::ComputeDomain::U32, stencil::RangeDirectShape(64u),
+      stencil::SourcePlanPath::Direct);
 
   return shared_plan.ok() && direct_plan.ok() && prefix_plan.ok() &&
          block_plan.ok() && cpu_plan.ok() && !unavailable_plan.ok() &&
-         StencilGpuShapeFromRangeAggregatePlan(shared_plan) ==
-             StencilGpuShape::shared(128u, 7u) &&
-         StencilGpuShapeFromRangeAggregatePlan(direct_plan) ==
-             StencilGpuShape::direct(128u) &&
-         StencilGpuShapeFromRangeAggregatePlan(prefix_plan) ==
-             StencilGpuShape::direct(64u) &&
-         StencilGpuShapeFromRangeAggregatePlan(block_plan) ==
-             StencilGpuShape::direct(64u) &&
-         !StencilGpuShapeFromRangeAggregatePlan(cpu_plan).valid() &&
-         !StencilGpuShapeFromRangeAggregatePlan(unavailable_plan).valid() &&
+         stencil::RequireRangeShape(shared_plan) ==
+             stencil::RangeSharedShape(128u, 7u) &&
+         stencil::RequireRangeShape(direct_plan) ==
+             stencil::RangeDirectShape(128u) &&
+         stencil::RequireRangeShape(prefix_plan) ==
+             stencil::RangeDirectShape(64u) &&
+         stencil::RequireRangeShape(block_plan) ==
+             stencil::RangeDirectShape(64u) &&
+         !RangeGpuShapeFor(cpu_plan).has_value() &&
+         !RangeGpuShapeFor(unavailable_plan).has_value() &&
          StencilElementBytes(rund::kernel::StencilElement::U32) == 4u &&
          StencilElementBytes(rund::kernel::StencilElement::U64) == 8u &&
          StencilElementBytes(static_cast<rund::kernel::StencilElement>(0u)) ==
              0u &&
-         MetalStencilShapeCompiledPipelineSupport(
-             StencilGpuShape::direct(64u), metal_direct_range,
-             rund::kernel::StencilElement::U32,
-             MetalStencilCompiledPipelineLimits{
-                 .maximum_workgroup_width = 64u,
-                 .static_shared_bytes = 4u,
-                 .shared_memory_limit = 32768u,
-             }) == MetalStencilCompiledPipelineSupport::Invalid;
+         MetalRangeSupports(stencil::RequireRangeExec(metal_direct_range),
+                            MetalRangeLimits{
+                                .maximum_workgroup_width = 64u,
+                                .static_shared_bytes = 4u,
+                                .shared_memory_limit = 32768u,
+                            }) == MetalRangeSupport::Invalid;
 }
 
-static_assert(StencilFrozenPlanProjectionIsExact());
+static_assert(RangePlanProjectionIsExact());
 
 [[nodiscard]] bool StencilShapeRejectsOnlyOverlappingStorage() {
   using namespace rund::node::accel::detail;
@@ -301,7 +283,7 @@ static_assert(StencilFrozenPlanProjectionIsExact());
          adapter.stats.pipeline_create_ns == 11u;
 }
 
-[[nodiscard]] bool MetalStencilSourcePublicationIsTransactional() {
+[[nodiscard]] bool MetalRangeSourcePublicationIsTransactional() {
   using namespace rund::node::accel::detail;
   MetalAdapter adapter{};
   const std::shared_ptr<void> baseline_owner = std::make_shared<int>(0);
@@ -348,7 +330,7 @@ static_assert(StencilFrozenPlanProjectionIsExact());
          adapter.stats.library_cache_hit_count == 1u;
 }
 
-[[nodiscard]] bool MetalStencilRetainedSourceRetryIsExact() {
+[[nodiscard]] bool MetalRangeSourceRetryIsExact() {
   using namespace rund::node::accel::detail;
   MetalAdapter adapter{};
   const std::shared_ptr<void> library = std::make_shared<int>(1);
@@ -369,7 +351,7 @@ static_assert(StencilFrozenPlanProjectionIsExact());
       adapter.stats.pipeline_compile_count != 0u) {
     return false;
   }
-  // This is the CompileMetalStencilPipeline caller's exact failed-publication
+  // This is the CompileMetalRange caller's exact failed-publication
   // disposition: the constructed PSO is transient but still counted once.
   RecordMetalUncachedPipelineCompile(adapter, 13u);
 
@@ -398,8 +380,17 @@ enum class RuntimeSharedProbeStatus : std::uint8_t {
 
 struct RuntimeSharedProbe final {
   RuntimeSharedProbeStatus status{RuntimeSharedProbeStatus::Failed};
-  rund::node::accel::detail::StencilGpuShape shape{};
+  std::optional<rund::node::accel::detail::RangeGpuShape> shape{};
 };
+
+[[nodiscard]] constexpr std::optional<rund::node::accel::detail::RangeGpuShape>
+RangeExecShape(const rund::node::accel::detail::RangePlan &plan) noexcept {
+  using namespace rund::node::accel::detail;
+  const std::optional<RangeExec> execution = RangeExec::from(plan);
+  return execution.has_value()
+             ? std::optional<RangeGpuShape>{execution->shape()}
+             : std::nullopt;
+}
 
 #if defined(__APPLE__)
 [[nodiscard]] RuntimeSharedProbe
@@ -434,7 +425,7 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
       .output = &fixture.output.resident,
       .output_handle = &output_handle,
   };
-  StencilGpuShape maximum{};
+  std::optional<RangeGpuShape> maximum{};
   {
     const KernelPreparationScope preparation{
         KernelPreparationMode::PipelinePrivate};
@@ -450,16 +441,18 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
           .radius = radius,
       };
       const rund::kernel::StencilPlan plan = rund::kernel::PlanStencil(desc);
-      const RangeAggregatePlan range = MetalStencilRangePlan(
+      const RangePlan range = MetalStencilRangePlan(
           admission.pick->raw, plan, rund::kernel::ComputeDomain::U32);
       std::shared_ptr<void> candidate;
       const rund::AccelCheck check = PrepareMetalStencil(
           admission.pick->raw, desc, plan, rund::kernel::ComputeDomain::U32,
           bindings, range, candidate);
       const auto *const native =
-          static_cast<const MetalStencilEncodeResources *>(candidate.get());
+          static_cast<const MetalRangeResources *>(candidate.get());
+      const std::optional<RangeGpuShape> native_shape =
+          native == nullptr ? std::nullopt : RangeExecShape(native->range);
       if (!plan.ok || !range.ok() || !check.ok || native == nullptr ||
-          !native->shape.valid() ||
+          !native_shape.has_value() ||
           native->stage_count != range.stage_count() ||
           native->stage_count == 0u || native->pipelines[0u] == nullptr) {
         std::cerr << "metal maximum shared probe failed: radius=" << radius
@@ -467,29 +460,29 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
                   << " native=" << (native != nullptr) << '\n';
         return {};
       }
-      if (!native->shape.uses_shared_memory()) {
+      if (!native_shape->uses_shared_halo()) {
         continue;
       }
-      if (native->shape.radius_cap() != radius ||
-          input.size() % native->shape.width() != 3u ||
-          StencilPhysicalGroupCount(input.size(), native->shape) <= 1u) {
+      if (native_shape->shared_radius_capacity() != radius ||
+          input.size() % native_shape->width() != 3u ||
+          RangePhysicalGroupCount(input.size(), *native_shape) <= 1u) {
         std::cerr << "metal maximum shared shape mismatch: radius=" << radius
-                  << " width=" << native->shape.width()
-                  << " cap=" << native->shape.radius_cap() << '\n';
+                  << " width=" << native_shape->width()
+                  << " cap=" << native_shape->shared_radius_capacity() << '\n';
         return {};
       }
-      maximum = native->shape;
+      maximum = *native_shape;
       selected_desc = desc;
       selected_plan = plan;
       first = std::move(candidate);
       break;
     }
-    if (!maximum.valid()) {
+    if (!maximum.has_value()) {
       return {RuntimeSharedProbeStatus::NoSharedCapabilityVerified, {}};
     }
 
     const auto *const first_native =
-        static_cast<const MetalStencilEncodeResources *>(first.get());
+        static_cast<const MetalRangeResources *>(first.get());
     MetalKernelImmutablePipelines immutable{};
     if (first_native->stage_count != 1u ||
         first_native->pipelines[0u] == nullptr) {
@@ -499,20 +492,23 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
     immutable.count = 1u;
     rund::node::accel::ResetRuntimeStats(fixture.context.pick);
     std::shared_ptr<void> second;
-    const RangeAggregatePlan selected_range = MetalStencilRangePlan(
+    const RangePlan selected_range = MetalStencilRangePlan(
         admission.pick->raw, selected_plan, rund::kernel::ComputeDomain::U32);
     const rund::AccelCheck second_check =
         PrepareMetalStencil(admission.pick->raw, selected_desc, selected_plan,
                             rund::kernel::ComputeDomain::U32, bindings,
                             selected_range, second, &immutable);
     const auto *const second_native =
-        static_cast<const MetalStencilEncodeResources *>(second.get());
+        static_cast<const MetalRangeResources *>(second.get());
+    const std::optional<RangeGpuShape> second_shape =
+        second_native == nullptr ? std::nullopt
+                                 : RangeExecShape(second_native->range);
     const rund::RuntimeStats stats =
         rund::node::accel::ReadRuntimeStats(fixture.context.pick);
     const bool matched =
         second_check.ok && second_native != nullptr &&
-        second_native->shape.uses_shared_memory() &&
-        second_native->shape == maximum && stats.ok &&
+        second_shape.has_value() && second_shape->uses_shared_halo() &&
+        *second_shape == *maximum && stats.ok &&
         stats.pipeline_compile_count == 0u &&
         stats.pipeline_cache_hit_count == 0u &&
         second_native->stage_count == 1u &&
@@ -526,8 +522,8 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
       return {};
     }
   }
-  if (!stencil::MatchesCapabilitySharedBoundaryU32(pick,
-                                                   maximum.radius_cap())) {
+  if (!stencil::MatchesCapabilitySharedBoundaryU32(
+          pick, maximum->shared_radius_capacity())) {
     return {};
   }
   return {RuntimeSharedProbeStatus::SharedVerified, maximum};
@@ -544,7 +540,7 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
     std::cerr << "vulkan maximum shared raw pick unavailable\n";
     return {};
   }
-  StencilGpuShape maximum{};
+  std::optional<RangeGpuShape> maximum{};
   for (rund::kernel::u64 radius = 256u; radius != 0u; --radius) {
     const rund::kernel::StencilPlan plan =
         rund::kernel::PlanStencil(rund::kernel::StencilDesc{
@@ -553,28 +549,29 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
             .boundary = rund::kernel::StencilBoundary::Clamp,
             .element_count = 515u,
             .radius = radius});
-    const RangeAggregatePlan range = VulkanStencilRangePlan(
+    const RangePlan range = VulkanStencilRangePlan(
         token->raw, plan, rund::kernel::ComputeDomain::U32);
-    const StencilGpuShape shape = StencilGpuShapeFromRangeAggregatePlan(range);
-    if (!shape.valid()) {
+    const std::optional<RangeGpuShape> shape = RangeGpuShapeFor(range);
+    if (!shape.has_value()) {
       std::cerr << "vulkan maximum shared probe invalid: radius=" << radius
                 << '\n';
       return {};
     }
-    if (!shape.uses_shared_memory()) {
+    if (!shape->uses_shared_halo()) {
       continue;
     }
-    if (shape.radius_cap() != radius || 515u % shape.width() != 3u ||
-        StencilPhysicalGroupCount(515u, shape) <= 1u) {
+    if (shape->shared_radius_capacity() != radius ||
+        515u % shape->width() != 3u ||
+        RangePhysicalGroupCount(515u, *shape) <= 1u) {
       std::cerr << "vulkan maximum shared shape mismatch: radius=" << radius
-                << " width=" << shape.width() << " cap=" << shape.radius_cap()
-                << '\n';
+                << " width=" << shape->width()
+                << " cap=" << shape->shared_radius_capacity() << '\n';
       return {};
     }
-    maximum = shape;
+    maximum = *shape;
     break;
   }
-  if (!maximum.valid()) {
+  if (!maximum.has_value()) {
     return {RuntimeSharedProbeStatus::NoSharedCapabilityVerified, {}};
   }
 
@@ -582,7 +579,8 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
   auto fixture = stencil::match::BuildResources(
       pick, rund::kernel::ComputeScalar::Lane32,
       rund::kernel::ComputeDomain::U32, rund::kernel::StencilOp::Sum,
-      rund::kernel::StencilElement::U32, maximum.radius_cap(), input);
+      rund::kernel::StencilElement::U32, maximum->shared_radius_capacity(),
+      input);
   if (!fixture.context.check.ok || !fixture.input.check.ok ||
       !fixture.output.check.ok) {
     return {};
@@ -602,7 +600,7 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
       .element = rund::kernel::StencilElement::U32,
       .boundary = rund::kernel::StencilBoundary::Clamp,
       .element_count = input.size(),
-      .radius = maximum.radius_cap(),
+      .radius = maximum->shared_radius_capacity(),
   };
   const rund::kernel::StencilPlan plan = rund::kernel::PlanStencil(desc);
   const StencilBinds bindings{
@@ -615,25 +613,27 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
     const KernelPreparationScope preparation{
         KernelPreparationMode::PipelinePrivate};
     std::shared_ptr<void> first;
-    const RangeAggregatePlan range = VulkanStencilRangePlan(
+    const RangePlan range = VulkanStencilRangePlan(
         admission.pick->raw, plan, rund::kernel::ComputeDomain::U32);
     const rund::AccelCheck first_check = PrepareVulkanStencil(
         admission.pick->raw, desc, plan, rund::kernel::ComputeDomain::U32,
         bindings, range, first);
     const auto *const first_native =
-        static_cast<const VulkanStencilEncodeResources *>(first.get());
+        static_cast<const VulkanRangeResources *>(first.get());
+    const std::optional<RangeGpuShape> first_shape =
+        first_native == nullptr ? std::nullopt
+                                : RangeExecShape(first_native->range);
     if (!plan.ok || !range.ok() || !first_check.ok || first_native == nullptr ||
         first_native->stage_count != range.stage_count() ||
         first_native->stage_count != 1u ||
-        first_native->pipelines[0u] == nullptr ||
-        !first_native->shape.uses_shared_memory() ||
-        first_native->shape != maximum) {
+        first_native->pipelines[0u] == nullptr || !first_shape.has_value() ||
+        !first_shape->uses_shared_halo() || *first_shape != *maximum) {
       return {};
     }
     VulkanKernelImmutablePipelines immutable{};
     immutable.kind = rund::kernel::NodeKind::Stencil;
     if (!immutable.append(first_native->pipelines[0u],
-                          StencilRangeDescriptorCount(range), 1u)) {
+                          RangeDescriptorCount(range), 1u)) {
       return {};
     }
     rund::node::accel::ResetRuntimeStats(fixture.context.pick);
@@ -642,20 +642,23 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
         admission.pick->raw, desc, plan, rund::kernel::ComputeDomain::U32,
         bindings, range, second, &immutable);
     const auto *const second_native =
-        static_cast<const VulkanStencilEncodeResources *>(second.get());
+        static_cast<const VulkanRangeResources *>(second.get());
+    const std::optional<RangeGpuShape> second_shape =
+        second_native == nullptr ? std::nullopt
+                                 : RangeExecShape(second_native->range);
     const rund::RuntimeStats stats =
         rund::node::accel::ReadRuntimeStats(fixture.context.pick);
     if (!second_check.ok || second_native == nullptr ||
-        !second_native->shape.uses_shared_memory() ||
-        second_native->shape != maximum || second_native->stage_count != 1u ||
+        !second_shape.has_value() || !second_shape->uses_shared_halo() ||
+        *second_shape != *maximum || second_native->stage_count != 1u ||
         second_native->pipelines[0u] != first_native->pipelines[0u] ||
         !stats.ok || stats.pipeline_compile_count != 0u ||
         stats.pipeline_cache_hit_count != 0u) {
       return {};
     }
   }
-  if (!stencil::MatchesCapabilitySharedBoundaryU32(pick,
-                                                   maximum.radius_cap())) {
+  if (!stencil::MatchesCapabilitySharedBoundaryU32(
+          pick, maximum->shared_radius_capacity())) {
     return {};
   }
   return {RuntimeSharedProbeStatus::SharedVerified, maximum};
@@ -664,19 +667,18 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
 
 [[nodiscard]] bool StencilSourcesCarryConvergentSharedHalo() {
   using namespace rund::node::accel::detail;
-  for (const rund::kernel::u32 width : kRangeAggregateWorkgroupWidths) {
-    const StencilGpuShape requested = StencilGpuShape::shared(width, width);
-    const RangeAggregatePlan metal_range = stencil::PlanStencilSourceVariant(
-        RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Sum,
+  for (const rund::kernel::u32 width : kRangeWidths) {
+    const RangeGpuShape requested = stencil::RangeSharedShape(width, width);
+    const RangePlan metal_range = stencil::PlanStencilSourceVariant(
+        RangeSource::Metal, rund::kernel::StencilOp::Sum,
         rund::kernel::ComputeDomain::U64, requested,
         stencil::SourcePlanPath::SharedHalo);
-    const StencilGpuShape shape =
-        StencilGpuShapeFromRangeAggregatePlan(metal_range);
+    const RangeGpuShape shape = stencil::RequireRangeShape(metal_range);
     if (!metal_range.ok() || shape != requested) {
       return false;
     }
     const std::string metal =
-        MetalStencilSource(rund::kernel::StencilOp::Sum, shape, metal_range);
+        MetalRangeSource(stencil::RequireRangeExec(metal_range));
     const std::string metal_tile =
         "threadgroup uint tile[" + std::to_string(3u * width) + "];";
     const std::size_t metal_center =
@@ -701,22 +703,20 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
       return false;
     }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-    const RangeAggregatePlan vulkan_range = stencil::PlanStencilSourceVariant(
-        RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Sum,
+    const RangePlan vulkan_range = stencil::PlanStencilSourceVariant(
+        RangeSource::Vulkan, rund::kernel::StencilOp::Sum,
         rund::kernel::ComputeDomain::U64, requested,
         stencil::SourcePlanPath::SharedHalo);
-    const StencilGpuShape vulkan_shape =
-        StencilGpuShapeFromRangeAggregatePlan(vulkan_range);
+    const RangeGpuShape vulkan_shape = stencil::RequireRangeShape(vulkan_range);
     if (!vulkan_range.ok() || vulkan_shape != requested) {
       return false;
     }
-    const std::string vulkan = VulkanStencilSource(
-        rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U64,
-        rund::kernel::ComputeDomain::U64, vulkan_shape, vulkan_range);
+    const std::string vulkan =
+        VulkanRangeSource(stencil::RequireRangeExec(vulkan_range));
     const std::string vulkan_group =
         "layout(local_size_x = " + std::to_string(width) + ") in;";
     const std::string vulkan_tile =
-        "shared uint64_t stencil_tile[" + std::to_string(3u * width) + "];";
+        "shared uint64_t range_tile[" + std::to_string(3u * width) + "];";
     const std::size_t vulkan_center =
         vulkan.find("const uint64_t center_value = input_values[");
     const std::size_t vulkan_left_fan =
@@ -728,19 +728,16 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
         vulkan.find("barrier();", vulkan_right_fan);
     const std::size_t vulkan_guard = vulkan.find(
         "if (uint64_t(lane) >= active_lanes) { return; }", vulkan_barrier);
-    const std::string vulkan_u32 = VulkanStencilSource(
-        rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U32,
-        rund::kernel::ComputeDomain::U32, vulkan_shape,
-        stencil::PlanStencilSourceVariant(
-            RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Sum,
-            rund::kernel::ComputeDomain::U32, requested,
-            stencil::SourcePlanPath::SharedHalo));
+    const RangePlan vulkan_u32_range = stencil::PlanStencilSourceVariant(
+        RangeSource::Vulkan, rund::kernel::StencilOp::Sum,
+        rund::kernel::ComputeDomain::U32, requested,
+        stencil::SourcePlanPath::SharedHalo);
+    const std::string vulkan_u32 =
+        VulkanRangeSource(stencil::RequireRangeExec(vulkan_u32_range));
     const std::string vulkan_extended = vulkan + '\n';
     std::uint64_t vulkan_upper = 0u;
-    if (!VulkanStencilSourceBytes(rund::kernel::StencilOp::Sum,
-                                  rund::kernel::StencilElement::U64,
-                                  rund::kernel::ComputeDomain::U64,
-                                  vulkan_shape, vulkan_range, vulkan_upper)) {
+    if (!VulkanRangeSourceBytes(stencil::RequireRangeExec(vulkan_range),
+                                vulkan_upper)) {
       return false;
     }
     if (vulkan.find(vulkan_group) == std::string::npos ||
@@ -751,70 +748,56 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
         vulkan_barrier == std::string::npos ||
         vulkan_guard == std::string::npos ||
         vulkan.find("for (uint64_t step = uint64_t(1);") != std::string::npos ||
-        vulkan_u32.find("uint value = stencil_tile[center];") ==
+        vulkan_u32.find("uint value = range_tile[center];") ==
             std::string::npos ||
         vulkan_u32.find("uint64_t value") != std::string::npos ||
-        vulkan_u32.find("uint64_t(stencil_tile[center - step])") !=
+        vulkan_u32.find("uint64_t(range_tile[center - step])") !=
             std::string::npos ||
-        !VulkanStencilSourceMatches(
-            rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U64,
-            rund::kernel::ComputeDomain::U64, vulkan_shape, vulkan_range,
-            vulkan, SourceHash(vulkan)) ||
-        VulkanStencilSourceMatches(
-            rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U64,
-            rund::kernel::ComputeDomain::U64, vulkan_shape, vulkan_range,
-            vulkan_extended, SourceHash(vulkan_extended)) ||
-        VulkanStencilSourceMatches(
-            rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U64,
-            rund::kernel::ComputeDomain::U64, vulkan_shape, vulkan_range,
-            vulkan, SourceHash(vulkan) ^ 1u) ||
+        !VulkanRangeSourceMatches(stencil::RequireRangeExec(vulkan_range),
+                                  vulkan, SourceHash(vulkan)) ||
+        VulkanRangeSourceMatches(stencil::RequireRangeExec(vulkan_range),
+                                 vulkan_extended,
+                                 SourceHash(vulkan_extended)) ||
+        VulkanRangeSourceMatches(stencil::RequireRangeExec(vulkan_range),
+                                 vulkan, SourceHash(vulkan) ^ 1u) ||
         vulkan.size() != vulkan_upper || vulkan_u32.empty()) {
       return false;
     }
 #endif
   }
 
-  const StencilGpuShape direct_requested = StencilGpuShape::direct(64u);
-  const RangeAggregatePlan metal_direct_range =
-      stencil::PlanStencilSourceVariant(
-          RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, direct_requested,
-          stencil::SourcePlanPath::Direct);
-  const StencilGpuShape direct =
-      StencilGpuShapeFromRangeAggregatePlan(metal_direct_range);
+  const RangeGpuShape direct_requested = stencil::RangeDirectShape(64u);
+  const RangePlan metal_direct_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Sum,
+      rund::kernel::ComputeDomain::U32, direct_requested,
+      stencil::SourcePlanPath::Direct);
+  const RangeGpuShape direct = stencil::RequireRangeShape(metal_direct_range);
   if (!metal_direct_range.ok() || direct != direct_requested) {
     return false;
   }
-  const std::string metal_direct = MetalStencilSource(
-      rund::kernel::StencilOp::Sum, direct, metal_direct_range);
+  const std::string metal_direct =
+      MetalRangeSource(stencil::RequireRangeExec(metal_direct_range));
   if (metal_direct.find("threadgroup uint tile[") != std::string::npos ||
       metal_direct.find("threadgroup_barrier") != std::string::npos ||
       metal_direct.find("for (ulong step = 1ul;") == std::string::npos) {
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  const RangeAggregatePlan vulkan_direct_range =
-      stencil::PlanStencilSourceVariant(
-          RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, direct_requested,
-          stencil::SourcePlanPath::Direct);
+  const RangePlan vulkan_direct_range = stencil::PlanStencilSourceVariant(
+      RangeSource::Vulkan, rund::kernel::StencilOp::Sum,
+      rund::kernel::ComputeDomain::U32, direct_requested,
+      stencil::SourcePlanPath::Direct);
   if (!vulkan_direct_range.ok()) {
     return false;
   }
-  const std::string vulkan_direct = VulkanStencilSource(
-      rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U32,
-      rund::kernel::ComputeDomain::U32,
-      StencilGpuShapeFromRangeAggregatePlan(vulkan_direct_range),
-      vulkan_direct_range);
+  const std::string vulkan_direct =
+      VulkanRangeSource(stencil::RequireRangeExec(vulkan_direct_range));
   std::uint64_t direct_upper = 0u;
-  if (!VulkanStencilSourceBytes(
-          rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U32,
-          rund::kernel::ComputeDomain::U32,
-          StencilGpuShapeFromRangeAggregatePlan(vulkan_direct_range),
-          vulkan_direct_range, direct_upper)) {
+  if (!VulkanRangeSourceBytes(stencil::RequireRangeExec(vulkan_direct_range),
+                              direct_upper)) {
     return false;
   }
-  if (vulkan_direct.find("shared uint stencil_tile[") != std::string::npos ||
+  if (vulkan_direct.find("shared uint range_tile[") != std::string::npos ||
       vulkan_direct.find("barrier();") != std::string::npos ||
       vulkan_direct.find("for (uint64_t step = uint64_t(1);") ==
           std::string::npos ||
@@ -825,41 +808,39 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
   return true;
 }
 
-[[nodiscard]] bool RangeAggregateSourcesCarryLinearFamilies() {
+[[nodiscard]] bool RangeSourcesCarryLinearFamilies() {
   using namespace rund::node::accel::detail;
-  constexpr StencilGpuShape physical = StencilGpuShape::direct(64u);
-  constexpr RangeAggregatePlan metal_prefix = stencil::PlanStencilSourceVariant(
-      RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Sum,
+  constexpr RangeGpuShape physical = stencil::RangeDirectShape(64u);
+  constexpr RangePlan metal_prefix = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Sum,
       rund::kernel::ComputeDomain::U32, physical,
       stencil::SourcePlanPath::PrefixDifference);
-  constexpr RangeAggregatePlan metal_block = stencil::PlanStencilSourceVariant(
-      RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Min,
+  constexpr RangePlan metal_block = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Min,
       rund::kernel::ComputeDomain::I32, physical,
       stencil::SourcePlanPath::BlockPrefixSuffix);
-  constexpr RangeAggregatePlan metal_direct = stencil::PlanStencilSourceVariant(
-      RangeAggregateSourceVariant::Metal, rund::kernel::StencilOp::Sum,
+  constexpr RangePlan metal_direct = stencil::PlanStencilSourceVariant(
+      RangeSource::Metal, rund::kernel::StencilOp::Sum,
       rund::kernel::ComputeDomain::U32, physical,
       stencil::SourcePlanPath::Direct);
   static_assert(metal_prefix.ok() && metal_block.ok() && metal_direct.ok());
-  static_assert(StencilRangeStaticSharedBytes(metal_prefix) == 64u * 4u);
-  static_assert(StencilRangeStaticSharedBytes(metal_block) == 0u);
+  static_assert(RangeStaticSharedBytes(metal_prefix) == 64u * 4u);
+  static_assert(RangeStaticSharedBytes(metal_block) == 0u);
   if (metal_prefix.source_identity() == metal_direct.source_identity() ||
       metal_prefix.source_identity() == metal_block.source_identity() ||
       metal_block.source_identity() == metal_direct.source_identity()) {
     return false;
   }
-  const std::string metal_prefix_source = MetalStencilSource(
-      rund::kernel::StencilOp::Sum,
-      StencilGpuShapeFromRangeAggregatePlan(metal_prefix), metal_prefix);
-  const std::string metal_block_source = MetalStencilSource(
-      rund::kernel::StencilOp::Min,
-      StencilGpuShapeFromRangeAggregatePlan(metal_block), metal_block);
+  const std::string metal_prefix_source =
+      MetalRangeSource(stencil::RequireRangeExec(metal_prefix));
+  const std::string metal_block_source =
+      MetalRangeSource(stencil::RequireRangeExec(metal_block));
   std::uint64_t metal_prefix_upper = 0u;
   std::uint64_t metal_block_upper = 0u;
-  if (!MetalStencilSourceUpperBytes(rund::kernel::StencilOp::Sum, metal_prefix,
-                                    metal_prefix_upper) ||
-      !MetalStencilSourceUpperBytes(rund::kernel::StencilOp::Min, metal_block,
-                                    metal_block_upper) ||
+  if (!MetalRangeSourceUpperBytes(stencil::RequireRangeExec(metal_prefix),
+                                  metal_prefix_upper) ||
+      !MetalRangeSourceUpperBytes(stencil::RequireRangeExec(metal_block),
+                                  metal_block_upper) ||
       metal_prefix_source.size() != metal_prefix_upper ||
       metal_block_source.size() != metal_block_upper ||
       metal_prefix_source.find("device uint* scratch0 [[buffer(3)]],") ==
@@ -881,36 +862,25 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  constexpr RangeAggregatePlan vulkan_prefix =
-      stencil::PlanStencilSourceVariant(
-          RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, physical,
-          stencil::SourcePlanPath::PrefixDifference);
-  constexpr RangeAggregatePlan vulkan_block = stencil::PlanStencilSourceVariant(
-      RangeAggregateSourceVariant::Vulkan, rund::kernel::StencilOp::Min,
+  constexpr RangePlan vulkan_prefix = stencil::PlanStencilSourceVariant(
+      RangeSource::Vulkan, rund::kernel::StencilOp::Sum,
+      rund::kernel::ComputeDomain::U32, physical,
+      stencil::SourcePlanPath::PrefixDifference);
+  constexpr RangePlan vulkan_block = stencil::PlanStencilSourceVariant(
+      RangeSource::Vulkan, rund::kernel::StencilOp::Min,
       rund::kernel::ComputeDomain::I32, physical,
       stencil::SourcePlanPath::BlockPrefixSuffix);
   static_assert(vulkan_prefix.ok() && vulkan_block.ok());
-  const StencilGpuShape vulkan_prefix_shape =
-      StencilGpuShapeFromRangeAggregatePlan(vulkan_prefix);
-  const StencilGpuShape vulkan_block_shape =
-      StencilGpuShapeFromRangeAggregatePlan(vulkan_block);
-  const std::string vulkan_prefix_source = VulkanStencilSource(
-      rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U32,
-      rund::kernel::ComputeDomain::U32, vulkan_prefix_shape, vulkan_prefix);
-  const std::string vulkan_block_source = VulkanStencilSource(
-      rund::kernel::StencilOp::Min, rund::kernel::StencilElement::U32,
-      rund::kernel::ComputeDomain::I32, vulkan_block_shape, vulkan_block);
+  const std::string vulkan_prefix_source =
+      VulkanRangeSource(stencil::RequireRangeExec(vulkan_prefix));
+  const std::string vulkan_block_source =
+      VulkanRangeSource(stencil::RequireRangeExec(vulkan_block));
   std::uint64_t vulkan_prefix_upper = 0u;
   std::uint64_t vulkan_block_upper = 0u;
-  if (!VulkanStencilSourceBytes(
-          rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U32,
-          rund::kernel::ComputeDomain::U32, vulkan_prefix_shape, vulkan_prefix,
-          vulkan_prefix_upper) ||
-      !VulkanStencilSourceBytes(
-          rund::kernel::StencilOp::Min, rund::kernel::StencilElement::U32,
-          rund::kernel::ComputeDomain::I32, vulkan_block_shape, vulkan_block,
-          vulkan_block_upper) ||
+  if (!VulkanRangeSourceBytes(stencil::RequireRangeExec(vulkan_prefix),
+                              vulkan_prefix_upper) ||
+      !VulkanRangeSourceBytes(stencil::RequireRangeExec(vulkan_block),
+                              vulkan_block_upper) ||
       vulkan_prefix_source.size() != vulkan_prefix_upper ||
       vulkan_block_source.size() != vulkan_block_upper ||
       vulkan_prefix_source.find("shared uint range_scan[64];") ==
@@ -927,14 +897,12 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
           "uint64_t(1);") == std::string::npos ||
       vulkan_block_source.find("scratch1_values[uint(block)]") ==
           std::string::npos ||
-      !VulkanStencilSourceMatches(
-          rund::kernel::StencilOp::Sum, rund::kernel::StencilElement::U32,
-          rund::kernel::ComputeDomain::U32, vulkan_prefix_shape, vulkan_prefix,
-          vulkan_prefix_source, SourceHash(vulkan_prefix_source)) ||
-      !VulkanStencilSourceMatches(
-          rund::kernel::StencilOp::Min, rund::kernel::StencilElement::U32,
-          rund::kernel::ComputeDomain::I32, vulkan_block_shape, vulkan_block,
-          vulkan_block_source, SourceHash(vulkan_block_source))) {
+      !VulkanRangeSourceMatches(stencil::RequireRangeExec(vulkan_prefix),
+                                vulkan_prefix_source,
+                                SourceHash(vulkan_prefix_source)) ||
+      !VulkanRangeSourceMatches(stencil::RequireRangeExec(vulkan_block),
+                                vulkan_block_source,
+                                SourceHash(vulkan_block_source))) {
     return false;
   }
 #endif
@@ -955,13 +923,13 @@ RuntimeSharedProbeMatchesContract(const RuntimeSharedProbe probe,
                                   const char *const backend) {
   switch (probe.status) {
   case RuntimeSharedProbeStatus::SharedVerified:
-    if (probe.shape.valid() && probe.shape.uses_shared_memory() &&
-        probe.shape.radius_cap() != 0u) {
+    if (probe.shape.has_value() && probe.shape->uses_shared_halo() &&
+        probe.shape->shared_radius_capacity() != 0u) {
       return true;
     }
     break;
   case RuntimeSharedProbeStatus::NoSharedCapabilityVerified:
-    if (!probe.shape.valid()) {
+    if (!probe.shape.has_value()) {
       return true;
     }
     break;
@@ -969,9 +937,11 @@ RuntimeSharedProbeMatchesContract(const RuntimeSharedProbe probe,
     break;
   }
   std::cerr << backend << " runtime maximum shared contract failed: status="
-            << static_cast<unsigned>(probe.status)
-            << " width=" << probe.shape.width()
-            << " cap=" << probe.shape.radius_cap() << '\n';
+            << static_cast<unsigned>(probe.status) << " width="
+            << (probe.shape.has_value() ? probe.shape->width() : 0u) << " cap="
+            << (probe.shape.has_value() ? probe.shape->shared_radius_capacity()
+                                        : 0u)
+            << '\n';
   return false;
 }
 
@@ -990,8 +960,7 @@ RuntimeSharedProbeMatchesContract(const RuntimeSharedProbe probe,
                       "max.u64.block-prefix-suffix");
 }
 
-[[nodiscard]] bool
-BackendRunsForcedRangeAggregateParity(const rund::AccelDevice &pick) {
+[[nodiscard]] bool BackendRunsRangeParity(const rund::AccelDevice &pick) {
   return StencilMatch(stencil::MatchesForcedPrefixDifferenceU32(pick),
                       "sum.u32.direct-prefix-difference") &&
          StencilMatch(stencil::MatchesForcedPrefixDifferenceU64(pick),
@@ -1051,7 +1020,7 @@ public:
 
 private:
   [[nodiscard]] static bool Tracked(const std::string &name) noexcept {
-    return name.find("stencil.sum.u32.w") != std::string::npos;
+    return name.find("range.aggregate.") != std::string::npos;
   }
 
   [[nodiscard]] bool Seen(const std::string &name) const noexcept {
@@ -1103,17 +1072,16 @@ public:
             .element_count = element_count,
             .radius = radius});
     const std::shared_ptr<PickToken> token = AdmitPick(pick);
-    const RangeAggregatePlan range =
-        token != nullptr
-            ? VulkanStencilRangePlan(token->raw, plan, domain)
-            : RangeAggregatePlan::rejected("compute_adapter_unavailable");
-    const StencilGpuShape shape = StencilGpuShapeFromRangeAggregatePlan(range);
-    if (!shape.valid()) {
+    const RangePlan range =
+        token != nullptr ? VulkanStencilRangePlan(token->raw, plan, domain)
+                         : RangePlan::rejected("compute_adapter_unavailable");
+    const std::optional<RangeGpuShape> shape = RangeGpuShapeFor(range);
+    if (!shape.has_value()) {
       std::cerr << "vulkan stencil variant unavailable: " << name
                 << " range=" << range.reason() << '\n';
       return false;
     }
-    const RangeAggregateIdentity identity = range.source_identity();
+    const RangeIdentity identity = range.source_identity();
     const bool expected_hit =
         std::find(seen_.begin(), seen_.begin() + seen_count_, identity) !=
         seen_.begin() + seen_count_;
@@ -1125,8 +1093,9 @@ public:
         stats.pipeline_cache_hit_count == (expected_hit ? stages : stages - 1u);
     if (!matched) {
       std::cerr << "vulkan stencil capability-derived identity mismatch: "
-                << name << " width=" << shape.width()
-                << " radius_cap=" << shape.radius_cap() << " stages=" << stages
+                << name << " width=" << shape->width()
+                << " radius_cap=" << shape->shared_radius_capacity()
+                << " stages=" << stages
                 << " expected=" << (expected_hit ? "hit" : "cold")
                 << " compile=" << stats.pipeline_compile_count
                 << " hit=" << stats.pipeline_cache_hit_count << '\n';
@@ -1142,7 +1111,7 @@ public:
   }
 
 private:
-  std::array<rund::node::accel::detail::RangeAggregateIdentity, 8u> seen_{};
+  std::array<rund::node::accel::detail::RangeIdentity, 8u> seen_{};
   std::size_t seen_count_{};
 };
 #endif
@@ -1150,23 +1119,20 @@ private:
 } // namespace
 
 bool BackendRunsStencil(const rund::AccelDevice &pick) {
-  return StencilMatch(StencilPhysicalDispatchHelpersAreExact(),
-                      "shape.dispatch") &&
-         StencilMatch(StencilFrozenPlanProjectionIsExact(),
-                      "shape.projection") &&
+  return StencilMatch(RangeDispatchIsExact(), "shape.dispatch") &&
+         StencilMatch(RangePlanProjectionIsExact(), "shape.projection") &&
          StencilMatch(MetalStencilRejectedCompileTelemetryIsExact(),
                       "metal.fallback-telemetry") &&
          StencilMatch(MetalStencilNamedPipelinePublicationIsTransactional(),
                       "metal.pipeline-publication") &&
-         StencilMatch(MetalStencilSourcePublicationIsTransactional(),
+         StencilMatch(MetalRangeSourcePublicationIsTransactional(),
                       "metal.source-publication") &&
-         StencilMatch(MetalStencilRetainedSourceRetryIsExact(),
-                      "metal.source-retry") &&
+         StencilMatch(MetalRangeSourceRetryIsExact(), "metal.source-retry") &&
          StencilMatch(StencilShapeRejectsOnlyOverlappingStorage(),
                       "shape.storage") &&
          StencilMatch(StencilSourcesCarryConvergentSharedHalo(),
                       "source.variants") &&
-         StencilMatch(RangeAggregateSourcesCarryLinearFamilies(),
+         StencilMatch(RangeSourcesCarryLinearFamilies(),
                       "source.linear-families") &&
          StencilMatch(SignedStencilSourcesCarryDomainOrder(),
                       "source.domain") &&
@@ -1182,22 +1148,20 @@ bool RequiredMetalRunsStencil() {
                                                      rund::AccelApi::Metal);
   }
   if (!StencilMatch(pick.api == rund::AccelApi::Metal, "pick.api") ||
-      !StencilMatch(StencilPhysicalDispatchHelpersAreExact(),
-                    "shape.dispatch") ||
-      !StencilMatch(StencilFrozenPlanProjectionIsExact(), "shape.projection") ||
+      !StencilMatch(RangeDispatchIsExact(), "shape.dispatch") ||
+      !StencilMatch(RangePlanProjectionIsExact(), "shape.projection") ||
       !StencilMatch(MetalStencilRejectedCompileTelemetryIsExact(),
                     "metal.fallback-telemetry") ||
       !StencilMatch(MetalStencilNamedPipelinePublicationIsTransactional(),
                     "metal.pipeline-publication") ||
-      !StencilMatch(MetalStencilSourcePublicationIsTransactional(),
+      !StencilMatch(MetalRangeSourcePublicationIsTransactional(),
                     "metal.source-publication") ||
-      !StencilMatch(MetalStencilRetainedSourceRetryIsExact(),
-                    "metal.source-retry") ||
+      !StencilMatch(MetalRangeSourceRetryIsExact(), "metal.source-retry") ||
       !StencilMatch(StencilShapeRejectsOnlyOverlappingStorage(),
                     "shape.storage") ||
       !StencilMatch(StencilSourcesCarryConvergentSharedHalo(),
                     "source.variants") ||
-      !StencilMatch(RangeAggregateSourcesCarryLinearFamilies(),
+      !StencilMatch(RangeSourcesCarryLinearFamilies(),
                     "source.linear-families") ||
       !StencilMatch(SignedStencilSourcesCarryDomainOrder(), "source.domain")) {
     return false;
@@ -1226,8 +1190,7 @@ bool RequiredMetalRunsStencil() {
     return false;
   }
 #if defined(__APPLE__)
-  return BackendRunsStencilValueCases(pick) &&
-         BackendRunsForcedRangeAggregateParity(pick) &&
+  return BackendRunsStencilValueCases(pick) && BackendRunsRangeParity(pick) &&
          StencilMatch(RuntimeSharedProbeMatchesContract(
                           MetalMaximumSharedShapeContract(pick), "metal"),
                       "metal.maximum-shared-capability");
@@ -1258,7 +1221,7 @@ bool RequiredVulkanRunsStencil() {
   VulkanStencilVariantCacheContract variants{*adapter};
   if (!StencilMatch(StencilSourcesCarryConvergentSharedHalo(),
                     "source.variants") ||
-      !StencilMatch(RangeAggregateSourcesCarryLinearFamilies(),
+      !StencilMatch(RangeSourcesCarryLinearFamilies(),
                     "source.linear-families") ||
       !StencilMatch(SignedStencilSourcesCarryDomainOrder(), "source.domain") ||
       !StencilMatch(stencil::MatchesU32(pick), "sum.u32") ||
@@ -1285,8 +1248,7 @@ bool RequiredVulkanRunsStencil() {
                         "count257.prefix")) {
     return false;
   }
-  return BackendRunsStencilValueCases(pick) &&
-         BackendRunsForcedRangeAggregateParity(pick) &&
+  return BackendRunsStencilValueCases(pick) && BackendRunsRangeParity(pick) &&
          StencilMatch(
              RuntimeSharedProbeMatchesContract(
                  VulkanMaximumSharedShapeContract(pick, *adapter), "vulkan"),

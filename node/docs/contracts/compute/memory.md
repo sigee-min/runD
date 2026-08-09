@@ -549,8 +549,8 @@ buffer or arena. Algorithm planners may therefore supply typed stage roles
 without becoming physical memory owners.
 
 An admitted Stencil projects every temporary from its frozen
-`RangeAggregatePlan` into this same batch. The source-private role factory maps
-each `(RangeTemporaryRole, ordinal)` pair into a unique tagged
+`RangePlan` into this same batch. The source-private role factory maps
+each `(RangeTempRole, ordinal)` pair into a unique tagged
 `KernelScratchRole`; bytes, alignment, and inclusive stage lifetime pass
 through unchanged. PrefixDifference therefore contributes prefix and block
 summary storage, BlockPrefixSuffix contributes forward and backward storage,
