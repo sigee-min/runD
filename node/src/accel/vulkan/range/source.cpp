@@ -41,7 +41,7 @@ EmitVulkanRangeSource(Sink &sink, const RangeExec &execution) noexcept(
                              candidate == RangePath::BlockPrefixSuffix;
   const bool wide = execution.wide_elements();
   const bool signed_values = execution.signed_values();
-  const RangeGpuShape shape = execution.shape();
+  const RangeExec &shape = execution;
   const char *const scalar =
       signed_values ? (wide ? "int64_t" : "int") : (wide ? "uint64_t" : "uint");
   if (!sink.append(R"glsl(#version 450

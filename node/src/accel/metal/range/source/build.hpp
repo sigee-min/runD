@@ -56,7 +56,7 @@ template <typename Sink>
 inline void
 AppendMetalRangeKernel(Sink &source, const RangeOp op,
                        const RangeBoundary boundary, const bool saturating,
-                       const RangeGpuShape shape, const char *const type,
+                       const RangeExec &shape, const char *const type,
                        const char *const suffix) {
   source += "kernel void rund_range_";
   source += MetalRangeOpName(op);
@@ -247,7 +247,7 @@ MetalRangeStageValue(const RangeStageKind stage) noexcept {
 template <typename Sink>
 inline void AppendMetalPrefixDifferenceKernel(Sink &source,
                                               const RangeBoundary boundary,
-                                              const RangeGpuShape shape,
+                                              const RangeExec &shape,
                                               const char *const type,
                                               const char *const suffix) {
   source += "kernel void rund_range_sum_";
@@ -383,7 +383,7 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
 template <typename Sink>
 inline void AppendMetalBlockPrefixSuffixKernel(Sink &source, const RangeOp op,
                                                const RangeBoundary boundary,
-                                               const RangeGpuShape shape,
+                                               const RangeExec &shape,
                                                const char *const type,
                                                const char *const suffix,
                                                const char *const identity) {
@@ -473,7 +473,7 @@ template <typename Sink>
 EmitMetalRangeSource(Sink &sink, const RangeExec &execution) noexcept(
     noexcept(sink.append(std::string_view{}))) {
   const RangeOp op = execution.operation();
-  const RangeGpuShape shape = execution.shape();
+  const RangeExec &shape = execution;
   const RangePath candidate = execution.candidate();
   backend_source_recipe::SourceBuilder<Sink> source{sink};
   source += R"MSL(

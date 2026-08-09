@@ -27,6 +27,7 @@
 #endif
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+#include "range/local.hpp"
 #include "src/accel/metal/compact/local.hpp"
 #include "src/accel/metal/gather/local.hpp"
 #include "src/accel/metal/histogram/local.hpp"
@@ -50,7 +51,6 @@
 #include "src/accel/metal/segmented/reduce/model.hpp"
 #include "src/accel/metal/sort/source.hpp"
 #include "src/accel/sort/block/metal.hpp"
-#include "stencil/local.hpp"
 #endif
 
 #include <algorithm>
@@ -642,9 +642,10 @@ static_assert(PreparedControlPhaseCodesAreChecked());
     }
     return count;
   };
-  const auto has_contract = [&](const std::string_view source,
-                                const std::string_view qualifier,
-                                const bool packed_parameter) {
+  [[maybe_unused]] const auto has_contract = [&](const std::string_view source,
+                                                 const std::string_view
+                                                     qualifier,
+                                                 const bool packed_parameter) {
     for (const rund::compute::detail::PipelineNestedPhaseContract &contract :
          rund::compute::detail::PipelineNestedPhaseContracts) {
       std::uint32_t code = 0u;
@@ -2507,34 +2508,24 @@ static_assert(PreparedControlPhaseCodesAreChecked());
       }
     }
   }
-  constexpr std::array<rund::kernel::StencilOp, 3u> stencil_ops{
-      rund::kernel::StencilOp::Sum,
-      rund::kernel::StencilOp::Min,
-      rund::kernel::StencilOp::Max,
+  constexpr std::array<RangeOp, 3u> range_ops{
+      RangeOp::Sum,
+      RangeOp::Minimum,
+      RangeOp::Maximum,
   };
-  for (const rund::kernel::StencilOp op : stencil_ops) {
-    const std::array<node_accel_contract::stencil::SourcePlanPath, 3u> paths =
-        op == rund::kernel::StencilOp::Sum
-            ? std::array{node_accel_contract::stencil::SourcePlanPath::Direct,
-                         node_accel_contract::stencil::SourcePlanPath::
-                             SharedHalo,
-                         node_accel_contract::stencil::SourcePlanPath::
-                             PrefixDifference}
-            : std::array{
-                  node_accel_contract::stencil::SourcePlanPath::Direct,
-                  node_accel_contract::stencil::SourcePlanPath::SharedHalo,
-                  node_accel_contract::stencil::SourcePlanPath::
-                      BlockPrefixSuffix};
-    for (const node_accel_contract::stencil::SourcePlanPath path : paths) {
-      const RangeGpuShape requested =
-          path == node_accel_contract::stencil::SourcePlanPath::SharedHalo
-              ? stencil::RangeSharedShape(128u, 128u)
-              : stencil::RangeDirectShape(128u);
-      const RangePlan range =
-          node_accel_contract::stencil::PlanStencilSourceVariant(
-              RangeSource::Metal, op, rund::kernel::ComputeDomain::U32,
-              requested, path);
-      const RangeExec execution = stencil::RequireRangeExec(range);
+  for (const RangeOp op : range_ops) {
+    const std::array<RangePath, 3u> paths =
+        op == RangeOp::Sum
+            ? std::array{RangePath::Direct, RangePath::SharedHalo,
+                         RangePath::PrefixDifference}
+            : std::array{RangePath::Direct, RangePath::SharedHalo,
+                         RangePath::BlockPrefixSuffix};
+    for (const RangePath path : paths) {
+      const RangePlan range = node_accel_contract::range::PlanSourceVariant(
+          RangeSource::Metal, op, rund::kernel::ComputeDomain::U32, 128u,
+          path == RangePath::SharedHalo ? 128u : 0u, path);
+      const RangeExec execution =
+          node_accel_contract::range::RequireExec(range);
       if (!range.ok() || !MetalRangeSourceUpperBytes(execution, bytes) ||
           !exact(MetalRangeSource(execution), bytes)) {
         return false;
@@ -2582,34 +2573,29 @@ static_assert(PreparedControlPhaseCodesAreChecked());
     return false;
   }
 
-  constexpr RangePlan sum_u32 =
-      node_accel_contract::stencil::PlanStencilSourceVariant(
-          RangeSource::Metal, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32, stencil::RangeSharedShape(64u, 64u),
-          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
-  constexpr RangePlan sum_i32 =
-      node_accel_contract::stencil::PlanStencilSourceVariant(
-          RangeSource::Metal, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::I32, stencil::RangeSharedShape(64u, 64u),
-          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
-  constexpr RangePlan sum_w128 =
-      node_accel_contract::stencil::PlanStencilSourceVariant(
-          RangeSource::Metal, rund::kernel::StencilOp::Sum,
-          rund::kernel::ComputeDomain::U32,
-          stencil::RangeSharedShape(128u, 128u),
-          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
+  constexpr RangePlan sum_u32 = node_accel_contract::range::PlanSourceVariant(
+      RangeSource::Metal, RangeOp::Sum, rund::kernel::ComputeDomain::U32, 64u,
+      64u, RangePath::SharedHalo);
+  constexpr RangePlan sum_i32 = node_accel_contract::range::PlanSourceVariant(
+      RangeSource::Metal, RangeOp::Sum, rund::kernel::ComputeDomain::I32, 64u,
+      64u, RangePath::SharedHalo);
+  constexpr RangePlan sum_w128 = node_accel_contract::range::PlanSourceVariant(
+      RangeSource::Metal, RangeOp::Sum, rund::kernel::ComputeDomain::U32, 128u,
+      128u, RangePath::SharedHalo);
   constexpr RangePlan minimum_i32 =
-      node_accel_contract::stencil::PlanStencilSourceVariant(
-          RangeSource::Metal, rund::kernel::StencilOp::Min,
-          rund::kernel::ComputeDomain::I32, stencil::RangeSharedShape(64u, 64u),
-          node_accel_contract::stencil::SourcePlanPath::SharedHalo);
+      node_accel_contract::range::PlanSourceVariant(
+          RangeSource::Metal, RangeOp::Minimum,
+          rund::kernel::ComputeDomain::I32, 64u, 64u, RangePath::SharedHalo);
   static_assert(sum_u32.ok() && sum_i32.ok() && sum_w128.ok() &&
                 minimum_i32.ok());
-  const RangeExec sum_u32_execution = stencil::RequireRangeExec(sum_u32);
-  const RangeExec sum_i32_execution = stencil::RequireRangeExec(sum_i32);
-  const RangeExec sum_w128_execution = stencil::RequireRangeExec(sum_w128);
+  const RangeExec sum_u32_execution =
+      node_accel_contract::range::RequireExec(sum_u32);
+  const RangeExec sum_i32_execution =
+      node_accel_contract::range::RequireExec(sum_i32);
+  const RangeExec sum_w128_execution =
+      node_accel_contract::range::RequireExec(sum_w128);
   const RangeExec minimum_i32_execution =
-      stencil::RequireRangeExec(minimum_i32);
+      node_accel_contract::range::RequireExec(minimum_i32);
   return RangePipelineKey(sum_u32_execution) ==
              "range.aggregate.1.64.64.0.2.0.0.4" &&
          RangePipelineKey(sum_u32_execution) !=
@@ -2917,10 +2903,11 @@ static_assert(PreparedControlPhaseCodesAreChecked());
                 stencil_range.candidate().disposition() == RangePath::Direct);
   auto &stencil = step.operation.set<operation::Stencil>(
       stencil_desc, stencil_plan, stencil_range);
-  if (!verify(step, 1u, 1u, 1u, 3u,
-              guarded_size(
-                  MetalRangeSource(stencil::RequireRangeExec(stencil.range)),
-                  4u))) {
+  if (!verify(
+          step, 1u, 1u, 1u, 3u,
+          guarded_size(MetalRangeSource(node_accel_contract::range::RequireExec(
+                           stencil.range)),
+                       4u))) {
     return false;
   }
   constexpr rund::kernel::WindowDesc window_desc{

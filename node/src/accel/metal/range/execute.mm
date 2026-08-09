@@ -6,6 +6,7 @@
 #endif
 
 #include "../../kernel/backend/run.hpp"
+#include "../../kernel/preparation.hpp"
 #include "../../kernel/scratch.hpp"
 #include "../../range_aggregate/plan.hpp"
 #include "../pipeline/template.hpp"
@@ -235,7 +236,8 @@ PrepareMetalRangeControl(const rund::AccelDevice &pick,
                                          *resources.adapter, resources.range)
                                    : pipelines->control;
   resources.controlled = true;
-  resources.indirect = pipelines == nullptr;
+  resources.indirect =
+      !IsPipelinePrivatePreparation(CurrentKernelPreparationMode());
   void *const status = MetalBufferContents(resources.control_status);
   if (resources.control_params.buffer == nullptr ||
       resources.control_indirect.buffer == nullptr ||

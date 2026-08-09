@@ -548,8 +548,8 @@ alignment against the same backing, and borrow that range without creating a
 buffer or arena. Algorithm planners may therefore supply typed stage roles
 without becoming physical memory owners.
 
-An admitted Stencil projects every temporary from its frozen
-`RangePlan` into this same batch. The source-private role factory maps
+An admitted Range-backed Stencil or Window projects every temporary from its
+frozen `RangePlan` into this same batch. The source-private role factory maps
 each `(RangeTempRole, ordinal)` pair into a unique tagged
 `KernelScratchRole`; bytes, alignment, and inclusive stage lifetime pass
 through unchanged. PrefixDifference therefore contributes prefix and block

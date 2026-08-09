@@ -23,8 +23,8 @@ template <typename Sink>
 [[nodiscard]] bool EmitVulkanRangeSharedBody(
     Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
     const bool signed_values, const bool saturating,
-    const rund::node::accel::detail::RangeGpuShape
-        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+    const rund::node::accel::detail::RangeExec
+        &shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   const char *const scalar =
       signed_values ? (wide ? "int64_t" : "int") : (wide ? "uint64_t" : "uint");
@@ -212,8 +212,8 @@ template <typename Sink>
 [[nodiscard]] bool EmitVulkanPrefixDifferenceBody(
     Sink &sink, const bool wide,
     const rund::node::accel::detail::RangeBoundary boundary,
-    const rund::node::accel::detail::RangeGpuShape
-        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+    const rund::node::accel::detail::RangeExec
+        &shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   const char *const scalar = wide ? "uint64_t" : "uint";
   if (!sink.append(R"glsl(void main() {
@@ -344,8 +344,8 @@ template <typename Sink>
     Sink &sink, const rund::node::accel::detail::RangeOp op,
     const rund::node::accel::detail::RangeBoundary boundary, const bool wide,
     const bool signed_values,
-    const rund::node::accel::detail::RangeGpuShape
-        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+    const rund::node::accel::detail::RangeExec
+        &shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   const char *const combine =
       op == rund::node::accel::detail::RangeOp::Minimum ? "min" : "max";
@@ -429,8 +429,8 @@ template <typename Sink>
     Sink &sink, const rund::node::accel::detail::RangeOp op, const bool wide,
     const bool signed_values, const bool saturating,
     const rund::node::accel::detail::RangeBoundary boundary,
-    const rund::node::accel::detail::RangeGpuShape
-        shape) noexcept(noexcept(sink.append(std::string_view{}))) {
+    const rund::node::accel::detail::RangeExec
+        &shape) noexcept(noexcept(sink.append(std::string_view{}))) {
   using namespace rund::node::accel::detail;
   if (!sink.append(R"glsl(void main() {
   const uint lane = gl_LocalInvocationID.x;

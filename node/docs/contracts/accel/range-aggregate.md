@@ -12,13 +12,14 @@ Implementation authority:
 - `/node/src/accel/range_aggregate/model.hpp`
 - `/node/src/accel/range_aggregate/plan.hpp`
 - `/node/src/accel/range_aggregate/execution.hpp`
-- `/node/src/accel/metal/range/local.hpp`
-- `/node/src/accel/vulkan/range/local.hpp`
+- `/node/src/accel/metal/range/`
+- `/node/src/accel/vulkan/range/`
 - `/node/src/accel/scan/prefix.hpp` for the native Scan projection
 
 Verification authority:
 
 - `/node/tests/contract/accel/kernel/range_aggregate.cpp`
+- `/node/tests/contract/accel/kernel/range/`
 
 The entry point is
 
@@ -347,7 +348,7 @@ Rejected plans carry a stable positive failure boundary for invalid shape,
 unavailable or invalid capability, no legal candidate, or checked cost
 overflow. A rejected plan is not an implemented execution route.
 
-The installed-Release focused route
+The current-source focused diagnostic
 `tools/measure/compute/run --collective <cpu|metal|vulkan>` measures a prepared
 U32 Sum/Min/Max Window with `r=1024` at `N=4096` and `N=262144`. Its output
 hash, warm-allocation counters, dispatch evidence, and resident wall time are

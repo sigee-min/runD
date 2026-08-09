@@ -9,7 +9,7 @@
 #include "../../stencil/shape.hpp"
 #include "../command/run.hpp"
 #include "../range/local.hpp"
-#include "resources/lookup.hpp"
+#include "../range/resources/lookup.hpp"
 
 #include <string_view>
 
@@ -34,7 +34,7 @@ rund::AccelCheck PrepareMetalStencil(
   }
   std::optional<MetalRangeBinds> range_bindings;
   const rund::AccelCheck lookup =
-      LookupMetalStencilResidentBuffers(pick, bindings, range_bindings);
+      LookupMetalRangeResidentBuffers(pick, bindings, range_bindings);
   if (!lookup.ok || !range_bindings.has_value()) {
     SetMetalLastError(*adapter, lookup.reason);
     return lookup;

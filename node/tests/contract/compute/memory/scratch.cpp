@@ -261,8 +261,8 @@ RangeScratchPrimitive(const rund::kernel::WindowPlan &semantic,
       RangeTraits::sum_modulo(rund::kernel::ComputeDomain::U32);
   const auto sum_shape =
       sum_traits.has_value()
-          ? RangeShape::window(*sum_traits, RangeBoundary::Clamp, 4097u, 4097u,
-                               4u)
+          ? RangeShape::affine(*sum_traits, RangeBoundary::Clamp, 4097u, 4097u,
+                               8195u, 1u, 4097u, 4u)
           : std::nullopt;
   const auto prefix_caps =
       RangeCaps::gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
@@ -313,8 +313,8 @@ RangeScratchPrimitive(const rund::kernel::WindowPlan &semantic,
       RangeTraits::minimum(rund::kernel::ComputeDomain::U32);
   const auto minimum_shape =
       minimum_traits.has_value()
-          ? RangeShape::window(*minimum_traits, RangeBoundary::Clamp, 4097u,
-                               4097u, 4u)
+          ? RangeShape::affine(*minimum_traits, RangeBoundary::Clamp, 4097u,
+                               4097u, 8195u, 1u, 4097u, 4u)
           : std::nullopt;
   const auto block_caps =
       RangeCaps::gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,

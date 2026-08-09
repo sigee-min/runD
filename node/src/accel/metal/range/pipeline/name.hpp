@@ -9,15 +9,14 @@ namespace rund::node::accel::detail {
 
 [[nodiscard]] inline std::string RangePipelineKey(const RangeExec &execution) {
   const RangeShape &shape = execution.plan().shape();
-  const RangeGpuShape &gpu = execution.shape();
   std::string key = "range.aggregate.";
   const auto append = [&](const std::uint64_t value) {
     key += std::to_string(value);
     key += ".";
   };
   append(static_cast<std::uint8_t>(execution.candidate()));
-  append(gpu.width());
-  append(gpu.shared_radius_capacity());
+  append(execution.width());
+  append(execution.shared_radius_capacity());
   append(static_cast<std::uint8_t>(execution.operation()));
   append(static_cast<std::uint8_t>(execution.domain()));
   append(static_cast<std::uint8_t>(execution.arithmetic_law()));

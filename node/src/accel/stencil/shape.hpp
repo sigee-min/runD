@@ -11,17 +11,6 @@
 
 namespace rund::node::accel::detail {
 
-// Stencil owns this semantic-width projection.  The generic executor consumes
-// the already-frozen Range shape and never reinterprets a Stencil
-// descriptor or public binding.
-[[nodiscard]] constexpr rund::kernel::u32
-StencilElementBytes(const rund::kernel::StencilElement element) noexcept {
-  if (element == rund::kernel::StencilElement::U32) {
-    return 4u;
-  }
-  return element == rund::kernel::StencilElement::U64 ? 8u : 0u;
-}
-
 // Kernel Stencil semantics remain the graph descriptor and hash authority.
 // This adapter proves that the frozen physical plan came from unchanged
 // primitive semantics before the Range execution contract is used.
@@ -45,10 +34,15 @@ StencilRangeShape(const rund::kernel::StencilPlan &semantic,
     traits = RangeTraits::maximum(domain);
     break;
   }
-  return traits.has_value()
-             ? RangeShape::window(
+  rund::kernel::u64 twice_radius = 0u;
+  rund::kernel::u64 window_size = 0u;
+  return traits.has_value() &&
+                 rund::kernel::checked::mul(semantic.radius, 2u,
+                                            twice_radius) &&
+                 rund::kernel::checked::add(twice_radius, 1u, window_size)
+             ? RangeShape::affine(
                    *traits, RangeBoundary::Clamp, semantic.element_count,
-                   semantic.radius,
+                   semantic.element_count, window_size, 1u, semantic.radius,
                    static_cast<rund::kernel::u32>(semantic.element_bytes))
              : std::nullopt;
 }
@@ -59,8 +53,13 @@ StencilRangePlanMatches(const rund::kernel::StencilPlan &semantic,
                         const RangePlan &range) noexcept {
   const std::optional<RangeShape> shape = StencilRangeShape(semantic, domain);
   return shape.has_value() && range.ok() &&
-         range.shape().element_count() == shape->element_count() &&
-         range.shape().radius() == shape->radius() &&
+         range.shape().input_count() == shape->input_count() &&
+         range.shape().output_count() == shape->output_count() &&
+         range.shape().window_size() == shape->window_size() &&
+         range.shape().stride() == shape->stride() &&
+         range.shape().padding() == shape->padding() &&
+         range.shape().boundary() == shape->boundary() &&
+         range.shape().count() == shape->count() &&
          range.shape().element_bytes() == shape->element_bytes() &&
          range.shape().traits().operation() == shape->traits().operation() &&
          range.shape().traits().domain() == shape->traits().domain() &&

@@ -92,6 +92,13 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/partition/fixture.cpp
   tests/contract/accel/kernel/partition/match.cpp
   tests/contract/accel/kernel/range_aggregate.cpp
+  tests/contract/accel/kernel/range/backend.cpp
+  tests/contract/accel/kernel/range/cache.cpp
+  tests/contract/accel/kernel/range/execution.cpp
+  tests/contract/accel/kernel/range/memory.cpp
+  tests/contract/accel/kernel/range/model.cpp
+  tests/contract/accel/kernel/range/planner.cpp
+  tests/contract/accel/kernel/range/source.cpp
   tests/contract/accel/kernel/reduce.cpp
   tests/contract/accel/kernel/recurrence.cpp
   tests/contract/accel/kernel/reset.cpp
@@ -102,6 +109,9 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/run/window.cpp
   tests/contract/accel/kernel/scatter.cpp
   tests/contract/accel/kernel/stencil.cpp
+  tests/contract/accel/kernel/stencil/backend.cpp
+  tests/contract/accel/kernel/stencil/model.cpp
+  tests/contract/accel/kernel/stencil/source.cpp
   tests/contract/accel/kernel/window.cpp
 )
 

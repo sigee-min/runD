@@ -22,21 +22,22 @@ Implementation authority:
   semantic projection and resident-span validation owner
 - `/node/src/accel/primitive/shape.hpp`
 - `/node/src/accel/cpu/stencil.cpp`
-- `/node/src/accel/metal/stencil*`
-- `/node/src/accel/vulkan/stencil*`
+- `/node/src/accel/{metal,vulkan}/range/` for physical lookup, source,
+  pipeline, scratch, and dispatch execution
+- `/node/src/accel/{metal,vulkan}/stencil/` for the thin semantic adapter
 - `/node/src/accel/collective*`
 - `/node/src/accel/graph.cpp`
 - `/node/src/accel/graph/collective/{bindings.hpp,defaults.cpp,desc.cpp,kind.cpp}`
 - `/node/src/accel/kernel/bindings/range.cpp` for the shared physical
   two-buffer `RangeBinds`
-- `/node/src/accel/kernel/plan/{compute,count,step}.cpp`
+- `/node/src/accel/kernel/plan/{compute,step}.cpp`
 - `/node/src/accel/kernel/backend/run.cpp` for the canonical bound-step view
 
 Verification authority:
 
 - `/node/tests/contract/accel/kernel/stencil.cpp`
-- `/node/tests/contract/accel/kernel/stencil/match/`
-- `/node/tests/contract/accel/kernel/stencil/local.hpp`
+- `/node/tests/contract/accel/kernel/stencil/`
+- `/node/tests/contract/accel/kernel/range/`
 - `/node/tests/contract/accel/kernel/primitive/local.hpp`
 
 ## Contract
@@ -130,11 +131,14 @@ scratch planner alone assigns their arena placements; serial stages reuse its
 component-wise envelope and warm execution performs no allocation. Threadgroup
 shared memory remains pipeline metadata rather than arena storage.
 
-Metal and Vulkan prepare one generic range pipeline, parameter buffer, and
-descriptor set for every frozen stage. A global-memory barrier separates
-dependent range stages. The backend manifest and immutable-template capacity
-record the exact frozen stage count and descriptor demand. A failed prepare
-publishes no partially usable resident execution object.
+Each frozen Range stage owns one dispatch slot. Metal binds that slot's
+descriptor-counted parameters and freezes its selected pipeline pointer;
+Vulkan binds the shared data pipeline with one stage-specific parameter and
+descriptor-set instance. A global-memory barrier separates dependent stages.
+The backend manifest and immutable-template capacity record the exact frozen
+stage and descriptor demand. A failed prepare publishes no partially usable
+resident execution object. The exact unique-pipeline and descriptor
+cardinality is owned by the Range planning contract.
 
 Metal source-library and named-pipeline publication are transactional:
 `Inserted`, `Existing`, and `Failed` retain canonical ownership and account

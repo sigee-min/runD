@@ -2,6 +2,7 @@
 #include "../../kernel/backend/template_plan.hpp"
 #include "../../kernel/recurrence/plan.hpp"
 #include "../../kernel/status.hpp"
+#include "../../resident/window/admission/runtime/windows.hpp"
 
 #include "../collective/chunk.hpp"
 #include "../compact/local.hpp"
@@ -44,6 +45,17 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 namespace {
+
+[[nodiscard]] std::uint64_t
+VulkanMapRouteDispatches(const rund::kernel::ComputePlan &plan,
+                         const BoundStep *const bound) noexcept {
+  if (bound == nullptr || bound->planned == nullptr ||
+      bound->planned->windows.size() == 0u) {
+    return plan.dispatch_count;
+  }
+  return RuntimeWindowCount(plan, MapBindingFor(*bound),
+                            bound->planned->windows.size());
+}
 
 [[nodiscard]] bool AddVulkanHostBytes(std::uint64_t &target,
                                       const std::uint64_t count,
@@ -311,18 +323,30 @@ PlanVulkanStepStructure(const KernelExecutionStep &step,
   std::uint64_t primitive_dispatch_count = 0u;
   if (!rund::kernel::checked::add(manifest.capture_direct_dispatch_count,
                                   manifest.capture_indirect_dispatch_count,
-                                  primitive_dispatch_count) ||
-      primitive_dispatch_count < plan.dispatch_count ||
-      !backend_template_plan::add(reservation.dispatch_count,
-                                  primitive_dispatch_count -
-                                      plan.dispatch_count)) {
+                                  primitive_dispatch_count)) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
+  if (primitive_dispatch_count >= plan.dispatch_count) {
+    if (!backend_template_plan::add(reservation.dispatch_count,
+                                    primitive_dispatch_count -
+                                        plan.dispatch_count)) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+  } else {
+    const std::uint64_t removed =
+        plan.dispatch_count - primitive_dispatch_count;
+    if (removed > reservation.dispatch_count) {
+      return rund::AccelCheck{false, "compute_pipeline_capacity"};
+    }
+    reservation.dispatch_count -= removed;
   }
   std::uint64_t route = 0u;
   std::uint64_t map_descriptor_sets = 0u;
   std::uint64_t map_check_binding_count = 0u;
   switch (step.kind()) {
   case rund::kernel::NodeKind::Map: {
+    const std::uint64_t route_dispatches =
+        VulkanMapRouteDispatches(plan, bound);
     const std::uint64_t check_count = UniqueVulkanMapCheckCount(step.artifact);
     route = sizeof(VulkanMapEncodeResources);
     if (!backend_template_plan::add(reservation.template_host_bytes,
@@ -344,15 +368,14 @@ PlanVulkanStepStructure(const KernelExecutionStep &step,
         !AddVulkanHostBytes(route, plan.output_buffer_count,
                             sizeof(VulkanResidentBufferResult)) ||
         !AddVulkanHostBytes(route, check_count, sizeof(std::uint64_t)) ||
-        !AddVulkanHostBytes(route, plan.dispatch_count,
-                            sizeof(VkDescriptorSet))) {
+        !AddVulkanHostBytes(route, route_dispatches, sizeof(VkDescriptorSet))) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
     if (check_count != 0u &&
         !rund::kernel::checked::add(check_count, 3u, map_check_binding_count)) {
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
-    map_descriptor_sets = plan.dispatch_count;
+    map_descriptor_sets = route_dispatches;
     break;
   }
   case rund::kernel::NodeKind::Scan:
@@ -639,11 +662,11 @@ VulkanBackendShape(const std::uint64_t alignment,
   std::uint64_t indirect = 0u;
   switch (step.kind()) {
   case rund::kernel::NodeKind::Map:
-    direct = plan.dispatch_count;
+    direct = VulkanMapRouteDispatches(plan, bound);
     if (controlled && has_checks && !add(direct, 1u, direct)) {
       return false;
     }
-    indirect = controlled ? plan.dispatch_count : 0u;
+    indirect = controlled ? VulkanMapRouteDispatches(plan, bound) : 0u;
     break;
   case rund::kernel::NodeKind::Scan: {
     const auto &active = step.operation.get<operation::Scan>().plan;
@@ -800,6 +823,8 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
   };
   switch (step.kind()) {
   case rund::kernel::NodeKind::Map: {
+    const std::uint64_t route_dispatches =
+        VulkanMapRouteDispatches(plan, bound);
     const std::uint64_t checks = UniqueVulkanMapCheckCount(step.artifact);
     const std::uint64_t check_stage = has_checks ? 1u : 0u;
     const std::uint64_t control_stage = controlled ? 1u : 0u;
@@ -816,12 +841,12 @@ BuildVulkanBackendManifest(const KernelExecutionStep &step,
                                     bindings_per_window) ||
         !rund::kernel::checked::add(bindings_per_window, 1u + control_stage,
                                     bindings_per_window) ||
-        !rund::kernel::checked::mul(plan.dispatch_count, bindings_per_window,
+        !rund::kernel::checked::mul(route_dispatches, bindings_per_window,
                                     window_bindings) ||
         !rund::kernel::checked::add(checks, 3u, check_bindings) ||
         !rund::kernel::checked::mul(check_bindings, check_stage,
                                     check_bindings) ||
-        !rund::kernel::checked::add(plan.dispatch_count, control_stage,
+        !rund::kernel::checked::add(route_dispatches, control_stage,
                                     manifest.descriptor_set_count) ||
         !rund::kernel::checked::add(manifest.descriptor_set_count, check_stage,
                                     manifest.descriptor_set_count) ||

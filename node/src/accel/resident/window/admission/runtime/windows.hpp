@@ -8,6 +8,16 @@
 
 namespace rund::node::accel::detail {
 
+[[nodiscard]] inline rund::kernel::u64
+RuntimeWindowCount(const rund::kernel::ComputePlan &plan,
+                   const rund::kernel::BindingSet &bindings,
+                   const rund::kernel::u64 planned_count) noexcept {
+  const bool resident_identity = bindings.has_resident_output() &&
+                                 bindings.sequence_tiles == nullptr &&
+                                 bindings.sequence_tile_count == 0u;
+  return resident_identity && plan.tile_count != 0u ? 1u : planned_count;
+}
+
 [[nodiscard]] inline bool RuntimeWindowsMatchPlan(
     const rund::kernel::ComputePlan &plan,
     const rund::kernel::ComputeDispatchWindow *const windows,
@@ -19,10 +29,11 @@ namespace rund::node::accel::detail {
   const bool resident_identity = bindings.has_resident_output() &&
                                  bindings.sequence_tiles == nullptr &&
                                  bindings.sequence_tile_count == 0u;
-  const bool resident_full_range = resident_identity && window_count == 1u &&
-                                   windows != nullptr &&
-                                   windows[0].begin_sequence == 0u &&
-                                   windows[0].tile_count == plan.tile_count;
+  const bool resident_full_range =
+      resident_identity &&
+      window_count == RuntimeWindowCount(plan, bindings, plan.dispatch_count) &&
+      windows != nullptr && windows[0].begin_sequence == 0u &&
+      windows[0].tile_count == plan.tile_count;
   if (resident_full_range &&
       !ResidentFullRangeWindowFitsGeneratedU32(plan, windows[0], bindings)) {
     return false;

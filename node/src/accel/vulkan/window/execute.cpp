@@ -5,7 +5,7 @@
 #include "../../window/vulkan.hpp"
 #include "../collective/execute.hpp"
 #include "../range/local.hpp"
-#include "resources/lookup.hpp"
+#include "../range/resources/lookup.hpp"
 
 #include <string_view>
 
@@ -28,9 +28,10 @@ rund::AccelCheck PrepareVulkanWindow(
     SetVulkanLastError(*adapter, "compute_window_invalid");
     return rund::AccelCheck{false, "compute_window_invalid"};
   }
-  const WindowBufferLookup lookup = LookupWindowBuffers(pick, bindings);
-  if (!WindowLookupOk(lookup)) {
-    const char *const reason = WindowLookupReason(lookup);
+  const VulkanRangeBufferLookup lookup =
+      LookupVulkanRangeBuffers(pick, bindings);
+  if (!VulkanRangeLookupOk(lookup)) {
+    const char *const reason = VulkanRangeLookupReason(lookup);
     SetVulkanLastError(*adapter, reason);
     return rund::AccelCheck{false, reason};
   }

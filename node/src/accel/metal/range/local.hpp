@@ -39,7 +39,7 @@ MetalRangeSupports(const RangeExec &execution,
   if (execution.element_bytes() != 4u && execution.element_bytes() != 8u) {
     return MetalRangeSupport::Invalid;
   }
-  if (limits.maximum_workgroup_width < execution.shape().width()) {
+  if (limits.maximum_workgroup_width < execution.width()) {
     return MetalRangeSupport::Unsupported;
   }
   const rund::kernel::u64 required_bytes = execution.static_shared_bytes();

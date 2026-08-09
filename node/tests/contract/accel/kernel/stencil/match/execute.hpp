@@ -8,10 +8,12 @@
 #include <node/accel/context.hpp>
 
 #include "src/accel/context/internal/support.hpp"
+#include "src/accel/metal/range/api.hpp"
 #include "src/accel/range_aggregate/plan.hpp"
 #include "src/accel/stencil/metal.hpp"
 #include "src/accel/stencil/shape.hpp"
 #include "src/accel/stencil/vulkan.hpp"
+#include "src/accel/vulkan/range/api.hpp"
 
 #include "bindings.hpp"
 

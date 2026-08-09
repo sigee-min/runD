@@ -3,8 +3,9 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../../kernel/bindings/range.hpp"
 #include "../../buffer/resident/batch.hpp"
-#include "../../range/local.hpp"
+#include "../local.hpp"
 
 #include <optional>
 
@@ -12,9 +13,9 @@ namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 [[nodiscard]] inline rund::AccelCheck
-LookupMetalStencilResidentBuffers(const rund::AccelDevice &pick,
-                                  const RangeBinds &bindings,
-                                  std::optional<MetalRangeBinds> &out) {
+LookupMetalRangeResidentBuffers(const rund::AccelDevice &pick,
+                                const RangeBinds &bindings,
+                                std::optional<MetalRangeBinds> &out) {
   out.reset();
   MetalResidentBufferResult input{};
   MetalResidentBufferResult output{};

@@ -289,22 +289,6 @@ public:
                       padding,      element_bytes, count};
   }
 
-  [[nodiscard]] static constexpr std::optional<RangeShape>
-  window(const RangeTraits traits, const RangeBoundary boundary,
-         const rund::kernel::u64 element_count, const rund::kernel::u64 radius,
-         const rund::kernel::u32 element_bytes) noexcept {
-    rund::kernel::u64 twice_radius = 0u;
-    rund::kernel::u64 window_size = 0u;
-    if (boundary != RangeBoundary::Clamp || radius == 0u ||
-        radius > element_count ||
-        !rund::kernel::checked::mul(radius, 2u, twice_radius) ||
-        !rund::kernel::checked::add(twice_radius, 1u, window_size)) {
-      return std::nullopt;
-    }
-    return affine(traits, boundary, element_count, element_count, window_size,
-                  1u, radius, element_bytes);
-  }
-
   [[nodiscard]] constexpr const RangeTraits &traits() const noexcept {
     return traits_;
   }
@@ -319,14 +303,6 @@ public:
 
   [[nodiscard]] constexpr bool resident_counted() const noexcept {
     return count() != RangeCount::Descriptor;
-  }
-
-  [[nodiscard]] constexpr rund::kernel::u64 element_count() const noexcept {
-    return input_count_;
-  }
-
-  [[nodiscard]] constexpr rund::kernel::u64 radius() const noexcept {
-    return padding_;
   }
 
   [[nodiscard]] constexpr rund::kernel::u64 input_count() const noexcept {
@@ -1122,8 +1098,8 @@ public:
     if (disposition == RangePath::SharedHalo) {
       return RangeStagePlan{.disposition = RangeStageKind::SharedHalo,
                             .level = 0u,
-                            .element_count = selected.shape.element_count(),
-                            .groups = Groups(selected.shape.element_count(),
+                            .element_count = selected.shape.input_count(),
+                            .groups = Groups(selected.shape.input_count(),
                                              selected.candidate.width()),
                             .width = selected.candidate.width()};
     }
@@ -1184,7 +1160,7 @@ public:
                                   .width = 0u};
     }
     const RangePrefixExec prefix = PlanRangePrefixTree(
-        selected.shape.element_count(), selected.candidate.width(),
+        selected.shape.input_count(), selected.candidate.width(),
         selected.shape.element_bytes(),
         std::numeric_limits<rund::kernel::u64>::max());
     assert(prefix.ok() && selected.stage_count == prefix.stage_count() + 1u);
@@ -1219,7 +1195,7 @@ public:
       }
       assert(selected.source_variant != RangeSource::Cpu);
       const RangePrefixExec prefix = PlanRangePrefixTree(
-          selected.shape.element_count(), selected.candidate.width(),
+          selected.shape.input_count(), selected.candidate.width(),
           selected.shape.element_bytes(),
           std::numeric_limits<rund::kernel::u64>::max());
       assert(prefix.ok() && index - 1u < prefix.temporary_count() &&

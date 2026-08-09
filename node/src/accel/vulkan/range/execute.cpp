@@ -83,8 +83,7 @@ FindVulkanRangeTemp(const VulkanRangeResources &resources,
 
 [[nodiscard]] bool PrepareVulkanRangeControl(
     const rund::AccelDevice &pick, const BoundControl &bound,
-    const KernelPreparationMode mode, const RangeExec &execution,
-    VulkanRangeResources &resources,
+    const KernelPreparationMode mode, VulkanRangeResources &resources,
     const VulkanKernelImmutablePipelines *const pipelines) {
   const RangePlan &range = resources.range;
   const RangeCount expected = range.shape().count();
@@ -194,7 +193,6 @@ FindVulkanRangeTemp(const VulkanRangeResources &resources,
   resources.control_push.param_stride_words =
       static_cast<std::uint32_t>(stride / sizeof(std::uint32_t));
   resources.controlled = true;
-  (void)execution;
   return true;
 }
 
@@ -292,8 +290,7 @@ rund::AccelCheck PrepareVulkanRange(
   }
   if (range.shape().resident_counted()) {
     if (owner_kind != rund::kernel::NodeKind::Window || control == nullptr ||
-        !PrepareVulkanRangeControl(pick, *control, mode, *execution, *raw,
-                                   pipelines)) {
+        !PrepareVulkanRangeControl(pick, *control, mode, *raw, pipelines)) {
       return rund::AccelCheck{false, VulkanLastError(adapter)};
     }
   } else if (control != nullptr && control->active()) {

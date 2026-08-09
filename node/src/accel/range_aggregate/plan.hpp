@@ -381,7 +381,7 @@ BuildPrefixDifference(const RangeShape &shape, const RangeCaps &capabilities,
   }
   evaluation.cost.shared_bytes = local_shared;
   const RangePrefixExec hierarchy = PlanRangePrefixTree(
-      shape.element_count(), candidate.width(), shape.element_bytes(),
+      shape.input_count(), candidate.width(), shape.element_bytes(),
       capabilities.maximum_group_count());
   if (!hierarchy.ok() || hierarchy.stage_count() == 0u ||
       hierarchy.stage_count() >= std::numeric_limits<std::uint8_t>::max()) {
