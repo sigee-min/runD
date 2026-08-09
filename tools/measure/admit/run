@@ -90,9 +90,9 @@ capture() {
   printf '%s\n' "$after"
 }
 
-packet_scheduler_1=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
-packet_scheduler_2=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
-packet_scheduler_3=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
+# Product Compute runs first so its GPU cold/warm evidence is not conditioned
+# by the scheduler route's sustained CPU and memory load.  Packet projection
+# below remains in the schema's canonical route order.
 packet_compute_1=$(capture measure-compute sh "$root/tools/measure/compute/run")
 packet_compute_2=$(capture measure-compute sh "$root/tools/measure/compute/run")
 packet_compute_3=$(capture measure-compute sh "$root/tools/measure/compute/run")
@@ -105,6 +105,9 @@ packet_graph_3=$(capture measure-graph-services sh "$root/tools/measure/graph/se
 packet_telemetry_1=$(capture measure-telemetry sh "$root/tools/measure/telemetry/run")
 packet_telemetry_2=$(capture measure-telemetry sh "$root/tools/measure/telemetry/run")
 packet_telemetry_3=$(capture measure-telemetry sh "$root/tools/measure/telemetry/run")
+packet_scheduler_1=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
+packet_scheduler_2=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
+packet_scheduler_3=$(capture measure-scheduler sh "$root/tools/measure/scheduler/run")
 
 set -- \
   "$packet_scheduler_1" "$packet_scheduler_2" "$packet_scheduler_3" \

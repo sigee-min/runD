@@ -724,6 +724,10 @@ whole measurement before it can be averaged into an overhead result.
 A raw measurement packet contains the unmodified route log and a separate
 `baseline.log`. An admission packet contains the projected `candidate.tsv` and
 `admission.log`, which names all fifteen sealed raw inputs in canonical order.
+The admission runner executes Product Compute first, the light Flow,
+graph-service, and Telemetry routes next, and Scheduler last. This keeps GPU
+cold/warm evidence independent of Scheduler's sustained CPU and memory load;
+projection and publication still use the schema's canonical route order.
 `run.tsv` seals the route, current host, both payload names, and both SHA-256
 digests. It also seals the workload result independently as
 `workload:status` and `workload:exit`; `passed` is valid only with exit `0`,
