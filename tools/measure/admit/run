@@ -159,7 +159,12 @@ else
   proof_metrics=0
 fi
 
-if sh "$root/tools/internal/state/verify" "$root" "$build"; then
+# This aggregate config owns no product translation unit: each raw route already
+# performs the full dependency audit of its installed workload.  The aggregate
+# itself must only close the manifest boundary around those fifteen packets.
+if sh "$root/tools/internal/source/verify" "$root" \
+  "$build/.rund-source-manifest-before.tsv" \
+  "$build/.rund-source-manifest-after.tsv"; then
   :
 else
   status=failed
