@@ -181,8 +181,15 @@ struct CommitToken final {
   }
   const rund::compute::Poll settled =
       progress.completed ? progress
-                         : submission.wait_for(std::chrono::seconds{5});
+                         : submission.wait_for(std::chrono::seconds{30});
   if (!settled.completed || settled.reason() != Reason::Ok) {
+    std::fprintf(stderr,
+                 "cpu step parity settle completed=%u submitted=%u "
+                 "reason=%.*s\n",
+                 settled.completed ? 1u : 0u,
+                 settled.submitted ? 1u : 0u,
+                 static_cast<int>(settled.error().size()),
+                 settled.error().data());
     return false;
   }
   const rund::compute::Completion completion = submission.wait();
