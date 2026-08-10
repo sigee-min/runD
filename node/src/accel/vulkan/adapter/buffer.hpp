@@ -30,16 +30,20 @@ struct VulkanMemoryStats final {
 struct VulkanBuffer {
   VkBuffer buffer = VK_NULL_HANDLE;
   VkDeviceMemory memory = VK_NULL_HANDLE;
+  // Logical VkBuffer extent and exact VkDeviceMemory allocation charge are
+  // distinct. Pool selection uses bytes; memory authorities use
+  // allocated_bytes.
   VkDeviceSize bytes = 0u;
+  VkDeviceSize allocated_bytes = 0u;
   VkBufferUsageFlags usage = 0u;
   VkMemoryPropertyFlags memory_flags = 0u;
-  void* mapped = nullptr;
+  void *mapped = nullptr;
   VkDeviceSize offset = 0u;
   VulkanMemoryUse memory_use{VulkanMemoryUse::Staging};
   bool memory_lease{};
   bool borrowed{};
 };
 
-#endif  // defined(RUND_NODE_HAVE_VULKAN_SDK)
+#endif // defined(RUND_NODE_HAVE_VULKAN_SDK)
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

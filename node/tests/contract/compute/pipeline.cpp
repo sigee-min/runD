@@ -18,6 +18,13 @@ int RunComputePipelineContract() {
     std::fprintf(stderr, "pipeline Metal guard contract result=%d\n", guard);
     return 800 + guard;
   }
+  if (const int residency =
+          rund_node_test_pipeline::CheckMetalResidencyAdmission();
+      residency != 0) {
+    std::fprintf(stderr, "pipeline Metal residency admission result=%d\n",
+                 residency);
+    return 900 + residency;
+  }
   rund::compute::graph::Fingerprint fingerprint{};
   rund::compute::graph::Fingerprint sealed_repetition_fingerprint{};
   std::uint64_t output_hash = 0u;

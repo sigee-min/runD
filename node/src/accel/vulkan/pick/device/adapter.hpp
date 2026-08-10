@@ -12,7 +12,8 @@ namespace rund::node::accel::detail {
 VulkanAdapterFromCreatedDevice(const VkInstance instance,
                                const VkPhysicalDevice physical_device,
                                const VulkanCreatedDevice &created) {
-  auto adapter = std::make_shared<VulkanAdapter>();
+  auto adapter = std::make_shared<VulkanAdapter>(HasVulkanExtension(
+      created.extensions, kVulkanPortabilitySubsetExtension));
   adapter->instance = instance;
   adapter->physical_device = physical_device;
   vkGetPhysicalDeviceMemoryProperties(physical_device,

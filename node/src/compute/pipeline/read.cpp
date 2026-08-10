@@ -7,22 +7,14 @@
 #include "claim.hpp"
 #include "state.hpp"
 #include "transfer.hpp"
+#include "transfer/batch.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <mutex>
 
 namespace rund::compute::detail {
-namespace {
-
-void mix(std::uint64_t &hash, const std::uint64_t value) noexcept {
-  ::rund::node::hash_detail::MixU64(hash, value);
-}
-
-} // namespace
-
 Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
                          const std::shared_ptr<BufferState> &buffer,
                          const Type type, const FixedFormat format,
@@ -151,17 +143,11 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
     if (bytes != 0u && state->samples != PipelineState::SampleState::Inactive) {
       state->samples = PipelineState::SampleState::Dirty;
     }
-    output.hash = leaf_hash;
-    bool completed = false;
     // A successful run opens one canonical observation epoch by setting the
     // remaining-output count. Transactional parity changes only the physical
     // Buffer selected above; it must not create or suppress an output.
     // Pre-run and freshly restored state remains readable without being
     // attributed to a Pipeline execution because it has no open epoch.
-    if (!output.observed && state->unobserved_outputs != 0u) {
-      output.observed = true;
-      completed = --state->unobserved_outputs == 0u;
-    }
     if (bytes != 0u) {
       if (state->device->backend == Backend::Cpu) {
         ::rund::detail::counter::Accumulate(state->stats.download_events, 1u);
@@ -171,26 +157,10 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
         record_transfer(*state->device, bytes);
       }
     }
-    if (completed) {
-      std::uint64_t hash = ::rund::node::hash_detail::kFnvOffset;
-      mix(hash, state->outputs.size());
-      for (const PipelineOutputState &observed : state->outputs) {
-        if (!observed.observed ||
-            observed.resource >= state->resources.size()) {
-          return Status::fail(Reason::PipelineInvalid);
-        }
-        const PipelineResource &value = state->resources[observed.resource];
-        mix(hash, observed.resource);
-        mix(hash, static_cast<std::uint64_t>(value.type));
-        mix(hash, value.format.integer_bits);
-        mix(hash, value.format.fraction_bits);
-        mix(hash, static_cast<std::uint64_t>(value.format.rounding));
-        mix(hash, static_cast<std::uint64_t>(value.format.overflow));
-        mix(hash, static_cast<std::uint64_t>(value.format.approximation));
-        mix(hash, value.count);
-        mix(hash, observed.hash);
-      }
-      state->stats.output_hash = hash;
+    const Status published =
+        publish_pipeline_output_observation(*state, output_index, leaf_hash);
+    if (!published) {
+      return published;
     }
   }
   return result;

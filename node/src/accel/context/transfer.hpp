@@ -12,6 +12,8 @@
 
 namespace rund::node::accel::detail {
 
+struct PreparedKernelPipeline;
+
 struct UploadEntry final {
   const rund::AccelBuffer *buffer = nullptr;
   const void *data = nullptr;
@@ -65,15 +67,31 @@ DownloadAccelBufferMeasured(const rund::AccelContext &context,
 UploadAccelBuffers(const rund::AccelContext &context,
                    std::span<const UploadEntry> requests,
                    std::span<UploadRoute> routes,
-                   TransferCompletion completion = TransferCompletion::Queued);
+                   TransferCompletion completion = TransferCompletion::Queued,
+                   TransferAuthority authority = TransferAuthority::Shared);
 
-[[nodiscard]] AccelTransfer
-DownloadAccelBuffersMeasured(const rund::AccelContext &context,
-                             std::span<const DownloadEntry> requests,
-                             std::span<DownloadRoute> routes);
+[[nodiscard]] AccelTransfer DownloadAccelBuffersMeasured(
+    const rund::AccelContext &context, std::span<const DownloadEntry> requests,
+    std::span<DownloadRoute> routes,
+    TransferAuthority authority = TransferAuthority::Shared);
 
 [[nodiscard]] AccelCopy CopyAccelBuffers(const rund::AccelContext &context,
                                          std::span<const CopyEntry> requests,
                                          std::span<CopyRoute> routes);
+
+[[nodiscard]] rund::AccelCheck PrepareAccelPipelineTransfer(
+    const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
+    const rund::AccelBuffer &input, const rund::AccelBuffer &output,
+    std::uint64_t input_bytes, std::uint64_t output_bytes,
+    std::uint64_t exact_storage_bytes);
+
+[[nodiscard]] AccelTransfer
+UploadPreparedAccelPipeline(const rund::AccelContext &context,
+                            const PreparedKernelPipeline &prepared,
+                            const void *data, std::uint64_t bytes) noexcept;
+
+[[nodiscard]] AccelTransfer DownloadPreparedAccelPipeline(
+    const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
+    void *data, std::uint64_t bytes, std::uint64_t *payload_hash) noexcept;
 
 } // namespace rund::node::accel::detail

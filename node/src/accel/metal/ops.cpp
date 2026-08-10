@@ -25,7 +25,8 @@ namespace {
 [[nodiscard]] rund::AccelDevice Pick(const bool) { return PickMetal(); }
 
 rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
-                    const BackendBufferInitialization initialization) {
+                    const BackendBufferInitialization initialization,
+                    const std::uint64_t exact_storage_bytes) {
   const ResidentDesc native{
       .bytes = desc.bytes,
       .element_bytes = 1u,
@@ -37,8 +38,19 @@ rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
   };
   MetalResidentBufferResult created = CreateMetalResidentBuffer(
       pick, native, initialization == BackendBufferInitialization::Zeroed);
+  if (created.check.ok && exact_storage_bytes != 0u &&
+      created.storage_bytes != exact_storage_bytes) {
+    return rund::Buffer{
+        .check = rund::AccelCheck{false, "accel_metal_buffer_unavailable"}};
+  }
   return MakeBuffer(pick, desc, created.check, created.ref,
-                    std::move(created.handle), created.ref.bytes, false);
+                    std::move(created.handle), created.storage_bytes,
+                    created.storage_reused);
+}
+
+std::uint64_t BufferStorageBytes(const rund::AccelDevice &pick,
+                                 const std::uint64_t logical_bytes) noexcept {
+  return MetalBufferStorageBytes(pick, logical_bytes);
 }
 
 rund::AccelCheck Upload(const rund::AccelDevice &pick,
@@ -59,13 +71,15 @@ BackendDownload Download(const rund::AccelDevice &pick,
 
 BackendUpload UploadBatch(const rund::AccelDevice &pick,
                           const std::span<const UploadRoute> requests,
-                          const TransferCompletion completion) {
-  return UploadMetalResidentBuffers(pick, requests, completion);
+                          const TransferCompletion completion,
+                          const TransferAuthority authority) {
+  return UploadMetalResidentBuffers(pick, requests, completion, authority);
 }
 
 BackendDownload DownloadBatch(const rund::AccelDevice &pick,
-                              const std::span<const DownloadRoute> requests) {
-  return DownloadMetalResidentBuffers(pick, requests);
+                              const std::span<const DownloadRoute> requests,
+                              const TransferAuthority authority) {
+  return DownloadMetalResidentBuffers(pick, requests, authority);
 }
 
 BackendCopy CopyBatch(const rund::AccelDevice &pick,
@@ -97,6 +111,13 @@ Memory(const rund::AccelDevice &pick) noexcept {
                                                 .peak = memory.peak,
                                                 .cumulative = memory.cumulative,
                                                 .reused = memory.reused}};
+}
+
+rund::AccelCheck
+VirtualPipelineCapability(const rund::AccelDevice &pick) noexcept {
+  return MetalPickOwnsAdapter(pick)
+             ? rund::AccelCheck{true, "ok"}
+             : rund::AccelCheck{false, "compute_adapter_unavailable"};
 }
 
 bool InjectDeviceLostOnce(const rund::AccelDevice &pick) noexcept {
@@ -132,6 +153,7 @@ const BackendOps Operations{
     .resident = true,
     .nested_aggregate_command_count = 2u,
     .create = Create,
+    .buffer_storage_bytes = BufferStorageBytes,
     .upload = Upload,
     .upload_batch = UploadBatch,
     .download = Download,
@@ -141,6 +163,7 @@ const BackendOps Operations{
     .stats = Stats,
     .reset = ResetMetalRuntimeStats,
     .memory = Memory,
+    .virtual_pipeline_capability = VirtualPipelineCapability,
     .range_caps = MetalRangeCaps,
     .run = RunMetalKernel,
     .prepare = PrepareMetalKernel,
@@ -157,6 +180,9 @@ const BackendOps Operations{
     .run_batch = RunPreparedMetalBatch,
     .prepare_pipeline = PrepareMetalPipeline,
     .seed_prepared_pipeline_generation = SeedPreparedMetalPipelineGeneration,
+    .query_pipeline_residency = QueryMetalPipelineResidency,
+    .stage_pipeline_residency = StageMetalPipelineResidency,
+    .commit_pipeline_residency = CommitMetalPipelineResidency,
     .submit_prepared_pipeline = SubmitPreparedMetalPipeline,
     .submit_prepared = SubmitPreparedMetalKernel,
     .inject_device_lost_once = InjectDeviceLostOnce,

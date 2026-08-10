@@ -5,8 +5,9 @@
 #import <Metal/Metal.h>
 #endif
 
+#include "../../stencil/bindings.hpp"
 #include "../../stencil/metal.hpp"
-#include "../../stencil/shape.hpp"
+#include "../../stencil/range.hpp"
 #include "../command/run.hpp"
 #include "../range/local.hpp"
 #include "../range/resources/lookup.hpp"
@@ -27,8 +28,8 @@ rund::AccelCheck PrepareMetalStencil(
   if (!MetalPickOwnsAdapter(pick) || adapter == nullptr) {
     return rund::AccelCheck{false, "accel_metal_unavailable"};
   }
-  if (!StencilShapeOk(desc, plan, bindings) ||
-      !StencilRangePlanMatches(plan, domain, range)) {
+  if (!StencilBindingsMatch(desc, plan, bindings) ||
+      !StencilRangeMatches(plan, domain, range)) {
     SetMetalLastError(*adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }

@@ -21,7 +21,8 @@ namespace {
 
 [[nodiscard]] rund::Buffer RejectBuffer(const rund::AccelDevice &,
                                         const rund::BufferDesc &,
-                                        const BackendBufferInitialization) {
+                                        const BackendBufferInitialization,
+                                        const std::uint64_t) {
   return rund::Buffer{
       .check = rund::AccelCheck{false, "accel_buffer_backend_unavailable"}};
 }

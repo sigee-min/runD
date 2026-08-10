@@ -241,7 +241,9 @@ namespace {
   return outcome;
 }
 
-[[nodiscard]] PipelineOutcome run_accel(PipelineState &state) {
+[[nodiscard]] PipelineOutcome
+run_accel(PipelineState &state,
+          const node::accel::detail::PipelineSubmitMode mode) {
   PipelineOutcome outcome{};
   const DeviceOps *const ops = state.device->ops;
   if (ops == nullptr || ops->run_pipeline == nullptr) {
@@ -268,8 +270,8 @@ namespace {
     return outcome;
   }
 
-  return finish_accel_pipeline(state,
-                               ops->run_pipeline(*state.device, prepared));
+  return finish_accel_pipeline(
+      state, ops->run_pipeline(*state.device, prepared, mode));
 }
 
 } // namespace
@@ -326,7 +328,9 @@ end_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept {
   return Status::success();
 }
 
-Status run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
+Status run_pipeline_with_mode(
+    const std::shared_ptr<PipelineState> &state,
+    const node::accel::detail::PipelineSubmitMode mode) noexcept {
   if (!valid_pipeline(state)) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -334,15 +338,19 @@ Status run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
   if (!pipeline_lock.owns_lock()) {
     return Status::fail(Reason::PipelineBusy);
   }
-  const Status started = start_pipeline(*state);
+  const PipelineClaimAuthority claim_authority =
+      mode == node::accel::detail::PipelineSubmitMode::Residency
+          ? PipelineClaimAuthority::PrivateResidency
+          : PipelineClaimAuthority::Shared;
+  const Status started = start_pipeline(*state, claim_authority);
   if (!started) {
     return started;
   }
   const PipelineOutcome executed = state->device->backend == Backend::Cpu
                                        ? run_cpu(*state)
-                                       : run_accel(*state);
+                                       : run_accel(*state, mode);
   if (executed.status) {
-    publish_pipeline_terminal(*state, PipelineTerminal{});
+    publish_pipeline_terminal(*state, PipelineTerminal{}, claim_authority);
   } else {
     publish_pipeline_terminal(
         *state,
@@ -352,9 +360,15 @@ Status run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
             .failed_step = executed.failed_step,
             .failure_step_known = executed.failure_step_known,
             .writes_possible = executed.writes_possible || executed.submitted,
-            .publication_suppressed = executed.publication_suppressed});
+            .publication_suppressed = executed.publication_suppressed},
+        claim_authority);
   }
   return executed.status;
+}
+
+Status run_pipeline(const std::shared_ptr<PipelineState> &state) noexcept {
+  return run_pipeline_with_mode(
+      state, node::accel::detail::PipelineSubmitMode::Standard);
 }
 
 Stats pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept {

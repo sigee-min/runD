@@ -5,13 +5,26 @@
 #include <accel/runtime.hpp>
 
 #include "local.hpp"
+#include "src/accel/metal/resident/storage.hpp"
 #include <node/accel/buffer.hpp>
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string_view>
 
 namespace node_accel_contract {
+
+bool MetalResidentCapabilityRejectsWrongType() {
+  using namespace rund::node::accel::detail;
+  const std::shared_ptr<MetalResidentOwner> minted = MakeMetalResidentOwner();
+  const std::shared_ptr<void> erased = minted;
+  const std::shared_ptr<MetalResidentOwner> recovered =
+      LookupMetalResidentOwner(erased);
+  const std::shared_ptr<void> wrong = std::make_shared<std::uint64_t>(7u);
+  return minted != nullptr && recovered.get() == minted.get() &&
+         LookupMetalResidentOwner(wrong) == nullptr;
+}
 
 bool PublicBufferApiExposesMetalResidencyWhenAvailable(
     const rund::AccelDevice &pick) {

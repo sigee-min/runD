@@ -88,8 +88,8 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
     }
     const PreparedPipelineControl initial{};
     std::memcpy([pipeline->control contents], &initial, sizeof(initial));
-    const rund::AccelCheck aggregate_ready =
-        PrepareMetalNestedAggregate(*pipeline->adapter, native_aggregate);
+    const rund::AccelCheck aggregate_ready = PrepareMetalNestedAggregate(
+        *pipeline->adapter, native_aggregate, preparation);
     if (!aggregate_ready.ok) {
       return aggregate_ready;
     }
@@ -175,7 +175,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
           needs_import, !pipeline->telemetry.empty(), profile_steps,
           reset_owner, import_owner, reduce_owner, complete_owner,
           telemetry_owner, native_publication_count != 0u, publish_owner,
-          !native_windows.empty(), advance_owner)) {
+          !native_windows.empty(), advance_owner, preparation)) {
     return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
   }
   reset = (__bridge id<MTLComputePipelineState>)reset_owner.get();

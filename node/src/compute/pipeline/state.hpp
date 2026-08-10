@@ -4,6 +4,7 @@
 #include "../device/state.hpp"
 #include "../job/state.hpp"
 #include "../program/state.hpp"
+#include "residency/model.hpp"
 
 #include <rund/compute/abi/model.hpp>
 #include <rund/compute/graph/info.hpp>
@@ -320,6 +321,23 @@ struct PipelineWorkspaceRoute final {
   }
 };
 
+// Logical residency requirements are frozen into the existing Pipeline plan.
+// The compact planner owns page policy; PipelineMemoryPlan remains the sole
+// placement and admission owner for its fixed slots and host staging.
+struct PipelineResidencyPlan final {
+  std::shared_ptr<const residency::ResidencyPlan> pages;
+  std::uint64_t logical_bytes{};
+  std::uint64_t input_page_bytes{};
+  std::uint64_t output_page_bytes{};
+  std::uint64_t staging_bytes{};
+  // Exact backend allocation charge of the native reusable transfer arena.
+  // Zero on backends that do not retain such an owner.
+  std::uint64_t transfer_committed_bytes{};
+  std::uint64_t resident_bytes{};
+  std::uint32_t first_step{};
+  std::uint32_t slot_count{};
+};
+
 struct PipelineMemoryPlan final {
   struct ViewSlot final {
     std::size_t words{};
@@ -406,6 +424,7 @@ struct PipelineMemoryPlan final {
   // immutable descriptor until bind hands it to PipelineState; no backend or
   // native owner exists while this value is computed.
   node::accel::detail::PreparedKernelPipelineReservation accel_preparation{};
+  PipelineResidencyPlan residency{};
 };
 
 // A nested window keeps one compact table of reusable routes.  Route entries
@@ -571,6 +590,7 @@ struct PipelineBuildState final {
   // ordinal. Geometry and type remain owned by PipelineMemoryPlan.
   std::vector<std::shared_ptr<BufferState>> materialized_resources;
   std::shared_ptr<const PipelineMemoryPlan> memory;
+  PipelineResidencyPlan residency{};
   std::shared_ptr<StateSnapshotState> seed;
   std::shared_ptr<SnapshotStorageState> storage_seed;
   std::shared_ptr<PipelinePublicationState> device_seed;
@@ -757,6 +777,10 @@ struct PipelineState final {
   // Declared before all Pipeline-private owners so reverse destruction keeps
   // the aggregate Device charge live until those owners are gone.
   storage::Reservation private_memory;
+  // Virtual-only backend submission resources are materialized after the
+  // common physical plan, but before VirtualPipeline publication. This exact
+  // Device admission remains live until every backend owner below is gone.
+  storage::Reservation residency_submission_memory;
   std::shared_ptr<PipelinePublicationState> publication;
   // Canonical owner of the one CPU prepared mapping. Jobs and Program storage
   // retain lifetime references to this same control block, but planning,
@@ -788,6 +812,18 @@ struct PipelineState final {
   node::accel::detail::PreparedKernelTemplateRegistry accel_templates;
   node::accel::detail::PreparedKernelPipeline prepared;
   node::accel::detail::PreparedKernelPipeline alternate_prepared;
+  std::shared_ptr<const residency::ResidencyPlan> residency;
+  std::unique_ptr<std::byte[]> residency_staging;
+  // Canonical fixed-slot arenas. Every logical slot is a disjoint View into
+  // these two Pipeline-owned resources, so preparation retains two Buffers
+  // rather than O(K) Buffer owners while the compact plan remains O(1).
+  std::uint32_t residency_input{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t residency_output{std::numeric_limits<std::uint32_t>::max()};
+  std::uint64_t residency_input_page_bytes{};
+  std::uint64_t residency_output_page_bytes{};
+  std::uint64_t residency_staging_bytes{};
+  std::uint64_t residency_transfer_committed_bytes{};
+  bool residency_transfer_prepared{};
   PipelinePlan plan{};
   mutable std::mutex gate;
   PipelinePhase phase{PipelinePhase::Ready};

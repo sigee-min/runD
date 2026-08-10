@@ -8,6 +8,10 @@
 
 namespace rund::node::accel::detail {
 
+[[nodiscard]] std::uint64_t
+MetalBufferStorageBytes(const rund::AccelDevice &pick,
+                        std::uint64_t logical_bytes) noexcept;
+
 [[nodiscard]] MetalResidentBufferResult
 CreateMetalResidentBuffer(const rund::AccelDevice &pick,
                           const ResidentDesc &desc,
@@ -24,10 +28,9 @@ UploadMetalResidentBuffer(const rund::AccelDevice &pick,
                           const std::shared_ptr<void> &handle, const void *data,
                           rund::kernel::u64 bytes, rund::kernel::u64 offset);
 
-[[nodiscard]] BackendUpload
-UploadMetalResidentBuffers(const rund::AccelDevice &pick,
-                           std::span<const UploadRoute> requests,
-                           TransferCompletion completion);
+[[nodiscard]] BackendUpload UploadMetalResidentBuffers(
+    const rund::AccelDevice &pick, std::span<const UploadRoute> requests,
+    TransferCompletion completion, TransferAuthority authority);
 
 [[nodiscard]] BackendDownload DownloadMetalResidentBuffer(
     const rund::AccelDevice &pick, const rund::kernel::ResidentBufferRef &ref,
@@ -36,7 +39,8 @@ UploadMetalResidentBuffers(const rund::AccelDevice &pick,
 
 [[nodiscard]] BackendDownload
 DownloadMetalResidentBuffers(const rund::AccelDevice &pick,
-                             std::span<const DownloadRoute> requests);
+                             std::span<const DownloadRoute> requests,
+                             TransferAuthority authority);
 
 [[nodiscard]] BackendCopy
 CopyMetalResidentBuffers(const rund::AccelDevice &pick,

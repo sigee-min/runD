@@ -205,6 +205,32 @@ one `Profile` through `ProfileAccess`. `compute/memory/job.cpp` and
 `compute/pipeline/run/memory.cpp` retain memory arithmetic and placement
 ownership; they publish no Profile, Event, or duplicate counter set.
 
+Cold prepared-Pipeline evidence follows the same single-authority rule. A
+backend receives one owner-local `AccelRunFacts` sink while it materializes an
+immutable prepared stream. A physical compile, cache hit, or compile-time
+duration is written at the same producer operation that updates backend-global
+diagnostics. `PreparedKernelPipeline` carries those facts to Compute, and
+the same compiled `accumulate_run_facts` mapper used by execution completion
+projects them into the new `PipelineState`'s initial `Stats` epoch exactly
+once. No before/after counter delta or second field map is used.
+`PipelineStats::preparation_evidence` is the typed availability coordinate for
+that receipt: `OwnerLocal` makes the numeric fields evidence,
+`NoNativeProducer` states that the backend has no native compiler/cache owner,
+and `BackendGlobalOnly` states that only non-attributable device diagnostics
+exist. A serializer consumes this coordinate from the same `Profile`; it does
+not infer availability from `Backend` or an all-zero tuple.
+Metal supplies this owner-local compile/cache/time path for status and nested
+aggregate preparation. CPU has no native Pipeline compiler or cache producer,
+so its corresponding initial coordinates are unavailable structural zeros;
+elapsed CPU preparation wall time is not reinterpreted as compile time. The
+Vulkan adapter's pipeline and descriptor diagnostics remain backend-global, so
+their prepared-owner coordinates are unavailable structural zeros until those
+physical producers emit an owner-local receipt; zero is not evidence of no
+Vulkan preparation work. The
+first execution starts a distinct terminal epoch and resets these cold facts,
+while preserving their typed source. This keeps a warm zero meaningful only
+inside the existing sampled-run contract.
+
 Session completion uses the same assembly law at the terminal boundary. When a
 sink is enabled, Job or Pipeline finish creates one `Profile` while still
 holding the owner gate and before another submission can acquire it. Runtime

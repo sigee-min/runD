@@ -27,6 +27,8 @@ void reset_pipeline_stats(PipelineState &state) noexcept {
   const std::uint64_t barriers = state.stats.pipeline.barrier_count;
   const std::uint32_t sampled_runs = state.stats.pipeline.sampled_runs;
   const std::uint32_t clean_runs = state.stats.pipeline.clean_runs;
+  const PreparationEvidenceSource preparation_evidence =
+      state.stats.pipeline.preparation_evidence;
   const PublicationStats publication = state.stats.publication;
   state.stats = Stats{.backend = state.device->backend,
                       .graph_hash = state.publication->fingerprint.lo};
@@ -38,6 +40,7 @@ void reset_pipeline_stats(PipelineState &state) noexcept {
       .claim_conflict_count = conflicts,
       .failed_step_index = PipelineStats::no_failed_step,
       .status_entry_count = state.status_entry_count,
+      .preparation_evidence = preparation_evidence,
       .prepared_template_count = state.plan.prepared_template_count,
       .prepared_command_count = state.plan.prepared_command_count,
       .sampled_runs = sampled_runs,

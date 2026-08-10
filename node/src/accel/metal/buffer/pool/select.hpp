@@ -28,16 +28,20 @@ TakeReusableMetalBuffer(MetalAdapter &adapter, const rund::kernel::u64 bytes,
   }
   MetalRuntimeBuffer buffer{.id = best->id,
                             .bytes = best->bytes,
+                            .allocated_bytes = best->allocated_bytes,
                             .usage = best->usage,
                             .buffer = best->buffer,
                             .reused = true};
   adapter.free_buffers.erase(best);
   ::rund::detail::counter::Accumulate(
       adapter.stats.runtime.run.allocations.buffer_reuse_hit_count, 1u);
-  ::rund::detail::counter::Accumulate(adapter.memory.current, buffer.bytes);
+  ::rund::detail::counter::Accumulate(adapter.memory.current,
+                                      buffer.allocated_bytes);
   adapter.memory.peak = std::max(adapter.memory.peak, adapter.memory.current);
-  ::rund::detail::counter::Accumulate(adapter.memory.cumulative, buffer.bytes);
-  ::rund::detail::counter::Accumulate(adapter.memory.reused, buffer.bytes);
+  ::rund::detail::counter::Accumulate(adapter.memory.cumulative,
+                                      buffer.allocated_bytes);
+  ::rund::detail::counter::Accumulate(adapter.memory.reused,
+                                      buffer.allocated_bytes);
   return buffer;
 }
 

@@ -76,6 +76,20 @@ struct VulkanPipelineDispatchTrace final {
   bool ready{};
 };
 
+struct VulkanPipelineTransfer final {
+  VulkanCommand compute{};
+  VulkanBuffer staging{};
+  VkBuffer input{VK_NULL_HANDLE};
+  VkBuffer output{VK_NULL_HANDLE};
+  std::shared_ptr<void> input_storage{};
+  std::shared_ptr<void> output_storage{};
+  std::uint64_t input_bytes{};
+  std::uint64_t output_bytes{};
+  bool input_staged{};
+  bool output_ready{};
+  bool ready{};
+};
+
 struct VulkanPipeline final {
   VulkanAdapter *adapter{};
   VulkanCommand command{};
@@ -85,6 +99,7 @@ struct VulkanPipeline final {
   std::unique_ptr<VulkanPipelineProfile> profile;
   std::unique_ptr<VulkanPipelineRecordRecipe> record;
   VulkanPipelineDispatchTrace trace{};
+  VulkanPipelineTransfer transfer{};
   PreparedPipelineMemoryMeter *memory_meter{};
   VulkanCollectivePipeline *telemetry_pipeline{};
   std::vector<VulkanPipelineTelemetryRecord> telemetry;

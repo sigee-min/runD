@@ -20,7 +20,7 @@ namespace {
 [[nodiscard]] rund::AccelDevice Pick(const bool) { return PickCpu(); }
 
 rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
-                    const BackendBufferInitialization) {
+                    const BackendBufferInitialization, const std::uint64_t) {
   CpuBufferResult created = CreateCpuResidentBuffer(pick, desc);
   return MakeBuffer(pick, desc, created.check, created.ref,
                     std::move(created.buffer), created.ref.bytes, false);

@@ -6,6 +6,7 @@
 #include <accel/kernel/run.hpp>
 #include <accel/kernel/value.hpp>
 
+#include "../backend/result.hpp"
 #include "backend/run.hpp"
 #include "memory.hpp"
 #include "preparation.hpp"
@@ -32,6 +33,7 @@ struct PreparedKernelRun {
 
 struct PreparedKernelPipeline {
   std::shared_ptr<void> owner{};
+  AccelRunFacts preparation{};
   bool ok = false;
   PreparedPipelineFailure failure{};
 };
@@ -115,18 +117,45 @@ PrepareKernelPipeline(const rund::AccelContext &context,
     const PreparedKernelPipelineReservation &reservation,
     const PreparedKernelPipelineReservation &limit) noexcept;
 
-[[nodiscard]] PreparedPipelineEvidence
-RunPreparedKernelPipeline(const rund::AccelContext &context,
-                          const PreparedKernelPipeline &prepared);
+[[nodiscard]] PreparedPipelineEvidence RunPreparedKernelPipeline(
+    const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
+    PipelineSubmitMode mode = PipelineSubmitMode::Standard);
 
 [[nodiscard]] rund::AccelCheck
 SeedPreparedKernelPipelineGeneration(const PreparedKernelPipeline &prepared,
                                      std::uint32_t generation) noexcept;
 
+[[nodiscard]] rund::AccelCheck PreparePreparedKernelPipelineTransfer(
+    const PreparedKernelPipeline &prepared, const UploadRoute &upload,
+    const DownloadRoute &download, std::uint64_t exact_storage_bytes) noexcept;
+
+[[nodiscard]] rund::AccelCheck
+StagePreparedKernelPipelineResidency(const PreparedKernelPipeline &prepared,
+                                     std::shared_ptr<void> &candidate,
+                                     std::uint64_t &retained_bytes) noexcept;
+
+void CommitPreparedKernelPipelineResidency(
+    const PreparedKernelPipeline &prepared,
+    std::shared_ptr<void> candidate) noexcept;
+
+[[nodiscard]] rund::AccelCheck
+QueryPreparedKernelPipelineResidency(const PreparedKernelPipeline &prepared,
+                                     bool &supported) noexcept;
+
+[[nodiscard]] BackendUpload
+UploadPreparedKernelPipeline(const PreparedKernelPipeline &prepared,
+                             const void *data, std::uint64_t bytes) noexcept;
+
+[[nodiscard]] BackendDownload
+DownloadPreparedKernelPipeline(const PreparedKernelPipeline &prepared,
+                               void *data, std::uint64_t bytes,
+                               std::uint64_t *payload_hash) noexcept;
+
 [[nodiscard]] rund::AccelCheck SubmitPreparedKernelPipeline(
     const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
     std::shared_ptr<void> lifetime, PreparedPipelineCompletion completion,
-    void *user, KernelTiming timing = KernelTiming::Submission) noexcept;
+    void *user, KernelTiming timing = KernelTiming::Submission,
+    PipelineSubmitMode mode = PipelineSubmitMode::Standard) noexcept;
 
 [[nodiscard]] rund::AccelCheck SubmitPreparedKernel(
     const rund::AccelContext &context, const PreparedKernelRun &prepared,

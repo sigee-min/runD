@@ -257,7 +257,8 @@ VulkanFailureReason(const VkResult result,
 CreateVulkanBuffer(VulkanAdapter &adapter, VkDeviceSize bytes,
                    VkBufferUsageFlags usage, VulkanBuffer &buffer,
                    bool *reused = nullptr,
-                   VulkanMemoryUse memory_use = VulkanMemoryUse::Staging);
+                   VulkanMemoryUse memory_use = VulkanMemoryUse::Staging,
+                   std::uint64_t exact_storage_bytes = 0u);
 
 void DestroyVulkanBuffer(VulkanAdapter &adapter, VulkanBuffer &buffer);
 
@@ -274,10 +275,9 @@ VulkanPickOwnsAdapter(const rund::AccelDevice &pick) noexcept;
 [[nodiscard]] VulkanAdapter *
 CheckedVulkanAdapter(const rund::AccelDevice &pick) noexcept;
 
-[[nodiscard]] VulkanResidentBufferResult
-CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
-                           const ResidentDesc &desc,
-                           bool zero_initialize = false);
+[[nodiscard]] VulkanResidentBufferResult CreateVulkanResidentBuffer(
+    const rund::AccelDevice &pick, const ResidentDesc &desc,
+    bool zero_initialize = false, std::uint64_t exact_storage_bytes = 0u);
 
 [[nodiscard]] VulkanResidentBufferResult
 LookupVulkanResidentBuffer(const rund::AccelDevice &pick,
@@ -294,14 +294,14 @@ LookupVulkanResidentBuffer(const rund::AccelDevice &pick,
     const std::shared_ptr<void> &handle, void *data, rund::kernel::u64 bytes,
     rund::kernel::u64 offset, bool hash_payload);
 
-[[nodiscard]] BackendUpload
-UploadVulkanResidentBuffers(const rund::AccelDevice &pick,
-                            std::span<const UploadRoute> requests,
-                            TransferCompletion completion);
+[[nodiscard]] BackendUpload UploadVulkanResidentBuffers(
+    const rund::AccelDevice &pick, std::span<const UploadRoute> requests,
+    TransferCompletion completion, TransferAuthority authority);
 
 [[nodiscard]] BackendDownload
 DownloadVulkanResidentBuffers(const rund::AccelDevice &pick,
-                              std::span<const DownloadRoute> requests);
+                              std::span<const DownloadRoute> requests,
+                              TransferAuthority authority);
 
 [[nodiscard]] BackendCopy
 CopyVulkanResidentBuffers(const rund::AccelDevice &pick,

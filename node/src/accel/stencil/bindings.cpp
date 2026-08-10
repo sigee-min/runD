@@ -1,10 +1,12 @@
-#include "shape.hpp"
+#include "bindings.hpp"
+
+#include "../primitive/shape.hpp"
 
 namespace rund::node::accel::detail {
 
-bool StencilShapeOk(const rund::kernel::StencilDesc &desc,
-                    const rund::kernel::StencilPlan &plan,
-                    const RangeBinds &bindings) noexcept {
+bool StencilBindingsMatch(const rund::kernel::StencilDesc &desc,
+                          const rund::kernel::StencilPlan &plan,
+                          const RangeBinds &bindings) noexcept {
   if (!rund::kernel::StencilPlanMatchesDesc(desc, plan) ||
       bindings.input_handle == nullptr || bindings.output_handle == nullptr) {
     return false;

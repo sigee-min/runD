@@ -34,6 +34,9 @@ struct ControlStats final {
   [[nodiscard]] constexpr bool overflowed() const noexcept {
     return overflow_ordinal != no_overflow;
   }
+
+  [[nodiscard]] constexpr bool
+  operator==(const ControlStats &) const noexcept = default;
 };
 
 struct PublicationStats final {
@@ -44,6 +47,9 @@ struct PublicationStats final {
   std::uint64_t snapshot_hash{};
   std::uint64_t restore_byte_count{};
   std::uint64_t device_loss_count{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PublicationStats &) const noexcept = default;
 };
 
 // Physical queue submissions caused by transfer operations are distinct from
@@ -54,6 +60,9 @@ struct TransferSubmissionStats final {
   std::uint64_t host_to_device{};
   std::uint64_t device_to_host{};
   std::uint64_t device_to_device{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const TransferSubmissionStats &) const noexcept = default;
 };
 
 // Pipeline-only checkpoint telemetry is intentionally separate from Stats so
@@ -68,6 +77,57 @@ struct CheckpointStats final {
   std::uint64_t reusable_snapshot_byte_count{};
   std::uint64_t reusable_snapshot_hash{};
   std::uint64_t reusable_snapshot_transfer_count{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const CheckpointStats &) const noexcept = default;
+};
+
+// Pipeline residency is physical execution evidence for a logical dataset
+// whose complete byte extent is not retained in the prepared working set.
+// It remains nested in Stats so paging cannot create a second public ledger.
+struct ResidencyStats final {
+  static constexpr std::uint64_t no_failed_page =
+      std::numeric_limits<std::uint64_t>::max();
+
+  std::uint64_t logical_bytes{};
+  // Exact active element prefix requested by the latest invocation. Capacity
+  // and plan identity remain in PipelinePlan::residency.
+  std::uint64_t active_count{};
+  std::uint64_t page_bytes{};
+  std::uint64_t page_count{};
+  std::uint64_t slot_capacity{};
+  std::uint64_t active_slots_peak{};
+  std::uint64_t wave_count{};
+  std::uint64_t load_count{};
+  std::uint64_t writeback_count{};
+  std::uint64_t backing_read_bytes{};
+  std::uint64_t backing_write_bytes{};
+  std::uint64_t backing_io_ns{};
+  std::uint32_t sampled_runs{};
+  std::uint32_t allocation_free_runs{};
+  std::uint64_t plan_identity_hi{};
+  std::uint64_t plan_identity_lo{};
+  std::uint64_t failed_page{no_failed_page};
+
+  [[nodiscard]] constexpr bool
+  samples_allocation_free(const std::uint64_t expected) const noexcept {
+    return expected < std::numeric_limits<std::uint32_t>::max() &&
+           sampled_runs == expected && allocation_free_runs == expected;
+  }
+
+  [[nodiscard]] constexpr bool
+  operator==(const ResidencyStats &) const noexcept = default;
+};
+
+// Preparation counters are meaningful only when their physical producer can
+// publish an owner-local receipt. This typed source is part of Stats so a
+// Profile serializer never has to infer availability from Backend or from a
+// zero-valued counter tuple.
+enum class PreparationEvidenceSource : std::uint8_t {
+  Unavailable,
+  NoNativeProducer,
+  OwnerLocal,
+  BackendGlobalOnly,
 };
 
 struct PipelineStats final {
@@ -98,6 +158,8 @@ struct PipelineStats final {
   std::uint64_t failed_outer_window{no_coordinate};
   std::uint64_t failed_inner_iteration{no_coordinate};
   PipelineNestedPhase failed_nested_phase{PipelineNestedPhase::None};
+  PreparationEvidenceSource preparation_evidence{
+      PreparationEvidenceSource::Unavailable};
   std::uint64_t prepared_template_count{};
   std::uint64_t prepared_command_count{};
   // Explicit sample epoch over accepted Pipeline terminals. begin_samples()
@@ -108,12 +170,16 @@ struct PipelineStats final {
   std::uint32_t clean_runs{};
   std::uint64_t claim_ns{};
   std::uint64_t control_ns{};
+  ResidencyStats residency{};
 
   [[nodiscard]] constexpr bool
   samples_clean(const std::uint64_t expected) const noexcept {
     return expected < std::numeric_limits<std::uint32_t>::max() &&
            sampled_runs == expected && clean_runs == expected;
   }
+
+  [[nodiscard]] constexpr bool
+  operator==(const PipelineStats &) const noexcept = default;
 };
 
 struct Stats final {
@@ -175,6 +241,9 @@ struct Stats final {
   [[nodiscard]] constexpr bool available() const noexcept {
     return backend != Backend::Unavailable;
   }
+
+  [[nodiscard]] constexpr bool
+  operator==(const Stats &) const noexcept = default;
 };
 struct WriteStats final {
   std::uint64_t copies{};
@@ -213,6 +282,9 @@ struct MemoryCounter final {
   std::uint64_t cumulative{};
   std::uint64_t reused{};
   std::uint64_t budget{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const MemoryCounter &) const noexcept = default;
 };
 struct MemoryStats final {
   Backend backend{Backend::Unavailable};
@@ -228,6 +300,9 @@ struct MemoryStats final {
   [[nodiscard]] constexpr bool available() const noexcept {
     return backend != Backend::Unavailable && scope != MemoryScope::Unspecified;
   }
+
+  [[nodiscard]] constexpr bool
+  operator==(const MemoryStats &) const noexcept = default;
 };
 struct MemoryEntry final {
   MemoryCategory category{MemoryCategory::Host};

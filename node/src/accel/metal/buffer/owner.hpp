@@ -21,10 +21,12 @@ MetalAdapterFromPick(const rund::AccelDevice &pick) noexcept {
 [[nodiscard]] inline PreparedMemory
 MetalBufferMemory(const MetalRuntimeBuffer &buffer,
                   const std::uint64_t budget) noexcept {
-  return PreparedMemory{.current = buffer.bytes,
-                        .peak = buffer.bytes,
-                        .cumulative = buffer.bytes,
-                        .reused = buffer.reused ? buffer.bytes : 0u,
+  const std::uint64_t committed =
+      buffer.allocated_bytes == 0u ? buffer.bytes : buffer.allocated_bytes;
+  return PreparedMemory{.current = committed,
+                        .peak = committed,
+                        .cumulative = committed,
+                        .reused = buffer.reused ? committed : 0u,
                         .budget = budget};
 }
 

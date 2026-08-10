@@ -38,20 +38,31 @@ struct MetalDownloadPlan final {
 
 BackendDownload DownloadMetalResidentBuffersWithScratch(
     MetalAdapter &adapter, const std::span<const DownloadRoute> requests,
-    const std::span<MetalDownloadPlan> plans) {
-  std::unique_lock adapter_lock{adapter.mutex};
+    const std::span<MetalDownloadPlan> plans,
+    const TransferAuthority authority) {
+  std::unique_lock adapter_lock{adapter.mutex, std::defer_lock};
+  if (authority == TransferAuthority::Shared) {
+    adapter_lock.lock();
+  }
   std::size_t plan_count = 0u;
   {
     MetalResidentState &resident = MetalResidents(adapter);
-    std::lock_guard resident_lock{resident.mutex};
+    std::unique_lock resident_lock{resident.mutex, std::defer_lock};
+    if (authority == TransferAuthority::Shared) {
+      resident_lock.lock();
+    }
     for (const DownloadRoute &request : requests) {
       if (request.handle == nullptr || request.payload_hash == nullptr ||
           (request.bytes != 0u && request.data == nullptr)) {
         return {};
       }
       MetalResidentBufferResult resolved =
-          ResolveMetalResidentBuffer(resident, request.resident, request.handle,
-                                     "accel_buffer_unavailable");
+          authority == TransferAuthority::PipelinePrivate
+              ? ResolvePrivateMetalResidentBuffer(adapter, request.resident,
+                                                  request.handle)
+              : ResolveMetalResidentBuffer(resident, request.resident,
+                                           request.handle,
+                                           "accel_buffer_unavailable");
       if (!resolved.check.ok || resolved.device_buffer == nullptr) {
         return BackendDownload{.check = {false, resolved.check.reason}};
       }
@@ -86,13 +97,16 @@ BackendDownload DownloadMetalResidentBuffersWithScratch(
   if (plan_count == 0u) {
     return BackendDownload{.check = {true, "ok"}, .payload_hash_valid = true};
   }
-  if (adapter.active_host_readbacks ==
-      std::numeric_limits<std::size_t>::max()) {
+  if (authority == TransferAuthority::Shared &&
+      adapter.active_host_readbacks ==
+          std::numeric_limits<std::size_t>::max()) {
     return BackendDownload{.check = {false, "accel_buffer_unavailable"}};
   }
   const std::uint64_t readback_begin = MonotonicNanoseconds();
-  ++adapter.active_host_readbacks;
-  adapter_lock.unlock();
+  if (authority == TransferAuthority::Shared) {
+    ++adapter.active_host_readbacks;
+    adapter_lock.unlock();
+  }
   std::uint64_t downloaded_bytes = 0u;
   for (const MetalDownloadPlan &plan : plans.first(plan_count)) {
     *plan.payload_hash = ::rund::node::hash_detail::CopyHash(
@@ -100,17 +114,21 @@ BackendDownload DownloadMetalResidentBuffersWithScratch(
         static_cast<std::size_t>(plan.bytes));
     ::rund::detail::counter::Accumulate(downloaded_bytes, plan.bytes);
   }
-  adapter_lock.lock();
   const std::uint64_t readback_elapsed =
       MonotonicNanoseconds() - readback_begin;
-  ::rund::detail::counter::Accumulate(
-      adapter.stats.runtime.run.time.readback_ns, readback_elapsed);
-  ::rund::detail::counter::Accumulate(
-      adapter.stats.runtime.run.transfer.device_to_host_bytes,
-      downloaded_bytes);
-  --adapter.active_host_readbacks;
-  adapter.host_readback_cv.notify_all();
-  return BackendDownload{.check = {true, "ok"}, .payload_hash_valid = true};
+  if (authority == TransferAuthority::Shared) {
+    adapter_lock.lock();
+    ::rund::detail::counter::Accumulate(
+        adapter.stats.runtime.run.time.readback_ns, readback_elapsed);
+    ::rund::detail::counter::Accumulate(
+        adapter.stats.runtime.run.transfer.device_to_host_bytes,
+        downloaded_bytes);
+    --adapter.active_host_readbacks;
+    adapter.host_readback_cv.notify_all();
+  }
+  return BackendDownload{.check = {true, "ok"},
+                         .readback_ns = readback_elapsed,
+                         .payload_hash_valid = true};
 }
 
 } // namespace
@@ -190,7 +208,8 @@ BackendDownload DownloadMetalResidentBuffer(
 
 BackendDownload
 DownloadMetalResidentBuffers(const rund::AccelDevice &pick,
-                             const std::span<const DownloadRoute> requests) {
+                             const std::span<const DownloadRoute> requests,
+                             const TransferAuthority authority) {
   MetalAdapter *const adapter = MetalAdapterFromPick(pick);
   if (adapter == nullptr || requests.empty()) {
     return {};
@@ -199,12 +218,13 @@ DownloadMetalResidentBuffers(const rund::AccelDevice &pick,
   if (requests.size() <= inline_plans.size()) {
     return DownloadMetalResidentBuffersWithScratch(
         *adapter, requests,
-        std::span<MetalDownloadPlan>{inline_plans}.first(requests.size()));
+        std::span<MetalDownloadPlan>{inline_plans}.first(requests.size()),
+        authority);
   }
   try {
     std::vector<MetalDownloadPlan> overflow_plans(requests.size());
     return DownloadMetalResidentBuffersWithScratch(*adapter, requests,
-                                                   overflow_plans);
+                                                   overflow_plans, authority);
   } catch (const std::bad_alloc &) {
     return BackendDownload{.check = {false, "accel_buffer_unavailable"}};
   }
@@ -220,7 +240,8 @@ DownloadMetalResidentBuffer(const rund::AccelDevice &,
 
 BackendDownload
 DownloadMetalResidentBuffers(const rund::AccelDevice &,
-                             const std::span<const DownloadRoute>) {
+                             const std::span<const DownloadRoute>,
+                             const TransferAuthority) {
   return {};
 }
 #endif

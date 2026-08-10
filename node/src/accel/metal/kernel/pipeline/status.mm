@@ -197,7 +197,7 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
     std::shared_ptr<void> &reduce, std::shared_ptr<void> &complete,
     std::shared_ptr<void> &telemetry, const bool need_publish,
     std::shared_ptr<void> &publish, const bool need_advance,
-    std::shared_ptr<void> &advance) {
+    std::shared_ptr<void> &advance, rund::AccelRunFacts *const preparation) {
   const char *const reduce_key =
       profile_steps ? "pipeline.status.fold.profile" : "pipeline.status.fold";
   const char *const reduce_function =
@@ -215,23 +215,27 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
       profile_steps ? "rund_pipeline_telemetry_accumulate_profiled"
                     : "rund_pipeline_telemetry_accumulate";
   if (need_reset) {
-    reset = LookupMetalNamedPipeline(adapter, "pipeline.status.reset");
+    reset =
+        LookupMetalNamedPipeline(adapter, "pipeline.status.reset", preparation);
   }
   if (need_status) {
-    reduce = LookupMetalNamedPipeline(adapter, reduce_key);
+    reduce = LookupMetalNamedPipeline(adapter, reduce_key, preparation);
   }
-  complete = LookupMetalNamedPipeline(adapter, complete_key);
+  complete = LookupMetalNamedPipeline(adapter, complete_key, preparation);
   if (need_import) {
-    import = LookupMetalNamedPipeline(adapter, "pipeline.status.import");
+    import = LookupMetalNamedPipeline(adapter, "pipeline.status.import",
+                                      preparation);
   }
   if (need_telemetry) {
-    telemetry = LookupMetalNamedPipeline(adapter, telemetry_key);
+    telemetry = LookupMetalNamedPipeline(adapter, telemetry_key, preparation);
   }
   if (need_publish) {
-    publish = LookupMetalNamedPipeline(adapter, "pipeline.publish");
+    publish =
+        LookupMetalNamedPipeline(adapter, "pipeline.publish", preparation);
   }
   if (need_advance) {
-    advance = LookupMetalNamedPipeline(adapter, "pipeline.advance");
+    advance =
+        LookupMetalNamedPipeline(adapter, "pipeline.advance", preparation);
   }
   const bool make_reset = need_reset && reset == nullptr;
   const bool make_import = need_import && import == nullptr;
@@ -247,7 +251,7 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
   id<MTLDevice> const device = (__bridge id<MTLDevice>)adapter.device.get();
   const std::uint64_t begin = MonotonicNanoseconds();
   const std::shared_ptr<void> library_owner =
-      AcquireMetalLibrary(adapter, MetalPipelineSource());
+      AcquireMetalLibrary(adapter, MetalPipelineSource(), 0u, preparation);
   id<MTLLibrary> const library = (__bridge id<MTLLibrary>)library_owner.get();
   if (library == nil ||
       (make_reset &&
@@ -277,7 +281,8 @@ ValidMetalReset(const std::span<const MetalPipelineResetMeta> resets,
     if (!created) {
       return;
     }
-    StoreMetalNamedPipeline(adapter, name, pipeline, accounted ? 0u : elapsed);
+    StoreMetalNamedPipeline(adapter, name, pipeline, accounted ? 0u : elapsed,
+                            preparation);
     accounted = true;
   };
   store(make_reset, "pipeline.status.reset", reset);

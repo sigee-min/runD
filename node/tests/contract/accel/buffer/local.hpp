@@ -64,6 +64,7 @@ namespace node_accel_contract {
 [[nodiscard]] bool PublicBufferApiRejectsUnavailableBackends();
 [[nodiscard]] bool PublicBufferApiExposesMetalResidencyWhenAvailable(
     const rund::AccelDevice &pick);
+[[nodiscard]] bool MetalResidentCapabilityRejectsWrongType();
 [[nodiscard]] bool PublicBufferApiRoundTripsAndReportsStatsWhenAvailable(
     const rund::AccelDevice &pick);
 [[nodiscard]] bool

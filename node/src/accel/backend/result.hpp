@@ -23,6 +23,15 @@ enum class TransferCompletion : std::uint8_t {
   Complete,
 };
 
+// Identifies the concurrency authority already held by the caller. Shared
+// transfers retain backend-wide validation/accounting. PipelinePrivate is
+// accepted only after Compute has proved the resident routes are sealed,
+// Pipeline-owned resources under that Pipeline's owner gate.
+enum class TransferAuthority : std::uint8_t {
+  Shared,
+  PipelinePrivate,
+};
+
 struct UploadRoute final {
   rund::kernel::ResidentBufferRef resident{};
   std::shared_ptr<void> handle{};
@@ -69,6 +78,7 @@ struct BackendDownload final {
   std::uint64_t buffer_allocations = 0u;
   std::uint64_t buffer_reuses = 0u;
   std::uint64_t command_submits = 0u;
+  std::uint64_t readback_ns = 0u;
   bool staging_reused = false;
   bool payload_hash_valid = false;
 };

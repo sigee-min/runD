@@ -16,10 +16,10 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
-BackendUpload
-UploadVulkanResidentBuffers(const rund::AccelDevice &pick,
-                            const std::span<const UploadRoute> requests,
-                            const TransferCompletion completion) {
+BackendUpload UploadVulkanResidentBuffers(
+    const rund::AccelDevice &pick, const std::span<const UploadRoute> requests,
+    const TransferCompletion completion, const TransferAuthority authority) {
+  (void)authority;
   if (!VulkanPickOwnsAdapter(pick) || requests.empty()) {
     return {};
   }

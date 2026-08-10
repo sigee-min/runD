@@ -5,6 +5,7 @@
 #include <rund/compute/math.hpp>
 #include <rund/compute/pipeline.hpp>
 #include <rund/compute/session.hpp>
+#include <rund/compute/virtual.hpp>
 #include <rund/evidence.hpp>
 #include <rund/host.hpp>
 #include <rund/net.hpp>

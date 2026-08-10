@@ -260,7 +260,9 @@ struct InlineDownloadRoute final {
 
 BackendDownload
 DownloadVulkanResidentBuffers(const rund::AccelDevice &pick,
-                              const std::span<const DownloadRoute> requests) {
+                              const std::span<const DownloadRoute> requests,
+                              const TransferAuthority authority) {
+  (void)authority;
   if (!VulkanPickOwnsAdapter(pick) || requests.empty()) {
     return {};
   }

@@ -52,12 +52,30 @@ list(APPEND NODE_SOURCES
   src/compute/pipeline/plan/bind.cpp
   src/compute/pipeline/plan/contract.cpp
   src/compute/pipeline/plan/memory.cpp
+  src/compute/pipeline/plan/memory/accel.cpp
+  src/compute/pipeline/plan/memory/commitment.cpp
+  src/compute/pipeline/plan/memory/cpu.cpp
+  src/compute/pipeline/plan/memory/host.cpp
+  src/compute/pipeline/plan/memory/materialize.cpp
+  src/compute/pipeline/plan/memory/model.cpp
+  src/compute/pipeline/plan/memory/summary.cpp
+  src/compute/pipeline/plan/memory/workload.cpp
+  src/compute/pipeline/plan/memory/workspace.cpp
   src/compute/pipeline/output.cpp
   src/compute/pipeline/plan/publication.cpp
   src/compute/pipeline/plan/resource.cpp
   src/compute/pipeline/plan/schedule.cpp
   src/compute/pipeline/plan/scratch.cpp
+  src/compute/pipeline/residency/identity.cpp
+  src/compute/pipeline/residency/authority.cpp
+  src/compute/pipeline/residency/integration.cpp
+  src/compute/pipeline/residency/model.cpp
+  src/compute/pipeline/residency/planner.cpp
   src/compute/pipeline/read.cpp
+  src/compute/pipeline/transfer/batch/model.cpp
+  src/compute/pipeline/transfer/batch/publication.cpp
+  src/compute/pipeline/transfer/batch/upload.cpp
+  src/compute/pipeline/transfer/batch/download.cpp
   src/compute/pipeline/write.cpp
   src/compute/pipeline/snapshot.cpp
   src/compute/pipeline/profile.cpp
@@ -110,6 +128,18 @@ list(APPEND NODE_SOURCES
   src/compute/flow/stage/scan.cpp
   src/compute/flow/stage/select.cpp
   src/compute/flow/stage/unary.cpp
+  src/compute/virtual/backing.cpp
+  src/compute/virtual/active.cpp
+  src/compute/virtual/buffer.cpp
+  src/compute/virtual/observe.cpp
+  src/compute/virtual/prepare.cpp
+  src/compute/virtual/run.cpp
+  src/compute/virtual/run/backing.cpp
+  src/compute/virtual/run/evidence.cpp
+  src/compute/virtual/run/projection.cpp
+  src/compute/virtual/run/sample.cpp
+  src/compute/virtual/run/wave.cpp
+  src/compute/virtual/stats.cpp
 )
 
 if(RUND_TEST_NODE)

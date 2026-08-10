@@ -21,6 +21,9 @@ int RunComputeMemoryContract() {
   if (!rund_node_memory_contract::CheckPreparedMemorySnapshot()) {
     return 391;
   }
+  if (!rund_node_memory_contract::CheckTrafficMeterSnapshot()) {
+    return 392;
+  }
   if (const int scratch = rund_node_memory_contract::
           CheckAcceleratorScratchPlacementAuthority();
       scratch != 0) {
@@ -297,6 +300,12 @@ int RunComputeMemoryContract() {
     if (const int run = rund_node_memory_contract::CheckSortRunMemory(backend);
         run != 0) {
       return 80 + backend_code + run;
+    }
+  }
+  if (rund::node::test_contract::backend_selected(Backend::Metal)) {
+    if (const int metal = rund_node_memory_contract::CheckMetalMemoryModel();
+        metal != 0) {
+      return 290 + metal;
     }
   }
   if (rund::node::test_contract::backend_selected(Backend::Vulkan)) {

@@ -1,5 +1,7 @@
 #include "publication.hpp"
 
+#include "../residency/integration.hpp"
+
 #include <rund/compute/resource/plan.hpp>
 
 #include <algorithm>
@@ -518,6 +520,10 @@ Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
       ++output_index;
     }
   }
+  const Status residency = bind_pipeline_residency(*build->memory, *state);
+  if (!residency) {
+    return residency;
+  }
   std::sort(state->output_lookup.begin(), state->output_lookup.end(),
             [&](const std::uint32_t left, const std::uint32_t right) {
               const BufferState *const left_buffer =
@@ -529,6 +535,10 @@ Status schedule_pipeline(const std::shared_ptr<PipelineBuildState> &build,
             });
   state->publication->fingerprint = hash.finish();
   state->stats.backend = state->device->backend;
+  state->stats.pipeline.preparation_evidence =
+      state->device->backend == Backend::Cpu
+          ? PreparationEvidenceSource::NoNativeProducer
+          : PreparationEvidenceSource::Unavailable;
   state->stats.graph_hash = state->publication->fingerprint.lo;
   state->logical_step_count = frozen.logical_step_count;
   state->stats.pipeline.step_count = state->logical_step_count;

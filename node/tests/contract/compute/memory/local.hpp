@@ -12,6 +12,7 @@ inline constexpr std::uint64_t kCounterMaximum =
 
 [[nodiscard]] bool CheckCounterSaturation();
 [[nodiscard]] bool CheckPreparedMemorySnapshot();
+[[nodiscard]] bool CheckTrafficMeterSnapshot();
 [[nodiscard]] bool ValidStats(const rund::compute::MemoryStats &) noexcept;
 [[nodiscard]] int CheckCpuProgramOwnerDeltas();
 [[nodiscard]] int CheckCpuPrimitiveScratchOwnership();
@@ -22,6 +23,7 @@ inline constexpr std::uint64_t kCounterMaximum =
 [[nodiscard]] int CheckCpuGraphStorageFormula();
 [[nodiscard]] int CheckAccelMemory(rund::compute::Backend);
 [[nodiscard]] int CheckAccelProgramHostAccounting(rund::compute::Backend);
+[[nodiscard]] int CheckMetalMemoryModel();
 [[nodiscard]] int CheckVulkanMemoryModel();
 [[nodiscard]] int CheckRetainedJobMemory(rund::compute::Backend);
 [[nodiscard]] int CheckSortRunMemory(rund::compute::Backend);

@@ -14,6 +14,65 @@ mkdir -p "$fixture/docs/reference/performance"
 product_entry="$root/tools/measure/compute/suite/product.cpp"
 product_owners="$root/tools/measure/compute/suite/product"
 
+packet_probe="$work/packet-probe"
+printf '%s\n' '#!/bin/sh' 'printf "probe,%s\n" "$RUND_MEASURE_PACKET"' \
+  >"$packet_probe"
+chmod +x "$packet_probe"
+sh "$root/tools/internal/measure/packets" "$packet_probe" \
+  >"$work/packet-probe.log"
+[ "$(grep -c '^diagnostic_packet,begin,[123],3$' \
+  "$work/packet-probe.log")" -eq 3 ]
+[ "$(grep -c '^diagnostic_packet,end,[123],3$' \
+  "$work/packet-probe.log")" -eq 3 ]
+[ "$(grep -c '^probe,[123]$' "$work/packet-probe.log")" -eq 3 ]
+test "$(sed -n '1p' "$work/packet-probe.log")" = \
+  'diagnostic_packet,begin,1,3'
+test "$(sed -n '9p' "$work/packet-probe.log")" = \
+  'diagnostic_packet,end,3,3'
+printf '%s\n' '#!/bin/sh' \
+  '[ "$RUND_MEASURE_PACKET" -ne 2 ] || exit 7' \
+  'printf "probe,%s\n" "$RUND_MEASURE_PACKET"' >"$packet_probe"
+if sh "$root/tools/internal/measure/packets" "$packet_probe" \
+    >"$work/packet-failure.log" 2>&1; then
+  echo "diagnostic packet runner retried a failed packet" >&2
+  exit 1
+fi
+[ "$(grep -c '^diagnostic_packet,begin,' "$work/packet-failure.log")" -eq 2 ]
+[ "$(grep -c '^diagnostic_packet,end,' "$work/packet-failure.log")" -eq 1 ]
+
+virtual_measure="$root/tools/measure/compute/virtual/residency.cpp"
+virtual_oracle="$root/tools/measure/compute/virtual/oracle.cpp"
+virtual_report="$root/tools/measure/compute/virtual/report.cpp"
+virtual_registry="$root/tools/measure/compute/CMakeLists.txt"
+rg -q '#include <rund/compute/virtual.hpp>' "$virtual_measure"
+test "$(rg -o 'prepared->run\(\)' "$virtual_measure" | wc -l | tr -d ' ')" \
+  -eq 1
+test "$(rg -o 'prepared->run\(active_count\)' "$virtual_measure" | wc -l | tr -d ' ')" \
+  -eq 2
+test "$(rg -o 'prepared->profile\(\)' "$virtual_measure" | wc -l | tr -d ' ')" \
+  -eq 3
+rg -q 'WarmSamples = 60u' \
+  "$root/tools/measure/compute/virtual/model.hpp"
+rg -q 'ActiveCounts' \
+  "$root/tools/measure/compute/virtual/model.hpp"
+rg -q 'LogicalElements > SlotElements' \
+  "$root/tools/measure/compute/virtual/model.hpp"
+rg -Fq 'samples_allocation_free(sampled_runs)' "$virtual_oracle"
+rg -Fq 'sampled_runs == 0u ||' "$virtual_oracle"
+rg -Fq 'rund_allocation_free_runs' "$virtual_report"
+rg -Fq 'process_global_allocation_status' "$virtual_report"
+rg -Fq 'return "not_measured"' "$virtual_report"
+rg -Fq 'prepare_pipeline_compiles' "$virtual_report"
+rg -Fq 'terminal_pipeline_compiles' "$virtual_report"
+test "$(rg -o 'prepared->stats\(\)' "$virtual_measure" | wc -l | tr -d ' ')" \
+  -eq 0
+rg -Fq 'preparation_stats.pipeline.preparation_evidence' "$virtual_report"
+for virtual_source in backing.cpp model.cpp oracle.cpp report.cpp residency.cpp; do
+  rg -Fq "virtual/$virtual_source" "$virtual_registry"
+done
+rg -q -- '--virtual-residency <cpu|metal|vulkan>' \
+  "$root/tools/measure/compute/run"
+
 if rg -n 'NonnegativeDelta|constexpr std::uint64_t delta' \
     "$root/tools/measure/compute/process.hpp" \
     "$product_entry" "$product_owners" >/dev/null; then

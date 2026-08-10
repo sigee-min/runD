@@ -10,7 +10,8 @@ namespace rund::node::accel::detail {
 
 [[nodiscard]] rund::AccelCheck
 PrepareMetalNestedAggregate(MetalAdapter &adapter,
-                            MetalNestedAggregate &aggregate);
+                            MetalNestedAggregate &aggregate,
+                            rund::AccelRunFacts *preparation);
 
 [[nodiscard]] rund::AccelCheck
 EncodeMetalNestedAggregate(const MetalNestedAggregate &aggregate,

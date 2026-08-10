@@ -61,7 +61,8 @@ rund::AccelBuffer OpenAccelBuffer(const rund::AccelContext &context,
 
 rund::AccelBuffer detail::CreateAccelBufferWithInitialization(
     const rund::AccelContext &context, const rund::AccelBufferDesc desc,
-    const detail::BackendBufferInitialization initialization) {
+    const detail::BackendBufferInitialization initialization,
+    const std::uint64_t exact_storage_bytes) {
   const rund::AccelCheck desc_check = detail::CheckDesc(desc);
   if (!desc_check.ok) {
     return detail::RejectBuffer(desc, rund::Buffer{}, desc_check.reason);
@@ -81,7 +82,7 @@ rund::AccelBuffer detail::CreateAccelBufferWithInitialization(
                                       .usage = desc.usage,
                                       .alignment = 16u,
                                   },
-                                  initialization);
+                                  initialization, exact_storage_bytes);
   if (!buffer.check.ok) {
     return detail::RejectBuffer(desc, buffer, buffer.check.reason);
   }

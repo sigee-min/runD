@@ -166,8 +166,9 @@ void synchronize_pipeline_observation_epoch(
   }
 }
 
-void publish_pipeline_terminal(PipelineState &state,
-                               const PipelineTerminal terminal) noexcept {
+void publish_pipeline_terminal(
+    PipelineState &state, const PipelineTerminal terminal,
+    const PipelineClaimAuthority authority) noexcept {
   if (state.device == nullptr || state.device->claims == nullptr ||
       state.publication == nullptr) {
     if (state.publication != nullptr) {
@@ -256,39 +257,43 @@ void publish_pipeline_terminal(PipelineState &state,
     ++state.stats.publication.device_loss_count;
   }
 
-  // Claims use canonical resource order. Pipeline outputs are the write subset
-  // of that same order, so generation snapshot, poison, and release need only
-  // one resource pass under one Device-gate acquisition.
-  std::lock_guard claim_lock{state.device->claims->gate};
-  std::size_t output = 0u;
-  for (std::size_t resource_index = 0u; resource_index < claims.size();
-       ++resource_index) {
-    const BufferClaim claim = claims[resource_index];
-    if (claim.buffer == nullptr) {
-      continue;
-    }
-    if (claim.write) {
-      if (succeeded) {
-        ++claim.buffer->generation;
-        if (output < state.outputs.size()) {
-          PipelineOutputState &published = state.outputs[output++];
-          published.generation = claim.buffer->generation;
-          published.observed = false;
-        }
-      } else if (writes_may_have_changed && !claim.transactional_state &&
-                 !(claim.gated_publish && terminal.publication_suppressed) &&
-                 resource_index < state.resources.size() &&
-                 (!terminal.failure_step_known ||
-                  state.resources[resource_index].first_write <=
-                      terminal.failed_step)) {
-        // Poison is visible before this writer claim is released.
-        claim.buffer->poisoned = true;
-        poison_non_state = true;
+  const auto publish_resources = [&]() noexcept {
+    std::size_t output = 0u;
+    for (std::size_t resource_index = 0u; resource_index < claims.size();
+         ++resource_index) {
+      const BufferClaim claim = claims[resource_index];
+      if (claim.buffer == nullptr) {
+        continue;
       }
-      claim.buffer->writer = false;
-    } else if (claim.buffer->readers != 0u) {
-      --claim.buffer->readers;
+      if (claim.write) {
+        if (succeeded) {
+          ++claim.buffer->generation;
+          if (output < state.outputs.size()) {
+            PipelineOutputState &published = state.outputs[output++];
+            published.generation = claim.buffer->generation;
+            published.observed = false;
+          }
+        } else if (writes_may_have_changed && !claim.transactional_state &&
+                   !(claim.gated_publish && terminal.publication_suppressed) &&
+                   resource_index < state.resources.size() &&
+                   (!terminal.failure_step_known ||
+                    state.resources[resource_index].first_write <=
+                        terminal.failed_step)) {
+          claim.buffer->poisoned = true;
+          poison_non_state = true;
+        }
+        claim.buffer->writer = false;
+      } else if (claim.buffer->readers != 0u) {
+        --claim.buffer->readers;
+      }
     }
+  };
+  if (authority == PipelineClaimAuthority::PrivateResidency &&
+      has_private_residency_authority(state)) {
+    publish_resources();
+  } else {
+    std::lock_guard claim_lock{state.device->claims->gate};
+    publish_resources();
   }
   if (succeeded && state.transactional) {
     state.publication->parity ^= 1u;

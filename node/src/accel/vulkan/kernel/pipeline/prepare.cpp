@@ -840,21 +840,23 @@ struct VulkanPipelineDescriptionCapacity final {
   return rund::AccelCheck{true, "ok"};
 }
 
-rund::AccelCheck
-PrepareVulkanPipeline(const std::span<const BackendBatchEntry> templates,
-                      const std::span<const BackendBatchEntry> entries,
-                      const std::span<const std::uint8_t> barriers,
-                      const std::span<const TileTransducer> transducers,
-                      const std::span<const NestedAggregate> aggregates,
-                      const std::span<const BackendPublish> publications,
-                      PreparedKernelTemplateRegistry &registry,
-                      PreparedPipelineStatusLayout &status,
-                      const bool profile_steps, std::shared_ptr<void> &prepared,
-                      PreparedPipelineMemory &memory,
-                      PreparedPipelineMemoryMeter *const memory_meter,
-                      PreparedPipelineFailure &failure) {
+rund::AccelCheck PrepareVulkanPipeline(
+    const std::span<const BackendBatchEntry> templates,
+    const std::span<const BackendBatchEntry> entries,
+    const std::span<const std::uint8_t> barriers,
+    const std::span<const TileTransducer> transducers,
+    const std::span<const NestedAggregate> aggregates,
+    const std::span<const BackendPublish> publications,
+    PreparedKernelTemplateRegistry &registry,
+    PreparedPipelineStatusLayout &status, const bool profile_steps,
+    std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
+    PreparedPipelineMemoryMeter *const memory_meter,
+    rund::AccelRunFacts &preparation, PreparedPipelineFailure &failure) {
   PreparedPipelineFailureContext failure_context{};
   failure = {};
+  preparation = {};
+  preparation.preparation_evidence =
+      rund::AccelPreparationEvidenceSource::BackendGlobalOnly;
   rund::AccelCheck result{};
   try {
     result = PrepareVulkanPipelineImpl(

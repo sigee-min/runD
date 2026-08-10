@@ -10,6 +10,9 @@ namespace rund::node::accel::detail {
 
 [[nodiscard]] std::shared_ptr<void>
 LookupMetalNamedPipeline(MetalAdapter &adapter, std::string_view key);
+[[nodiscard]] std::shared_ptr<void>
+LookupMetalNamedPipeline(MetalAdapter &adapter, std::string_view key,
+                         rund::AccelRunFacts *local);
 
 enum class MetalNamedPipelinePublishStatus : std::uint8_t {
   Inserted,
@@ -23,14 +26,14 @@ struct MetalNamedPipelinePublishResult final {
   std::shared_ptr<void> pipeline{};
 };
 
-[[nodiscard]] MetalNamedPipelinePublishResult
-PublishMetalNamedPipeline(MetalAdapter &adapter, std::string key,
-                          std::shared_ptr<void> pipeline,
-                          std::uint64_t create_ns) noexcept;
+[[nodiscard]] MetalNamedPipelinePublishResult PublishMetalNamedPipeline(
+    MetalAdapter &adapter, std::string key, std::shared_ptr<void> pipeline,
+    std::uint64_t create_ns, rund::AccelRunFacts *local = nullptr) noexcept;
 
 void StoreMetalNamedPipeline(MetalAdapter &adapter, std::string key,
                              std::shared_ptr<void> pipeline,
-                             std::uint64_t create_ns);
+                             std::uint64_t create_ns,
+                             rund::AccelRunFacts *local = nullptr);
 
 void RecordMetalUncachedPipelineCompile(MetalAdapter &adapter,
                                         std::uint64_t create_ns) noexcept;
@@ -50,10 +53,9 @@ struct MetalSourceLibraryPublishResult final {
   std::shared_ptr<void> library{};
 };
 
-[[nodiscard]] MetalSourceLibraryPublishResult
-PublishMetalSourceLibrary(MetalAdapter &adapter, std::string source,
-                          std::shared_ptr<void> library,
-                          std::uint64_t compile_ns) noexcept;
+[[nodiscard]] MetalSourceLibraryPublishResult PublishMetalSourceLibrary(
+    MetalAdapter &adapter, std::string source, std::shared_ptr<void> library,
+    std::uint64_t compile_ns, rund::AccelRunFacts *local = nullptr) noexcept;
 
 void RecordMetalUncachedLibraryCompile(MetalAdapter &adapter,
                                        std::uint64_t compile_ns) noexcept;

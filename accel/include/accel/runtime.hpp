@@ -5,6 +5,16 @@
 
 namespace rund {
 
+// Availability of cold preparation evidence is produced by the backend that
+// owns the physical compiler/cache operations. It travels with AccelRunFacts
+// so consumers never infer evidence availability from a backend name or from
+// an all-zero counter tuple.
+enum class AccelPreparationEvidenceSource : std::uint8_t {
+  Unavailable,
+  OwnerLocal,
+  BackendGlobalOnly,
+};
+
 struct AccelWorkFacts final {
   std::uint64_t dispatch_count = 0u;
   std::uint64_t command_submit_count = 0u;
@@ -64,6 +74,8 @@ struct AccelRunFacts final {
   AccelTimeFacts time{};
   AccelTransferFacts transfer{};
   AccelAllocationFacts allocations{};
+  AccelPreparationEvidenceSource preparation_evidence{
+      AccelPreparationEvidenceSource::Unavailable};
 };
 
 struct AccelOutcome final {
@@ -92,8 +104,8 @@ static_assert(sizeof(void *) != 8u || sizeof(AccelWorkFacts) == 168u);
 static_assert(sizeof(void *) != 8u || sizeof(AccelTimeFacts) == 72u);
 static_assert(sizeof(void *) != 8u || sizeof(AccelTransferFacts) == 32u);
 static_assert(sizeof(void *) != 8u || sizeof(AccelAllocationFacts) == 64u);
-static_assert(sizeof(void *) != 8u || sizeof(AccelRunFacts) == 336u);
+static_assert(sizeof(void *) != 8u || sizeof(AccelRunFacts) == 344u);
 static_assert(sizeof(void *) != 8u || sizeof(AccelOutcome) == 32u);
-static_assert(sizeof(void *) != 8u || sizeof(RuntimeStats) == 368u);
+static_assert(sizeof(void *) != 8u || sizeof(RuntimeStats) == 376u);
 
 } // namespace rund

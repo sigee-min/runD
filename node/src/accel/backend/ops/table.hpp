@@ -15,6 +15,7 @@ struct AccelDevice;
 struct AccelContext;
 struct Buffer;
 struct BufferDesc;
+struct AccelRunFacts;
 struct RuntimeStats;
 } // namespace rund
 
@@ -61,20 +62,32 @@ struct BackendOps final {
   bool resident = false;
   std::uint32_t nested_aggregate_command_count = 0u;
   rund::Buffer (*create)(const rund::AccelDevice &, const rund::BufferDesc &,
-                         BackendBufferInitialization) = nullptr;
+                         BackendBufferInitialization,
+                         std::uint64_t exact_storage_bytes) = nullptr;
+  // Exact backend allocation charge for one logical storage Buffer. This is
+  // also the pre-materialization Pipeline admission projection.
+  std::uint64_t (*buffer_storage_bytes)(const rund::AccelDevice &,
+                                        std::uint64_t) noexcept = nullptr;
+  // Exact allocation charge for one reusable prepared-Pipeline staging
+  // Buffer. The query creates no memory allocation and is consumed by the
+  // existing Pipeline admission plan before backend materialization.
+  std::uint64_t (*pipeline_transfer_storage_bytes)(
+      const rund::AccelDevice &, std::uint64_t) noexcept = nullptr;
   rund::AccelCheck (*upload)(const rund::AccelDevice &,
                              const rund::kernel::ResidentBufferRef &,
                              const std::shared_ptr<void> &, const void *,
                              std::uint64_t, std::uint64_t) = nullptr;
   BackendUpload (*upload_batch)(const rund::AccelDevice &,
                                 std::span<const UploadRoute>,
-                                TransferCompletion) = nullptr;
+                                TransferCompletion,
+                                TransferAuthority) = nullptr;
   BackendDownload (*download)(const rund::AccelDevice &,
                               const rund::kernel::ResidentBufferRef &,
                               const std::shared_ptr<void> &, void *,
                               std::uint64_t, std::uint64_t, bool) = nullptr;
   BackendDownload (*download_batch)(const rund::AccelDevice &,
-                                    std::span<const DownloadRoute>) = nullptr;
+                                    std::span<const DownloadRoute>,
+                                    TransferAuthority) = nullptr;
   BackendCopy (*copy_batch)(const rund::AccelDevice &,
                             std::span<const CopyRoute>) = nullptr;
   BackendLookup (*lookup)(const rund::AccelDevice &,
@@ -83,6 +96,11 @@ struct BackendOps final {
   rund::RuntimeStats (*stats)(const rund::AccelDevice &) = nullptr;
   void (*reset)(const rund::AccelDevice &) = nullptr;
   rund::node::accel::AccelMemoryStats (*memory)(
+      const rund::AccelDevice &) noexcept = nullptr;
+  // Timing- and allocation-free backend fact consumed before the compute
+  // VirtualPipeline materializes any physical owner. Unsupported adapters
+  // return the product's typed capability failure through this owner.
+  rund::AccelCheck (*virtual_pipeline_capability)(
       const rund::AccelDevice &) noexcept = nullptr;
   // The selected backend projects immutable, timing-free range-execution
   // capability facts once. Graph admission freezes the resulting plan before
@@ -128,12 +146,29 @@ struct BackendOps final {
       std::span<const NestedAggregate>, std::span<const BackendPublish>,
       PreparedKernelTemplateRegistry &, PreparedPipelineStatusLayout &, bool,
       std::shared_ptr<void> &, PreparedPipelineMemory &,
-      PreparedPipelineMemoryMeter *, PreparedPipelineFailure &) = nullptr;
+      PreparedPipelineMemoryMeter *, AccelRunFacts &,
+      PreparedPipelineFailure &) = nullptr;
   rund::AccelCheck (*seed_prepared_pipeline_generation)(
       const std::shared_ptr<void> &, std::uint32_t) noexcept = nullptr;
-  rund::AccelCheck (*submit_prepared_pipeline)(const std::shared_ptr<void> &,
-                                               KernelCompletion, void *,
-                                               KernelTiming) noexcept = nullptr;
+  rund::AccelCheck (*prepare_pipeline_transfer)(
+      const std::shared_ptr<void> &, const UploadRoute &, const DownloadRoute &,
+      std::uint64_t) noexcept = nullptr;
+  rund::AccelCheck (*query_pipeline_residency)(const std::shared_ptr<void> &,
+                                               bool &) noexcept = nullptr;
+  rund::AccelCheck (*stage_pipeline_residency)(
+      const std::shared_ptr<void> &, std::shared_ptr<void> &,
+      std::uint64_t &) noexcept = nullptr;
+  void (*commit_pipeline_residency)(const std::shared_ptr<void> &,
+                                    std::shared_ptr<void>) noexcept = nullptr;
+  BackendUpload (*upload_prepared_pipeline)(const std::shared_ptr<void> &,
+                                            const void *,
+                                            std::uint64_t) noexcept = nullptr;
+  BackendDownload (*download_prepared_pipeline)(
+      const std::shared_ptr<void> &, void *, std::uint64_t,
+      std::uint64_t *) noexcept = nullptr;
+  rund::AccelCheck (*submit_prepared_pipeline)(
+      const std::shared_ptr<void> &, KernelCompletion, void *, KernelTiming,
+      PipelineSubmitMode) noexcept = nullptr;
   rund::AccelCheck (*submit_prepared)(const BackendRun &,
                                       const std::shared_ptr<void> &,
                                       KernelCompletion, void *,

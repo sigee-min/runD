@@ -45,8 +45,8 @@ allocation_meter_memory(const AllocationMeter &meter) noexcept {
 [[nodiscard]] inline MemoryCounter
 traffic_meter_memory(const TrafficMeter &meter) noexcept {
   return MemoryCounter{
-      .peak = meter.peak,
-      .cumulative = meter.cumulative,
+      .peak = meter.peak.load(std::memory_order_acquire),
+      .cumulative = meter.cumulative.load(std::memory_order_acquire),
   };
 }
 

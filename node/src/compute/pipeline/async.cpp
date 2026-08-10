@@ -603,11 +603,11 @@ complete_cpu_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
                                           capture_profile);
 }
 
-Status
-submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
-                   std::shared_ptr<void> lifetime,
-                   const PipelineCompletion completion, void *const user,
-                   const node::accel::detail::KernelTiming timing) noexcept {
+Status submit_pipeline_on(
+    const std::shared_ptr<PipelineState> &state, std::shared_ptr<void> lifetime,
+    const PipelineCompletion completion, void *const user,
+    const node::accel::detail::KernelTiming timing,
+    const node::accel::detail::PipelineSubmitMode mode) noexcept {
   if (!valid_pipeline(state) || completion == nullptr || user == nullptr ||
       state->device->backend == Backend::Cpu) {
     return Status::fail(Reason::PipelineInvalid);
@@ -643,8 +643,9 @@ submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
     state->dispatch_timing =
         timing == node::accel::detail::KernelTiming::Dispatch;
   }
-  const rund::AccelCheck submitted = ops->submit_pipeline(
-      *state->device, *prepared, std::move(lifetime), completion, user, timing);
+  const rund::AccelCheck submitted =
+      ops->submit_pipeline(*state->device, *prepared, std::move(lifetime),
+                           completion, user, timing, mode);
   std::lock_guard lock{state->gate};
   if (!submitted.ok) {
     return Status::fail(

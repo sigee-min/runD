@@ -53,6 +53,21 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
                                             pipeline->dispatch_count);
       }
     }
+    if (pipeline->transfer.ready) {
+      const bool transferred =
+          result.check.ok && pipeline->transfer.input_staged;
+      pipeline->transfer.output_ready = transferred;
+      if (transferred) {
+        ::rund::detail::counter::Accumulate(
+            pipeline->adapter->host_to_device_bytes,
+            pipeline->transfer.input_bytes);
+        ::rund::detail::counter::Accumulate(
+            pipeline->adapter->device_to_host_bytes,
+            pipeline->transfer.output_bytes);
+      } else {
+        pipeline->transfer.input_staged = false;
+      }
+    }
   }
   result.stats.run.work.dispatch_count =
       result.check.ok ? pipeline->dispatch_count : 0u;
@@ -112,9 +127,11 @@ SeedPreparedVulkanPipelineGeneration(const std::shared_ptr<void> &prepared,
              : rund::AccelCheck{false, "accel_vulkan_memory_unavailable"};
 }
 
-rund::AccelCheck SubmitPreparedVulkanPipeline(
-    const std::shared_ptr<void> &prepared, const KernelCompletion completion_fn,
-    void *const user, const KernelTiming timing) noexcept {
+rund::AccelCheck
+SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
+                             const KernelCompletion completion_fn,
+                             void *const user, const KernelTiming timing,
+                             const PipelineSubmitMode) noexcept {
   auto *const pipeline = static_cast<VulkanPipeline *>(prepared.get());
   if (!ValidVulkanPipeline(pipeline) || completion_fn == nullptr ||
       user == nullptr) {
@@ -128,7 +145,11 @@ rund::AccelCheck SubmitPreparedVulkanPipeline(
   const char *failure_reason = "compute_pipeline_busy";
   {
     std::lock_guard lock{pipeline->adapter->mutex};
-    if (pipeline->dispatch_count == 0u) {
+    if (pipeline->transfer.ready && !pipeline->transfer.input_staged) {
+      failure_reason = "accel_vulkan_transfer_invalid";
+    } else if (pipeline->transfer.ready && timing == KernelTiming::Dispatch) {
+      failure_reason = "compute_telemetry_trace_unavailable";
+    } else if (pipeline->dispatch_count == 0u) {
       submitted = true;
     } else if (timing == KernelTiming::Dispatch) {
       const rund::AccelCheck traced =

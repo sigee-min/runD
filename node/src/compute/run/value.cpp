@@ -13,9 +13,9 @@
 namespace rund::compute {
 
 Run::Run(detail::RunState &&value) noexcept {
-  static_assert(sizeof(detail::RunState) == 1152u);
+  static_assert(sizeof(detail::RunState) == 1280u);
   static_assert(sizeof(detail::RunState) <= sizeof(storage_));
-  static_assert(sizeof(storage_) == sizeof(detail::RunState));
+  static_assert(sizeof(storage_) - sizeof(detail::RunState) == 8u);
   static_assert(alignof(detail::RunState) <= alignof(Run));
   static_assert(std::is_nothrow_move_constructible_v<detail::RunState>);
   std::construct_at(reinterpret_cast<detail::RunState *>(storage_.data()),

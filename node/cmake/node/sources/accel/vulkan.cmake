@@ -12,6 +12,7 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/ops.cpp
   src/accel/vulkan/adapter/access.cpp
   src/accel/vulkan/buffer/access.cpp
+  src/accel/vulkan/buffer/commitment.cpp
   src/accel/vulkan/buffer/create.cpp
   src/accel/vulkan/buffer/pool.cpp
   src/accel/vulkan/buffer/resident/batch.cpp
@@ -103,6 +104,9 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/kernel/pipeline/state.cpp
   src/accel/vulkan/kernel/pipeline/stub.cpp
   src/accel/vulkan/kernel/pipeline/telemetry.cpp
+  src/accel/vulkan/kernel/pipeline/transfer/materialize.cpp
+  src/accel/vulkan/kernel/pipeline/transfer/upload.cpp
+  src/accel/vulkan/kernel/pipeline/transfer/download.cpp
   src/accel/vulkan/kernel/pipeline/trace/fold.cpp
   src/accel/vulkan/kernel/pipeline/trace/record.cpp
   src/accel/vulkan/kernel/publish.cpp
@@ -113,7 +117,10 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/kernel/trace/record.cpp
   src/accel/vulkan/scratch.cpp
   src/accel/vulkan/kernel/finish.cpp
-  src/accel/vulkan/kernel/prepare.cpp
+  src/accel/vulkan/kernel/prepare/descriptor.cpp
+  src/accel/vulkan/kernel/prepare/materialize.cpp
+  src/accel/vulkan/kernel/prepare/step.cpp
+  src/accel/vulkan/kernel/prepare/template.cpp
   src/accel/vulkan/kernel/view.cpp
   src/accel/vulkan/reduce/descriptor.cpp
   src/accel/vulkan/reduce/execute.cpp

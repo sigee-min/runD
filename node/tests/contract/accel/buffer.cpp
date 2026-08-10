@@ -8,6 +8,7 @@ namespace node_accel_contract {
 bool PublicBufferApiContract(const rund::AccelDevice &pick) {
   return PublicBufferApiRejectsInvalidDescriptors() &&
          PublicBufferApiRejectsUnavailableBackends() &&
+         MetalResidentCapabilityRejectsWrongType() &&
          PublicBufferApiExposesMetalResidencyWhenAvailable(pick) &&
          PublicBufferApiRoundTripsAndReportsStatsWhenAvailable(pick) &&
          PublicBufferApiRejectsRangeAndOwnerFailures(pick);

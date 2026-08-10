@@ -2,6 +2,7 @@
 
 #include "contract.hpp"
 
+#include "../../buffer/local.hpp"
 #include "../../size.hpp"
 #include "../../type.hpp"
 
@@ -70,7 +71,12 @@ PipelineScheduleResources::admit(const PipelineBinding &binding,
     resolved.locator = PipelineInternalResourcePlan{.fill = internal.fill};
     resolved.count = internal.count;
     resolved.bytes = internal_bytes;
-    resolved.physical_bytes = internal_bytes;
+    const auto committed =
+        planned_buffer_storage_bytes(*build.device, internal_bytes);
+    if (!committed) {
+      return Result<std::uint32_t>::fail(committed.reason());
+    }
+    resolved.physical_bytes = *committed;
   }
   if (resources.size() >= PipelineResourceCapacity) {
     return Result<std::uint32_t>::fail(Reason::PipelineCapacity);

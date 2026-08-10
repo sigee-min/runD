@@ -1,6 +1,7 @@
 #include "suite/core.hpp"
 #if defined(RUND_COMPUTE_FOCUS)
 #include "pipeline.hpp"
+#include "virtual/residency.hpp"
 #endif
 
 #include <cstdio>
@@ -45,14 +46,18 @@ int main(const int argc, char **const argv) {
   const bool prepare_memory = argc == 3 &&
                               std::string_view{argv[1]} == "--prepare-memory" &&
                               ParseBackend(argv[2], focus);
+  const bool virtual_residency =
+      argc == 3 && std::string_view{argv[1]} == "--virtual-residency" &&
+      ParseBackend(argv[2], focus);
   const bool focused = collective || sort || bulk || resident || batch ||
                        pipeline || checkpoint || recurrence || window_repeat ||
-                       pipeline_profile || plan_memory || prepare_memory;
+                       pipeline_profile || plan_memory || prepare_memory ||
+                       virtual_residency;
   if (!focused) {
     std::fputs("usage: runD-compute-focus "
                "[--resident|--collective|--sort|--bulk|--batch|--pipeline|"
                "--checkpoint|--recurrence|--window-repeat|--pipeline-profile|"
-               "--plan-memory|--prepare-memory "
+               "--plan-memory|--prepare-memory|--virtual-residency "
                "cpu|metal|vulkan]\n",
                stderr);
 #else
@@ -75,7 +80,10 @@ int main(const int argc, char **const argv) {
     if (focus != Backend::Cpu) {
       ok = ReportEnvironment(focus) && ok;
     }
-    if (checkpoint) {
+    if (virtual_residency) {
+      rund::measure::compute::PrintVirtualResidencyColumns();
+      ok = rund::measure::compute::MeasureVirtualResidency(focus) && ok;
+    } else if (checkpoint) {
       rund::measure::compute::PrintCheckpointColumns();
       ok = rund::measure::compute::MeasureCheckpoints(focus, 1u << 20u, 12u) &&
            ok;

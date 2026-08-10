@@ -15,8 +15,32 @@ struct MemoryBudget final {
   // Buffers, retained host/CPU execution storage, and explicitly sized native
   // command/descriptor storage before those owners are materialized. Opaque
   // allocator headers and driver-private allocation granularity remain
-  // post-prepare telemetry through memory().
+  // post-prepare telemetry through memory(). A VirtualPipeline on Metal 4
+  // freezes the API-reported command-allocator and residency-set bytes into
+  // the returned plan before that public owner is published.
   std::uint64_t bytes{};
+};
+
+// Compact public projection of one frozen virtual working set. A page is one
+// input/output transform pair, slots are the simultaneously retained pairs,
+// and working_set_bytes is their exact logical Buffer extent. Backend
+// allocation granularity remains the committed-memory authority.
+struct ResidencyPlan final {
+  std::uint64_t logical_bytes{};
+  std::uint64_t page_bytes{};
+  std::uint64_t page_count{};
+  std::uint64_t slot_capacity{};
+  std::uint64_t working_set_bytes{};
+  std::uint64_t wave_count{};
+  std::uint64_t identity_hi{};
+  std::uint64_t identity_lo{};
+
+  [[nodiscard]] constexpr bool active() const noexcept {
+    return page_count != 0u;
+  }
+
+  [[nodiscard]] constexpr bool
+  operator==(const ResidencyPlan &) const noexcept = default;
 };
 
 struct PipelinePlan final {
@@ -40,6 +64,9 @@ struct PipelinePlan final {
   // driver bookkeeping that has no allocation query remains post-prepare
   // telemetry.
   std::uint64_t prepared_native_bytes{};
+  // Empty for an ordinary dense Pipeline. The residency planner is nested in
+  // the existing Pipeline plan and never becomes a second allocator/ledger.
+  ResidencyPlan residency{};
   // Backend primitive scratch is one serially reused arena.
   // scratch_payload_bytes is the exact maximum simultaneously-live logical
   // temporary payload. scratch_bytes is its retained aligned backing,

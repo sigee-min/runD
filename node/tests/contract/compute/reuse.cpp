@@ -113,13 +113,16 @@ SameMemory(const rund::compute::MemoryStats &left,
   return hash;
 }
 
-static_assert(sizeof(rund::compute::Run) == 1152u);
-static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1160u);
-static_assert(sizeof(rund::compute::PipelineStats) == 184u);
-static_assert(sizeof(rund::compute::Stats) == 664u);
+static_assert(sizeof(rund::compute::Run) == 1288u);
+static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1296u);
+static_assert(sizeof(rund::compute::ResidencyStats) == 128u);
+static_assert(sizeof(rund::compute::PipelineStats) == 312u);
+static_assert(sizeof(rund::compute::Stats) == 792u);
 static_assert(sizeof(rund::compute::MemoryStats) == 288u);
-static_assert(sizeof(rund::compute::telemetry::Profile) == 968u);
+static_assert(sizeof(rund::compute::telemetry::Profile) == 1096u);
 static_assert(sizeof(rund::telemetry::Event) == 304u);
+static_assert(rund::compute::Stats{}.pipeline.preparation_evidence ==
+              rund::compute::PreparationEvidenceSource::Unavailable);
 static_assert(rund::compute::Stats{}.pipeline.sealed_repetition_count == 0u);
 static_assert(rund::compute::Stats{}.pipeline.coalesced_repetition_count == 0u);
 static_assert(alignof(rund::compute::Run) == alignof(std::uint64_t));

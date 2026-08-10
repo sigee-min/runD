@@ -190,4 +190,37 @@ ValidStats(const rund::compute::MemoryStats &stats) noexcept {
          snapshot.budget == total;
 }
 
+[[nodiscard]] bool CheckTrafficMeterSnapshot() {
+  using namespace rund::compute::detail;
+  constexpr std::uint32_t writers = 4u;
+  constexpr std::uint32_t iterations = 4'000u;
+  constexpr std::uint64_t bytes_per_round = 1u + 2u + 3u + 4u;
+  auto device = std::make_shared<DeviceState>();
+  std::atomic<std::uint32_t> finished{};
+  std::array<std::thread, writers> threads{};
+  for (std::uint32_t writer = 0u; writer < writers; ++writer) {
+    threads[writer] = std::thread{[&, bytes = writer + 1u] {
+      for (std::uint32_t index = 0u; index < iterations; ++index) {
+        record_transfer(*device, bytes);
+      }
+      finished.fetch_add(1u, std::memory_order_release);
+    }};
+  }
+  bool coherent = true;
+  while (finished.load(std::memory_order_acquire) != writers) {
+    const rund::compute::MemoryCounter snapshot =
+        traffic_meter_memory(device->memory.transfer);
+    coherent = coherent && snapshot.current == 0u && snapshot.reused == 0u &&
+               snapshot.budget == 0u && snapshot.peak <= snapshot.cumulative &&
+               snapshot.peak <= writers;
+  }
+  for (auto &thread : threads) {
+    thread.join();
+  }
+  const rund::compute::MemoryCounter snapshot =
+      traffic_meter_memory(device->memory.transfer);
+  return coherent && snapshot.peak == writers &&
+         snapshot.cumulative == iterations * bytes_per_round;
+}
+
 } // namespace rund_node_memory_contract

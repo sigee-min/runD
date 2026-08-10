@@ -19,6 +19,7 @@ ownership is defined by [`../surface.md`](../surface.md).
 - `<rund/compute/async.hpp>`
 - `<rund/compute/math.hpp>`
 - `<rund/compute/session.hpp>`
+- `<rund/compute/virtual.hpp>`
 - `<math32/math32.hpp>`
 - `<math64/math64.hpp>`
 - `<cluster/cluster.hpp>`
@@ -257,7 +258,7 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.6` is the current
+The CMake version file uses exact-version matching. `1.0.7` is the current
 checked-in package identity; a major-only version range is not a supported
 consumption contract.
 
@@ -311,6 +312,27 @@ sample boundaries are part of this by-value and executable contract. Headers
 and libraries must therefore come from one matched `1.0.6` artifact; a `1.0.5`
 header or library may not be mixed into the tuple.
 
+The `1.0.7` Alpha is a new exact identity. The opt-in
+`<rund/compute/virtual.hpp>` entry adds `VirtualBacking`, copyable
+`VirtualBuffer<T>`, move-only `VirtualPipeline<R(A)>`, and `ResidencyConfig`
+without importing either Virtual or Pipeline into the default
+`<rund/compute.hpp>` entry. Residency execution evidence adds the 128-byte
+`ResidencyStats` to the by-value reports: the checked 64-bit tuple has a
+312-byte `PipelineStats`, 792-byte `Stats`, 1,096-byte
+`compute::telemetry::Profile`, 1,288-byte inline `Run`, and 512-byte
+`PipelinePlan`; its nested `ResidencyPlan` is 64 bytes. `VirtualBacking` is a
+16-byte abstract interface whose single private pointer owns source-private
+synchronization state, and both typed Virtual wrappers are one 16-byte shared
+owner. `ResidencyConfig` is 4 bytes. `MemoryStats` and telemetry `Event` remain
+288 and 304 bytes. Structural equality on `Stats` and `MemoryStats` compares
+every public coordinate, so product evidence cannot silently omit a newly
+added counter. `PipelineStats::preparation_evidence` types whether cold
+compile/cache coordinates are owner-local, have no native producer, or exist
+only as non-attributable backend-global diagnostics; serializers do not infer
+that meaning from `Backend`. These layouts and the Virtual method implementations must
+come from one matched `1.0.7` artifact; a `1.0.6` header or library may not be
+mixed into the tuple.
+
 ## Compute Contract
 
 `<rund/compute.hpp>` owns the basic `Flow`, `Target`, `Backend` observations,
@@ -332,6 +354,11 @@ parse the future/task construction templates.
 `<rund/compute/math.hpp>` extends that same Flow with composite expression
 functions and matrix, transform, factor, solve, and spectrum stages. It owns
 no second graph, target, compilation, or execution authority.
+`<rund/compute/virtual.hpp>` is the opt-in focused owner of bounded logical
+backing, fixed prepared residency slots, multi-wave execution, residency
+sampling, and its terminal `Stats`, `MemoryStats`, `PipelinePlan`, and
+`Profile` observations. The default `<rund/compute.hpp>` entry does not import
+this facade or the Pipeline templates it consumes.
 `<rund/compute/pipeline.hpp>` is the opt-in focused direct owner of `pipeline`,
 `read`, `write`, `write_final`, `write_window`, `write_each`, `tile_repeat`,
 `PipelineBuilder`, `Pipeline`,
@@ -577,7 +604,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.6 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.7 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

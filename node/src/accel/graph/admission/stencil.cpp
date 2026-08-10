@@ -3,7 +3,7 @@
 
 #include "../../context/internal/admission.hpp"
 #include "../../range_aggregate/plan.hpp"
-#include "../../stencil/shape.hpp"
+#include "../../stencil/range.hpp"
 #include "local.hpp"
 
 #include <kernel/program/compute/stencil/plan.hpp>
@@ -26,7 +26,7 @@ const char *AdmitStencilNode(const rund::AccelGraphNode &node,
     return "accel_kernel_graph_invalid";
   }
 
-  const std::optional<RangeShape> shape = StencilRangeShape(plan, domain);
+  const std::optional<RangeShape> shape = ProjectStencilRange(plan, domain);
   if (!shape.has_value()) {
     return "accel_kernel_graph_invalid";
   }

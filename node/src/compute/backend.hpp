@@ -74,16 +74,22 @@ struct CopyRequest final {
 
 struct DeviceOps final {
   Status (*allocate)(DeviceState &, BufferState &, std::size_t, std::size_t,
-                     bool) = nullptr;
+                     bool, std::uint64_t exact_storage_bytes) = nullptr;
+  std::uint64_t (*buffer_storage_bytes)(const DeviceState &,
+                                        std::uint64_t) noexcept = nullptr;
+  std::uint64_t (*pipeline_transfer_storage_bytes)(
+      const DeviceState &, std::uint64_t) noexcept = nullptr;
   UploadResult (*upload)(DeviceState &, BufferState &, const void *,
                          std::size_t) = nullptr;
   UploadResult (*upload_batch)(DeviceState &, std::span<const UploadRequest>,
-                               node::accel::detail::TransferCompletion) =
+                               node::accel::detail::TransferCompletion,
+                               node::accel::detail::TransferAuthority) =
       nullptr;
   DownloadResult (*download)(DeviceState &, const BufferState &, void *,
                              std::size_t) = nullptr;
-  DownloadResult (*download_batch)(DeviceState &,
-                                   std::span<const DownloadRequest>) = nullptr;
+  DownloadResult (*download_batch)(
+      DeviceState &, std::span<const DownloadRequest>,
+      node::accel::detail::TransferAuthority) = nullptr;
   CopyResult (*copy_batch)(DeviceState &,
                            std::span<const CopyRequest>) = nullptr;
   Status (*compile)(DeviceState &, AccelProgram &,
@@ -118,19 +124,27 @@ struct DeviceOps final {
       std::uint32_t, bool,
       node::accel::detail::PreparedKernelTemplateRegistry *) = nullptr;
   node::accel::detail::PreparedPipelineEvidence (*run_pipeline)(
-      const DeviceState &,
-      const node::accel::detail::PreparedKernelPipeline &) = nullptr;
+      const DeviceState &, const node::accel::detail::PreparedKernelPipeline &,
+      node::accel::detail::PipelineSubmitMode) = nullptr;
   rund::AccelCheck (*submit_pipeline)(
       const DeviceState &, const node::accel::detail::PreparedKernelPipeline &,
       std::shared_ptr<void>, PipelineDone, void *,
-      node::accel::detail::KernelTiming) noexcept = nullptr;
+      node::accel::detail::KernelTiming,
+      node::accel::detail::PipelineSubmitMode) noexcept = nullptr;
   rund::AccelCheck (*seed_pipeline_generation)(
       const node::accel::detail::PreparedKernelPipeline &,
       std::uint32_t) noexcept = nullptr;
+  Status (*prepare_pipeline_transfer)(PipelineState &) noexcept = nullptr;
+  Status (*prepare_pipeline_residency)(PipelineState &) noexcept = nullptr;
+  UploadResult (*upload_pipeline_transfer)(PipelineState &, const void *,
+                                           std::size_t) noexcept = nullptr;
+  DownloadResult (*download_pipeline_transfer)(
+      PipelineState &, void *, std::size_t, std::uint64_t *) noexcept = nullptr;
   MemoryCounter (*device_staging)(const DeviceState &) noexcept = nullptr;
   MemoryCounter (*job_staging)(const JobState &) noexcept = nullptr;
   node::accel::detail::PreparedPipelineMemory (*pipeline_memory)(
       const PipelineState &) noexcept = nullptr;
+  Status (*virtual_pipeline_capability)(const DeviceState &) noexcept = nullptr;
 };
 
 [[nodiscard]] const DeviceOps &AccelDeviceOps() noexcept;

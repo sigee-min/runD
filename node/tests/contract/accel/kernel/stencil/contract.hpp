@@ -4,7 +4,7 @@
 
 namespace node_accel_contract::stencil {
 
-[[nodiscard]] bool StorageContract();
+[[nodiscard]] bool BindingsContract();
 [[nodiscard]] bool RunBackend(const rund::AccelDevice &);
 [[nodiscard]] bool RunRequiredMetal();
 [[nodiscard]] bool RunRequiredVulkan();

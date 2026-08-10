@@ -132,7 +132,7 @@ list(APPEND NODE_SOURCES
   src/accel/sort/shape.cpp
   src/accel/solve/shape.cpp
   src/accel/spectrum/shape.cpp
-  src/accel/stencil/shape.cpp
+  src/accel/stencil/bindings.cpp
   src/accel/transform/shape.cpp
   src/accel/window/shape.cpp
 )

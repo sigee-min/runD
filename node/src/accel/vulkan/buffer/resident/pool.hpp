@@ -13,10 +13,10 @@ namespace rund::node::accel::detail {
 // VulkanResidentState::mutex owns every call in this file. The fixed array
 // makes final public-handle release allocation-free even when it occurs during
 // prepared resource destruction.
-[[nodiscard]] inline bool
-TakeVulkanResidentStorage(VulkanAdapter &adapter, const VkDeviceSize bytes,
-                          const VkBufferUsageFlags usage,
-                          VulkanBuffer &buffer) noexcept {
+[[nodiscard]] inline bool TakeVulkanResidentStorage(
+    VulkanAdapter &adapter, const VkDeviceSize bytes,
+    const VkBufferUsageFlags usage, VulkanBuffer &buffer,
+    const std::uint64_t exact_storage_bytes = 0u) noexcept {
   const VkBufferUsageFlags effective_usage = usage |
                                              VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -24,7 +24,9 @@ TakeVulkanResidentStorage(VulkanAdapter &adapter, const VkDeviceSize bytes,
   std::size_t best = kVulkanPoolCapacity;
   for (std::size_t index = 0u; index < resident.pool_size; ++index) {
     const VulkanBuffer &candidate = resident.pool[index];
-    if (candidate.usage != effective_usage || candidate.bytes < bytes) {
+    if (candidate.usage != effective_usage || candidate.bytes < bytes ||
+        (exact_storage_bytes != 0u &&
+         candidate.allocated_bytes != exact_storage_bytes)) {
       continue;
     }
     if (best == kVulkanPoolCapacity ||
@@ -36,7 +38,7 @@ TakeVulkanResidentStorage(VulkanAdapter &adapter, const VkDeviceSize bytes,
     return false;
   }
   buffer = resident.pool[best];
-  ::rund::detail::counter::Release(resident.pool_bytes, buffer.bytes);
+  ::rund::detail::counter::Release(resident.pool_bytes, buffer.allocated_bytes);
   --resident.pool_size;
   for (std::size_t index = best; index < resident.pool_size; ++index) {
     resident.pool[index] = resident.pool[index + 1u];
@@ -51,7 +53,8 @@ inline void EvictVulkanResidentStorage(VulkanAdapter &adapter) noexcept {
     return;
   }
   VulkanBuffer evicted = resident.pool[0u];
-  ::rund::detail::counter::Release(resident.pool_bytes, evicted.bytes);
+  ::rund::detail::counter::Release(resident.pool_bytes,
+                                   evicted.allocated_bytes);
   --resident.pool_size;
   for (std::size_t index = 0u; index < resident.pool_size; ++index) {
     resident.pool[index] = resident.pool[index + 1u];
@@ -69,22 +72,24 @@ inline void RetireVulkanResidentStorage(VulkanAdapter &adapter,
     return;
   }
   const std::uint64_t limit = VulkanPoolLimit(adapter.caps.staging_bytes);
-  if (buffer.bytes > limit) {
+  if (buffer.allocated_bytes > limit) {
     DestroyVulkanBuffer(adapter, buffer);
     return;
   }
-  while (resident.pool_size != 0u &&
-         (resident.pool_size >= kVulkanPoolCapacity ||
-          !FitsVulkanPool(resident.pool_bytes, buffer.bytes, limit))) {
+  while (
+      resident.pool_size != 0u &&
+      (resident.pool_size >= kVulkanPoolCapacity ||
+       !FitsVulkanPool(resident.pool_bytes, buffer.allocated_bytes, limit))) {
     EvictVulkanResidentStorage(adapter);
   }
-  if (!FitsVulkanPool(resident.pool_bytes, buffer.bytes, limit)) {
+  if (!FitsVulkanPool(resident.pool_bytes, buffer.allocated_bytes, limit)) {
     DestroyVulkanBuffer(adapter, buffer);
     return;
   }
   resident.pool[resident.pool_size] = buffer;
   ++resident.pool_size;
-  ::rund::detail::counter::Accumulate(resident.pool_bytes, buffer.bytes);
+  ::rund::detail::counter::Accumulate(resident.pool_bytes,
+                                      buffer.allocated_bytes);
   buffer = VulkanBuffer{};
 }
 

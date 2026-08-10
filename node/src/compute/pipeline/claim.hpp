@@ -1,5 +1,6 @@
 #pragma once
 
+#include "residency/authority.hpp"
 #include "state.hpp"
 
 #include <cstddef>
@@ -44,14 +45,18 @@ struct PipelineTerminal final {
 // Publishes the terminal Pipeline state and releases every resource claim.
 // Write poison/generation publication happens under the same Device claim-gate
 // acquisition and before the corresponding writer claim is released.
-void publish_pipeline_terminal(PipelineState &state,
-                               PipelineTerminal terminal) noexcept;
+void publish_pipeline_terminal(
+    PipelineState &state, PipelineTerminal terminal,
+    PipelineClaimAuthority authority = PipelineClaimAuthority::Shared) noexcept;
 
 class ClaimGuard final {
 public:
+  ClaimGuard(DeviceState *const device,
+             const std::span<const BufferClaim> claims) noexcept
+      : device_(device), claims_(claims) {}
   ClaimGuard(DeviceState &device,
              const std::span<const BufferClaim> claims) noexcept
-      : device_(&device), claims_(claims) {}
+      : ClaimGuard(&device, claims) {}
   ClaimGuard(const ClaimGuard &) = delete;
   ClaimGuard &operator=(const ClaimGuard &) = delete;
   ~ClaimGuard() {

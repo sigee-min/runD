@@ -1,4 +1,5 @@
 #include "../../../kernel/backend/execute.hpp"
+#include "transfer.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -12,9 +13,10 @@ rund::AccelCheck PrepareVulkanPipeline(
     const std::span<const BackendPublish>, PreparedKernelTemplateRegistry &,
     PreparedPipelineStatusLayout &, const bool, std::shared_ptr<void> &prepared,
     PreparedPipelineMemory &memory, PreparedPipelineMemoryMeter *,
-    PreparedPipelineFailure &failure) {
+    rund::AccelRunFacts &preparation, PreparedPipelineFailure &failure) {
   prepared.reset();
   memory = {};
+  preparation = {};
   failure = PreparedPipelineFailure{
       .stage = PreparedPipelineFailureStage::BackendAdmission,
       .native_reason_key = "accel_vulkan_unavailable",
@@ -28,9 +30,29 @@ SeedPreparedVulkanPipelineGeneration(const std::shared_ptr<void> &,
   return rund::AccelCheck{false, "accel_vulkan_unavailable"};
 }
 
+rund::AccelCheck PrepareVulkanPipelineTransfer(const std::shared_ptr<void> &,
+                                               const UploadRoute &,
+                                               const DownloadRoute &,
+                                               const std::uint64_t) noexcept {
+  return rund::AccelCheck{false, "accel_vulkan_unavailable"};
+}
+
+BackendUpload UploadPreparedVulkanPipeline(const std::shared_ptr<void> &,
+                                           const void *,
+                                           const std::uint64_t) noexcept {
+  return BackendUpload{.check = {false, "accel_vulkan_unavailable"}};
+}
+
+BackendDownload DownloadPreparedVulkanPipeline(const std::shared_ptr<void> &,
+                                               void *, const std::uint64_t,
+                                               std::uint64_t *) noexcept {
+  return BackendDownload{.check = {false, "accel_vulkan_unavailable"}};
+}
+
 rund::AccelCheck SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &,
                                               KernelCompletion, void *,
-                                              KernelTiming) noexcept {
+                                              KernelTiming,
+                                              PipelineSubmitMode) noexcept {
   return rund::AccelCheck{false, "accel_vulkan_unavailable"};
 }
 

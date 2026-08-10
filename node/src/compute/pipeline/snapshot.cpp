@@ -198,8 +198,9 @@ valid_snapshot_layout(const StateSnapshotState &snapshot) noexcept {
         state.device->ops->download_batch == nullptr) {
       return Status::fail(Reason::TransferInvalid);
     }
-    const DownloadResult transfer =
-        state.device->ops->download_batch(*state.device, downloads);
+    const DownloadResult transfer = state.device->ops->download_batch(
+        *state.device, downloads,
+        node::accel::detail::TransferAuthority::Shared);
     if (!transfer.status) {
       if (transfer.status.reason() == Reason::DeviceLost) {
         publication.device_lost = true;
@@ -326,7 +327,8 @@ restore_host_snapshot_locked(PipelineState &state,
     if (restored && !uploads.empty()) {
       const UploadResult transfer = state.device->ops->upload_batch(
           *state.device, uploads,
-          node::accel::detail::TransferCompletion::Complete);
+          node::accel::detail::TransferCompletion::Complete,
+          node::accel::detail::TransferAuthority::Shared);
       restored = transfer.status;
       if (restored) {
         for (const UploadRequest upload : uploads) {

@@ -15,8 +15,10 @@ namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
-rund::AccelCheck PrepareMetalNestedAggregate(MetalAdapter &adapter,
-                                             MetalNestedAggregate &aggregate) {
+rund::AccelCheck
+PrepareMetalNestedAggregate(MetalAdapter &adapter,
+                            MetalNestedAggregate &aggregate,
+                            rund::AccelRunFacts *const preparation) {
   for (const std::shared_ptr<void> &buffer : aggregate.buffers) {
     if (buffer == nullptr) {
       return rund::AccelCheck{false, "accel_metal_buffer_failed"};
@@ -29,14 +31,16 @@ rund::AccelCheck PrepareMetalNestedAggregate(MetalAdapter &adapter,
   }
   constexpr const char *reduce_key = "pipeline.nested.aggregate.reduce.u32";
   constexpr const char *finalize_key = "pipeline.nested.aggregate.finalize.u32";
-  aggregate.reduce_pipeline = LookupMetalNamedPipeline(adapter, reduce_key);
-  aggregate.finalize_pipeline = LookupMetalNamedPipeline(adapter, finalize_key);
+  aggregate.reduce_pipeline =
+      LookupMetalNamedPipeline(adapter, reduce_key, preparation);
+  aggregate.finalize_pipeline =
+      LookupMetalNamedPipeline(adapter, finalize_key, preparation);
   if (aggregate.reduce_pipeline == nullptr ||
       aggregate.finalize_pipeline == nullptr) {
     std::string source{MetalNestedAggregateSource()};
     const std::uint64_t begin = MonotonicNanoseconds();
     const std::shared_ptr<void> library_owner =
-        AcquireMetalLibrary(adapter, std::move(source));
+        AcquireMetalLibrary(adapter, std::move(source), 0u, preparation);
     id<MTLLibrary> const library = (__bridge id<MTLLibrary>)library_owner.get();
     if (library == nil) {
       return rund::AccelCheck{false, "accel_metal_pipeline_unavailable"};
@@ -55,9 +59,9 @@ rund::AccelCheck PrepareMetalNestedAggregate(MetalAdapter &adapter,
     }
     const std::uint64_t compile_ns = MonotonicNanoseconds() - begin;
     StoreMetalNamedPipeline(adapter, reduce_key, aggregate.reduce_pipeline,
-                            compile_ns);
+                            compile_ns, preparation);
     StoreMetalNamedPipeline(adapter, finalize_key, aggregate.finalize_pipeline,
-                            0u);
+                            0u, preparation);
   }
   id<MTLComputePipelineState> const reduce =
       (__bridge id<MTLComputePipelineState>)aggregate.reduce_pipeline.get();

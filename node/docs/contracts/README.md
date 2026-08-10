@@ -14,6 +14,7 @@ Stable `/node` behavior lives here. Kernel-owned behavior stays in
 | [Compute Batch](./compute/batch.md) | Bounded one-submit accelerator batching, atomic Job admission, ordered completion, and shared evidence ownership. |
 | [Compute Pipeline](./compute/pipeline.md) | Declaration-ordered dependent Program execution over resident Buffers, one prepared cross-Program plan, one nonempty GPU submit, typed claims and poison, explicit readback, and exact evidence laws. |
 | [Compute Memory](./compute/memory.md) | Program/Job retained owner accounting, compact CPU runtime graph/SIMD-plan ownership, authenticated accelerator-token metadata, and exact allocation-free snapshot invariants. |
+| [Compute Pipeline Residency](./compute/residency.md) | Source-private compact linear waves, fixed-slot admission, backing poison, and canonical plan identity. |
 | [Accel Compact](./accel/compact.md) | Stable native compaction, direct rank law, bounded capacity status, reuse, and Vulkan `8 * ceil(N / 256) + 4` scratch. |
 | [Accel Gather](./accel/gather.md) | Node-owned CPU/Metal/Vulkan execution for kernel-planned deterministic gather graph steps. |
 | [Accel Range](./accel/range-aggregate.md) | Timing-free algebra, capability, exact-cost, stage, temporary-requirement, and source/execution identity planning shared by one-dimensional range primitives. |

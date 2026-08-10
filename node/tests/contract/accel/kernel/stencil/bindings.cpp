@@ -1,12 +1,12 @@
 #include "contract.hpp"
 
-#include "src/accel/stencil/shape.hpp"
+#include "src/accel/stencil/bindings.hpp"
 
 #include <memory>
 
 namespace node_accel_contract::stencil {
 
-[[nodiscard]] bool StorageContract() {
+[[nodiscard]] bool BindingsContract() {
   using namespace rund::node::accel::detail;
   constexpr rund::kernel::StencilDesc desc{
       .op = rund::kernel::StencilOp::Sum,
@@ -40,11 +40,11 @@ namespace node_accel_contract::stencil {
       .output = &output,
       .output_handle = &owner,
   };
-  if (StencilShapeOk(desc, plan, bindings)) {
+  if (StencilBindingsMatch(desc, plan, bindings)) {
     return false;
   }
   output.offset_bytes = 16u;
-  return StencilShapeOk(desc, plan, bindings);
+  return StencilBindingsMatch(desc, plan, bindings);
 }
 
 } // namespace node_accel_contract::stencil

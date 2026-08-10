@@ -11,7 +11,7 @@ namespace {
 constexpr std::size_t kMaxReusableMetalBuffers = 32u;
 }
 
-void ReleaseMetalBuffer(MetalAdapter& adapter, MetalRuntimeBuffer buffer) {
+void ReleaseMetalBuffer(MetalAdapter &adapter, MetalRuntimeBuffer buffer) {
   if (buffer.borrowed) {
     return;
   }
@@ -19,9 +19,11 @@ void ReleaseMetalBuffer(MetalAdapter& adapter, MetalRuntimeBuffer buffer) {
     return;
   }
   std::lock_guard<std::mutex> lock{adapter.mutex};
-  ::rund::detail::counter::Release(adapter.memory.current, buffer.bytes);
+  ::rund::detail::counter::Release(adapter.memory.current,
+                                   buffer.allocated_bytes);
   MetalBuffer released{.id = buffer.id,
                        .bytes = buffer.bytes,
+                       .allocated_bytes = buffer.allocated_bytes,
                        .usage = buffer.usage,
                        .buffer = std::move(buffer.buffer)};
   if (adapter.free_buffers.size() < kMaxReusableMetalBuffers) {
@@ -35,14 +37,14 @@ void ReleaseMetalBuffer(MetalAdapter& adapter, MetalRuntimeBuffer buffer) {
     if (it->usage != buffer.usage || it->bytes >= buffer.bytes) {
       continue;
     }
-    if (smallest == adapter.free_buffers.end() ||
-        it->bytes < smallest->bytes) {
+    if (smallest == adapter.free_buffers.end() || it->bytes < smallest->bytes) {
       smallest = it;
     }
   }
   if (smallest != adapter.free_buffers.end()) {
     *smallest = MetalBuffer{.id = released.id,
                             .bytes = released.bytes,
+                            .allocated_bytes = released.allocated_bytes,
                             .usage = released.usage,
                             .buffer = std::move(released.buffer)};
   }
@@ -50,8 +52,8 @@ void ReleaseMetalBuffer(MetalAdapter& adapter, MetalRuntimeBuffer buffer) {
 
 #else
 
-void ReleaseMetalBuffer(MetalAdapter&, MetalRuntimeBuffer) {}
+void ReleaseMetalBuffer(MetalAdapter &, MetalRuntimeBuffer) {}
 
 #endif
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

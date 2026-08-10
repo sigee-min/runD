@@ -32,7 +32,9 @@ whose profile, identity, metric, or unit disagrees.
 
 These argument-free measurement commands consume the installed Release SDK and
 never edit the baseline. Compute options such as `--resident`, `--sort`,
-`--bulk`, and `--pipeline` build current-source diagnostics and cannot publish
-Release baseline evidence. A passing upper bound is regression evidence, not a
-speedup claim. See [Method](./method.md) for the complete acceptance and
-publication contract.
+`--bulk`, `--pipeline`, and `--virtual-residency` build current-source
+diagnostics and cannot publish Release baseline evidence. The virtual-residency
+route runs three independent diagnostic packets; it does not add a Product row
+or change the installed Compute route's 82-metric cardinality. A passing upper
+bound is regression evidence, not a speedup claim. See [Method](./method.md) for
+the complete acceptance and publication contract.

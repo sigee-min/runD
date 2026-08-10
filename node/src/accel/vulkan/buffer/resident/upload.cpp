@@ -23,7 +23,8 @@ rund::AccelCheck UploadVulkanResidentBuffer(
       },
   }};
   return UploadVulkanResidentBuffers(pick, std::span{request},
-                                     TransferCompletion::Queued)
+                                     TransferCompletion::Queued,
+                                     TransferAuthority::Shared)
       .check;
 }
 #endif

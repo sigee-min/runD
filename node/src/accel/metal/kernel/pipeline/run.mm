@@ -1,5 +1,7 @@
 #include "state.hpp"
 
+#include "residency/local.hpp"
+
 #include "../trace/submit.hpp"
 
 #include "../../../kernel/reset/stats.hpp"
@@ -227,6 +229,10 @@ void CompleteMetalSequenceRun(void *const raw, KernelResult result,
     return;
   }
   MetalSequence *const sequence = claim.owner;
+  if (sequence->residency_prime_pending) {
+    PrimeMetalResidencySubmission(*sequence, result.check.ok);
+    sequence->residency_prime_pending = false;
+  }
   if (trace) {
     if (result.check.ok) {
       result.check = FoldMetalDispatchTrace(
@@ -256,7 +262,7 @@ void CompleteMetalSequenceRun(void *const raw, KernelResult result,
       result.check.ok ? sequence->dispatch_count : 0u;
   SetResetStats(result.stats, result.check.ok, sequence->reset_count,
                 sequence->reset_bytes);
-  if (result.check.ok) {
+  if (result.check.ok && !claim.owner_local) {
     RecordMetalDispatches(*sequence->adapter, sequence->dispatch_count);
   }
   claim.completion(claim.user, result);
@@ -295,9 +301,11 @@ SeedPreparedMetalPipelineGeneration(const std::shared_ptr<void> &prepared,
   }
 }
 
-rund::AccelCheck SubmitPreparedMetalPipeline(
-    const std::shared_ptr<void> &prepared, const KernelCompletion completion_fn,
-    void *const user, const KernelTiming timing) noexcept {
+rund::AccelCheck
+SubmitPreparedMetalPipeline(const std::shared_ptr<void> &prepared,
+                            const KernelCompletion completion_fn,
+                            void *const user, const KernelTiming timing,
+                            const PipelineSubmitMode mode) noexcept {
   @autoreleasepool {
     auto *const pipeline = static_cast<MetalSequence *>(prepared.get());
     if (!ValidMetalSequence(pipeline) || completion_fn == nullptr ||
@@ -312,6 +320,7 @@ rund::AccelCheck SubmitPreparedMetalPipeline(
       return rund::AccelCheck{true, "ok"};
     }
     submission::State<MetalSequence> &state = pipeline->submission;
+    bool residency_submit = false;
     {
       std::lock_guard lock{state.mutex};
       if (state.active()) {
@@ -324,9 +333,28 @@ rund::AccelCheck SubmitPreparedMetalPipeline(
           return traced;
         }
       }
+      if (mode == PipelineSubmitMode::Residency &&
+          timing != KernelTiming::Dispatch) {
+        residency_submit = pipeline->residency_submission.ready();
+        pipeline->residency_prime_pending =
+            pipeline->residency_submission.phase ==
+            MetalResidencySubmissionPhase::Cold;
+      } else {
+        pipeline->residency_prime_pending = false;
+      }
       state.owner = pipeline;
       state.completion = completion_fn;
       state.user = user;
+      state.owner_local = mode == PipelineSubmitMode::Residency;
+    }
+    if (residency_submit) {
+      KernelResult result = RunMetalResidencySubmission(*pipeline, timing);
+      if (result.stats.run.work.command_submit_count == 0u) {
+        submission::Cancel(state);
+        return result.check;
+      }
+      CompleteMetalSequence(&state, result);
+      return rund::AccelCheck{true, "ok"};
     }
     CommandRun command{};
     MetalDispatchTrace *const trace =
@@ -350,6 +378,7 @@ rund::AccelCheck SubmitPreparedMetalPipeline(
     }
     if (!submitted.ok) {
       submission::Cancel(state);
+      pipeline->residency_prime_pending = false;
     }
     return submitted;
   }

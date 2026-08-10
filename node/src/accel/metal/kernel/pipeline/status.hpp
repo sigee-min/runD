@@ -36,7 +36,7 @@ ValidMetalReset(std::span<const MetalPipelineResetMeta> resets,
     std::shared_ptr<void> &import, std::shared_ptr<void> &reduce,
     std::shared_ptr<void> &complete, std::shared_ptr<void> &telemetry,
     bool need_publish, std::shared_ptr<void> &publish, bool need_advance,
-    std::shared_ptr<void> &advance);
+    std::shared_ptr<void> &advance, rund::AccelRunFacts *preparation);
 
 #endif
 

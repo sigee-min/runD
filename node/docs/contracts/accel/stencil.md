@@ -18,8 +18,10 @@ Implementation authority:
   algorithm/capability/cost selector
 - `/node/src/accel/range_aggregate/execution.hpp` as the generic `RangeParams`
   host parameter ABI owner
-- `/node/src/accel/stencil/shape.{hpp,cpp}` as the sole Stencil-to-Range
-  semantic projection and resident-span validation owner
+- `/node/src/accel/stencil/range.hpp` as the sole Stencil-to-Range semantic
+  projection owner
+- `/node/src/accel/stencil/bindings.{hpp,cpp}` as the resident binding and
+  non-overlap validation owner
 - `/node/src/accel/primitive/shape.hpp`
 - `/node/src/accel/cpu/stencil.cpp`
 - `/node/src/accel/{metal,vulkan}/range/` for physical lookup, source,

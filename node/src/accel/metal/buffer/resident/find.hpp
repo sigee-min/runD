@@ -7,6 +7,7 @@
 #include "../../../resident/slot.hpp"
 #include "../../../resident/validation.hpp"
 #include "../../resident/state.hpp"
+#include "../../resident/storage.hpp"
 #include "../owner.hpp"
 #include <memory>
 
@@ -68,6 +69,44 @@ MetalResidentResult(MetalResidentBuffer &entry, std::shared_ptr<void> owner) {
   return match.entry == nullptr
              ? RejectResident<MetalResidentBufferResult>(match.reason)
              : MetalResidentResult(*match.entry, std::move(match.owner));
+}
+
+[[nodiscard]] inline bool
+SameResidentRef(const rund::kernel::ResidentBufferRef &left,
+                const rund::kernel::ResidentBufferRef &right) noexcept {
+  return left.id == right.id && left.bytes == right.bytes &&
+         left.offset_bytes == right.offset_bytes &&
+         left.element_bytes == right.element_bytes &&
+         left.stride_bytes == right.stride_bytes && left.count == right.count &&
+         left.usage == right.usage;
+}
+
+// Pipeline-private routes retain the exact MetalResidentOwner authenticated
+// during cold Buffer/Pipeline preparation. That owner directly retains the
+// MTLBuffer, so the warm route needs neither the adapter gate nor the resident
+// registry gate.
+[[nodiscard]] inline MetalResidentBufferResult
+ResolvePrivateMetalResidentBuffer(MetalAdapter &adapter,
+                                  const rund::kernel::ResidentBufferRef &ref,
+                                  const std::shared_ptr<void> &handle) {
+  if (handle == nullptr) {
+    return RejectResident<MetalResidentBufferResult>(
+        "accel_buffer_unavailable");
+  }
+  const std::shared_ptr<MetalResidentOwner> owner =
+      LookupMetalResidentOwner(handle);
+  if (owner == nullptr || owner->adapter != &adapter ||
+      owner->adapter_owner == nullptr || owner->buffer == nullptr ||
+      owner->id != ref.id || !SameResidentRef(owner->ref, ref)) {
+    return RejectResident<MetalResidentBufferResult>(
+        "accel_buffer_unavailable");
+  }
+  return MetalResidentBufferResult{
+      .check = rund::AccelCheck{true, "ok"},
+      .ref = owner->ref,
+      .handle = owner,
+      .device_buffer = owner->buffer,
+  };
 }
 #endif
 } // namespace rund::node::accel::detail

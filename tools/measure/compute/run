@@ -17,6 +17,7 @@ usage() {
     "       tools/measure/compute/run --window-repeat <metal|vulkan>" \
     "       tools/measure/compute/run --plan-memory <cpu|metal|vulkan>" \
     "       tools/measure/compute/run --prepare-memory <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --virtual-residency <cpu|metal|vulkan>" \
     "       tools/measure/compute/run --metal-icb-boundary" \
     "       -h, --help  Show this help."
 }
@@ -40,7 +41,8 @@ elif [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--recurrence" ] ||
   [ "$1" = "--window-repeat" ] ||
   [ "$1" = "--plan-memory" ] ||
-  [ "$1" = "--prepare-memory" ]; }; then
+  [ "$1" = "--prepare-memory" ] ||
+  [ "$1" = "--virtual-residency" ]; }; then
   case "$2" in
     cpu|metal|vulkan)
       mode=${1#--}
@@ -90,6 +92,19 @@ if [ "$mode" != full ]; then
   fi
   sh "$root/tools/internal/state/ninja" -C "$focus" \
     runD-compute-focus
+  if [ "$mode" = virtual-residency ]; then
+    if [ "$backend" = cpu ]; then
+      exec sh "$root/tools/internal/measure/packets" \
+        sh "$root/tools/internal/process/run" 900 compute.virtual-residency \
+        "$focus/tools/measure/compute/runD-compute-focus" \
+        --virtual-residency "$backend"
+    fi
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/measure/packets" \
+      sh "$root/tools/internal/process/run" 900 compute.virtual-residency \
+      "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-residency "$backend"
+  fi
   if [ "$backend" = cpu ]; then
     exec sh "$root/tools/internal/process/run" 900 \
       compute.measure \

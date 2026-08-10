@@ -55,7 +55,8 @@ NewMetalLibrary(id<MTLDevice> device, const std::string &source_text) {
 
 [[nodiscard]] inline std::shared_ptr<void>
 AcquireMetalLibrary(MetalAdapter &adapter, std::string source_text,
-                    const std::uint64_t reserved_upper = 0u) {
+                    const std::uint64_t reserved_upper = 0u,
+                    rund::AccelRunFacts *const local = nullptr) {
   source_text =
       PipelinePrivateMetalSource(std::move(source_text), reserved_upper);
   if (source_text.empty()) {
@@ -72,7 +73,7 @@ AcquireMetalLibrary(MetalAdapter &adapter, std::string source_text,
   std::shared_ptr<void> owner = RetainMetalObject((__bridge void *)library);
   return PublishMetalSourceLibrary(adapter, std::move(source_text),
                                    std::move(owner),
-                                   MonotonicNanoseconds() - begin)
+                                   MonotonicNanoseconds() - begin, local)
       .library;
 }
 

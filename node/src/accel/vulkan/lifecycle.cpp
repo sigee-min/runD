@@ -1,8 +1,8 @@
 #include "local.hpp"
 
-#include "cached/pipeline.hpp"
-#include "cached/index.hpp"
 #include "buffer/resident/pool.hpp"
+#include "cached/index.hpp"
+#include "cached/pipeline.hpp"
 #include "command.hpp"
 #include "resident/state.hpp"
 
@@ -10,8 +10,9 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-VulkanAdapter::VulkanAdapter()
-    : pipeline_index(std::make_unique<VulkanPipelineIndex>()),
+VulkanAdapter::VulkanAdapter(const bool has_portability_subset)
+    : portability_subset(has_portability_subset),
+      pipeline_index(std::make_unique<VulkanPipelineIndex>()),
       resident(std::make_unique<VulkanResidentState>()) {}
 
 VulkanAdapter::~VulkanAdapter() {
@@ -24,7 +25,7 @@ VulkanAdapter::~VulkanAdapter() {
     pipeline_index->collectives.clear();
     pipelines.clear();
     collective_pipelines.clear();
-    for (VulkanBuffer& buffer : reusable_buffers) {
+    for (VulkanBuffer &buffer : reusable_buffers) {
       DestroyVulkanBuffer(*this, buffer);
     }
     reusable_buffers.clear();
@@ -44,4 +45,4 @@ VulkanAdapter::~VulkanAdapter() {
 }
 #endif
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

@@ -37,7 +37,15 @@ else()
     suite/batch.cpp
     suite/bulk.cpp
     suite/resident.cpp
-    suite/sparse.cpp)
+    suite/sparse.cpp
+    virtual/backing.cpp
+    virtual/model.cpp
+    virtual/model.hpp
+    virtual/oracle.cpp
+    virtual/oracle.hpp
+    virtual/report.cpp
+    virtual/report.hpp
+    virtual/residency.cpp)
   target_compile_definitions(runD-compute-focus PRIVATE RUND_COMPUTE_FOCUS=1)
   target_include_directories(runD-compute-focus PRIVATE
     "${CMAKE_SOURCE_DIR}/accel/include"

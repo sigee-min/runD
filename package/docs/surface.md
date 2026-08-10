@@ -17,11 +17,14 @@ Each `rund/<domain>.hpp` header is the focused entry for its domain.
 `<rund/compute/pipeline.hpp>` is also a registered focused direct entry for
 prepared dependent Program execution. `<rund/compute.hpp>` deliberately
 excludes it, while the all-domain `<rund/rund.hpp>` composition includes it.
-Compute has three deliberate opt-in extensions. `<rund/compute/async.hpp>` completes the
-existing deferred Flow's asynchronous terminal without making another graph
-or compilation authority. `<rund/compute/math.hpp>` owns composite expression
-functions and matrix, transform, factor, solve, and spectrum Flow stages.
-`<rund/compute.hpp>` includes neither extension nor Pipeline, so ordinary
+Compute has four deliberate opt-in extensions. `<rund/compute/async.hpp>`
+completes the existing deferred Flow's asynchronous terminal without making
+another graph or compilation authority. `<rund/compute/math.hpp>` owns
+composite expression functions and matrix, transform, factor, solve, and
+spectrum Flow stages. `<rund/compute/virtual.hpp>` owns the bounded-backing
+`VirtualBuffer` and prepared `VirtualPipeline` product without adding those
+Pipeline templates to the default Compute parse boundary.
+`<rund/compute.hpp>` includes no extension, Pipeline, or Virtual facade, so ordinary
 `on(...).map(...).collect()` consumers parse neither standard-future
 machinery, the advanced math graph, nor Pipeline binding templates.
 `<rund/compute/session.hpp>` alone completes `Session::compute(Job&)` and

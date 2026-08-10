@@ -7,6 +7,7 @@ direct	rund/compute/async.hpp
 direct	rund/compute/math.hpp
 direct	rund/compute/pipeline.hpp
 direct	rund/compute/session.hpp
+direct	rund/compute/virtual.hpp
 direct	rund/evidence.hpp
 direct	rund/host.hpp
 direct	rund/net.hpp

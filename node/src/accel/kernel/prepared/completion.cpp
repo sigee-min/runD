@@ -165,7 +165,8 @@ rund::AccelCheck SubmitPreparedKernel(const rund::AccelContext &context,
 rund::AccelCheck SubmitPreparedKernelPipeline(
     const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
     std::shared_ptr<void> lifetime, const PreparedPipelineCompletion completion,
-    void *const user, const KernelTiming timing) noexcept {
+    void *const user, const KernelTiming timing,
+    const PipelineSubmitMode mode) noexcept {
   const rund::AccelCheck invalid{false, "accel_kernel_run_invalid"};
   auto *const pipeline =
       static_cast<prepared::PipelineState *>(prepared.owner.get());
@@ -188,7 +189,7 @@ rund::AccelCheck SubmitPreparedKernelPipeline(
     submission.user = user;
   }
   const rund::AccelCheck submitted = pipeline->ops->submit_prepared_pipeline(
-      pipeline->backend, CompletePipeline, &submission, timing);
+      pipeline->backend, CompletePipeline, &submission, timing, mode);
   if (!submitted.ok) {
     std::lock_guard lock{submission.mutex};
     if (submission.active()) {
@@ -219,10 +220,12 @@ rund::AccelEvidence RunPreparedKernel(const rund::AccelContext &context,
 
 PreparedPipelineEvidence
 RunPreparedKernelPipeline(const rund::AccelContext &context,
-                          const PreparedKernelPipeline &prepared) {
+                          const PreparedKernelPipeline &prepared,
+                          const PipelineSubmitMode mode) {
   PipelineWait wait{};
-  const rund::AccelCheck submitted = SubmitPreparedKernelPipeline(
-      context, prepared, {}, CompletePipelineWait, &wait);
+  const rund::AccelCheck submitted =
+      SubmitPreparedKernelPipeline(context, prepared, {}, CompletePipelineWait,
+                                   &wait, KernelTiming::Submission, mode);
   if (!submitted.ok) {
     return PreparedPipelineEvidence{.check = submitted};
   }

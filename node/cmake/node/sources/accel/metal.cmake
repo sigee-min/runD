@@ -1,6 +1,7 @@
 list(APPEND NODE_SOURCES
   src/accel/metal/adapter/lifecycle.cpp
   src/accel/metal/buffer/access.mm
+  src/accel/metal/buffer/commitment.mm
   src/accel/metal/buffer/ownership.cpp
   src/accel/metal/buffer/pool.mm
   src/accel/metal/buffer/resident/batch.cpp
@@ -57,6 +58,8 @@ list(APPEND NODE_SOURCES
   src/accel/metal/kernel/pipeline/prepare/finalize.mm
   src/accel/metal/kernel/pipeline/prepare/program.mm
   src/accel/metal/kernel/pipeline/prepare/telemetry.mm
+  src/accel/metal/kernel/pipeline/residency/materialize.mm
+  src/accel/metal/kernel/pipeline/residency/submit.mm
   src/accel/metal/kernel/pipeline/source/status/abi.cpp
   src/accel/metal/kernel/pipeline/source/status/advance.cpp
   src/accel/metal/kernel/pipeline/source/status/publish.cpp

@@ -10,8 +10,8 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 [[nodiscard]] inline std::uint64_t
 VulkanPhysicalStaging(const VulkanAdapter &adapter) noexcept {
-  return ::rund::detail::counter::SaturatingAdd(
-      adapter.staging_memory.current, adapter.staging_memory.pooled);
+  return ::rund::detail::counter::SaturatingAdd(adapter.staging_memory.current,
+                                                adapter.staging_memory.pooled);
 }
 
 inline void RecordVulkanPhysicalStaging(VulkanAdapter &adapter) noexcept {
@@ -19,9 +19,10 @@ inline void RecordVulkanPhysicalStaging(VulkanAdapter &adapter) noexcept {
   stats.peak = std::max(stats.peak, VulkanPhysicalStaging(adapter));
 }
 
-[[nodiscard]] inline PreparedMemory VulkanPreparedMemory(
-    const VulkanMemoryStats before, const VulkanMemoryStats after,
-    const std::uint64_t budget) noexcept {
+[[nodiscard]] inline PreparedMemory
+VulkanPreparedMemory(const VulkanMemoryStats before,
+                     const VulkanMemoryStats after,
+                     const std::uint64_t budget) noexcept {
   return PreparedMemory{
       .current = ::rund::detail::counter::Delta(before.current, after.current),
       .peak = ::rund::detail::counter::Delta(before.current, after.current),
@@ -32,8 +33,7 @@ inline void RecordVulkanPhysicalStaging(VulkanAdapter &adapter) noexcept {
 }
 
 inline void RecordVulkanMemoryLease(VulkanAdapter &adapter,
-                                    VulkanBuffer &buffer,
-                                    const bool reused,
+                                    VulkanBuffer &buffer, const bool reused,
                                     const VulkanMemoryUse use) noexcept {
   buffer.memory_use = use;
   buffer.memory_lease = use == VulkanMemoryUse::Staging;
@@ -41,10 +41,10 @@ inline void RecordVulkanMemoryLease(VulkanAdapter &adapter,
     return;
   }
   VulkanMemoryStats &stats = adapter.staging_memory;
-  ::rund::detail::counter::Accumulate(stats.current, buffer.bytes);
-  ::rund::detail::counter::Accumulate(stats.cumulative, buffer.bytes);
+  ::rund::detail::counter::Accumulate(stats.current, buffer.allocated_bytes);
+  ::rund::detail::counter::Accumulate(stats.cumulative, buffer.allocated_bytes);
   if (reused) {
-    ::rund::detail::counter::Accumulate(stats.reused, buffer.bytes);
+    ::rund::detail::counter::Accumulate(stats.reused, buffer.allocated_bytes);
   }
   RecordVulkanPhysicalStaging(adapter);
 }
@@ -55,7 +55,7 @@ inline void ReleaseVulkanMemoryLease(VulkanAdapter &adapter,
     return;
   }
   VulkanMemoryStats &stats = adapter.staging_memory;
-  ::rund::detail::counter::Release(stats.current, buffer.bytes);
+  ::rund::detail::counter::Release(stats.current, buffer.allocated_bytes);
   buffer.memory_lease = false;
 }
 #endif

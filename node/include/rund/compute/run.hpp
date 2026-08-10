@@ -1,7 +1,7 @@
 #pragma once
 
-#include <rund/compute/buffer.hpp>
 #include <rund/compute/abi/observe.hpp>
+#include <rund/compute/buffer.hpp>
 #include <rund/compute/stats.hpp>
 #include <rund/compute/status.hpp>
 
@@ -26,7 +26,7 @@ public:
   ~Run();
 
   template <class T>
-  [[nodiscard]] Status read(const Buffer<T>& buffer,
+  [[nodiscard]] Status read(const Buffer<T> &buffer,
                             const std::span<T> output) const {
     if (buffer.size() != output.size()) {
       return Status::fail(Reason::ShapeMismatch);
@@ -49,7 +49,7 @@ private:
   // Stats is embedded in the erased RunState. Keep fixed inline headroom for
   // the complete nested PipelineStats report without moving the state to a
   // second allocation.
-  static constexpr std::size_t StorageBytes = 1152u;
+  static constexpr std::size_t StorageBytes = 1288u;
   alignas(std::uint64_t) std::array<std::byte, StorageBytes> storage_;
 };
 

@@ -1,6 +1,7 @@
 #include "state.hpp"
 
 #include "prepare/record.hpp"
+#include "transfer.hpp"
 
 #include "../../command/resources.hpp"
 
@@ -22,6 +23,7 @@ VulkanPipeline::~VulkanPipeline() {
     trace.queries = VK_NULL_HANDLE;
   }
   DestroyCommand(adapter->device, trace.command);
+  DestroyVulkanPipelineTransfer(*this);
   record.reset();
   recurrence.reset();
   transducers.clear();
@@ -42,6 +44,7 @@ rund::AccelCheck FailVulkanPipeline(std::shared_ptr<VulkanPipeline> &pipeline,
     pipeline->trace.queries = VK_NULL_HANDLE;
   }
   DestroyCommand(pipeline->adapter->device, pipeline->trace.command);
+  DestroyVulkanPipelineTransfer(*pipeline);
   pipeline->record.reset();
   DestroyCommand(pipeline->adapter->device, pipeline->command);
   pipeline->adapter = nullptr;

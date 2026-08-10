@@ -25,6 +25,6 @@ static_assert(std::is_standard_layout_v<AccelIdentity>);
 static_assert(std::is_standard_layout_v<AccelEvidence>);
 static_assert(std::is_trivially_copyable_v<AccelEvidence>);
 static_assert(sizeof(void *) != 8u || sizeof(AccelIdentity) == 32u);
-static_assert(sizeof(void *) != 8u || sizeof(AccelEvidence) == 400u);
+static_assert(sizeof(void *) != 8u || sizeof(AccelEvidence) == 408u);
 
 } // namespace rund

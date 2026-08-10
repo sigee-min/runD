@@ -2,6 +2,7 @@
 
 #include "../trace.hpp"
 #include "capture.hpp"
+#include "residency/model.hpp"
 
 #include <accel/check.hpp>
 
@@ -196,6 +197,8 @@ struct MetalWarmSubmission final {
 };
 
 struct MetalSequence final {
+  ~MetalSequence();
+
   MetalAdapter *adapter{};
   std::vector<id<MTLResource>> residency;
   std::vector<id<MTLComputePipelineState>> pipelines;
@@ -212,6 +215,7 @@ struct MetalSequence final {
   id<MTLBuffer> guard_zero = nil;
   id<MTLBuffer> step_control = nil;
   MetalDispatchTrace trace{};
+  MetalResidencySubmission residency_submission{};
   PreparedPipelineMemoryMeter *memory_meter{};
   MetalWarmSubmission warm{};
   NSUInteger command_count = 0u;
@@ -225,6 +229,7 @@ struct MetalSequence final {
   bool uses_status_arena{};
   bool profile_steps{};
   bool direct_aggregate{};
+  bool residency_prime_pending{};
   submission::State<MetalSequence> submission{};
 };
 

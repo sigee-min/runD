@@ -1,5 +1,6 @@
 #pragma once
 
+#include "residency/authority.hpp"
 #include "state.hpp"
 
 #include <kernel/dispatch/worker/backend.hpp>
@@ -161,6 +162,9 @@ pipeline_workers(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Stats
 pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
+run_pipeline_with_mode(const std::shared_ptr<PipelineState> &state,
+                       node::accel::detail::PipelineSubmitMode mode) noexcept;
+[[nodiscard]] Status
 begin_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
 end_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
@@ -168,7 +172,9 @@ end_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
 pipeline_profile(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
 queue_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
-[[nodiscard]] Status start_pipeline(PipelineState &state) noexcept;
+[[nodiscard]] Status start_pipeline(
+    PipelineState &state,
+    PipelineClaimAuthority authority = PipelineClaimAuthority::Shared) noexcept;
 [[nodiscard]] Status
 cancel_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] TerminalObservation
@@ -208,12 +214,13 @@ complete_cpu_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 complete_cpu_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
                                std::uint64_t frame_bytes,
                                bool capture_profile) noexcept;
-[[nodiscard]] Status
-submit_pipeline_on(const std::shared_ptr<PipelineState> &state,
-                   std::shared_ptr<void> lifetime,
-                   PipelineCompletion completion, void *user,
-                   node::accel::detail::KernelTiming timing =
-                       node::accel::detail::KernelTiming::Submission) noexcept;
+[[nodiscard]] Status submit_pipeline_on(
+    const std::shared_ptr<PipelineState> &state, std::shared_ptr<void> lifetime,
+    PipelineCompletion completion, void *user,
+    node::accel::detail::KernelTiming timing =
+        node::accel::detail::KernelTiming::Submission,
+    node::accel::detail::PipelineSubmitMode mode =
+        node::accel::detail::PipelineSubmitMode::Standard) noexcept;
 [[nodiscard]] Status finish_pipeline_on(
     const std::shared_ptr<PipelineState> &state,
     node::accel::detail::PreparedPipelineEvidence &&evidence) noexcept;

@@ -7,8 +7,8 @@
 
 #include <node/accel/context.hpp>
 
-#include "admission.hpp"
 #include "../backend/ops/table.hpp"
+#include "admission.hpp"
 #include "capability.hpp"
 #include "shared.hpp"
 namespace rund::node::accel::detail {
@@ -19,8 +19,10 @@ namespace rund::node::accel::detail {
                                              const rund::Buffer &buffer,
                                              const char *reason);
 
-[[nodiscard]] rund::AccelBuffer CreateAccelBufferWithInitialization(
-    const rund::AccelContext &context, rund::AccelBufferDesc desc,
-    BackendBufferInitialization initialization);
+[[nodiscard]] rund::AccelBuffer
+CreateAccelBufferWithInitialization(const rund::AccelContext &context,
+                                    rund::AccelBufferDesc desc,
+                                    BackendBufferInitialization initialization,
+                                    std::uint64_t exact_storage_bytes = 0u);
 
 } // namespace rund::node::accel::detail

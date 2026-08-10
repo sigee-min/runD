@@ -51,6 +51,11 @@ CreateMetalResidentBuffer(const rund::AccelDevice &pick,
     return RejectResident<MetalResidentBufferResult>(
         "accel_metal_buffer_unavailable");
   }
+  const NSUInteger allocated = [metal_buffer allocatedSize];
+  if (allocated < length) {
+    return RejectResident<MetalResidentBufferResult>(
+        "accel_metal_buffer_unavailable");
+  }
   if (zero_initialize) {
     void *const contents = [metal_buffer contents];
     if (length != 0u && contents == nullptr) {
@@ -67,10 +72,8 @@ CreateMetalResidentBuffer(const rund::AccelDevice &pick,
     return RejectResident<MetalResidentBufferResult>(
         "accel_metal_buffer_unavailable");
   }
-  std::shared_ptr<MetalResidentOwner> owner;
-  try {
-    owner = std::make_shared<MetalResidentOwner>();
-  } catch (const std::bad_alloc &) {
+  std::shared_ptr<MetalResidentOwner> owner = MakeMetalResidentOwner();
+  if (owner == nullptr) {
     return RejectResident<MetalResidentBufferResult>(
         "accel_metal_buffer_unavailable");
   }
@@ -86,6 +89,7 @@ CreateMetalResidentBuffer(const rund::AccelDevice &pick,
   owner->adapter_owner = pick.owner;
   owner->buffer = std::move(handle);
   owner->id = id;
+  owner->ref = RefFromDesc(id, desc);
   try {
     const auto [entry, inserted] = resident.buffers.emplace(
         id,
@@ -116,9 +120,11 @@ CreateMetalResidentBuffer(const rund::AccelDevice &pick,
       adapter->stats.runtime.run.allocations.buffer_allocation_count, 1u);
   return MetalResidentBufferResult{
       .check = rund::AccelCheck{true, "ok"},
-      .ref = RefFromDesc(id, desc),
+      .ref = owner->ref,
       .handle = owner,
       .device_buffer = owner->buffer,
+      .storage_bytes = allocated,
+      .storage_reused = false,
   };
 }
 #else

@@ -2,7 +2,7 @@
 #include <accel/device.hpp>
 
 #include "../domain.hpp"
-#include "../stencil/shape.hpp"
+#include "../stencil/bindings.hpp"
 #include "buffer/batch.hpp"
 #include "stencil/reference.hpp"
 namespace rund::node::accel::detail {
@@ -12,7 +12,7 @@ rund::AccelCheck ExecuteCpuStencil(const rund::AccelDevice &pick,
                                    const rund::kernel::StencilPlan &plan,
                                    const rund::kernel::ComputeDomain domain,
                                    const RangeBinds &bindings) {
-  if (!pick.check.ok || !StencilShapeOk(desc, plan, bindings)) {
+  if (!pick.check.ok || !StencilBindingsMatch(desc, plan, bindings)) {
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }
   CpuBufferResult input{};

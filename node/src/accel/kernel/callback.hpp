@@ -15,6 +15,11 @@ enum class KernelTiming : std::uint8_t {
   Dispatch,
 };
 
+enum class PipelineSubmitMode : std::uint8_t {
+  Standard,
+  Residency,
+};
+
 struct KernelResult final {
   rund::AccelCheck check{};
   rund::RuntimeStats stats{};

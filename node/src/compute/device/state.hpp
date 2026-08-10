@@ -9,6 +9,7 @@
 #include <node/accel/context.hpp>
 #include <node/runtime/backend.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
@@ -40,14 +41,19 @@ struct TrafficMeter final {
   TrafficMeter(const TrafficMeter &) = delete;
   TrafficMeter &operator=(const TrafficMeter &) = delete;
 
-  std::uint64_t peak{};
-  std::uint64_t cumulative{};
+  std::atomic<std::uint64_t> peak{};
+  std::atomic<std::uint64_t> cumulative{};
 };
+
+static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
+              "warm Device traffic evidence requires lock-free uint64 atomics");
 
 struct DeviceMemory final {
   // Serializes the allocate/check/record transaction for the paired logical
-  // and committed meters. This remains independent of conservative Pipeline
-  // admission; no hidden capacity authority exists.
+  // and committed allocation meters. Traffic is monotonic atomic state in the
+  // same owner, so warm transfers never acquire this gate. This remains
+  // independent of conservative Pipeline admission; no hidden capacity
+  // authority exists.
   std::mutex gate;
   AllocationMeter logical;
   AllocationMeter host;

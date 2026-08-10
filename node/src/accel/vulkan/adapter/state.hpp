@@ -54,6 +54,9 @@ struct VulkanAdapter {
   VkPhysicalDeviceMemoryProperties memory_properties{};
   VkDevice device = VK_NULL_HANDLE;
   VkQueue compute_queue = VK_NULL_HANDLE;
+  // Physical-device extension identity is frozen when this adapter is
+  // created. Runtime policy reads this fact; it never probes or mutates it.
+  const bool portability_subset;
   std::uint32_t compute_queue_family = 0u;
   rund::kernel::ComputeCaps caps{};
   std::string device_name{};
@@ -124,7 +127,7 @@ struct VulkanAdapter {
   std::uint64_t readback_ns = 0u;
   std::atomic<bool> fault_device_lost_once{false};
   std::atomic<bool> fault_trace_unavailable_once{false};
-  VulkanAdapter();
+  explicit VulkanAdapter(bool portability_subset = false);
   VulkanAdapter(const VulkanAdapter &) = delete;
   VulkanAdapter &operator=(const VulkanAdapter &) = delete;
   ~VulkanAdapter();

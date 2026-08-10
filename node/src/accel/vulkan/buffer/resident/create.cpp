@@ -1,7 +1,6 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include <rund/counter.hpp>
 #include "../../../resident/ref.hpp"
 #include "../../../resident/result.hpp"
 #include "../../../resident/usage.hpp"
@@ -14,6 +13,7 @@
 #include "../transfer/range.hpp"
 #include "pool.hpp"
 #include "storage.hpp"
+#include <rund/counter.hpp>
 
 #include <limits>
 #include <mutex>
@@ -26,8 +26,8 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 VulkanResidentBufferResult
 CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
-                           const ResidentDesc &desc,
-                           const bool zero_initialize) {
+                           const ResidentDesc &desc, const bool zero_initialize,
+                           const std::uint64_t exact_storage_bytes) {
   if (!VulkanPickOwnsAdapter(pick)) {
     return RejectResident<VulkanResidentBufferResult>(
         "accel_buffer_backend_unavailable");
@@ -67,14 +67,21 @@ CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
     return RejectResident<VulkanResidentBufferResult>(
         "accel_vulkan_resident_id_unavailable");
   }
-  reused = TakeVulkanResidentStorage(
-      *adapter, storage_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, buffer);
+  reused = TakeVulkanResidentStorage(*adapter, storage_bytes,
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, buffer,
+                                     exact_storage_bytes);
   if (reused) {
     ::rund::detail::counter::Accumulate(adapter->buffer_reuse_hit_count, 1u);
   } else if (!CreateFreshVulkanBuffer(*adapter, storage_bytes,
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                       VulkanMemoryUse::Resident, buffer)) {
     return RejectResident<VulkanResidentBufferResult>(VulkanLastError(adapter));
+  }
+  if (exact_storage_bytes != 0u &&
+      buffer.allocated_bytes != exact_storage_bytes) {
+    RetireVulkanResidentStorage(*adapter, buffer);
+    return RejectResident<VulkanResidentBufferResult>(
+        "accel_vulkan_memory_unavailable");
   }
   // A pooled allocation is a physical storage optimization, not a logical
   // Buffer identity.  Public zero-initialized creation clears fresh and reused
@@ -137,7 +144,7 @@ CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
       .handle = owner,
       .storage = storage,
       .device_buffer = &storage->buffer,
-      .storage_bytes = storage->buffer.bytes,
+      .storage_bytes = storage->buffer.allocated_bytes,
       .storage_reused = reused,
   };
 }

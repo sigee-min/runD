@@ -73,6 +73,8 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
                                                Backend);
 [[nodiscard]] int CheckDevicePipelineMemoryAdmission();
 [[nodiscard]] int CheckMetalGuardTransform();
+[[nodiscard]] int CheckMetalResidencyAdmission();
+[[nodiscard]] int CheckVulkanTransferAdmission();
 [[nodiscard]] int CheckViews(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckViewArena(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckSealedPipelineBindings(rund::compute::Device &);

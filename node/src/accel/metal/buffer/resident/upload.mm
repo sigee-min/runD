@@ -10,6 +10,7 @@
 #import <Metal/Metal.h>
 #endif
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -23,6 +24,86 @@
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+namespace {
+
+struct MetalUploadPlan final {
+  std::shared_ptr<void> owner;
+  std::byte *target = nullptr;
+  const void *data = nullptr;
+  std::uint64_t bytes = 0u;
+  std::uint64_t offset = 0u;
+};
+
+BackendUpload UploadMetalResidentBuffersWithScratch(
+    MetalAdapter &adapter, const std::span<const UploadRoute> requests,
+    const std::span<MetalUploadPlan> plans, const TransferAuthority authority) {
+  std::unique_lock adapter_lock{adapter.mutex, std::defer_lock};
+  if (authority == TransferAuthority::Shared) {
+    adapter_lock.lock();
+  }
+  std::size_t plan_count = 0u;
+  {
+    MetalResidentState &resident = MetalResidents(adapter);
+    std::unique_lock resident_lock{resident.mutex, std::defer_lock};
+    if (authority == TransferAuthority::Shared) {
+      resident_lock.lock();
+    }
+    for (const UploadRoute &request : requests) {
+      if (request.handle == nullptr ||
+          (request.bytes != 0u && request.data == nullptr)) {
+        return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
+      }
+      MetalResidentBufferResult resolved =
+          authority == TransferAuthority::PipelinePrivate
+              ? ResolvePrivateMetalResidentBuffer(adapter, request.resident,
+                                                  request.handle)
+              : ResolveMetalResidentBuffer(resident, request.resident,
+                                           request.handle,
+                                           "accel_buffer_unavailable");
+      if (!resolved.check.ok || resolved.device_buffer == nullptr) {
+        return BackendUpload{.check = resolved.check};
+      }
+      if (request.offset > resolved.ref.bytes ||
+          request.bytes > resolved.ref.bytes - request.offset) {
+        return BackendUpload{.check = {false, "accel_buffer_upload_overflow"}};
+      }
+      if (request.bytes == 0u) {
+        continue;
+      }
+      if (plan_count >= plans.size()) {
+        return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
+      }
+      id<MTLBuffer> metal_buffer =
+          (__bridge id<MTLBuffer>)resolved.device_buffer.get();
+      void *const contents = [metal_buffer contents];
+      if (contents == nullptr) {
+        return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
+      }
+      plans[plan_count++] = MetalUploadPlan{
+          .owner = std::move(resolved.device_buffer),
+          .target = static_cast<std::byte *>(contents),
+          .data = request.data,
+          .bytes = request.bytes,
+          .offset = request.offset,
+      };
+    }
+  }
+  std::uint64_t uploaded_bytes = 0u;
+  for (const MetalUploadPlan &plan : plans.first(plan_count)) {
+    std::memcpy(plan.target + static_cast<std::size_t>(plan.offset), plan.data,
+                static_cast<std::size_t>(plan.bytes));
+    ::rund::detail::counter::Accumulate(uploaded_bytes, plan.bytes);
+  }
+  if (authority == TransferAuthority::Shared) {
+    ::rund::detail::counter::Accumulate(
+        adapter.stats.runtime.run.transfer.host_to_device_bytes,
+        uploaded_bytes);
+  }
+  return BackendUpload{.check = {true, "ok"}};
+}
+
+} // namespace
+
 rund::AccelCheck UploadMetalResidentBuffer(
     const rund::AccelDevice &pick, const rund::kernel::ResidentBufferRef &ref,
     const std::shared_ptr<void> &handle, const void *const data,
@@ -63,73 +144,25 @@ rund::AccelCheck UploadMetalResidentBuffer(
   return rund::AccelCheck{true, "ok"};
 }
 
-BackendUpload
-UploadMetalResidentBuffers(const rund::AccelDevice &pick,
-                           const std::span<const UploadRoute> requests,
-                           const TransferCompletion completion) {
+BackendUpload UploadMetalResidentBuffers(
+    const rund::AccelDevice &pick, const std::span<const UploadRoute> requests,
+    const TransferCompletion completion, const TransferAuthority authority) {
   (void)completion;
   MetalAdapter *const adapter = MetalAdapterFromPick(pick);
   if (adapter == nullptr || requests.empty()) {
     return {};
   }
-  struct UploadPlan final {
-    std::shared_ptr<void> owner;
-    std::byte *target = nullptr;
-    const void *data = nullptr;
-    std::uint64_t bytes = 0u;
-    std::uint64_t offset = 0u;
-  };
-  std::unique_lock adapter_lock{adapter->mutex};
+  std::array<MetalUploadPlan, kInlineTransferCapacity> inline_plans{};
+  if (requests.size() <= inline_plans.size()) {
+    return UploadMetalResidentBuffersWithScratch(
+        *adapter, requests,
+        std::span<MetalUploadPlan>{inline_plans}.first(requests.size()),
+        authority);
+  }
   try {
-    std::vector<UploadPlan> plans;
-    plans.reserve(requests.size());
-    {
-      MetalResidentState &resident = MetalResidents(*adapter);
-      std::lock_guard resident_lock{resident.mutex};
-      for (const UploadRoute &request : requests) {
-        if (request.handle == nullptr ||
-            (request.bytes != 0u && request.data == nullptr)) {
-          return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
-        }
-        MetalResidentBufferResult resolved = ResolveMetalResidentBuffer(
-            resident, request.resident, request.handle,
-            "accel_buffer_unavailable");
-        if (!resolved.check.ok || resolved.device_buffer == nullptr) {
-          return BackendUpload{.check = resolved.check};
-        }
-        if (request.offset > resolved.ref.bytes ||
-            request.bytes > resolved.ref.bytes - request.offset) {
-          return BackendUpload{
-              .check = {false, "accel_buffer_upload_overflow"}};
-        }
-        if (request.bytes == 0u) {
-          continue;
-        }
-        id<MTLBuffer> metal_buffer =
-            (__bridge id<MTLBuffer>)resolved.device_buffer.get();
-        void *const contents = [metal_buffer contents];
-        if (contents == nullptr) {
-          return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
-        }
-        plans.push_back(UploadPlan{
-            .owner = std::move(resolved.device_buffer),
-            .target = static_cast<std::byte *>(contents),
-            .data = request.data,
-            .bytes = request.bytes,
-            .offset = request.offset,
-        });
-      }
-    }
-    std::uint64_t uploaded_bytes = 0u;
-    for (const UploadPlan &plan : plans) {
-      std::memcpy(plan.target + static_cast<std::size_t>(plan.offset),
-                  plan.data, static_cast<std::size_t>(plan.bytes));
-      ::rund::detail::counter::Accumulate(uploaded_bytes, plan.bytes);
-    }
-    ::rund::detail::counter::Accumulate(
-        adapter->stats.runtime.run.transfer.host_to_device_bytes,
-        uploaded_bytes);
-    return BackendUpload{.check = {true, "ok"}};
+    std::vector<MetalUploadPlan> overflow_plans(requests.size());
+    return UploadMetalResidentBuffersWithScratch(*adapter, requests,
+                                                 overflow_plans, authority);
   } catch (const std::bad_alloc &) {
     return BackendUpload{.check = {false, "accel_buffer_unavailable"}};
   }
@@ -146,7 +179,8 @@ UploadMetalResidentBuffer(const rund::AccelDevice &,
 
 BackendUpload UploadMetalResidentBuffers(const rund::AccelDevice &,
                                          const std::span<const UploadRoute>,
-                                         const TransferCompletion) {
+                                         const TransferCompletion,
+                                         const TransferAuthority) {
   return {};
 }
 

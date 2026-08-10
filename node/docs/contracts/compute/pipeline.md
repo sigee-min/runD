@@ -5,6 +5,12 @@ prepares one frozen declaration-ordered sequence of compiled Programs over
 caller-owned resident Buffers, then reuses that prepared sequence without
 rebuilding its cross-Program plan.
 
+The opt-in [virtual residency contract](./residency.md) consumes the same
+Pipeline planning, placement, admission, execution, and memory owners. It adds
+one compact page policy plus two fixed slot arenas; it does not wrap
+caller-created page Buffers or create another Pipeline allocator. Each wave
+executes through the same ordinary-buffer backend owner.
+
 ## Scope
 
 `rund::compute::Pipeline` is the prepared execution owner for a frozen,
@@ -3586,24 +3592,6 @@ shader's row-major workgroup linearization preserve logical index order; this
 is a host-overhead and capacity improvement, not an algorithm or
 workload-dependent execution branch.
 
-## Rejected Alternatives
-
-- One monolithic Flow: valid for compiler-visible fusion, but it removes the
-  requested modular Program boundary and is not a Pipeline implementation.
-- Dependent Batch mode: breaks Batch's disjoint-storage and independent-result
-  contract and creates two Batch meanings.
-- Explicit DAG: creates another order authority and requires stable
-  topological scheduling that the use case does not need.
-- Buffer-address fingerprint: makes equivalent reconstruction and replay
-  identity depend on allocation.
-- Per-step submit: preserves modularity but leaves the structural bottleneck.
-- Metal direct-encode fallback: retains two warm execution authorities and
-  makes capability determine performance meaning.
-- Hidden host pack/unpack: violates resident state and payload round-trip law.
-- Implicit CPU retry: changes backend, timing, failure, and numeric evidence.
-- Result memoization: Buffer contents and external state are not proven by the
-  Pipeline fingerprint.
-
 ## Physical Ownership Map
 
 The implementation follows repository naming rules and keeps one-word leaves.
@@ -3625,6 +3613,8 @@ node/src/compute/pipeline/async.cpp
 node/src/compute/pipeline/profile.cpp
 node/src/compute/pipeline/sample.hpp
 node/src/compute/pipeline/transfer.hpp
+node/src/compute/pipeline/transfer/batch.hpp
+node/src/compute/pipeline/transfer/batch/{model,publication,upload,download}.cpp
 node/src/compute/pipeline/run/memory.hpp
 
 node/src/accel/kernel/status.hpp
@@ -3643,6 +3633,7 @@ node/src/accel/vulkan/kernel/pipeline/
 
 node/tests/contract/compute/pipeline.cpp
 node/tests/contract/compute/pipeline/
+node/tests/contract/compute/pipeline/transfer/
 node/tests/contract/compute/window/nested/
 node/tests/contract/compute/window/output/
 node/tests/contract/runtime/product/compute/pipeline.cpp
@@ -3973,10 +3964,9 @@ can claim the Pipeline contract:
     counters, and process-wide allocation count/byte evidence with
     driver-owned Vulkan submission allocation reported separately.
 
-An unavailable backend capability, typed rejection, partial implementation,
-direct-encode fallback, skipped native Vulkan run, or documentation-only API is
-not a passed requirement. Unrun verification is named as unrun; it is never
-inferred from another backend or a passing build.
+A passed requirement has executable product behavior and direct evidence from
+the requested backend. Every unrun verification is recorded explicitly rather
+than inferred from another backend or a passing build.
 
 ## Primary Platform Evidence
 

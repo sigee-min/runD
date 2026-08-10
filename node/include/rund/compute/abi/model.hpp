@@ -79,6 +79,8 @@ struct JobAccess;
 struct JobState;
 struct PipelineBuildState;
 struct PipelineState;
+struct VirtualBufferState;
+struct VirtualPipelineState;
 struct BufferAccess;
 struct DeviceAccess;
 struct ProgramAccess;

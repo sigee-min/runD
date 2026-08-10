@@ -13,7 +13,7 @@
 #include "src/accel/metal/range/local.hpp"
 #include "src/accel/range_aggregate/plan.hpp"
 #include "src/accel/source/hash.hpp"
-#include "src/accel/stencil/shape.hpp"
+#include "src/accel/stencil/range.hpp"
 #include "src/accel/vulkan/kernel/pipeline/template.hpp"
 #include "src/accel/vulkan/range/local.hpp"
 #include <node/accel/buffer.hpp>
@@ -44,7 +44,7 @@ MetalStencilRangePlan(const rund::AccelDevice &pick,
                       const rund::kernel::StencilPlan &plan,
                       const rund::kernel::ComputeDomain domain) noexcept {
   using namespace rund::node::accel::detail;
-  const std::optional<RangeShape> shape = StencilRangeShape(plan, domain);
+  const std::optional<RangeShape> shape = ProjectStencilRange(plan, domain);
   return shape.has_value() ? PlanRange(*shape, MetalRangeCaps(pick))
                            : RangePlan::rejected("accel_kernel_graph_invalid");
 }
@@ -54,7 +54,7 @@ VulkanStencilRangePlan(const rund::AccelDevice &pick,
                        const rund::kernel::StencilPlan &plan,
                        const rund::kernel::ComputeDomain domain) noexcept {
   using namespace rund::node::accel::detail;
-  const std::optional<RangeShape> shape = StencilRangeShape(plan, domain);
+  const std::optional<RangeShape> shape = ProjectStencilRange(plan, domain);
   return shape.has_value() ? PlanRange(*shape, VulkanRangeCaps(pick))
                            : RangePlan::rejected("accel_kernel_graph_invalid");
 }
@@ -355,7 +355,8 @@ MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
 }
 #endif
 
-[[nodiscard]] bool BackendRunsStencilShapeCases(const rund::AccelDevice &pick) {
+[[nodiscard]] bool
+BackendRunsStencilGeometryCases(const rund::AccelDevice &pick) {
   return StencilMatch(stencil::MatchesWideWindowU32(pick), "sum.u32.radius2") &&
          StencilMatch(stencil::MatchesCount65U32(pick), "sum.u32.count65") &&
          StencilMatch(stencil::MatchesRadius64BoundaryU32(pick),
@@ -425,7 +426,7 @@ RuntimeSharedProbeMatchesContract(const RuntimeSharedProbe probe,
 }
 
 [[nodiscard]] bool BackendRunsStencilRemainder(const rund::AccelDevice &pick) {
-  return BackendRunsStencilShapeCases(pick) &&
+  return BackendRunsStencilGeometryCases(pick) &&
          BackendRunsStencilValueCases(pick);
 }
 
@@ -570,7 +571,7 @@ private:
 } // namespace
 
 bool stencil::RunBackend(const rund::AccelDevice &pick) {
-  return StencilMatch(stencil::StorageContract(), "shape.storage") &&
+  return StencilMatch(stencil::BindingsContract(), "bindings") &&
          StencilMatch(stencil::MatchesU32(pick), "sum.u32") &&
          BackendRunsStencilRemainder(pick);
 }
@@ -583,7 +584,7 @@ bool stencil::RunRequiredMetal() {
                                                      rund::AccelApi::Metal);
   }
   if (!StencilMatch(pick.api == rund::AccelApi::Metal, "pick.api") ||
-      !StencilMatch(stencil::StorageContract(), "shape.storage")) {
+      !StencilMatch(stencil::BindingsContract(), "bindings")) {
     return false;
   }
   auto *const adapter = static_cast<rund::node::accel::detail::MetalAdapter *>(

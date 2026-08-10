@@ -19,6 +19,8 @@ struct MetalResidentBufferResult {
   rund::kernel::ResidentBufferRef ref{};
   std::shared_ptr<void> handle{};
   std::shared_ptr<void> device_buffer{};
+  std::uint64_t storage_bytes{};
+  bool storage_reused{};
 };
 
 } // namespace rund::node::accel::detail

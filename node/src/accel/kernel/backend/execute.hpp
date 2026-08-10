@@ -62,23 +62,30 @@ RunPreparedMetalBatch(std::span<const BackendBatchEntry> entries,
                       std::span<rund::AccelCheck> results,
                       std::shared_ptr<void> &workspace,
                       rund::RuntimeStats &stats);
+[[nodiscard]] rund::AccelCheck PrepareMetalPipeline(
+    std::span<const BackendBatchEntry> templates,
+    std::span<const BackendBatchEntry> entries,
+    std::span<const std::uint8_t> barriers,
+    std::span<const TileTransducer> transducers,
+    std::span<const NestedAggregate> aggregates,
+    std::span<const BackendPublish> publications,
+    PreparedKernelTemplateRegistry &registry,
+    PreparedPipelineStatusLayout &status, bool profile_steps,
+    std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
+    PreparedPipelineMemoryMeter *memory_meter, rund::AccelRunFacts &preparation,
+    PreparedPipelineFailure &failure);
 [[nodiscard]] rund::AccelCheck
-PrepareMetalPipeline(std::span<const BackendBatchEntry> templates,
-                     std::span<const BackendBatchEntry> entries,
-                     std::span<const std::uint8_t> barriers,
-                     std::span<const TileTransducer> transducers,
-                     std::span<const NestedAggregate> aggregates,
-                     std::span<const BackendPublish> publications,
-                     PreparedKernelTemplateRegistry &registry,
-                     PreparedPipelineStatusLayout &status, bool profile_steps,
-                     std::shared_ptr<void> &prepared,
-                     PreparedPipelineMemory &memory,
-                     PreparedPipelineMemoryMeter *memory_meter,
-                     PreparedPipelineFailure &failure);
+StageMetalPipelineResidency(const std::shared_ptr<void> &prepared,
+                            std::shared_ptr<void> &candidate,
+                            std::uint64_t &retained_bytes) noexcept;
+void CommitMetalPipelineResidency(const std::shared_ptr<void> &prepared,
+                                  std::shared_ptr<void> candidate) noexcept;
 [[nodiscard]] rund::AccelCheck
-SubmitPreparedMetalPipeline(const std::shared_ptr<void> &prepared,
-                            KernelCompletion completion, void *user,
-                            KernelTiming timing) noexcept;
+QueryMetalPipelineResidency(const std::shared_ptr<void> &prepared,
+                            bool &supported) noexcept;
+[[nodiscard]] rund::AccelCheck SubmitPreparedMetalPipeline(
+    const std::shared_ptr<void> &prepared, KernelCompletion completion,
+    void *user, KernelTiming timing, PipelineSubmitMode mode) noexcept;
 [[nodiscard]] rund::AccelCheck SubmitPreparedMetalKernel(
     const BackendRun &run, const std::shared_ptr<void> &prepared,
     KernelCompletion completion, void *user, PreparedMemoryMeter *memory,
@@ -114,23 +121,21 @@ RunPreparedVulkanBatch(std::span<const BackendBatchEntry> entries,
                        std::span<rund::AccelCheck> results,
                        std::shared_ptr<void> &workspace,
                        rund::RuntimeStats &stats);
-[[nodiscard]] rund::AccelCheck
-PrepareVulkanPipeline(std::span<const BackendBatchEntry> templates,
-                      std::span<const BackendBatchEntry> entries,
-                      std::span<const std::uint8_t> barriers,
-                      std::span<const TileTransducer> transducers,
-                      std::span<const NestedAggregate> aggregates,
-                      std::span<const BackendPublish> publications,
-                      PreparedKernelTemplateRegistry &registry,
-                      PreparedPipelineStatusLayout &status, bool profile_steps,
-                      std::shared_ptr<void> &prepared,
-                      PreparedPipelineMemory &memory,
-                      PreparedPipelineMemoryMeter *memory_meter,
-                      PreparedPipelineFailure &failure);
-[[nodiscard]] rund::AccelCheck
-SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
-                             KernelCompletion completion, void *user,
-                             KernelTiming timing) noexcept;
+[[nodiscard]] rund::AccelCheck PrepareVulkanPipeline(
+    std::span<const BackendBatchEntry> templates,
+    std::span<const BackendBatchEntry> entries,
+    std::span<const std::uint8_t> barriers,
+    std::span<const TileTransducer> transducers,
+    std::span<const NestedAggregate> aggregates,
+    std::span<const BackendPublish> publications,
+    PreparedKernelTemplateRegistry &registry,
+    PreparedPipelineStatusLayout &status, bool profile_steps,
+    std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
+    PreparedPipelineMemoryMeter *memory_meter, rund::AccelRunFacts &preparation,
+    PreparedPipelineFailure &failure);
+[[nodiscard]] rund::AccelCheck SubmitPreparedVulkanPipeline(
+    const std::shared_ptr<void> &prepared, KernelCompletion completion,
+    void *user, KernelTiming timing, PipelineSubmitMode mode) noexcept;
 [[nodiscard]] rund::AccelCheck SubmitPreparedVulkanKernel(
     const BackendRun &run, const std::shared_ptr<void> &prepared,
     KernelCompletion completion, void *user, PreparedMemoryMeter *memory,

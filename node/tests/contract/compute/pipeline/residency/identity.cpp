@@ -1,0 +1,54 @@
+#include "local.hpp"
+
+#include "src/compute/pipeline/residency/planner.hpp"
+
+#include <array>
+#include <cstdint>
+
+namespace rund_node_test_pipeline_residency {
+namespace {
+
+using namespace rund::compute::detail::residency;
+
+[[nodiscard]] PlanResult plan(const std::uint64_t page_bytes,
+                              const std::uint64_t pages,
+                              const std::uint64_t requested,
+                              const std::uint64_t maximum = 4u) noexcept {
+  return PlanResidency(PlanInput{
+      .page_bytes = page_bytes,
+      .page_count = pages,
+      .requested_slots = requested,
+      .max_slots = maximum,
+  });
+}
+
+} // namespace
+
+int CheckIdentity() {
+  const auto canonical = plan(4096u, 3u, 2u);
+  const auto same = plan(4096u, 3u, 2u);
+  const auto same_with_larger_limit = plan(4096u, 3u, 2u, 8u);
+  const auto saturated = plan(4096u, 3u, 3u);
+  const auto saturated_by_request = plan(4096u, 3u, 4u);
+  if (!canonical || !same || !same_with_larger_limit || !saturated ||
+      !saturated_by_request || !canonical.plan.identity() ||
+      canonical.plan.identity() != same.plan.identity() ||
+      canonical.plan.identity() != same_with_larger_limit.plan.identity() ||
+      saturated.plan.identity() != saturated_by_request.plan.identity()) {
+    return 1;
+  }
+
+  const std::array changed{
+      plan(8192u, 3u, 2u),
+      plan(4096u, 4u, 2u),
+      plan(4096u, 3u, 1u),
+  };
+  for (const PlanResult &candidate : changed) {
+    if (!candidate || candidate.plan.identity() == canonical.plan.identity()) {
+      return 2;
+    }
+  }
+  return 0;
+}
+
+} // namespace rund_node_test_pipeline_residency

@@ -6,6 +6,7 @@
 #include "../../backend.hpp"
 #include "../../buffer/local.hpp"
 #include "../../exception.hpp"
+#include "../../stats.hpp"
 #include "../../status.hpp"
 #include "../local.hpp"
 
@@ -387,12 +388,14 @@ Status prepare_backend(PipelineState &value, Location &location) noexcept {
       return Status::fail(primary.reason());
     }
     state->prepared = std::move(primary).value();
+    accumulate_run_facts(state->stats, state->prepared.preparation);
     if (state->transactional) {
       auto alternate = prepare_stream(true);
       if (!alternate) {
         return Status::fail(alternate.reason());
       }
       state->alternate_prepared = std::move(alternate).value();
+      accumulate_run_facts(state->stats, state->alternate_prepared.preparation);
     }
     return seed_pipeline_generations(*state, 0u, 0u);
   } catch (...) {

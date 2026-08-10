@@ -125,7 +125,7 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/scatter.cpp
   tests/contract/accel/kernel/stencil.cpp
   tests/contract/accel/kernel/stencil/backend.cpp
-  tests/contract/accel/kernel/stencil/storage.cpp
+  tests/contract/accel/kernel/stencil/bindings.cpp
   tests/contract/accel/kernel/window.cpp
 )
 

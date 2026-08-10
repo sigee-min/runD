@@ -53,6 +53,7 @@ inline constexpr std::size_t kMetalSourceLibraryCapacity = 16u;
 struct MetalBuffer {
   std::uint64_t id = 0u;
   rund::kernel::u64 bytes = 0u;
+  rund::kernel::u64 allocated_bytes = 0u;
   MetalBufferUsage usage = MetalBufferUsage::Input;
   std::shared_ptr<void> buffer{};
 };
@@ -60,6 +61,7 @@ struct MetalBuffer {
 struct MetalRuntimeBuffer {
   std::uint64_t id = 0u;
   rund::kernel::u64 bytes = 0u;
+  rund::kernel::u64 allocated_bytes = 0u;
   MetalBufferUsage usage = MetalBufferUsage::Input;
   std::shared_ptr<void> buffer{};
   std::uint64_t offset = 0u;

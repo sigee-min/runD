@@ -1,4 +1,5 @@
 #include "compute/telemetry.hpp"
+#include "compute/virtual.hpp"
 
 #include "compute/backend.hpp"
 #include "compute/batch.hpp"
@@ -66,6 +67,9 @@ int main() {
   }
   if (const int result = package_compute::Telemetry(); result != 0) {
     return Fail("telemetry", result);
+  }
+  if (const int result = package_compute::VirtualResidency(); result != 0) {
+    return Fail("virtual-residency", result);
   }
   return 0;
 }

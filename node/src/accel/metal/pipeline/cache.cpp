@@ -49,6 +49,12 @@ PromoteMetalSourceLibrary(std::vector<MetalSourceLibrary> &libraries,
 
 std::shared_ptr<void> LookupMetalNamedPipeline(MetalAdapter &adapter,
                                                const std::string_view key) {
+  return LookupMetalNamedPipeline(adapter, key, nullptr);
+}
+
+std::shared_ptr<void>
+LookupMetalNamedPipeline(MetalAdapter &adapter, const std::string_view key,
+                         rund::AccelRunFacts *const local) {
   const std::string scoped_key = MetalPipelineCacheKey(key);
   std::lock_guard<std::mutex> lock{adapter.mutex};
   const std::uint64_t hash = SourceHash(scoped_key);
@@ -59,16 +65,19 @@ std::shared_ptr<void> LookupMetalNamedPipeline(MetalAdapter &adapter,
         adapter.named_pipelines[index->second].pipeline != nullptr) {
       ::rund::detail::counter::Accumulate(
           adapter.stats.runtime.run.allocations.pipeline_cache_hit_count, 1u);
+      if (local != nullptr) {
+        ::rund::detail::counter::Accumulate(
+            local->allocations.pipeline_cache_hit_count, 1u);
+      }
       return adapter.named_pipelines[index->second].pipeline;
     }
   }
   return {};
 }
 
-MetalNamedPipelinePublishResult
-PublishMetalNamedPipeline(MetalAdapter &adapter, std::string key,
-                          std::shared_ptr<void> pipeline,
-                          const std::uint64_t create_ns) noexcept {
+MetalNamedPipelinePublishResult PublishMetalNamedPipeline(
+    MetalAdapter &adapter, std::string key, std::shared_ptr<void> pipeline,
+    const std::uint64_t create_ns, rund::AccelRunFacts *const local) noexcept {
   try {
     key = MetalPipelineCacheKey(key);
   } catch (...) {
@@ -114,6 +123,12 @@ PublishMetalNamedPipeline(MetalAdapter &adapter, std::string key,
         adapter.stats.runtime.run.allocations.pipeline_compile_count, 1u);
     ::rund::detail::counter::Accumulate(
         adapter.stats.runtime.run.time.pipeline_create_ns, create_ns);
+    if (local != nullptr) {
+      ::rund::detail::counter::Accumulate(
+          local->allocations.pipeline_compile_count, 1u);
+      ::rund::detail::counter::Accumulate(local->time.pipeline_create_ns,
+                                          create_ns);
+    }
     return {MetalNamedPipelinePublishStatus::Inserted,
             adapter.named_pipelines.back().pipeline};
   } catch (...) {
@@ -123,9 +138,10 @@ PublishMetalNamedPipeline(MetalAdapter &adapter, std::string key,
 
 void StoreMetalNamedPipeline(MetalAdapter &adapter, std::string key,
                              std::shared_ptr<void> pipeline,
-                             const std::uint64_t create_ns) {
+                             const std::uint64_t create_ns,
+                             rund::AccelRunFacts *const local) {
   (void)PublishMetalNamedPipeline(adapter, std::move(key), std::move(pipeline),
-                                  create_ns);
+                                  create_ns, local);
 }
 
 void RecordMetalUncachedPipelineCompile(
@@ -151,10 +167,9 @@ std::shared_ptr<void> LookupMetalSourceLibrary(MetalAdapter &adapter,
   return {};
 }
 
-MetalSourceLibraryPublishResult
-PublishMetalSourceLibrary(MetalAdapter &adapter, std::string source,
-                          std::shared_ptr<void> library,
-                          const std::uint64_t compile_ns) noexcept {
+MetalSourceLibraryPublishResult PublishMetalSourceLibrary(
+    MetalAdapter &adapter, std::string source, std::shared_ptr<void> library,
+    const std::uint64_t compile_ns, rund::AccelRunFacts *const local) noexcept {
   try {
     std::lock_guard<std::mutex> lock{adapter.mutex};
     if (library == nullptr) {
@@ -169,6 +184,10 @@ PublishMetalSourceLibrary(MetalAdapter &adapter, std::string source,
                                         1u);
     ::rund::detail::counter::Accumulate(
         adapter.stats.runtime.run.time.shader_compile_ns, compile_ns);
+    if (local != nullptr) {
+      ::rund::detail::counter::Accumulate(local->time.shader_compile_ns,
+                                          compile_ns);
+    }
     const std::uint64_t hash = SourceHash(source);
     const std::size_t index =
         FindMetalSourceLibrary(adapter.source_libraries, source, hash);

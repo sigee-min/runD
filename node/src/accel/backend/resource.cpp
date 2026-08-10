@@ -56,12 +56,14 @@ Resident(const rund::Buffer &buffer) noexcept {
 rund::Buffer
 CreateBackendBuffer(const std::shared_ptr<PickToken> &token,
                     const rund::BufferDesc &desc,
-                    const BackendBufferInitialization initialization) {
+                    const BackendBufferInitialization initialization,
+                    const std::uint64_t exact_storage_bytes) {
   if (!ValidRoute(token) || token->ops->create == nullptr) {
     return rund::Buffer{
         .check = rund::AccelCheck{false, "accel_buffer_backend_unavailable"}};
   }
-  rund::Buffer created = token->ops->create(token->raw, desc, initialization);
+  rund::Buffer created =
+      token->ops->create(token->raw, desc, initialization, exact_storage_bytes);
   if (!created.check.ok) {
     return created;
   }
@@ -106,12 +108,17 @@ UploadBackendBuffer(const std::shared_ptr<PickToken> &token,
 
 BackendUpload UploadBackendBuffers(const std::shared_ptr<PickToken> &token,
                                    const std::span<const UploadRoute> requests,
-                                   const TransferCompletion completion) {
+                                   const TransferCompletion completion,
+                                   const TransferAuthority authority) {
   if (!ValidRoute(token) || requests.empty()) {
     return {};
   }
   if (token->ops->upload_batch != nullptr) {
-    return token->ops->upload_batch(token->raw, requests, completion);
+    return token->ops->upload_batch(token->raw, requests, completion,
+                                    authority);
+  }
+  if (authority == TransferAuthority::PipelinePrivate) {
+    return {};
   }
   if (token->ops->upload == nullptr) {
     return {};
@@ -163,12 +170,16 @@ DownloadBackendBuffer(const std::shared_ptr<PickToken> &token,
 
 BackendDownload
 DownloadBackendBuffers(const std::shared_ptr<PickToken> &token,
-                       const std::span<const DownloadRoute> requests) {
+                       const std::span<const DownloadRoute> requests,
+                       const TransferAuthority authority) {
   if (!ValidRoute(token) || requests.empty()) {
     return {};
   }
   if (token->ops->download_batch != nullptr) {
-    return token->ops->download_batch(token->raw, requests);
+    return token->ops->download_batch(token->raw, requests, authority);
+  }
+  if (authority == TransferAuthority::PipelinePrivate) {
+    return {};
   }
   if (token->ops->download == nullptr) {
     return {};

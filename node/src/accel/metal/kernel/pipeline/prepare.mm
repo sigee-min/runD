@@ -4,28 +4,31 @@ namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 
-rund::AccelCheck
-PrepareMetalPipeline(const std::span<const BackendBatchEntry> templates,
-                     const std::span<const BackendBatchEntry> entries,
-                     const std::span<const std::uint8_t> barriers,
-                     const std::span<const TileTransducer> transducers,
-                     const std::span<const NestedAggregate> aggregates,
-                     const std::span<const BackendPublish> publications,
-                     PreparedKernelTemplateRegistry &template_registry,
-                     PreparedPipelineStatusLayout &status,
-                     const bool profile_steps, std::shared_ptr<void> &prepared,
-                     PreparedPipelineMemory &memory,
-                     PreparedPipelineMemoryMeter *const memory_meter,
-                     PreparedPipelineFailure &failure) {
+rund::AccelCheck PrepareMetalPipeline(
+    const std::span<const BackendBatchEntry> templates,
+    const std::span<const BackendBatchEntry> entries,
+    const std::span<const std::uint8_t> barriers,
+    const std::span<const TileTransducer> transducers,
+    const std::span<const NestedAggregate> aggregates,
+    const std::span<const BackendPublish> publications,
+    PreparedKernelTemplateRegistry &template_registry,
+    PreparedPipelineStatusLayout &status, const bool profile_steps,
+    std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
+    PreparedPipelineMemoryMeter *const memory_meter,
+    rund::AccelRunFacts &preparation, PreparedPipelineFailure &failure) {
   prepared.reset();
   memory = {};
+  preparation = {};
+  preparation.preparation_evidence =
+      rund::AccelPreparationEvidenceSource::OwnerLocal;
   failure = {};
   @autoreleasepool {
-    const KernelPreparationScope preparation{
+    const KernelPreparationScope preparation_scope{
         KernelPreparationMode::PipelinePrivate};
     MetalPipelineBuild build{templates,         entries,    barriers,
                              transducers,       aggregates, publications,
                              template_registry, status,     profile_steps};
+    build.preparation = &preparation;
     build.failure_context.stage(PreparedPipelineFailureStage::BackendAdmission);
     const rund::AccelCheck admitted = build.Admit();
     if (!admitted.ok) {

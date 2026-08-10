@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: tools/internal/measure/packets <command> [argument ...]" >&2
+  exit 2
+fi
+
+ordinal=1
+while [ "$ordinal" -le 3 ]; do
+  printf 'diagnostic_packet,begin,%s,3\n' "$ordinal"
+  RUND_MEASURE_PACKET=$ordinal "$@"
+  printf 'diagnostic_packet,end,%s,3\n' "$ordinal"
+  ordinal=$((ordinal + 1))
+done

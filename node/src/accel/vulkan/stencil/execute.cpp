@@ -1,7 +1,8 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include "../../stencil/shape.hpp"
+#include "../../stencil/bindings.hpp"
+#include "../../stencil/range.hpp"
 #include "../../stencil/vulkan.hpp"
 #include "../collective/execute.hpp"
 #include "../range/local.hpp"
@@ -23,8 +24,8 @@ rund::AccelCheck PrepareVulkanStencil(
   if (adapter == nullptr) {
     return rund::AccelCheck{false, "accel_vulkan_unavailable"};
   }
-  if (!StencilShapeOk(desc, plan, bindings) ||
-      !StencilRangePlanMatches(plan, domain, range)) {
+  if (!StencilBindingsMatch(desc, plan, bindings) ||
+      !StencilRangeMatches(plan, domain, range)) {
     SetVulkanLastError(*adapter, "compute_stencil_invalid");
     return rund::AccelCheck{false, "compute_stencil_invalid"};
   }

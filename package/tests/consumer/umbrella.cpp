@@ -5,6 +5,8 @@
 static_assert(std::is_class_v<rund::Session>);
 static_assert(std::is_class_v<rund::StableHash>);
 static_assert(std::is_enum_v<rund::compute::Backend>);
+static_assert(std::is_class_v<rund::compute::ResidencyConfig>);
+static_assert(std::is_class_v<rund::compute::VirtualBacking>);
 static_assert(std::is_class_v<rund::net::Address>);
 static_assert(std::is_class_v<rund::evidence::Numeric>);
 static_assert(std::is_class_v<rund::task::Status>);

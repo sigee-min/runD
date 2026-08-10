@@ -12,7 +12,8 @@
 
 namespace rund::compute::detail {
 
-Status start_pipeline(PipelineState &state) noexcept {
+Status start_pipeline(PipelineState &state,
+                      const PipelineClaimAuthority authority) noexcept {
   if (state.phase == PipelinePhase::Running) {
     return Status::fail(Reason::PipelineBusy);
   }
@@ -57,13 +58,21 @@ Status start_pipeline(PipelineState &state) noexcept {
   }
   reset_pipeline_profile(state);
   reset_pipeline_stats(state);
-  const auto claim_begin = std::chrono::steady_clock::now();
-  const Status claimed = acquire_pipeline_claims(state);
-  const auto claim_end = std::chrono::steady_clock::now();
-  state.stats.pipeline.claim_ns = static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(claim_end -
-                                                           claim_begin)
-          .count());
+  Status claimed = Status::success();
+  if (authority == PipelineClaimAuthority::PrivateResidency) {
+    claimed = has_private_residency_authority(state)
+                  ? Status::success()
+                  : Status::fail(Reason::PipelineInvalid);
+    state.stats.pipeline.claim_ns = 0u;
+  } else {
+    const auto claim_begin = std::chrono::steady_clock::now();
+    claimed = acquire_pipeline_claims(state);
+    const auto claim_end = std::chrono::steady_clock::now();
+    state.stats.pipeline.claim_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(claim_end -
+                                                             claim_begin)
+            .count());
+  }
   if (!claimed) {
     {
       std::lock_guard publication_lock{state.publication->gate};

@@ -43,6 +43,7 @@ struct MetalPipelineBuild final {
   PreparedKernelTemplateRegistry &template_registry;
   PreparedPipelineStatusLayout &status;
   bool profile_steps{};
+  rund::AccelRunFacts *preparation{};
   PreparedPipelineFailureContext failure_context{};
 
   MapRecurrence recurrence{};

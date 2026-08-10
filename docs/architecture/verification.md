@@ -186,7 +186,7 @@ and SDK consumers that do not open a device stay outside that critical
 section. The Linux SDK workflow uses the registered `release` root at
 `.cache/release`; its checkout is isolated, so it shares the same build-state
 authority without creating a CI-only mutable root.
-section. The installed Compute consumer acquires the device only for its
+The installed Compute consumer acquires the device only for its
 execution phase. Direct accelerator work has an independent execution bound
 inside its wait-plus-run CTest bound, so waiting does not consume the next
 owner's execution allowance.
@@ -207,8 +207,8 @@ CTest resources.
 A semantic owner with more than one independent contract uses an owner-named
 folder. Each leaf source owns one behavior boundary—such as model, planner,
 source, backend, cache, memory, introspection, or resident transition—and the
-folder-level runner only composes those leaves. CMake lists every leaf directly;
-flat compatibility sources and forwarding aliases are not retained.
+folder-level runner only composes those leaves. CMake lists every leaf directly
+and the companion registry assigns each leaf to its executable contract.
 
 `accel.kernel-core` keeps its public case owner in `kernel/core.cpp`; its
 `kernel/authority/run.cpp` companion preserves the predicate order while the
@@ -301,6 +301,8 @@ The main Compute semantic owners are:
 | `compute.static-matrix` | exact Flow/Program types and `graph::Info` shape for Matrix, Transform, Factor, Solve, and Spectrum |
 | `compute.flow-numeric-modes` | arbitrary Fixed formats, rounding, overflow, and backend parity |
 | `compute.graph-services` | graph identity, cache, async coalescing, resource graph, and bounded downstream behavior |
+| `compute.virtual-residency-oracle` | test-only memory backing, poisoned-tail CPU golden, fixed-slot working-set, terminal observation, and zero-allocation warm oracle; it is not native virtual-residency evidence |
+| `compute.virtual-residency-product` | public VirtualBuffer/VirtualPipeline capability and execution: CPU and Metal run one full-capacity cold terminal followed on the same owner by active prefixes `{0,small,mid,M}`, one unobserved conditioning run and sixty allocation-free sampled runs per prefix, fixed plan/memory identity, exact active/page/wave/transfer/submission evidence, zero-work execution, poisoned inactive tail, terminal-only backing observation and Profile, and complete retry after partial backing write failure; a portability-subset Vulkan adapter is classified blocked only after exact `BackendUnsupported`, zero backing callbacks, and unchanged Device allocation/admission evidence |
 
 Large Compute cases keep one registered runner and place independent semantic
 owners below the matching one-word folder. Each case has one shared
@@ -498,7 +500,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.6 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.7 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

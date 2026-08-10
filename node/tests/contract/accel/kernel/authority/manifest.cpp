@@ -456,7 +456,7 @@ namespace node_accel_contract {
   constexpr rund::kernel::StencilPlan stencil_plan =
       rund::kernel::PlanStencil(stencil_desc);
   constexpr std::optional<RangeShape> stencil_shape =
-      StencilRangeShape(stencil_plan, rund::kernel::ComputeDomain::U32);
+      ProjectStencilRange(stencil_plan, rund::kernel::ComputeDomain::U32);
   constexpr std::optional<RangeCaps> stencil_capabilities =
       RangeCaps::gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
                      std::numeric_limits<rund::kernel::u32>::max(),

@@ -45,7 +45,8 @@ void record_buffer(DeviceState &device, const std::uint64_t logical_bytes,
 [[nodiscard]] Result<std::shared_ptr<BufferState>>
 make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
                  const std::size_t count,
-                 const BufferInitialization initialization) {
+                 const BufferInitialization initialization,
+                 const std::uint64_t exact_storage_bytes = 0u) {
   if (device == nullptr) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::DeviceInvalid);
   }
@@ -87,9 +88,9 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
     if (device->ops == nullptr || device->ops->allocate == nullptr) {
       return Result<std::shared_ptr<BufferState>>::fail(Reason::DeviceInvalid);
     }
-    const Status allocated =
-        device->ops->allocate(*device, *buffer, bytes, count,
-                              initialization == BufferInitialization::Zeroed);
+    const Status allocated = device->ops->allocate(
+        *device, *buffer, bytes, count,
+        initialization == BufferInitialization::Zeroed, exact_storage_bytes);
     if (!allocated) {
       return Result<std::shared_ptr<BufferState>>::fail(allocated.reason());
     }
@@ -109,10 +110,22 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
 } // namespace
 
 void record_transfer(DeviceState &device, const std::uint64_t bytes) noexcept {
-  std::lock_guard lock{device.memory.gate};
   TrafficMeter &meter = device.memory.transfer;
-  ::rund::detail::counter::Accumulate(meter.cumulative, bytes);
-  meter.peak = std::max(meter.peak, bytes);
+  std::uint64_t cumulative = meter.cumulative.load(std::memory_order_relaxed);
+  for (;;) {
+    const std::uint64_t next =
+        ::rund::detail::counter::SaturatingAdd(cumulative, bytes);
+    if (meter.cumulative.compare_exchange_weak(cumulative, next,
+                                               std::memory_order_release,
+                                               std::memory_order_relaxed)) {
+      break;
+    }
+  }
+  std::uint64_t peak = meter.peak.load(std::memory_order_relaxed);
+  while (peak < bytes && !meter.peak.compare_exchange_weak(
+                             peak, bytes, std::memory_order_release,
+                             std::memory_order_relaxed)) {
+  }
 }
 
 BufferState::~BufferState() {
@@ -142,10 +155,34 @@ make_input_binding_buffer(const std::shared_ptr<DeviceState> &device,
 }
 
 Result<std::shared_ptr<BufferState>>
+make_planned_input_binding_buffer(const std::shared_ptr<DeviceState> &device,
+                                  const Type type, const std::size_t count,
+                                  const std::uint64_t exact_storage_bytes) {
+  return make_buffer_impl(device, type, count,
+                          BufferInitialization::FullOverwrite,
+                          exact_storage_bytes);
+}
+
+Result<std::shared_ptr<BufferState>>
 make_workspace_buffer(const std::shared_ptr<DeviceState> &device,
                       const std::size_t count) {
   return make_buffer_impl(device, Type::U32, count,
                           BufferInitialization::FullOverwrite);
+}
+
+Result<std::shared_ptr<BufferState>>
+make_planned_workspace_buffer(const std::shared_ptr<DeviceState> &device,
+                              const std::size_t count) {
+  std::size_t logical_bytes = 0u;
+  if (device == nullptr ||
+      !size::multiply(count, sizeof(std::uint32_t), logical_bytes)) {
+    return Result<std::shared_ptr<BufferState>>::fail(Reason::PipelineCapacity);
+  }
+  const auto committed = planned_buffer_storage_bytes(*device, logical_bytes);
+  return committed
+             ? make_buffer_impl(device, Type::U32, count,
+                                BufferInitialization::FullOverwrite, *committed)
+             : Result<std::shared_ptr<BufferState>>::fail(committed.reason());
 }
 
 Result<std::shared_ptr<BufferState>>

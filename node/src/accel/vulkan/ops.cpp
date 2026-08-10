@@ -5,9 +5,11 @@
 
 #include "adapter/api.hpp"
 #include "buffer/create/telemetry.hpp"
+#include "buffer/local.hpp"
 #include "buffer/resident/model.hpp"
 #include "kernel.hpp"
 #include "kernel/manifest.hpp"
+#include "kernel/pipeline/transfer.hpp"
 #include "ops.hpp"
 #include "range/api.hpp"
 
@@ -25,7 +27,8 @@ namespace {
 [[nodiscard]] rund::AccelDevice Pick(const bool) { return PickVulkan(); }
 
 rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
-                    const BackendBufferInitialization initialization) {
+                    const BackendBufferInitialization initialization,
+                    const std::uint64_t exact_storage_bytes) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   const ResidentDesc native{
       .bytes = desc.bytes,
@@ -37,7 +40,8 @@ rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
       .write_capable = desc.usage != rund::BufferUsage::ReadOnly,
   };
   VulkanResidentBufferResult created = CreateVulkanResidentBuffer(
-      pick, native, initialization == BackendBufferInitialization::Zeroed);
+      pick, native, initialization == BackendBufferInitialization::Zeroed,
+      exact_storage_bytes);
   return MakeBuffer(pick, desc, created.check, created.ref,
                     std::move(created.handle), created.storage_bytes,
                     created.storage_reused);
@@ -45,9 +49,21 @@ rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
   (void)pick;
   (void)desc;
   (void)initialization;
+  (void)exact_storage_bytes;
   return rund::Buffer{
       .check = rund::AccelCheck{false, "accel_buffer_backend_unavailable"}};
 #endif
+}
+
+std::uint64_t BufferStorageBytes(const rund::AccelDevice &pick,
+                                 const std::uint64_t logical_bytes) noexcept {
+  return VulkanBufferStorageBytes(pick, logical_bytes);
+}
+
+std::uint64_t
+PipelineTransferStorageBytes(const rund::AccelDevice &pick,
+                             const std::uint64_t logical_bytes) noexcept {
+  return VulkanPipelineTransferStorageBytes(pick, logical_bytes);
 }
 
 rund::AccelCheck Upload(const rund::AccelDevice &pick,
@@ -89,24 +105,28 @@ BackendDownload Download(const rund::AccelDevice &pick,
 
 BackendUpload UploadBatch(const rund::AccelDevice &pick,
                           const std::span<const UploadRoute> requests,
-                          const TransferCompletion completion) {
+                          const TransferCompletion completion,
+                          const TransferAuthority authority) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return UploadVulkanResidentBuffers(pick, requests, completion);
+  return UploadVulkanResidentBuffers(pick, requests, completion, authority);
 #else
   (void)pick;
   (void)requests;
   (void)completion;
+  (void)authority;
   return {};
 #endif
 }
 
 BackendDownload DownloadBatch(const rund::AccelDevice &pick,
-                              const std::span<const DownloadRoute> requests) {
+                              const std::span<const DownloadRoute> requests,
+                              const TransferAuthority authority) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return DownloadVulkanResidentBuffers(pick, requests);
+  return DownloadVulkanResidentBuffers(pick, requests, authority);
 #else
   (void)pick;
   (void)requests;
+  (void)authority;
   return {};
 #endif
 }
@@ -155,6 +175,22 @@ void Reset(const rund::AccelDevice &pick) {
   ResetVulkanRuntimeStats(pick);
 #else
   (void)pick;
+#endif
+}
+
+rund::AccelCheck
+VirtualPipelineCapability(const rund::AccelDevice &pick) noexcept {
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  const VulkanAdapter *const adapter = CheckedVulkanAdapter(pick);
+  if (adapter == nullptr) {
+    return rund::AccelCheck{false, "compute_adapter_unavailable"};
+  }
+  return adapter->portability_subset
+             ? rund::AccelCheck{false, "compute_backend_unsupported"}
+             : rund::AccelCheck{true, "ok"};
+#else
+  (void)pick;
+  return rund::AccelCheck{false, "compute_backend_unsupported"};
 #endif
 }
 
@@ -212,6 +248,8 @@ const BackendOps Operations{
     .api = rund::AccelApi::Vulkan,
     .resident = true,
     .create = Create,
+    .buffer_storage_bytes = BufferStorageBytes,
+    .pipeline_transfer_storage_bytes = PipelineTransferStorageBytes,
     .upload = Upload,
     .upload_batch = UploadBatch,
     .download = Download,
@@ -221,6 +259,7 @@ const BackendOps Operations{
     .stats = Stats,
     .reset = Reset,
     .memory = Memory,
+    .virtual_pipeline_capability = VirtualPipelineCapability,
     .range_caps = VulkanRangeCaps,
     .run = RunVulkanKernel,
     .prepare = PrepareVulkanKernel,
@@ -237,6 +276,9 @@ const BackendOps Operations{
     .run_batch = RunPreparedVulkanBatch,
     .prepare_pipeline = PrepareVulkanPipeline,
     .seed_prepared_pipeline_generation = SeedPreparedVulkanPipelineGeneration,
+    .prepare_pipeline_transfer = PrepareVulkanPipelineTransfer,
+    .upload_prepared_pipeline = UploadPreparedVulkanPipeline,
+    .download_prepared_pipeline = DownloadPreparedVulkanPipeline,
     .submit_prepared_pipeline = SubmitPreparedVulkanPipeline,
     .submit_prepared = SubmitPreparedVulkanKernel,
     .inject_device_lost_once = InjectDeviceLostOnce,

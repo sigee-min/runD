@@ -73,6 +73,13 @@ AdmitAccelBufferTransfer(const rund::AccelContext &context,
 AdmitAccelBufferTransfer(const std::shared_ptr<ContextToken> &context,
                          const rund::AccelBuffer &buffer);
 
+// Warm Pipeline-private transfers consume the immutable context/buffer
+// capabilities authenticated at cold preparation. They deliberately do not
+// re-enter the backend resident registry.
+[[nodiscard]] TransferAdmission
+AdmitAccelBufferPrivateTransfer(const std::shared_ptr<ContextToken> &context,
+                                const rund::AccelBuffer &buffer) noexcept;
+
 [[nodiscard]] rund::AccelCheck
 TransferCheckFrom(rund::AccelCheck check, const char *overflow_reason) noexcept;
 

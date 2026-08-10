@@ -17,7 +17,8 @@ namespace rund::node::accel::detail {
 CreateBackendBuffer(const std::shared_ptr<PickToken> &token,
                     const rund::BufferDesc &desc,
                     BackendBufferInitialization initialization =
-                        BackendBufferInitialization::Zeroed);
+                        BackendBufferInitialization::Zeroed,
+                    std::uint64_t exact_storage_bytes = 0u);
 
 [[nodiscard]] rund::AccelCheck
 UploadBackendBuffer(const std::shared_ptr<PickToken> &token,
@@ -33,7 +34,8 @@ UploadBackendBuffer(const std::shared_ptr<PickToken> &token,
 [[nodiscard]] BackendUpload
 UploadBackendBuffers(const std::shared_ptr<PickToken> &token,
                      std::span<const UploadRoute> requests,
-                     TransferCompletion completion);
+                     TransferCompletion completion,
+                     TransferAuthority authority = TransferAuthority::Shared);
 
 [[nodiscard]] BackendDownload
 DownloadBackendBuffer(const std::shared_ptr<PickToken> &token,
@@ -50,7 +52,8 @@ DownloadBackendBuffer(const std::shared_ptr<PickToken> &token,
 
 [[nodiscard]] BackendDownload
 DownloadBackendBuffers(const std::shared_ptr<PickToken> &token,
-                       std::span<const DownloadRoute> requests);
+                       std::span<const DownloadRoute> requests,
+                       TransferAuthority authority = TransferAuthority::Shared);
 
 [[nodiscard]] BackendCopy
 CopyBackendBuffers(const std::shared_ptr<PickToken> &token,

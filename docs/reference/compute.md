@@ -1453,6 +1453,57 @@ encoding path or higher-level orchestration, while dominant submit-wait
 confirms submission amortization as the next structural lever. The exact runtime contract is
 [Compute Batch](../../node/docs/contracts/compute/batch.md).
 
+### Virtual working sets
+
+`<rund/compute/virtual.hpp>` is the opt-in path for a logical dataset larger
+than the fixed prepared working set. A `VirtualBacking` supplies immutable
+`size_bytes()` plus checked byte-range `read` and `write` callbacks. A
+`VirtualBuffer<T>` is a typed logical view over that backing; it does not
+allocate `count*sizeof(T)` device storage. One `VirtualPipeline<R(A)>` freezes
+a page-local Map Program, two Pipeline-owned slot arenas, one host staging
+arena, and a compact wave plan:
+
+```cpp fragment
+#include <rund/compute.hpp>
+#include <rund/compute/virtual.hpp>
+
+auto source = rund::compute::virtual_buffer<std::int32_t>(count, input_store);
+auto target = rund::compute::virtual_buffer<std::int32_t>(count, output_store);
+if (!source || !target) { return; }
+auto prepared = rund::compute::virtual_pipeline(
+    program, *source, *target,
+    rund::compute::ResidencyConfig{.slots = 3});
+
+if (!prepared || !prepared->run()) { return; }
+auto profile = prepared->profile();
+```
+
+For `P` logical pages and slot capacity `K`, the stored plan has
+`W=ceil(P/K)` waves and constant-size planner state. The complete logical
+backing is never materialized as a vector of page Buffers. The terminal wave
+zero-fills unused input slots, but only exact logical output bytes reach the
+backing. `PipelinePlan::residency` exposes logical bytes, paired page bytes,
+page count, slot capacity, fixed working-set bytes, wave count, and identity.
+`Stats::pipeline.residency` reports loads, writebacks, exact backing bytes,
+backing callback time, active-slot peak, failures, and the explicit warm sample
+cohort. `Stats::{uploaded_bytes,downloaded_bytes}` separately report complete
+fixed-arena transfers, including terminal padding.
+
+The backing object is the serialization and poison authority shared by every
+view over it. A write failure can leave a partial logical result, so that
+backing remains poisoned across newly constructed views until a successful
+retry overwrites at least the output extent that could have been changed.
+Product execution currently admits independent page-local Map only;
+cross-page Window/Scan/Reduce/Sort/Gather/Scatter and native sparse resources
+are not silently replaced by dense execution. The exact formulas, native
+capability gates, and verification owners live in
+[Compute Virtual Residency](../../node/docs/contracts/compute/residency.md).
+CPU and Metal currently satisfy the public execution gate. Vulkan freezes the
+portability-subset extension fact when its adapter is created; a portability
+adapter returns `BackendUnsupported` before any Pipeline owner or backing
+callback, while the native Vulkan implementation awaits product-device
+verification.
+
 Memory observation is explicit and allocation-free. `Program::memory()`,
 `Job::memory()`, and `Device::memory()` return a fixed-size
 `MemoryStats` snapshot. Its host, coroutine-frame, tile, resident, staging,
@@ -1814,6 +1865,11 @@ payload bytes are never used to guess a submission or allocation.
 `reset_commands` counts the physical reset operations consumed by that run.
 They are execution evidence, unlike the canonical compile-time
 `MemoryPlan::{reset_bytes,reset_count}`.
+
+`Stats` and `MemoryStats` have structural value equality over every public
+coordinate. A `Profile` parity check therefore compares the complete snapshots
+instead of maintaining a second hand-selected field list that could omit a
+new counter.
 
 Vulkan's three command-envelope fields share one adapter-owned slot-ring
 authority. Capacity is immutable for that Device, peak is the largest number

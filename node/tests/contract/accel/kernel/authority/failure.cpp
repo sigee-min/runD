@@ -333,10 +333,11 @@ using BackendWindow = rund::node::accel::detail::BackendWindow;
     PreparedPipelineStatusLayout status{};
     std::shared_ptr<void> prepared{};
     PreparedPipelineMemory memory{};
+    rund::AccelRunFacts preparation{};
     PreparedPipelineFailure failure{};
     const rund::AccelCheck check =
         prepare({}, {}, {}, {}, {}, {}, registry, status, false, prepared,
-                memory, nullptr, failure);
+                memory, nullptr, preparation, failure);
     return !check.ok &&
            failure.stage == PreparedPipelineFailureStage::BackendAdmission &&
            failure.template_index == PreparedPipelineUnknownCoordinate &&

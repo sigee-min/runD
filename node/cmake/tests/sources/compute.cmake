@@ -104,6 +104,8 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/identity.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/loss.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/metal.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/vulkan/transfer.cpp|compute.pipeline,compute.pipeline-vulkan-transfer"
   "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/admission.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/profile/steps.cpp|compute.pipeline"
@@ -116,6 +118,29 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/surface.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/views.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/view/arena.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/transfer/model.cpp|compute.pipeline-transfer"
+  "tests/contract/compute/pipeline/transfer/success.cpp|compute.pipeline-transfer"
+  "tests/contract/compute/pipeline/transfer/failure.cpp|compute.pipeline-transfer"
+  "tests/contract/compute/pipeline/transfer/download.cpp|compute.pipeline-transfer"
+  "tests/contract/compute/pipeline/residency/planner.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/identity.cpp|compute.pipeline-residency"
+  "tests/contract/compute/virtual/backing.cpp|compute.virtual-residency-oracle"
+  "tests/contract/compute/virtual/golden.cpp|compute.virtual-residency-oracle"
+  "tests/contract/compute/virtual/pager.cpp|compute.virtual-residency-oracle"
+  "tests/contract/compute/virtual/oracle.cpp|compute.virtual-residency-oracle"
+  "tests/contract/compute/virtual/product/backing.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/golden.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/evidence.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/surface.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/capability.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/prepare.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/execution.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/width.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/concurrency/local.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/concurrency/pipeline.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/concurrency/backing.cpp|compute.virtual-residency-product"
   "tests/contract/compute/window/chain.cpp|compute.window"
   "tests/contract/compute/window/freeze.cpp|compute.window"
   "tests/contract/compute/window/matrix.cpp|compute.window"
@@ -245,6 +270,9 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/identity.cpp
   tests/contract/compute/pipeline/loss.cpp
   tests/contract/compute/pipeline/metal.cpp
+  tests/contract/compute/pipeline/metal/residency.cpp
+  tests/contract/compute/pipeline/vulkan/contract.cpp
+  tests/contract/compute/pipeline/vulkan/transfer.cpp
   tests/contract/compute/pipeline/memory.cpp
   tests/contract/compute/pipeline/admission.cpp
   tests/contract/compute/pipeline/profile/steps.cpp
@@ -257,6 +285,33 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/surface.cpp
   tests/contract/compute/pipeline/views.cpp
   tests/contract/compute/pipeline/view/arena.cpp
+  tests/contract/compute/pipeline/transfer/contract.cpp
+  tests/contract/compute/pipeline/transfer/model.cpp
+  tests/contract/compute/pipeline/transfer/success.cpp
+  tests/contract/compute/pipeline/transfer/failure.cpp
+  tests/contract/compute/pipeline/transfer/download.cpp
+  tests/contract/compute/pipeline/residency/contract.cpp
+  tests/contract/compute/pipeline/residency/planner.cpp
+  tests/contract/compute/pipeline/residency/identity.cpp
+  tests/contract/compute/virtual/contract.cpp
+  tests/contract/compute/virtual/backing.cpp
+  tests/contract/compute/virtual/golden.cpp
+  tests/contract/compute/virtual/pager.cpp
+  tests/contract/compute/virtual/oracle.cpp
+  tests/contract/compute/virtual/product/contract.cpp
+  tests/contract/compute/virtual/product/active.cpp
+  tests/contract/compute/virtual/product/backing.cpp
+  tests/contract/compute/virtual/product/golden.cpp
+  tests/contract/compute/virtual/product/evidence.cpp
+  tests/contract/compute/virtual/product/surface.cpp
+  tests/contract/compute/virtual/product/capability.cpp
+  tests/contract/compute/virtual/product/prepare.cpp
+  tests/contract/compute/virtual/product/execution.cpp
+  tests/contract/compute/virtual/product/failure.cpp
+  tests/contract/compute/virtual/product/width.cpp
+  tests/contract/compute/virtual/product/concurrency/local.cpp
+  tests/contract/compute/virtual/product/concurrency/pipeline.cpp
+  tests/contract/compute/virtual/product/concurrency/backing.cpp
   tests/contract/compute/window.cpp
   tests/contract/compute/window/chain.cpp
   tests/contract/compute/window/freeze.cpp

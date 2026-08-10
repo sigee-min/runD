@@ -5,17 +5,22 @@
 
 #include "../../target/selection.hpp"
 
+#include <node/accel/buffer.hpp>
 #include <node/runtime/compute/access.hpp>
 
 #include "../../../../src/accel/context/transfer.hpp"
 #include "../../../../src/accel/graph/token.hpp"
 #include "../../../../src/accel/kernel/memory.hpp"
+#include "../../../../src/accel/metal/buffer/owner.hpp"
+#include "../../../../src/compute/buffer/local.hpp"
 #include "../../../../src/compute/device/state.hpp"
 #include "../../../../src/compute/flow/state.hpp"
 #include "../../../../src/compute/job/state.hpp"
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 #include "../../../../src/accel/vulkan/buffer/create/telemetry.hpp"
 #include "../../../../src/accel/vulkan/buffer/pool.hpp"
+#include "../../../../src/accel/vulkan/buffer/resident/pool.hpp"
+#include "../../../../src/accel/vulkan/resident/state.hpp"
 #endif
 
 #include <array>
@@ -44,6 +49,16 @@ int CheckAccelMemory(const rund::compute::Backend backend) {
     if (!buffer) {
       return 2;
     }
+    const std::shared_ptr<rund::compute::detail::BufferState> owner =
+        rund::compute::detail::BufferAccess::state(*buffer);
+    if (owner == nullptr) {
+      return 3;
+    }
+    const auto projected = rund::compute::detail::planned_buffer_storage_bytes(
+        *owner->device, owner->bytes);
+    if (!projected || owner->physical_bytes != *projected) {
+      return 3;
+    }
     const auto active = device->memory();
     std::array<rund::compute::MemoryEntry, 7u> entries{};
     const auto snapshot = device->memory_snapshot(entries);
@@ -66,7 +81,7 @@ int CheckAccelMemory(const rund::compute::Backend backend) {
         active.resident.current != values.size() * sizeof(std::uint32_t) ||
         active.resident.peak != active.resident.current ||
         active.resident.cumulative != active.resident.current ||
-        active.device.current < values.size() * sizeof(std::uint32_t) ||
+        active.device.current != owner->physical_bytes ||
         active.device.peak < active.device.current ||
         active.device.cumulative < active.device.current ||
         active.device.budget < active.device.current ||
@@ -87,6 +102,61 @@ int CheckAccelMemory(const rund::compute::Backend backend) {
       released.resident.cumulative != released.resident.peak ||
       released.device.current != 0u || released.device.peak == 0u) {
     return 4;
+  }
+  if (backend == rund::compute::Backend::Metal) {
+    constexpr std::array<std::size_t, 7u> boundary_bytes{
+        4u, 12u, 16u, 4092u, 4096u, 4100u, 16384u};
+    for (const std::size_t bytes : boundary_bytes) {
+      auto boundary = device->buffer<std::uint32_t>(bytes / 4u);
+      const std::shared_ptr<rund::compute::detail::BufferState> state =
+          boundary ? rund::compute::detail::BufferAccess::state(*boundary)
+                   : nullptr;
+      if (!boundary || state == nullptr) {
+        return 10;
+      }
+      const auto committed =
+          rund::compute::detail::planned_buffer_storage_bytes(*state->device,
+                                                              state->bytes);
+      if (!committed || state->physical_bytes != *committed) {
+        return 10;
+      }
+    }
+  }
+  {
+    using namespace rund::compute;
+    auto source = device->upload<std::uint32_t>(values);
+    auto target = device->buffer<std::uint32_t>(values.size());
+    auto program =
+        on(*device)
+            .map<std::uint32_t>("memory-admission-no-allocation", values.size(),
+                                [](auto value) { return value + 1u; })
+            .compile();
+    if (!source || !target || !program) {
+      return 11;
+    }
+    auto builder =
+        pipeline(*device).then(*program, read(*source), write(*target));
+    const auto plan = builder.plan();
+    const std::shared_ptr<detail::DeviceState> &state =
+        detail::DeviceAccess::state(*device);
+    const detail::AccelDeviceState *const accel =
+        state == nullptr ? nullptr : detail::accel_device(*state);
+    if (!plan || accel == nullptr || plan->committed_peak_bytes == 0u) {
+      return 11;
+    }
+    const std::uint64_t before =
+        rund::node::accel::ReadRuntimeStats(accel->pick)
+            .run.allocations.buffer_allocation_count;
+    auto rejected =
+        std::move(builder)
+            .budget(MemoryBudget{.bytes = plan->committed_peak_bytes - 1u})
+            .prepare();
+    const std::uint64_t after = rund::node::accel::ReadRuntimeStats(accel->pick)
+                                    .run.allocations.buffer_allocation_count;
+    if (rejected || rejected.reason() != Reason::PipelineMemoryBudget ||
+        after != before) {
+      return 11;
+    }
   }
   if (backend == rund::compute::Backend::Vulkan) {
     constexpr std::size_t staging_budget = 1024u * 1024u;
@@ -184,6 +254,22 @@ int CheckAccelProgramHostAccounting(const rund::compute::Backend backend) {
   return 0;
 }
 
+int CheckMetalMemoryModel() {
+  using namespace rund::node::accel::detail;
+  const PreparedMemory fresh = MetalBufferMemory(
+      MetalRuntimeBuffer{.bytes = 32u, .allocated_bytes = 64u}, 1024u);
+  const PreparedMemory reused = MetalBufferMemory(
+      MetalRuntimeBuffer{.bytes = 32u, .allocated_bytes = 96u, .reused = true},
+      1024u);
+  return fresh.current == 64u && fresh.peak == 64u && fresh.cumulative == 64u &&
+                 fresh.reused == 0u && fresh.budget == 1024u &&
+                 reused.current == 96u && reused.peak == 96u &&
+                 reused.cumulative == 96u && reused.reused == 96u &&
+                 reused.budget == 1024u
+             ? 0
+             : 1;
+}
+
 int CheckVulkanMemoryModel() {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
   using namespace rund::node::accel::detail;
@@ -206,24 +292,24 @@ int CheckVulkanMemoryModel() {
   }
   VulkanAdapter physical{};
   physical.staging_memory.pooled = 96u;
-  VulkanBuffer physical_buffer{.bytes = 32u};
+  VulkanBuffer physical_buffer{.bytes = 32u, .allocated_bytes = 64u};
   RecordVulkanMemoryLease(physical, physical_buffer, false,
                           VulkanMemoryUse::Staging);
-  if (VulkanPhysicalStaging(physical) != 128u ||
-      physical.staging_memory.peak != 128u) {
+  if (VulkanPhysicalStaging(physical) != 160u ||
+      physical.staging_memory.peak != 160u) {
     return 7;
   }
   ReleaseVulkanMemoryLease(physical, physical_buffer);
   if (VulkanPhysicalStaging(physical) != 96u ||
-      physical.staging_memory.peak != 128u) {
+      physical.staging_memory.peak != 160u) {
     return 8;
   }
   VulkanAdapter adapter{};
-  VulkanBuffer buffer{.bytes = 64u};
+  VulkanBuffer buffer{.bytes = 64u, .allocated_bytes = 96u};
   RecordVulkanMemoryLease(adapter, buffer, false, VulkanMemoryUse::Staging);
-  if (adapter.staging_memory.current != 64u ||
-      adapter.staging_memory.peak != 64u ||
-      adapter.staging_memory.cumulative != 64u ||
+  if (adapter.staging_memory.current != 96u ||
+      adapter.staging_memory.peak != 96u ||
+      adapter.staging_memory.cumulative != 96u ||
       adapter.staging_memory.reused != 0u) {
     return 2;
   }
@@ -231,19 +317,20 @@ int CheckVulkanMemoryModel() {
   RecordVulkanMemoryLease(adapter, buffer, true, VulkanMemoryUse::Staging);
   ReleaseVulkanMemoryLease(adapter, buffer);
   if (adapter.staging_memory.current != 0u ||
-      adapter.staging_memory.cumulative != 128u ||
-      adapter.staging_memory.reused != 64u) {
+      adapter.staging_memory.cumulative != 192u ||
+      adapter.staging_memory.reused != 96u) {
     return 3;
   }
   RecordVulkanMemoryLease(adapter, buffer, true, VulkanMemoryUse::Resident);
-  if (buffer.memory_lease || adapter.staging_memory.cumulative != 128u) {
+  if (buffer.memory_lease || adapter.staging_memory.cumulative != 192u) {
     return 4;
   }
   adapter.staging_memory = VulkanMemoryStats{.current = kCounterMaximum - 1u,
                                              .peak = kCounterMaximum - 1u,
                                              .cumulative = kCounterMaximum - 1u,
                                              .reused = kCounterMaximum - 1u};
-  buffer.bytes = 2u;
+  buffer.bytes = 1u;
+  buffer.allocated_bytes = 2u;
   RecordVulkanMemoryLease(adapter, buffer, true, VulkanMemoryUse::Staging);
   ReleaseVulkanMemoryLease(adapter, buffer);
   if (adapter.staging_memory.current != kCounterMaximum ||
@@ -252,6 +339,36 @@ int CheckVulkanMemoryModel() {
       adapter.staging_memory.reused != kCounterMaximum) {
     return 5;
   }
+  VulkanAdapter resident_adapter{};
+  resident_adapter.resident = std::make_unique<VulkanResidentState>();
+  VulkanResidentState &resident = *resident_adapter.resident;
+  resident.pool[0u] = VulkanBuffer{
+      .buffer = reinterpret_cast<VkBuffer>(1u),
+      .memory = reinterpret_cast<VkDeviceMemory>(1u),
+      .bytes = 128u,
+      .allocated_bytes = 256u,
+      .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+               VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      .memory_use = VulkanMemoryUse::Resident,
+  };
+  resident.pool[1u] = resident.pool[0u];
+  resident.pool[1u].allocated_bytes = 192u;
+  resident.pool_size = 2u;
+  resident.pool_bytes = 448u;
+  VulkanBuffer exact{};
+  if (!TakeVulkanResidentStorage(resident_adapter, 64u,
+                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, exact,
+                                 192u) ||
+      exact.allocated_bytes != 192u || resident.pool_size != 1u ||
+      resident.pool[0u].allocated_bytes != 256u ||
+      resident.pool_bytes != 256u) {
+    return 9;
+  }
+  exact = {};
+  resident.pool[0u] = {};
+  resident.pool_size = 0u;
+  resident.pool_bytes = 0u;
 #endif
   return 0;
 }

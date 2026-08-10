@@ -1,8 +1,8 @@
 #pragma once
 
-#include <rund/counter.hpp>
 #include "api.hpp"
 #include "memory.hpp"
+#include <rund/counter.hpp>
 
 namespace rund::node::accel::detail {
 
@@ -91,6 +91,7 @@ VulkanBufferFailure(const VkResult result,
   }
 
   buffer.bytes = bytes;
+  buffer.allocated_bytes = requirements.size;
   buffer.usage = effective_usage;
   buffer.memory_flags = memory_flags;
   buffer.memory_use = use;

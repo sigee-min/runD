@@ -3417,11 +3417,12 @@ PrepareKernelPipeline(const rund::AccelContext &context,
   }
   PreparedPipelineFailure backend_failure{};
   PreparedPipelineMemory backend_memory{};
+  rund::AccelRunFacts preparation{};
   const rund::AccelCheck built = pipeline->ops->prepare_pipeline(
       batch_templates, expanded.commands, expanded.barriers,
       expanded.transducers, expanded.aggregates, publications, registry,
       pipeline->status, profile_steps, pipeline->backend, backend_memory,
-      &pipeline->memory, backend_failure);
+      &pipeline->memory, preparation, backend_failure);
   if (!built.ok) {
     if (backend_failure.stage == PreparedPipelineFailureStage::Unknown) {
       failure.stage(PreparedPipelineFailureStage::Unknown);
@@ -3447,6 +3448,7 @@ PrepareKernelPipeline(const rund::AccelContext &context,
   budget_transaction.commit();
   return PreparedKernelPipeline{
       .owner = std::static_pointer_cast<void>(pipeline),
+      .preparation = preparation,
       .ok = true,
   };
 }
@@ -3463,6 +3465,96 @@ SeedPreparedKernelPipelineGeneration(const PreparedKernelPipeline &prepared,
   }
   return pipeline->ops->seed_prepared_pipeline_generation(pipeline->backend,
                                                           generation);
+}
+
+rund::AccelCheck PreparePreparedKernelPipelineTransfer(
+    const PreparedKernelPipeline &prepared, const UploadRoute &upload,
+    const DownloadRoute &download,
+    const std::uint64_t exact_storage_bytes) noexcept {
+  auto *const pipeline =
+      static_cast<prepared::PipelineState *>(prepared.owner.get());
+  if (!prepared.ok || pipeline == nullptr || pipeline->ops == nullptr ||
+      pipeline->backend == nullptr ||
+      pipeline->ops->prepare_pipeline_transfer == nullptr) {
+    return rund::AccelCheck{false, "accel_buffer_backend_unavailable"};
+  }
+  return pipeline->ops->prepare_pipeline_transfer(
+      pipeline->backend, upload, download, exact_storage_bytes);
+}
+
+rund::AccelCheck
+StagePreparedKernelPipelineResidency(const PreparedKernelPipeline &prepared,
+                                     std::shared_ptr<void> &candidate,
+                                     std::uint64_t &retained_bytes) noexcept {
+  candidate.reset();
+  retained_bytes = 0u;
+  auto *const pipeline =
+      static_cast<prepared::PipelineState *>(prepared.owner.get());
+  if (!prepared.ok || pipeline == nullptr || pipeline->ops == nullptr ||
+      pipeline->backend == nullptr ||
+      pipeline->ops->stage_pipeline_residency == nullptr) {
+    return rund::AccelCheck{false, "accel_buffer_backend_unavailable"};
+  }
+  return pipeline->ops->stage_pipeline_residency(pipeline->backend, candidate,
+                                                 retained_bytes);
+}
+
+void CommitPreparedKernelPipelineResidency(
+    const PreparedKernelPipeline &prepared,
+    std::shared_ptr<void> candidate) noexcept {
+  auto *const pipeline =
+      static_cast<prepared::PipelineState *>(prepared.owner.get());
+  if (!prepared.ok || pipeline == nullptr || pipeline->ops == nullptr ||
+      pipeline->backend == nullptr ||
+      pipeline->ops->commit_pipeline_residency == nullptr) {
+    return;
+  }
+  pipeline->ops->commit_pipeline_residency(pipeline->backend,
+                                           std::move(candidate));
+}
+
+rund::AccelCheck
+QueryPreparedKernelPipelineResidency(const PreparedKernelPipeline &prepared,
+                                     bool &supported) noexcept {
+  supported = false;
+  auto *const pipeline =
+      static_cast<prepared::PipelineState *>(prepared.owner.get());
+  if (!prepared.ok || pipeline == nullptr || pipeline->ops == nullptr ||
+      pipeline->backend == nullptr ||
+      pipeline->ops->query_pipeline_residency == nullptr) {
+    return rund::AccelCheck{false, "accel_buffer_backend_unavailable"};
+  }
+  return pipeline->ops->query_pipeline_residency(pipeline->backend, supported);
+}
+
+BackendUpload
+UploadPreparedKernelPipeline(const PreparedKernelPipeline &prepared,
+                             const void *const data,
+                             const std::uint64_t bytes) noexcept {
+  auto *const pipeline =
+      static_cast<prepared::PipelineState *>(prepared.owner.get());
+  if (!prepared.ok || pipeline == nullptr || pipeline->ops == nullptr ||
+      pipeline->backend == nullptr ||
+      pipeline->ops->upload_prepared_pipeline == nullptr) {
+    return {};
+  }
+  return pipeline->ops->upload_prepared_pipeline(pipeline->backend, data,
+                                                 bytes);
+}
+
+BackendDownload
+DownloadPreparedKernelPipeline(const PreparedKernelPipeline &prepared,
+                               void *const data, const std::uint64_t bytes,
+                               std::uint64_t *const payload_hash) noexcept {
+  auto *const pipeline =
+      static_cast<prepared::PipelineState *>(prepared.owner.get());
+  if (!prepared.ok || pipeline == nullptr || pipeline->ops == nullptr ||
+      pipeline->backend == nullptr ||
+      pipeline->ops->download_prepared_pipeline == nullptr) {
+    return {};
+  }
+  return pipeline->ops->download_prepared_pipeline(pipeline->backend, data,
+                                                   bytes, payload_hash);
 }
 
 PreparedPipelineMemory ReadPreparedKernelPipelineMemory(

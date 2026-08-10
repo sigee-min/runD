@@ -11,7 +11,7 @@
 #include "src/accel/metal/range/api.hpp"
 #include "src/accel/range_aggregate/plan.hpp"
 #include "src/accel/stencil/metal.hpp"
-#include "src/accel/stencil/shape.hpp"
+#include "src/accel/stencil/range.hpp"
 #include "src/accel/stencil/vulkan.hpp"
 #include "src/accel/vulkan/range/api.hpp"
 
@@ -195,7 +195,7 @@ template <typename T, std::size_t Count>
   };
   const rund::kernel::StencilPlan semantic = rund::kernel::PlanStencil(desc);
   const std::optional<detail::RangeShape> shape =
-      detail::StencilRangeShape(semantic, domain);
+      detail::ProjectStencilRange(semantic, domain);
   const detail::RangeCaps base =
       admission.pick->raw.api == rund::AccelApi::Metal
           ? detail::MetalRangeCaps(admission.pick->raw)

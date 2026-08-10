@@ -207,8 +207,8 @@ owns calibrated ICB command, binding, parameter, and native-object bounds;
 `recurrence` owns recurrence route/template reservation; `runtime` owns
 prepare, execute, and submit forwarding; and `template` owns structural
 template identity. The shared Map-memory and aligned-parameter helpers are
-owner-local headers used only by those projections. No compatibility source
-or second manifest authority remains at the former monolithic path.
+owner-local headers used only by those projections. Every implementation owner
+is registered as a direct translation unit.
 
 Vulkan kernel planning and execution use responsibility owners under
 `vulkan/kernel/run/`. `manifest/step` owns exact per-primitive source recipes
@@ -219,8 +219,17 @@ Pipeline command, descriptor, parameter, and native-memory bounds.
 `recurrence` owns recurrence reservation; `memory` observes retained template
 storage; `prepare`, `execute`, and `submit` own their lifecycle boundaries;
 and `identity` owns template equality. The owner-local `route` and `storage`
-headers hold the two shared projections. No compatibility source or second
-source/hash/manifest authority remains at the former monolithic path.
+headers hold the two shared projections, and every implementation owner is
+registered as a direct translation unit.
+
+Vulkan prepared-kernel construction is partitioned under
+`vulkan/kernel/prepare/`. `template` owns program-template identity, cache
+matching, and ordered assembly; `materialize` owns immutable primitive
+pipeline acquisition; `descriptor` owns dependency normalization and native
+descriptor-capacity reservation; and `step` owns View lowering plus route and
+warm-step preparation. Their source-private `local` interface carries only the
+typed construction facts shared by those directly compiled owners. Shader
+source bytes and artifact identity remain inputs to this construction graph.
 
 Metal Pipeline command storage has one device-calibrated size-class authority.
 On the first opening of an exact nonzero Metal `registryID`, a locked fixed

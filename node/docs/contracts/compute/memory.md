@@ -33,6 +33,24 @@ Host-or-Device/use/index = fixed_memory(C_b, reused_b ? C_b : 0)
 CPU uses Host for the committed-storage row and accelerators use Device. The
 matching summary composes those same values with saturating arithmetic; it
 never derives `C_b` by aligning `L_b` or substitutes a Pipeline reservation.
+Metal publishes `C_b` from the created resource's `[MTLBuffer allocatedSize]`;
+Vulkan publishes it from the `VkMemoryRequirements::size` used by
+`vkAllocateMemory`, not from `VkBufferCreateInfo::size`. Backend pools retain
+and release that same allocation charge even when the reusable logical
+capacity is smaller. The cold Pipeline planner asks the same backend owner for
+the exact fresh-allocation requirement of every internal resource, workspace
+chunk, dense-View chunk, scratch page, and virtual-residency arena before
+reserving the Device governor. Metal uses the non-materializing
+`heapBufferSizeAndAlignWithLength:options:` query; boundary contracts compare
+its result with `[MTLBuffer allocatedSize]`. Vulkan creates only a temporary
+unbound `VkBuffer`, reads `VkMemoryRequirements::size`, and destroys it; the
+planner never consults mutable pool contents. Pipeline materialization may
+reuse a Vulkan resident allocation only when its `allocated_bytes` exactly
+equals the frozen charge. Ordinary public Buffer construction retains its
+best-fit reuse policy. Materialization fails if a created Buffer's published
+`C_b` differs from the sealed projection; it never admits logical payload
+bytes and then silently charges a larger backend allocation. A rejected
+Pipeline memory budget therefore creates zero backend Buffers.
 `F_b` has no CPU, Metal, or Vulkan producer: allocator page residency, process
 RSS, Metal residency, and Vulkan physical-page commitment are not inferred
 from `C_b`. Consequently no `MemoryStats` category or `MemorySnapshot` row
@@ -49,10 +67,22 @@ mapping/device-governor planning coordinate and is not copied into live
 `MemoryStats`. Thus requested/logical payload, committed storage charge,
 unavailable physical residency, logical metadata, and planned admission remain
 distinguishable through the existing authorities without another ledger.
+The opt-in [virtual residency product](./residency.md) retains two ordinary
+slot Buffers and one host staging arena inside the existing Pipeline owner.
+The native Vulkan path also retains one mapped transfer arena. Its unbound-buffer
+requirement query contributes the exact `VkMemoryRequirements::size` to the
+same Pipeline plan and Device admission before any allocation; successful
+candidate publication projects that same charge into
+`MemoryStats::staging`. The slot Buffers follow the same `R_b=L_b` and backend
+`C_b` laws above and every retained owner is included in
+`PipelinePlan::{peak_bytes,committed_peak_bytes}` before materialization and in
+Pipeline `MemoryStats` afterward. The compact page plan
+and its active-slot count are execution evidence, not `F_b`: neither portable
+fixed slots nor a logical backing proves OS/device physical page residency.
 
 Device-wide Buffer accounting uses allocation meters inside the existing
 `DeviceMemory` owner. Its one mutex serializes paired logical/committed
-publication, release, traffic mutation, and snapshot projection. A snapshot
+publication, release, and allocation snapshot projection. A snapshot
 therefore cannot observe one half of an allocation or release and preserves
 `current <= peak <= cumulative` for every active allocation axis. The logical
 meter projects `R_b = L_b` into Resident; the
@@ -61,8 +91,13 @@ owns live `current`, live high-water `peak`, saturating allocated `cumulative`,
 and saturating pool-served `reused`. Accelerator Device `budget` is added from
 the frozen device storage capability when the snapshot is formed; it is not
 stored in either allocation meter. Transfer is traffic rather than residency.
-Its sole producer publishes the maximum single recorded transfer as `peak` and
-the saturating byte total as `cumulative`:
+Transfer traffic remains in that same `DeviceMemory` owner but its two
+monotonic coordinates are atomics. The sole producer performs a saturating CAS
+add for `cumulative` followed by an atomic max for `peak`; snapshot projection
+uses acquire loads. The update order makes every intermediate observation obey
+`peak <= cumulative`, while warm transfer recording acquires no Device-wide
+mutex. It publishes the maximum single recorded transfer as `peak` and the
+saturating byte total as `cumulative`:
 
 ```text
 Transfer.current = 0
@@ -505,6 +540,20 @@ distinct-resource count: admission reserves the resource rows, admission rows,
 and pointer-ordinal index from that exact count, then requires all three sizes
 to match. It must not reserve from the larger authored-binding count or repair
 an over-reserve with a terminal `shrink_to_fit()` allocation/copy.
+
+Cold Pipeline memory planning is compiled as one coordinator and focused
+leaves under `pipeline/plan/memory/`. `model.cpp` freezes the build snapshot,
+unique Program set, CPU storage plans, and retained route owners;
+`workload.cpp` projects nested workspace, resource, and publication totals;
+`cpu.cpp`, `accel.cpp`, and `host.cpp` own their preparation envelopes;
+`workspace.cpp` seals shared workspace routes; `commitment.cpp` owns exact
+logical-to-backend Buffer commitment; and `summary.cpp` assembles the one
+public `PipelinePlan`. `materialize.cpp` alone consumes that frozen plan to
+construct resolved resources and shared workspace owners. Every leaf is a
+direct Node translation unit and exchanges typed source-private values through
+`memory/local.hpp`; `pipeline/plan/memory.cpp` owns only phase order and typed
+failure propagation.
+
 `persistent_bytes` counts referenced caller Buffer storage. The checked
 admission equations are
 

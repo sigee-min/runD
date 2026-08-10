@@ -25,8 +25,8 @@ BackendDownload DownloadVulkanResidentBuffer(
           .payload_hash = hash_payload ? &payload_hash : nullptr,
       },
   }};
-  BackendDownload result =
-      DownloadVulkanResidentBuffers(pick, std::span{request});
+  BackendDownload result = DownloadVulkanResidentBuffers(
+      pick, std::span{request}, TransferAuthority::Shared);
   result.payload_hash = hash_payload ? payload_hash : 0u;
   result.payload_hash_valid = result.check.ok && hash_payload;
   return result;

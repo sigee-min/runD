@@ -3,6 +3,7 @@
 #include <rund/compute.hpp>
 #include <rund/compute/math.hpp>
 #include <rund/compute/pipeline.hpp>
+#include <rund/compute/virtual.hpp>
 
 #include <array>
 #include <concepts>
@@ -164,8 +165,26 @@ concept HasComputeTelemetry = requires(T stats) {
   stats.pipeline.control_command_count;
   stats.pipeline.claim_ns;
   stats.pipeline.control_ns;
+  stats.pipeline.residency.logical_bytes;
+  stats.pipeline.residency.active_count;
+  stats.pipeline.residency.page_bytes;
+  stats.pipeline.residency.page_count;
+  stats.pipeline.residency.slot_capacity;
+  stats.pipeline.residency.active_slots_peak;
+  stats.pipeline.residency.wave_count;
+  stats.pipeline.residency.load_count;
+  stats.pipeline.residency.writeback_count;
+  stats.pipeline.residency.backing_read_bytes;
+  stats.pipeline.residency.backing_write_bytes;
+  stats.pipeline.residency.backing_io_ns;
+  stats.pipeline.residency.sampled_runs;
+  stats.pipeline.residency.allocation_free_runs;
+  stats.pipeline.residency.plan_identity_hi;
+  stats.pipeline.residency.plan_identity_lo;
+  stats.pipeline.residency.failed_page;
   { stats.available() } -> std::same_as<bool>;
   { stats.kernel_timing_available() } -> std::same_as<bool>;
+  { stats == stats } -> std::same_as<bool>;
 };
 template <class T>
 concept ConfiguresPipelineProfile = requires(T &builder) {
@@ -198,6 +217,14 @@ concept HasPipelinePlan = requires(const T &plan) {
   plan.state_bytes;
   plan.transient_bytes;
   plan.prepared_bytes;
+  plan.residency.logical_bytes;
+  plan.residency.page_bytes;
+  plan.residency.page_count;
+  plan.residency.slot_capacity;
+  plan.residency.working_set_bytes;
+  plan.residency.wave_count;
+  plan.residency.identity_hi;
+  plan.residency.identity_lo;
   plan.publish_bytes;
   plan.peak_bytes;
   plan.total_bytes;
@@ -280,6 +307,34 @@ concept HasPipelineProfileSnapshot = requires(const T &snapshot) {
   { snapshot.truncated() } -> std::same_as<bool>;
 };
 static_assert(HasComputeTelemetry<rund::compute::Stats>);
+static_assert(requires(rund::compute::MemoryStats memory) {
+  { memory == memory } -> std::same_as<bool>;
+});
+static_assert(sizeof(rund::compute::ResidencyConfig) == 4u);
+static_assert(sizeof(rund::compute::ResidencyPlan) == 64u);
+static_assert(sizeof(rund::compute::ResidencyStats) == 128u);
+static_assert(sizeof(rund::compute::PipelineStats) == 312u);
+static_assert(sizeof(rund::compute::Stats) == 792u);
+static_assert(sizeof(rund::compute::MemoryStats) == 288u);
+static_assert(sizeof(rund::compute::telemetry::Profile) == 1096u);
+static_assert(sizeof(rund::compute::Run) == 1288u);
+static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1296u);
+static_assert(sizeof(rund::compute::PipelinePlan) == 512u);
+static_assert(rund::compute::Stats{}.pipeline.preparation_evidence ==
+              rund::compute::PreparationEvidenceSource::Unavailable);
+static_assert(sizeof(rund::compute::VirtualBacking) == 16u);
+static_assert(sizeof(rund::compute::VirtualBuffer<std::int32_t>) ==
+              sizeof(std::shared_ptr<void>));
+static_assert(
+    sizeof(rund::compute::VirtualPipeline<std::int32_t(std::int32_t)>) ==
+    sizeof(std::shared_ptr<void>));
+static_assert(std::is_abstract_v<rund::compute::VirtualBacking>);
+static_assert(
+    std::is_copy_constructible_v<rund::compute::VirtualBuffer<std::int32_t>>);
+static_assert(!std::is_copy_constructible_v<
+              rund::compute::VirtualPipeline<std::int32_t(std::int32_t)>>);
+static_assert(std::is_nothrow_move_constructible_v<
+              rund::compute::VirtualPipeline<std::int32_t(std::int32_t)>>);
 static_assert(ConfiguresPipelineProfile<rund::compute::PipelineBuilder>);
 static_assert(
     ConfiguresPipelineSealedRepetitions<rund::compute::PipelineBuilder>);
