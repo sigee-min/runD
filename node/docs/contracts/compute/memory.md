@@ -40,9 +40,13 @@ and release that same allocation charge even when the reusable logical
 capacity is smaller. The cold Pipeline planner asks the same backend owner for
 the exact fresh-allocation requirement of every internal resource, workspace
 chunk, dense-View chunk, scratch page, and virtual-residency arena before
-reserving the Device governor. Metal uses the non-materializing
-`heapBufferSizeAndAlignWithLength:options:` query; boundary contracts compare
-its result with `[MTLBuffer allocatedSize]`. Vulkan creates only a temporary
+reserving the Device governor. Metal starts from the non-materializing
+`heapBufferSizeAndAlignWithLength:options:` resource extent. A standalone
+shared `MTLBuffer` at or below one host VM page retains that extent; a larger
+resource is rounded up to the host VM-page boundary. That projection matches
+the created resource's `[MTLBuffer allocatedSize]` without allocating a probe
+Buffer, and boundary contracts cover both sides of the first page and later
+page crossings. Vulkan creates only a temporary
 unbound `VkBuffer`, reads `VkMemoryRequirements::size`, and destroys it; the
 planner never consults mutable pool contents. Pipeline materialization may
 reuse a Vulkan resident allocation only when its `allocated_bytes` exactly

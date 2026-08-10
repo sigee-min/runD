@@ -31,6 +31,8 @@
 #include <thread>
 #include <vector>
 
+#include <unistd.h>
+
 namespace rund_node_memory_contract {
 
 int CheckAccelMemory(const rund::compute::Backend backend) {
@@ -104,8 +106,20 @@ int CheckAccelMemory(const rund::compute::Backend backend) {
     return 4;
   }
   if (backend == rund::compute::Backend::Metal) {
-    constexpr std::array<std::size_t, 7u> boundary_bytes{
-        4u, 12u, 16u, 4092u, 4096u, 4100u, 16384u};
+    const long host_page = ::sysconf(_SC_PAGESIZE);
+    if (host_page <= 4) {
+      return 10;
+    }
+    const auto page = static_cast<std::size_t>(host_page);
+    const std::array<std::size_t, 9u> boundary_bytes{4u,
+                                                     12u,
+                                                     16u,
+                                                     page - 4u,
+                                                     page,
+                                                     page + 4u,
+                                                     page * 4u,
+                                                     page * 4u + 4u,
+                                                     page * 5u + 4u};
     for (const std::size_t bytes : boundary_bytes) {
       auto boundary = device->buffer<std::uint32_t>(bytes / 4u);
       const std::shared_ptr<rund::compute::detail::BufferState> state =

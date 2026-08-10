@@ -149,12 +149,12 @@ template <class Value> [[nodiscard]] int CheckPlanFormat(Device &device) {
                      static_cast<unsigned long long>(right.budget));
       }
     };
-    std::fprintf(stderr,
-                 "window plan rejection ok=%u reason=%u allocations=%llu/%llu\n",
-                 static_cast<unsigned>(rejected.ok()),
-                 static_cast<unsigned>(rejected.reason()),
-                 static_cast<unsigned long long>(rejected_allocation_count),
-                 static_cast<unsigned long long>(rejected_allocation_bytes));
+    std::fprintf(
+        stderr, "window plan rejection ok=%u reason=%u allocations=%llu/%llu\n",
+        static_cast<unsigned>(rejected.ok()),
+        static_cast<unsigned>(rejected.reason()),
+        static_cast<unsigned long long>(rejected_allocation_count),
+        static_cast<unsigned long long>(rejected_allocation_bytes));
     dump("host", before.host, after.host);
     dump("frame", before.frame, after.frame);
     dump("tile", before.tile, after.tile);
@@ -168,15 +168,23 @@ template <class Value> [[nodiscard]] int CheckPlanFormat(Device &device) {
   auto prepared = std::move(single)
                       .budget(MemoryBudget{.bytes = single_plan->peak_bytes})
                       .prepare();
-  if (!prepared || prepared->plan() != *single_plan) {
-    std::fprintf(stderr,
-                 "window plan prepare status=%u reason=%u budget=%llu "
-                 "peak=%llu\n",
-                 static_cast<unsigned>(prepared.ok()),
-                 static_cast<unsigned>(prepared.reason()),
-                 static_cast<unsigned long long>(single_plan->peak_bytes),
-                 static_cast<unsigned long long>(
-                     prepared ? prepared->plan().peak_bytes : 0u));
+  const DevicePipelineMemoryReport admission = device.pipeline_memory();
+  if (!prepared || prepared->plan() != *single_plan ||
+      single_plan->committed_peak_bytes < single_plan->peak_bytes ||
+      admission.committed_bytes != single_plan->committed_peak_bytes ||
+      admission.preparing_bytes != 0u) {
+    std::fprintf(
+        stderr,
+        "window plan prepare status=%u reason=%u budget=%llu "
+        "peak=%llu committed=%llu admission=%llu/%llu\n",
+        static_cast<unsigned>(prepared.ok()),
+        static_cast<unsigned>(prepared.reason()),
+        static_cast<unsigned long long>(single_plan->peak_bytes),
+        static_cast<unsigned long long>(prepared ? prepared->plan().peak_bytes
+                                                 : 0u),
+        static_cast<unsigned long long>(single_plan->committed_peak_bytes),
+        static_cast<unsigned long long>(admission.committed_bytes),
+        static_cast<unsigned long long>(admission.preparing_bytes));
     return 5;
   }
   return 0;
