@@ -122,6 +122,10 @@ struct BufferState final {
   // Backend-published retained storage charge. This is not an OS/device
   // physical-residency observation.
   std::size_t physical_bytes{};
+  // True only after make_buffer_impl publishes both Device allocation meters.
+  // A rejected backend allocation may have populated the fields above, but it
+  // owns no public accounting and its destructor must not release any meter.
+  bool memory_accounted{};
   std::uint32_t readers{};
   bool writer{};
   bool poisoned{};

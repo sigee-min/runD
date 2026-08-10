@@ -24,6 +24,9 @@ int RunComputeMemoryContract() {
   if (!rund_node_memory_contract::CheckTrafficMeterSnapshot()) {
     return 392;
   }
+  if (!rund_node_memory_contract::CheckRejectedBufferAccounting()) {
+    return 393;
+  }
   if (const int scratch = rund_node_memory_contract::
           CheckAcceleratorScratchPlacementAuthority();
       scratch != 0) {

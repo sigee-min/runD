@@ -13,6 +13,7 @@ inline constexpr std::uint64_t kCounterMaximum =
 [[nodiscard]] bool CheckCounterSaturation();
 [[nodiscard]] bool CheckPreparedMemorySnapshot();
 [[nodiscard]] bool CheckTrafficMeterSnapshot();
+[[nodiscard]] bool CheckRejectedBufferAccounting();
 [[nodiscard]] bool ValidStats(const rund::compute::MemoryStats &) noexcept;
 [[nodiscard]] int CheckCpuProgramOwnerDeltas();
 [[nodiscard]] int CheckCpuPrimitiveScratchOwnership();

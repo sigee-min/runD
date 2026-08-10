@@ -169,6 +169,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/workset.cpp|compute.window"
   "tests/contract/compute/memory/accel.cpp|compute.memory"
   "tests/contract/compute/memory/arena.cpp|compute.memory"
+  "tests/contract/compute/memory/buffer_lifecycle.cpp|compute.memory"
   "tests/contract/compute/memory/cpu_arena.cpp|compute.memory"
   "tests/contract/compute/memory/graph.cpp|compute.memory"
   "tests/contract/compute/memory/observe.cpp|compute.memory"
@@ -232,6 +233,7 @@ set(NODE_TEST_COMPUTE_LINE_TABLE_SOURCES
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
   tests/contract/compute/memory/arena.cpp
+  tests/contract/compute/memory/buffer_lifecycle.cpp
   tests/contract/compute/memory/cpu_arena.cpp
   tests/contract/compute/memory/graph.cpp
   tests/contract/compute/memory/observe.cpp
@@ -342,6 +344,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
   tests/contract/compute/memory/arena.cpp
+  tests/contract/compute/memory/buffer_lifecycle.cpp
   tests/contract/compute/memory/cpu_arena.cpp
   tests/contract/compute/memory/graph.cpp
   tests/contract/compute/memory/observe.cpp

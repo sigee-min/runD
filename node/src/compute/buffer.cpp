@@ -83,6 +83,7 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
       });
       buffer->physical_bytes = byte_count;
       record_buffer(*device, buffer->bytes, buffer->physical_bytes);
+      buffer->memory_accounted = true;
       return Result<std::shared_ptr<BufferState>>::success(std::move(buffer));
     }
     if (device->ops == nullptr || device->ops->allocate == nullptr) {
@@ -101,6 +102,7 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
     const bool reused =
         stored != nullptr && stored->buffer.buffer.storage_reused;
     record_buffer(*device, buffer->bytes, buffer->physical_bytes, reused);
+    buffer->memory_accounted = true;
     return Result<std::shared_ptr<BufferState>>::success(std::move(buffer));
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::BufferCapacity);
@@ -129,7 +131,7 @@ void record_transfer(DeviceState &device, const std::uint64_t bytes) noexcept {
 }
 
 BufferState::~BufferState() {
-  if ((bytes != 0u || physical_bytes != 0u) && device != nullptr) {
+  if (memory_accounted && device != nullptr) {
     std::lock_guard lock{device->memory.gate};
     ::rund::detail::counter::Release(device->memory.logical.current, bytes);
     ::rund::detail::counter::Release(committed_buffer_meter(*device).current,

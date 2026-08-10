@@ -84,8 +84,12 @@ Device-wide Buffer accounting uses allocation meters inside the existing
 `DeviceMemory` owner. Its one mutex serializes paired logical/committed
 publication, release, and allocation snapshot projection. A snapshot
 therefore cannot observe one half of an allocation or release and preserves
-`current <= peak <= cumulative` for every active allocation axis. The logical
-meter projects `R_b = L_b` into Resident; the
+`current <= peak <= cumulative` for every active allocation axis. Logical and
+committed coordinates become owned only after both meters are published.
+A rejected backend allocation, including one that populated a provisional
+storage charge, remains unaccounted; destruction neither reacquires the meter
+gate nor releases bytes belonging to another live Buffer.
+The logical meter projects `R_b = L_b` into Resident; the
 backend meter projects `C_b` into Host on CPU or Device on accelerators. Each
 owns live `current`, live high-water `peak`, saturating allocated `cumulative`,
 and saturating pool-served `reused`. Accelerator Device `budget` is added from
