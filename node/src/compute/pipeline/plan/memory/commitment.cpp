@@ -59,6 +59,11 @@ plan_buffer_commitment(const DeviceState &device,
             resource.locator)) {
       continue;
     }
+    const auto *internal =
+        std::get_if<PipelineInternalResourcePlan>(&resource.locator);
+    if (internal != nullptr && internal->owner != nullptr) {
+      continue;
+    }
     if (resource.physical_bytes < resource.bytes ||
         !kernel::checked::add(total.logical, resource.bytes, total.logical) ||
         !kernel::checked::add(total.committed, resource.physical_bytes,

@@ -161,7 +161,8 @@ detail::AccelTransfer detail::DownloadAccelBuffersMeasured(
 detail::AccelCopy
 detail::CopyAccelBuffers(const rund::AccelContext &context,
                          const std::span<const CopyEntry> requests,
-                         const std::span<CopyRoute> routes) {
+                         const std::span<CopyRoute> routes,
+                         const TransferAuthority authority) {
   if (requests.empty() || routes.size() < requests.size()) {
     return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
   }
@@ -177,9 +178,13 @@ detail::CopyAccelBuffers(const rund::AccelContext &context,
       return {.check = RejectAccelCheck("accel_context_buffer_invalid")};
     }
     const TransferAdmission source =
-        AdmitAccelBufferTransfer(context_token, *request.source);
+        authority == TransferAuthority::PipelinePrivate
+            ? AdmitAccelBufferPrivateTransfer(context_token, *request.source)
+            : AdmitAccelBufferTransfer(context_token, *request.source);
     const TransferAdmission target =
-        AdmitAccelBufferTransfer(context_token, *request.target);
+        authority == TransferAuthority::PipelinePrivate
+            ? AdmitAccelBufferPrivateTransfer(context_token, *request.target)
+            : AdmitAccelBufferTransfer(context_token, *request.target);
     if (!source.check.ok) {
       return {.check = source.check};
     }
@@ -203,7 +208,7 @@ detail::CopyAccelBuffers(const rund::AccelContext &context,
     };
   }
   const BackendCopy copied =
-      CopyBackendBuffers(pick, routes.first(requests.size()));
+      CopyBackendBuffers(pick, routes.first(requests.size()), authority);
   return {.check =
               TransferCheckFrom(copied.check, "accel_buffer_copy_overflow"),
           .command_submits = copied.command_submits};

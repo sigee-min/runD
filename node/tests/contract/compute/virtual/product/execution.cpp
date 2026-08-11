@@ -70,8 +70,7 @@ int CheckProductExecution(const rund::compute::Backend backend) {
   auto output = virtual_buffer<std::int32_t>(LogicalElements, output_backing);
   auto prepared =
       input && output
-          ? virtual_pipeline(*program, *input, *output,
-                             ResidencyConfig{.slots = SlotCapacity})
+          ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
   if (!prepared) {
@@ -89,12 +88,13 @@ int CheckProductExecution(const rund::compute::Backend backend) {
     std::fprintf(
         stderr,
         "virtual product cold backend=%u reason=%u reads=%llu "
-        "writes=%llu loads=%llu waves=%llu in=%llu out=%llu\n",
+        "writes=%llu loads=%llu epochs=%llu in=%llu out=%llu\n",
         static_cast<unsigned>(backend), static_cast<unsigned>(cold.reason()),
         static_cast<unsigned long long>(input_facts.read_count),
         static_cast<unsigned long long>(output_facts.write_count),
-        static_cast<unsigned long long>(failed.pipeline.residency.load_count),
-        static_cast<unsigned long long>(failed.pipeline.residency.wave_count),
+        static_cast<unsigned long long>(
+            failed.pipeline.residency.page_in_count),
+        static_cast<unsigned long long>(failed.pipeline.residency.epoch_count),
         static_cast<unsigned long long>(
             failed.pipeline.residency.backing_read_bytes),
         static_cast<unsigned long long>(
@@ -165,7 +165,7 @@ int CheckProductExecution(const rund::compute::Backend backend) {
     std::fprintf(
         stderr,
         "virtual product evidence backend=%u alloc=%llu hash=%llx "
-        "out=%llx pages=%llu/%llu waves=%llu in=%llu outb=%llu "
+        "out=%llx pages=%llu/%llu epochs=%llu in=%llu outb=%llu "
         "io=%llu/%llu submit=%llu transfer=%llu/%llu samples=%u/%u "
         "claim=%llu/%llu reads=%llu writes=%llu observe=%llu same=%u tail=%u "
         "profile=%u resident=%llu/%llu cold=%llu/%llu\n",
@@ -173,9 +173,9 @@ int CheckProductExecution(const rund::compute::Backend backend) {
         static_cast<unsigned long long>(warm_allocations),
         static_cast<unsigned long long>(evidence.observed_hash),
         static_cast<unsigned long long>(final_run.output_hash),
-        static_cast<unsigned long long>(r.load_count),
-        static_cast<unsigned long long>(r.writeback_count),
-        static_cast<unsigned long long>(r.wave_count),
+        static_cast<unsigned long long>(r.page_in_count),
+        static_cast<unsigned long long>(r.page_out_count),
+        static_cast<unsigned long long>(r.epoch_count),
         static_cast<unsigned long long>(r.backing_read_bytes),
         static_cast<unsigned long long>(r.backing_write_bytes),
         static_cast<unsigned long long>(final_run.uploaded_bytes),

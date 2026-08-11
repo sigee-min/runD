@@ -10,8 +10,10 @@
 #import <Metal/Metal.h>
 #endif
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -23,9 +25,9 @@
 namespace rund::node::accel::detail {
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-BackendCopy
-CopyMetalResidentBuffers(const rund::AccelDevice &pick,
-                         const std::span<const CopyRoute> requests) {
+BackendCopy CopyMetalResidentBuffers(const rund::AccelDevice &pick,
+                                     const std::span<const CopyRoute> requests,
+                                     const TransferAuthority authority) {
   MetalAdapter *const adapter = MetalAdapterFromPick(pick);
   if (adapter == nullptr || requests.empty()) {
     return {};
@@ -41,18 +43,37 @@ CopyMetalResidentBuffers(const rund::AccelDevice &pick,
   };
   @autoreleasepool {
     try {
-      std::vector<CopyPlan> plans;
-      plans.reserve(requests.size());
+      std::array<CopyPlan, kInlineTransferCapacity> inline_plans{};
+      std::vector<CopyPlan> overflow;
+      if (requests.size() > inline_plans.size()) {
+        overflow.resize(requests.size());
+      }
+      std::span<CopyPlan> plans =
+          overflow.empty()
+              ? std::span<CopyPlan>{inline_plans}.first(requests.size())
+              : std::span<CopyPlan>{overflow};
+      std::size_t plan_count = 0u;
       {
         MetalResidentState &resident = MetalResidents(*adapter);
-        std::lock_guard resident_lock{resident.mutex};
+        std::unique_lock resident_lock{resident.mutex, std::defer_lock};
+        if (authority == TransferAuthority::Shared) {
+          resident_lock.lock();
+        }
         for (const CopyRoute &request : requests) {
-          MetalResidentBufferResult source = ResolveMetalResidentBuffer(
-              resident, request.source, request.source_handle,
-              "accel_buffer_unavailable");
-          MetalResidentBufferResult target = ResolveMetalResidentBuffer(
-              resident, request.target, request.target_handle,
-              "accel_buffer_unavailable");
+          MetalResidentBufferResult source =
+              authority == TransferAuthority::PipelinePrivate
+                  ? ResolvePrivateMetalResidentBuffer(*adapter, request.source,
+                                                      request.source_handle)
+                  : ResolveMetalResidentBuffer(resident, request.source,
+                                               request.source_handle,
+                                               "accel_buffer_unavailable");
+          MetalResidentBufferResult target =
+              authority == TransferAuthority::PipelinePrivate
+                  ? ResolvePrivateMetalResidentBuffer(*adapter, request.target,
+                                                      request.target_handle)
+                  : ResolveMetalResidentBuffer(resident, request.target,
+                                               request.target_handle,
+                                               "accel_buffer_unavailable");
           if (!source.check.ok || !target.check.ok ||
               source.device_buffer == nullptr ||
               target.device_buffer == nullptr ||
@@ -93,9 +114,13 @@ CopyMetalResidentBuffers(const rund::AccelDevice &pick,
           if (plan.source == nil || plan.target == nil) {
             return BackendCopy{.check = {false, "accel_buffer_unavailable"}};
           }
-          plans.push_back(std::move(plan));
+          if (plan_count >= plans.size()) {
+            return BackendCopy{.check = {false, "accel_buffer_unavailable"}};
+          }
+          plans[plan_count++] = std::move(plan);
         }
       }
+      plans = plans.first(plan_count);
       const auto overlaps = [](const NSUInteger left_offset,
                                const NSUInteger left_bytes,
                                const NSUInteger right_offset,
@@ -124,6 +149,20 @@ CopyMetalResidentBuffers(const rund::AccelDevice &pick,
       if (plans.empty()) {
         return BackendCopy{.check = {true, "ok"}};
       }
+      if (authority == TransferAuthority::PipelinePrivate) {
+        for (const CopyPlan &plan : plans) {
+          const void *const source = [plan.source contents];
+          void *const target = [plan.target contents];
+          if (source == nullptr || target == nullptr) {
+            return BackendCopy{.check = {false, "accel_buffer_unavailable"}};
+          }
+          std::memcpy(static_cast<std::byte *>(target) + plan.target_offset,
+                      static_cast<const std::byte *>(source) +
+                          plan.source_offset,
+                      plan.bytes);
+        }
+        return BackendCopy{.check = {true, "ok"}};
+      }
       id<MTLCommandQueue> queue =
           (__bridge id<MTLCommandQueue>)adapter->queue.get();
       id<MTLCommandBuffer> command = queue == nil ? nil : [queue commandBuffer];
@@ -150,7 +189,8 @@ CopyMetalResidentBuffers(const rund::AccelDevice &pick,
 }
 #else
 BackendCopy CopyMetalResidentBuffers(const rund::AccelDevice &,
-                                     const std::span<const CopyRoute>) {
+                                     const std::span<const CopyRoute>,
+                                     const TransferAuthority) {
   return {};
 }
 #endif

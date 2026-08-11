@@ -22,6 +22,22 @@ struct VirtualBufferState final {
   std::uint64_t bytes{};
 };
 
+enum class VirtualRoute : std::uint8_t { Pointwise, Window, Reduction, Scan };
+
+struct VirtualGeometry final {
+  VirtualRoute route{VirtualRoute::Pointwise};
+  std::uint64_t input_payload_elements{};
+  std::uint64_t output_payload_elements{};
+  std::uint64_t input_frame_elements{};
+  std::uint64_t output_frame_elements{};
+  std::uint64_t input_prefix_elements{};
+  std::uint64_t output_prefix_elements{};
+  std::uint32_t operation{};
+  std::uint32_t boundary{};
+  std::uint64_t materialization_hi{};
+  std::uint64_t materialization_lo{};
+};
+
 enum class VirtualPipelinePhase : std::uint8_t {
   Ready,
   Running,
@@ -32,6 +48,7 @@ struct VirtualPipelineState final {
   std::shared_ptr<VirtualBufferState> input;
   std::shared_ptr<VirtualBufferState> output;
   std::shared_ptr<PipelineState> pipeline;
+  VirtualGeometry geometry{};
   Stats stats{};
   mutable std::mutex gate;
   VirtualPipelinePhase phase{VirtualPipelinePhase::Ready};

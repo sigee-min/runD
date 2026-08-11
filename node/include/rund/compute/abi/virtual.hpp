@@ -11,6 +11,13 @@
 namespace rund::compute {
 class VirtualBacking;
 
+// Byte budgets are policy; frame count is a derived execution fact. Zero asks
+// the Device residency authority for its bounded default working set.
+struct ResidencyConfig final {
+  std::uint64_t device_resident_bytes{};
+  std::uint64_t host_staging_bytes{};
+};
+
 namespace detail {
 
 [[nodiscard]] Result<std::shared_ptr<VirtualBufferState>>
@@ -26,7 +33,7 @@ virtual_buffer_size(const std::shared_ptr<VirtualBufferState> &state) noexcept;
 prepare_virtual_pipeline(const std::shared_ptr<ProgramState> &program,
                          const std::shared_ptr<VirtualBufferState> &input,
                          const std::shared_ptr<VirtualBufferState> &output,
-                         std::uint32_t slots) noexcept;
+                         ResidencyConfig config) noexcept;
 [[nodiscard]] bool valid_virtual_pipeline(
     const std::shared_ptr<VirtualPipelineState> &state) noexcept;
 [[nodiscard]] Status run_virtual_pipeline(

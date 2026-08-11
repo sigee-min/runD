@@ -3,6 +3,9 @@ list(APPEND NODE_SOURCES
   src/compute/compile/service.cpp
   src/compute/open/cpu.cpp
   src/compute/device/info.cpp
+  src/compute/device/residency.cpp
+  src/compute/device/residency_pool.cpp
+  src/compute/device/residency_prefetch.cpp
   src/compute/buffer.cpp
   src/compute/buffer/write.cpp
   src/compute/expression/arity.cpp
@@ -67,6 +70,7 @@ list(APPEND NODE_SOURCES
   src/compute/pipeline/plan/schedule.cpp
   src/compute/pipeline/plan/scratch.cpp
   src/compute/pipeline/residency/identity.cpp
+  src/compute/pipeline/residency/footprint.cpp
   src/compute/pipeline/residency/authority.cpp
   src/compute/pipeline/residency/integration.cpp
   src/compute/pipeline/residency/model.cpp
@@ -135,10 +139,13 @@ list(APPEND NODE_SOURCES
   src/compute/virtual/prepare.cpp
   src/compute/virtual/run.cpp
   src/compute/virtual/run/backing.cpp
+  src/compute/virtual/run/cache.cpp
   src/compute/virtual/run/evidence.cpp
   src/compute/virtual/run/projection.cpp
+  src/compute/virtual/run/reduce.cpp
+  src/compute/virtual/run/scan.cpp
   src/compute/virtual/run/sample.cpp
-  src/compute/virtual/run/wave.cpp
+  src/compute/virtual/run/epoch.cpp
   src/compute/virtual/stats.cpp
 )
 

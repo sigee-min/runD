@@ -55,7 +55,7 @@ rg -q 'WarmSamples = 60u' \
   "$root/tools/measure/compute/virtual/model.hpp"
 rg -q 'ActiveCounts' \
   "$root/tools/measure/compute/virtual/model.hpp"
-rg -q 'LogicalElements > SlotElements' \
+rg -q 'LogicalElements > FrameElements' \
   "$root/tools/measure/compute/virtual/model.hpp"
 rg -Fq 'samples_allocation_free(sampled_runs)' "$virtual_oracle"
 rg -Fq 'sampled_runs == 0u ||' "$virtual_oracle"

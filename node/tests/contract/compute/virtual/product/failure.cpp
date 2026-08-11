@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <span>
 
@@ -43,8 +44,7 @@ int CheckProductBackingFailure(const rund::compute::Backend backend) {
   auto output = virtual_buffer<std::int32_t>(LogicalElements, output_backing);
   auto prepared =
       input && output
-          ? virtual_pipeline(*program, *input, *output,
-                             ResidencyConfig{.slots = SlotCapacity})
+          ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
   if (!prepared) {
@@ -69,10 +69,26 @@ int CheckProductBackingFailure(const rund::compute::Backend backend) {
   const Stats failed_stats = prepared->stats();
   if (write_failed.reason() != Reason::BackendFailed ||
       after_write_failure.write_failure_count != 1u ||
-      after_write_failure.write_count != WaveCount ||
+      after_write_failure.write_count != PageCount ||
       after_write_failure.partial_write_bytes != partial_bytes ||
-      failed_stats.pipeline.residency.failed_page != 0u ||
+      // Deferred dirty writeback first touches backing when the next epoch
+      // evicts the oldest frame, not while the first epoch is computing.
+      failed_stats.pipeline.residency.failed_page != FrameCapacity ||
       failed_stats.pipeline.residency.backing_write_bytes != 0u) {
+    std::fprintf(
+        stderr,
+        "virtual write failure reason=%u failures=%llu writes=%llu "
+        "partial=%llu failed_page=%llu bytes=%llu\n",
+        static_cast<unsigned>(write_failed.reason()),
+        static_cast<unsigned long long>(
+            after_write_failure.write_failure_count),
+        static_cast<unsigned long long>(after_write_failure.write_count),
+        static_cast<unsigned long long>(
+            after_write_failure.partial_write_bytes),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.residency.failed_page),
+        static_cast<unsigned long long>(
+            failed_stats.pipeline.residency.backing_write_bytes));
     return 6;
   }
 
@@ -88,7 +104,7 @@ int CheckProductBackingFailure(const rund::compute::Backend backend) {
   auto poison_probe =
       poisoned_view && recovery_output
           ? virtual_pipeline(*program, *poisoned_view, *recovery_output,
-                             ResidencyConfig{.slots = SlotCapacity})
+                             ResidencyConfig{})
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
   const BackingFacts input_before_insufficient = input_backing->facts();

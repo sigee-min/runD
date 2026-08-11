@@ -12,11 +12,11 @@ using namespace rund::compute::detail::residency;
 [[nodiscard]] PlanResult plan(const std::uint64_t pages,
                               const std::uint64_t requested,
                               const std::uint64_t maximum) noexcept {
-  return PlanResidency(PlanInput{
+  return PlanResidency(StreamPlanInput{
       .page_bytes = 4096u,
       .page_count = pages,
-      .requested_slots = requested,
-      .max_slots = maximum,
+      .requested_frames = requested,
+      .max_frames = maximum,
   });
 }
 
@@ -24,41 +24,42 @@ using namespace rund::compute::detail::residency;
 
 int CheckPlanner() {
   constexpr std::uint64_t pages = 1'000'000'000u;
-  constexpr std::uint64_t slots = 4096u;
-  auto planned = plan(pages, slots, slots);
+  constexpr std::uint64_t frames = 4096u;
+  auto planned = plan(pages, frames, frames);
   if (!planned || planned.plan.page_bytes() != 4096u ||
       !planned.plan.identity()) {
     return 1;
   }
 
-  const LinearPlan &linear = planned.plan.linear();
-  const std::uint64_t waves = pages / slots + (pages % slots != 0u);
+  const StreamPlan &stream = planned.plan.stream();
+  const std::uint64_t epochs = pages / frames + (pages % frames != 0u);
   PageRun first{};
   PageRun last{};
-  if (linear.page_count() != pages || linear.slot_capacity() != slots ||
-      linear.wave_count() != waves || !linear.wave(0u, first) ||
-      !linear.wave(waves - 1u, last) || first.first_page != 0u ||
-      first.page_count != slots || last.first_page != (waves - 1u) * slots ||
-      last.page_count != pages - last.first_page || linear.wave(waves, last)) {
+  if (stream.page_count() != pages || stream.frame_capacity() != frames ||
+      stream.epoch_count() != epochs || !stream.epoch(0u, first) ||
+      !stream.epoch(epochs - 1u, last) || first.first_page != 0u ||
+      first.page_count != frames || last.first_page != (epochs - 1u) * frames ||
+      last.page_count != pages - last.first_page ||
+      stream.epoch(epochs, last)) {
     return 2;
   }
 
   const auto empty = plan(0u, 0u, 0u);
   PageRun none{};
-  if (!empty || empty.plan.linear().page_count() != 0u ||
-      empty.plan.linear().slot_capacity() != 0u ||
-      empty.plan.linear().wave_count() != 0u ||
-      empty.plan.linear().wave(0u, none)) {
+  if (!empty || empty.plan.stream().page_count() != 0u ||
+      empty.plan.stream().frame_capacity() != 0u ||
+      empty.plan.stream().epoch_count() != 0u ||
+      empty.plan.stream().epoch(0u, none)) {
     return 3;
   }
   if (plan(1u, 0u, 0u).failure != Failure::Infeasible ||
       plan(1u, 2u, 1u).failure != Failure::Capacity) {
     return 4;
   }
-  const auto invalid = PlanResidency(PlanInput{
+  const auto invalid = PlanResidency(StreamPlanInput{
       .page_count = 1u,
-      .requested_slots = 1u,
-      .max_slots = 1u,
+      .requested_frames = 1u,
+      .max_frames = 1u,
   });
   return invalid.failure == Failure::Invalid ? 0 : 5;
 }

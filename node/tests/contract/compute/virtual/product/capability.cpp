@@ -69,8 +69,8 @@ CheckProductCapability(const rund::compute::Backend backend) {
 
   const MemoryStats memory_before = device.memory();
   const DevicePipelineMemoryReport admission_before = device.pipeline_memory();
-  auto prepared = virtual_pipeline(*program, *input, *output,
-                                   ResidencyConfig{.slots = SlotCapacity});
+  auto prepared =
+      virtual_pipeline(*program, *input, *output, ResidencyConfig{});
   if (prepared) {
     return {.disposition = ProductCapability::Executable};
   }

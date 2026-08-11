@@ -12,7 +12,21 @@
 
 namespace rund::compute {
 
-struct ResidencyConfig;
+struct VirtualRead final {
+  std::uint64_t offset{};
+  std::span<std::byte> bytes;
+};
+
+struct VirtualWrite final {
+  std::uint64_t offset{};
+  std::span<const std::byte> bytes;
+};
+
+// Physical latency class of the logical backing. This selects bounded
+// prefetch distance only; it never changes ordering, cache identity, or
+// correctness. Host is the default for existing memory-backed owners.
+enum class VirtualBackingTier : std::uint8_t { Host, Persistent };
+
 template <class Signature> class VirtualPipeline;
 namespace detail {
 struct VirtualBackingState;
@@ -30,10 +44,30 @@ public:
   virtual ~VirtualBacking();
 
   [[nodiscard]] virtual std::uint64_t size_bytes() const noexcept = 0;
+  [[nodiscard]] virtual VirtualBackingTier tier() const noexcept {
+    return VirtualBackingTier::Host;
+  }
+  // One is the serialized default. A read-only backing may explicitly admit
+  // bounded parallel range reads; runD never overlaps writes or exceeds two.
+  [[nodiscard]] virtual std::uint32_t max_parallel_reads() const noexcept {
+    return 1u;
+  }
   [[nodiscard]] virtual Status read(std::uint64_t offset,
                                     std::span<std::byte> output) noexcept = 0;
   [[nodiscard]] virtual Status
   write(std::uint64_t offset, std::span<const std::byte> input) noexcept = 0;
+  // Batch is the physical page-store interface. The default preserves custom
+  // backings by issuing the exact ordered scalar callbacks; NVMe/object-store
+  // implementations may override it with vectored I/O without changing page
+  // order or partial-failure semantics.
+  [[nodiscard]] virtual Status
+  read_batch(std::span<const VirtualRead> ranges) noexcept;
+  [[nodiscard]] virtual Status
+  write_batch(std::span<const VirtualWrite> ranges) noexcept;
+  // External mutation must be published through this boundary before the
+  // backing is used again. It advances the cache generation while serialized
+  // with every run using this backing; hidden mutation is a contract error.
+  [[nodiscard]] Status invalidate() noexcept;
 
 private:
   friend struct detail::VirtualBackingAccess;
@@ -85,10 +119,6 @@ virtual_buffer(const std::uint64_t count,
   return Result<VirtualBuffer<T>>::success(
       VirtualBuffer<T>{std::move(state).value()});
 }
-
-struct ResidencyConfig final {
-  std::uint32_t slots{2u};
-};
 
 template <detail::ComputeValue R, detail::ComputeValue A>
 class VirtualPipeline<R(A)> final {
@@ -145,9 +175,9 @@ template <detail::ComputeValue R, detail::ComputeValue A>
 virtual_pipeline(const Program<R(A)> &program, const VirtualBuffer<A> &input,
                  VirtualBuffer<R> &output,
                  const ResidencyConfig config = {}) noexcept {
-  auto prepared = detail::prepare_virtual_pipeline(
-      detail::ProgramAccess::state(program), input.state_, output.state_,
-      config.slots);
+  auto prepared =
+      detail::prepare_virtual_pipeline(detail::ProgramAccess::state(program),
+                                       input.state_, output.state_, config);
   if (!prepared) {
     return Result<VirtualPipeline<R(A)>>::fail(prepared.reason(),
                                                prepared.location());
@@ -157,5 +187,7 @@ virtual_pipeline(const Program<R(A)> &program, const VirtualBuffer<A> &input,
 }
 
 static_assert(std::is_trivially_copyable_v<ResidencyConfig>);
+static_assert(std::is_trivially_copyable_v<VirtualRead>);
+static_assert(std::is_trivially_copyable_v<VirtualWrite>);
 
 } // namespace rund::compute

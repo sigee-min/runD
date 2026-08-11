@@ -124,12 +124,20 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/transfer/download.cpp|compute.pipeline-transfer"
   "tests/contract/compute/pipeline/residency/planner.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/identity.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/footprint.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority.cpp|compute.pipeline-residency"
   "tests/contract/compute/virtual/backing.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/golden.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/pager.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/oracle.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/product/backing.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/active.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/prefetch.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/window.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/reduce.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/scan.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/cache.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/golden.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/evidence.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/surface.cpp|compute.virtual-residency-product"
@@ -295,6 +303,9 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/residency/contract.cpp
   tests/contract/compute/pipeline/residency/planner.cpp
   tests/contract/compute/pipeline/residency/identity.cpp
+  tests/contract/compute/pipeline/residency/graph.cpp
+  tests/contract/compute/pipeline/residency/footprint.cpp
+  tests/contract/compute/pipeline/residency/authority.cpp
   tests/contract/compute/virtual/contract.cpp
   tests/contract/compute/virtual/backing.cpp
   tests/contract/compute/virtual/golden.cpp
@@ -302,6 +313,11 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/virtual/oracle.cpp
   tests/contract/compute/virtual/product/contract.cpp
   tests/contract/compute/virtual/product/active.cpp
+  tests/contract/compute/virtual/product/prefetch.cpp
+  tests/contract/compute/virtual/product/window.cpp
+  tests/contract/compute/virtual/product/reduce.cpp
+  tests/contract/compute/virtual/product/scan.cpp
+  tests/contract/compute/virtual/product/cache.cpp
   tests/contract/compute/virtual/product/backing.cpp
   tests/contract/compute/virtual/product/golden.cpp
   tests/contract/compute/virtual/product/evidence.cpp

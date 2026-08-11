@@ -60,13 +60,18 @@ namespace rund::compute::detail {
             resource.count > std::numeric_limits<std::size_t>::max()) {
           return Status::fail(Reason::PipelineInvalid);
         }
-        auto made = make_planned_input_binding_buffer(
-            build.device, resource.type,
-            static_cast<std::size_t>(resource.count), resource.physical_bytes);
-        if (!made) {
-          return Status::fail(made.reason());
+        if (internal->owner != nullptr) {
+          owner = internal->owner;
+        } else {
+          auto made = make_planned_input_binding_buffer(
+              build.device, resource.type,
+              static_cast<std::size_t>(resource.count),
+              resource.physical_bytes);
+          if (!made) {
+            return Status::fail(made.reason());
+          }
+          owner = std::move(made).value();
         }
-        owner = std::move(made).value();
         if (internal->fill == PipelineFill::Ordinal) {
           if (resource.type != Type::U32 || resource.count > ordinals.size()) {
             return Status::fail(Reason::PipelineInvalid);

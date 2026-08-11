@@ -6,10 +6,12 @@ caller-owned resident Buffers, then reuses that prepared sequence without
 rebuilding its cross-Program plan.
 
 The opt-in [virtual residency contract](./residency.md) consumes the same
-Pipeline planning, placement, admission, execution, and memory owners. It adds
-one compact page policy plus two fixed slot arenas; it does not wrap
-caller-created page Buffers or create another Pipeline allocator. Each wave
-executes through the same ordinary-buffer backend owner.
+Pipeline planning, placement, admission, execution, and memory owners. A
+Device-global page-cache Pool owns one canonical input/output frame pair, one
+disposable execution input/output pair, and the host prefetch/writeback image;
+individual Pipelines retain that admitted owner instead of constructing page
+Buffers or another allocator. Each epoch executes through the same
+ordinary-buffer backend owner.
 
 ## Scope
 

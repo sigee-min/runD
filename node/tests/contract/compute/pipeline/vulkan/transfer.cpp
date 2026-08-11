@@ -1,5 +1,15 @@
 #include "../local.hpp"
 
+#if defined(RUND_NODE_TEST_BACKEND_CPU) || defined(RUND_NODE_TEST_BACKEND_METAL)
+
+namespace rund_node_test_pipeline {
+
+int CheckVulkanTransferAdmission() { return 0; }
+
+} // namespace rund_node_test_pipeline
+
+#else
+
 #include <rund/compute/virtual.hpp>
 
 #include <array>
@@ -98,8 +108,7 @@ struct VulkanTransferProbe final {
   auto output = virtual_buffer<std::int32_t>(Elements, output_backing);
   auto prepared =
       program && input && output
-          ? virtual_pipeline(*program, *input, *output,
-                             ResidencyConfig{.slots = 2u})
+          ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
   if (!prepared) {
@@ -154,7 +163,7 @@ VulkanTransferBudgetRollback(const VulkanTransferProbe probe) {
   }
   const MemoryStats before = device.memory();
   auto rejected =
-      virtual_pipeline(*program, *input, *output, ResidencyConfig{.slots = 2u});
+      virtual_pipeline(*program, *input, *output, ResidencyConfig{});
   const MemoryStats after = device.memory();
   const DevicePipelineMemoryReport report = device.pipeline_memory();
   if (rejected || rejected.reason() != Reason::DevicePipelineMemoryCapacity ||
@@ -179,3 +188,5 @@ int CheckVulkanTransferAdmission() {
 }
 
 } // namespace rund_node_test_pipeline
+
+#endif

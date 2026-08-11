@@ -9,6 +9,7 @@
 #include "../../../backend.hpp"
 #include "../../../buffer/local.hpp"
 #include "../../../cpu/run/state.hpp"
+#include "../../../device/residency_pool.hpp"
 #include "../../../job/local.hpp"
 #include "../../../memory/arena.hpp"
 #include "../../../status.hpp"
@@ -105,39 +106,42 @@ finalize_pipeline_plan(const PipelineBuildState &build,
   }
   if (build.residency.pages != nullptr) {
     const residency::ResidencyPlan &pages = *build.residency.pages;
-    const residency::LinearPlan &linear = pages.linear();
+    const residency::StreamPlan &stream = pages.stream();
     std::uint64_t combined_page_bytes = 0u;
-    if (!pages.identity() || build.residency.logical_bytes == 0u ||
+    std::uint64_t expected_staging_bytes = 0u;
+    if (!pages.identity() || build.residency.pool == nullptr ||
+        build.residency.logical_bytes == 0u ||
         build.residency.input_page_bytes == 0u ||
         build.residency.output_page_bytes == 0u ||
         !kernel::checked::add(build.residency.input_page_bytes,
                               build.residency.output_page_bytes,
                               combined_page_bytes) ||
+        !kernel::checked::mul(combined_page_bytes, build.residency.frame_count,
+                              expected_staging_bytes) ||
         combined_page_bytes != pages.page_bytes() ||
-        build.residency.staging_bytes == 0u ||
+        build.residency.pool->staging == nullptr ||
+        build.residency.pool->staging_bytes != expected_staging_bytes ||
         build.residency.resident_bytes == 0u ||
-        build.residency.slot_count == 0u ||
-        build.residency.slot_count != linear.slot_capacity() ||
+        build.residency.frame_count == 0u ||
+        build.residency.frame_count != stream.frame_capacity() ||
         build.residency.first_step > build.steps.size() ||
-        build.residency.slot_count >
-            build.steps.size() - build.residency.first_step ||
-        !kernel::checked::add(summary.prepared_host_bytes,
-                              build.residency.staging_bytes,
-                              summary.prepared_host_bytes) ||
-        !kernel::checked::add(summary.allocation_count, 1u,
-                              summary.allocation_count)) {
+        build.residency.frame_count >
+            build.steps.size() - build.residency.first_step) {
       return Status::fail(Reason::PipelineCapacity);
     }
+    // The Device-global Pool owns and admits its host staging and resident
+    // Buffers once. A Pipeline retains a shared reference but must not reserve
+    // or report those same bytes as Pipeline-private preparation.
     plan.residency = build.residency;
     if (build.device->backend == Backend::Vulkan) {
       std::uint64_t input_arena_bytes = 0u;
       std::uint64_t output_arena_bytes = 0u;
       if (build.device->ops == nullptr ||
           build.device->ops->pipeline_transfer_storage_bytes == nullptr ||
-          !kernel::checked::mul(build.residency.slot_count,
+          !kernel::checked::mul(build.residency.frame_count,
                                 build.residency.input_page_bytes,
                                 input_arena_bytes) ||
-          !kernel::checked::mul(build.residency.slot_count,
+          !kernel::checked::mul(build.residency.frame_count,
                                 build.residency.output_page_bytes,
                                 output_arena_bytes)) {
         return Status::fail(Reason::PipelineCapacity);
@@ -156,10 +160,10 @@ finalize_pipeline_plan(const PipelineBuildState &build,
     }
     summary.residency.logical_bytes = build.residency.logical_bytes;
     summary.residency.page_bytes = pages.page_bytes();
-    summary.residency.page_count = linear.page_count();
-    summary.residency.slot_capacity = linear.slot_capacity();
-    summary.residency.working_set_bytes = build.residency.resident_bytes;
-    summary.residency.wave_count = linear.wave_count();
+    summary.residency.page_count = stream.page_count();
+    summary.residency.frame_capacity = stream.frame_capacity();
+    summary.residency.resident_bytes = build.residency.resident_bytes;
+    summary.residency.epoch_count = stream.epoch_count();
     summary.residency.identity_hi = pages.identity().hi;
     summary.residency.identity_lo = pages.identity().lo;
   }

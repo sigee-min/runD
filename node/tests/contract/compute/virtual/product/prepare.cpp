@@ -88,33 +88,37 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
     return 3;
   }
 
-  auto same_owner = virtual_pipeline(*program, *input, *input,
-                                     ResidencyConfig{.slots = SlotCapacity});
+  auto same_owner =
+      virtual_pipeline(*program, *input, *input, ResidencyConfig{});
   auto same_backing_output =
       virtual_buffer<std::int32_t>(LogicalElements, input_backing);
   auto same_backing =
       same_backing_output
           ? virtual_pipeline(*program, *input, *same_backing_output,
-                             ResidencyConfig{.slots = SlotCapacity})
+                             ResidencyConfig{})
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
-  auto wrong_shape = virtual_pipeline(*program, *input, *short_output,
-                                      ResidencyConfig{.slots = SlotCapacity});
-  auto zero_pages =
-      virtual_pipeline(*program, *input, *output, ResidencyConfig{.slots = 0u});
+  auto wrong_shape =
+      virtual_pipeline(*program, *input, *short_output, ResidencyConfig{});
+  auto zero_pages = virtual_pipeline(
+      *program, *input, *output,
+      ResidencyConfig{.device_resident_bytes = 1u, .host_staging_bytes = 1u});
   auto excessive_pages = virtual_pipeline(
       *program, *input, *output,
-      ResidencyConfig{.slots = std::numeric_limits<std::uint32_t>::max()});
+      ResidencyConfig{
+          .device_resident_bytes = std::numeric_limits<std::uint64_t>::max(),
+          .host_staging_bytes = std::numeric_limits<std::uint64_t>::max()});
   if (same_owner || same_owner.reason() != Reason::PipelineInvalid ||
       same_backing || same_backing.reason() != Reason::PipelineInvalid ||
       wrong_shape || wrong_shape.reason() != Reason::PrimitiveUnsupported ||
-      zero_pages || zero_pages.reason() != Reason::PipelineCapacity ||
-      excessive_pages || excessive_pages.reason() != Reason::PipelineCapacity) {
+      zero_pages || zero_pages.reason() != Reason::PipelineMemoryBudget ||
+      excessive_pages ||
+      excessive_pages.reason() != Reason::PipelineMemoryBudget) {
     return 4;
   }
 
-  auto prepared = virtual_pipeline(*program, *input, *output,
-                                   ResidencyConfig{.slots = SlotCapacity});
+  auto prepared =
+      virtual_pipeline(*program, *input, *output, ResidencyConfig{});
   if (!prepared || !*prepared) {
     return 5;
   }
@@ -126,19 +130,19 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
   const Stats &stats = preparation->execution();
   const ResidencyStats &residency = stats.pipeline.residency;
   if (plan.residency.logical_bytes != LogicalBytes * 2u ||
-      plan.residency.logical_bytes <= plan.residency.working_set_bytes ||
+      plan.residency.logical_bytes <= plan.residency.resident_bytes ||
       plan.residency.page_bytes != ResidencyPageBytes ||
       plan.residency.page_count != PageCount ||
-      plan.residency.slot_capacity != SlotCapacity ||
-      plan.residency.working_set_bytes != SlotBytes ||
-      plan.residency.wave_count != WaveCount ||
+      plan.residency.frame_capacity != FrameCapacity ||
+      plan.residency.resident_bytes != FrameBytes * 2u ||
+      plan.residency.epoch_count != EpochCount ||
       plan.residency.identity_hi == 0u || plan.residency.identity_lo == 0u ||
       stats.backend != backend ||
       residency.logical_bytes != LogicalBytes * 2u ||
       residency.page_bytes != ResidencyPageBytes ||
       residency.page_count != PageCount ||
-      residency.slot_capacity != SlotCapacity ||
-      residency.active_slots_peak != 0u ||
+      residency.frame_capacity != FrameCapacity ||
+      residency.resident_frames_peak != 0u ||
       residency.plan_identity_hi != plan.residency.identity_hi ||
       residency.plan_identity_lo != plan.residency.identity_lo) {
     return 6;
@@ -154,7 +158,7 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
       virtual_buffer<std::int32_t>(LogicalElements, reused_output_backing);
   auto reused = reused_input && reused_output
                     ? virtual_pipeline(*program, *reused_input, *reused_output,
-                                       ResidencyConfig{.slots = SlotCapacity})
+                                       ResidencyConfig{})
                     : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                           Reason::PipelineInvalid);
   auto reused_preparation =

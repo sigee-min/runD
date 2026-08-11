@@ -1456,12 +1456,20 @@ confirms submission amortization as the next structural lever. The exact runtime
 ### Virtual working sets
 
 `<rund/compute/virtual.hpp>` is the opt-in path for a logical dataset larger
-than the fixed prepared working set. A `VirtualBacking` supplies immutable
+than the admitted physical working set. A `VirtualBacking` supplies immutable
 `size_bytes()` plus checked byte-range `read` and `write` callbacks. A
 `VirtualBuffer<T>` is a typed logical view over that backing; it does not
 allocate `count*sizeof(T)` device storage. One `VirtualPipeline<R(A)>` freezes
-a page-local Map Program, two Pipeline-owned slot arenas, one host staging
-arena, and a compact wave plan:
+an admitted Map, Window, Reduce, or Scan Program and retains a compatible
+Device-global page-cache Pool. That Pool owns canonical cache input/output
+frames, disposable execution input/output frames, and host
+input/output/prefetch images:
+
+A backing defaults to the serialized `VirtualBackingTier::Host` contract.
+A high-latency backing may return `VirtualBackingTier::Persistent` and admit
+two parallel reads; the fixed Pool then keeps epochs `e+1` and `e+2` in its
+two preallocated prefetch lanes. Writes and terminal publication remain
+ordered, and runD never exceeds the backing's declared read concurrency.
 
 ```cpp fragment
 #include <rund/compute.hpp>
@@ -1472,31 +1480,37 @@ auto target = rund::compute::virtual_buffer<std::int32_t>(count, output_store);
 if (!source || !target) { return; }
 auto prepared = rund::compute::virtual_pipeline(
     program, *source, *target,
-    rund::compute::ResidencyConfig{.slots = 3});
+    rund::compute::ResidencyConfig{
+        .device_resident_bytes = 96 * 1024,
+        .host_staging_bytes = 96 * 1024});
 
 if (!prepared || !prepared->run()) { return; }
 auto profile = prepared->profile();
 ```
 
-For `P` logical pages and slot capacity `K`, the stored plan has
-`W=ceil(P/K)` waves and constant-size planner state. The complete logical
-backing is never materialized as a vector of page Buffers. The terminal wave
-zero-fills unused input slots, but only exact logical output bytes reach the
+For `P` logical pages and derived frame capacity `K`, the stored stream plan
+has `Q=ceil(P/K)` epochs and constant-size planner state. The complete logical
+backing is never materialized as a vector of page Buffers. The terminal epoch
+zero-fills unused input frames, but only exact logical output bytes reach the
 backing. `PipelinePlan::residency` exposes logical bytes, paired page bytes,
-page count, slot capacity, fixed working-set bytes, wave count, and identity.
-`Stats::pipeline.residency` reports loads, writebacks, exact backing bytes,
-backing callback time, active-slot peak, failures, and the explicit warm sample
-cohort. `Stats::{uploaded_bytes,downloaded_bytes}` separately report complete
-fixed-arena transfers, including terminal padding.
+page count, frame capacity, resident bytes, epoch count, and identity.
+`Stats::pipeline.residency` reports page-ins, page-outs, cache hits, evictions,
+prefetch/late pages, logical page bytes, stall/overlap time, backing callback
+time, resident-frame peak, failures, and the explicit warm sample cohort.
+`Stats::{uploaded_bytes,downloaded_bytes}` separately report actual physical
+frame-range transfers; terminal padding is not transferred.
 
 The backing object is the serialization and poison authority shared by every
 view over it. A write failure can leave a partial logical result, so that
 backing remains poisoned across newly constructed views until a successful
 retry overwrites at least the output extent that could have been changed.
-Product execution currently admits independent page-local Map only;
-cross-page Window/Scan/Reduce/Sort/Gather/Scatter and native sparse resources
-are not silently replaced by dense execution. The exact formulas, native
-capability gates, and verification owners live in
+Product execution admits independent Map, symmetric cross-page Window
+Sum/Min/Max with Clamp or Clip boundaries, deterministic page-partial Reduce
+Min/Max/CountNonzero and unsigned Sum, and inclusive/exclusive Scan through a
+checked sequential carry. Signed/fixed Sum, hierarchical multi-frame Scan,
+Sort, Gather, Scatter, indirect domains, graph composition, native sparse
+resources, and storage-tier scheduling are not silently replaced by dense
+execution. The exact formulas, native capability gates, and verification owners live in
 [Compute Virtual Residency](../../node/docs/contracts/compute/residency.md).
 CPU and Metal currently satisfy the public execution gate. Vulkan freezes the
 portability-subset extension fact when its adapter is created; a portability

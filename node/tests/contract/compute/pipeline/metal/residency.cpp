@@ -1,5 +1,16 @@
 #include "../local.hpp"
 
+#if defined(RUND_NODE_TEST_BACKEND_CPU) ||                                     \
+    defined(RUND_NODE_TEST_BACKEND_VULKAN)
+
+namespace rund_node_test_pipeline {
+
+int CheckMetalResidencyAdmission() { return 0; }
+
+} // namespace rund_node_test_pipeline
+
+#else
+
 #include "src/accel/kernel/prepared.hpp"
 #include "src/compute/backend.hpp"
 #include "src/compute/pipeline/state.hpp"
@@ -212,16 +223,19 @@ AddedSubmissionBytes(const rund::compute::PipelinePlan &before,
     auto output = virtual_buffer<std::int32_t>(elements, output_backing);
     auto prepared =
         program && input && output
-            ? virtual_pipeline(*program, *input, *output,
-                               ResidencyConfig{.slots = 2u})
+            ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
             : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                   Reason::PipelineInvalid);
     if (!prepared) {
       return 2;
     }
-    exact_capacity = prepared->plan().committed_peak_bytes;
-    if (exact_capacity == 0u ||
-        device.pipeline_memory().committed_bytes != exact_capacity) {
+    const std::uint64_t pipeline_capacity =
+        prepared->plan().committed_peak_bytes;
+    exact_capacity = device.pipeline_memory().committed_bytes;
+    // The Pipeline plan reports its private retained charge. The Device
+    // report is the sole admission authority and additionally owns the
+    // shared global residency Pool, so the complete limit is strictly larger.
+    if (pipeline_capacity == 0u || exact_capacity <= pipeline_capacity) {
       return 3;
     }
   }
@@ -246,7 +260,7 @@ AddedSubmissionBytes(const rund::compute::PipelinePlan &before,
   }
   const MemoryStats before_memory = device.memory();
   auto rejected =
-      virtual_pipeline(*program, *input, *output, ResidencyConfig{.slots = 2u});
+      virtual_pipeline(*program, *input, *output, ResidencyConfig{});
   const MemoryStats after_memory = device.memory();
   const DevicePipelineMemoryReport after_report = device.pipeline_memory();
   if (rejected || rejected.reason() != Reason::DevicePipelineMemoryCapacity ||
@@ -271,3 +285,5 @@ int CheckMetalResidencyAdmission() {
 }
 
 } // namespace rund_node_test_pipeline
+
+#endif

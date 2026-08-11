@@ -113,13 +113,13 @@ SameMemory(const rund::compute::MemoryStats &left,
   return hash;
 }
 
-static_assert(sizeof(rund::compute::Run) == 1288u);
-static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1296u);
-static_assert(sizeof(rund::compute::ResidencyStats) == 128u);
-static_assert(sizeof(rund::compute::PipelineStats) == 312u);
-static_assert(sizeof(rund::compute::Stats) == 792u);
+static_assert(sizeof(rund::compute::Run) == 1352u);
+static_assert(sizeof(rund::compute::Result<rund::compute::Run>) == 1360u);
+static_assert(sizeof(rund::compute::ResidencyStats) == 192u);
+static_assert(sizeof(rund::compute::PipelineStats) == 376u);
+static_assert(sizeof(rund::compute::Stats) == 856u);
 static_assert(sizeof(rund::compute::MemoryStats) == 288u);
-static_assert(sizeof(rund::compute::telemetry::Profile) == 1096u);
+static_assert(sizeof(rund::compute::telemetry::Profile) == 1160u);
 static_assert(sizeof(rund::telemetry::Event) == 304u);
 static_assert(rund::compute::Stats{}.pipeline.preparation_evidence ==
               rund::compute::PreparationEvidenceSource::Unavailable);

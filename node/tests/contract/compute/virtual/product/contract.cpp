@@ -50,6 +50,36 @@ int RunComputeVirtualResidencyProductContract() {
                    static_cast<unsigned>(backend), result);
       return static_cast<int>(backend) * 1000 + 150 + result;
     }
+    if (const int result = CheckProductPrefetch(backend); result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual product prefetch backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), result);
+      return static_cast<int>(backend) * 1000 + 160 + result;
+    }
+    if (const int result = CheckProductWindow(backend); result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual product window backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), result);
+      return static_cast<int>(backend) * 1000 + 170 + result;
+    }
+    if (const int result = CheckProductReduce(backend); result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual product reduce backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), result);
+      return static_cast<int>(backend) * 1000 + 172 + result;
+    }
+    if (const int result = CheckProductScan(backend); result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual product scan backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), result);
+      return static_cast<int>(backend) * 1000 + 173 + result;
+    }
+    if (const int result = CheckProductDeviceCache(backend); result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual product cache backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), result);
+      return static_cast<int>(backend) * 1000 + 174 + result;
+    }
     if (const int result = CheckProductPipelineConcurrency(backend);
         result != 0) {
       std::fprintf(stderr,

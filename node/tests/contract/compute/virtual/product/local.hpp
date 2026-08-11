@@ -25,6 +25,11 @@ CheckProductCapability(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductActiveCount(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductBackingFailure(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductWidthProjection(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductPrefetch(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductWindow(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductReduce(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductScan(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductDeviceCache(rund::compute::Backend backend);
 [[nodiscard]] int
 CheckProductPipelineConcurrency(rund::compute::Backend backend);
 [[nodiscard]] int

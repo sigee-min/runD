@@ -9,7 +9,7 @@ class Hash final {
 public:
   Hash() noexcept {
     text("rund.compute.pipeline.residency");
-    number(1u);
+    number(2u);
   }
 
   void byte(const std::uint8_t value) noexcept {
@@ -45,11 +45,35 @@ private:
 
 Identity IdentifyResidencyPlan(const std::uint64_t page_bytes,
                                const std::uint64_t page_count,
-                               const std::uint64_t slot_capacity) noexcept {
+                               const std::uint64_t frame_capacity) noexcept {
   Hash hash{};
+  hash.text("stream");
   hash.number(page_bytes);
   hash.number(page_count);
-  hash.number(slot_capacity);
+  hash.number(frame_capacity);
+  return hash.finish();
+}
+
+Identity IdentifyResidencyPlan(const std::uint64_t page_bytes,
+                               const std::uint32_t frame_capacity,
+                               const std::vector<PageUse> &uses,
+                               const std::vector<Epoch> &epochs) noexcept {
+  Hash hash{};
+  hash.text("graph");
+  hash.number(page_bytes);
+  hash.number(frame_capacity);
+  hash.number(epochs.size());
+  for (const Epoch &epoch : epochs) {
+    hash.number(epoch.node);
+    hash.number(epoch.tile);
+    hash.number(epoch.use_count);
+    for (std::size_t index = 0u; index < epoch.use_count; ++index) {
+      const PageUse &use = uses[epoch.first_use + index];
+      hash.number(use.key.resource);
+      hash.number(use.key.page);
+      hash.number(static_cast<std::uint8_t>(use.access));
+    }
+  }
   return hash.finish();
 }
 

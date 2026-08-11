@@ -13,7 +13,7 @@
 namespace rund::compute {
 
 Run::Run(detail::RunState &&value) noexcept {
-  static_assert(sizeof(detail::RunState) == 1280u);
+  static_assert(sizeof(detail::RunState) == 1344u);
   static_assert(sizeof(detail::RunState) <= sizeof(storage_));
   static_assert(sizeof(storage_) - sizeof(detail::RunState) == 8u);
   static_assert(alignof(detail::RunState) <= alignof(Run));

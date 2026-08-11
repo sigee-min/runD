@@ -71,18 +71,24 @@ mapping/device-governor planning coordinate and is not copied into live
 `MemoryStats`. Thus requested/logical payload, committed storage charge,
 unavailable physical residency, logical metadata, and planned admission remain
 distinguishable through the existing authorities without another ledger.
-The opt-in [virtual residency product](./residency.md) retains two ordinary
-slot Buffers and one host staging arena inside the existing Pipeline owner.
+The opt-in [virtual residency product](./residency.md) retains one
+Device-global Pool containing canonical cache input/output Buffers, disposable
+execution input/output Buffers, and the host input/output/prefetch images.
+Compatible Pipelines share that single admitted owner; they do not duplicate
+its retained charge.
 The native Vulkan path also retains one mapped transfer arena. Its unbound-buffer
 requirement query contributes the exact `VkMemoryRequirements::size` to the
 same Pipeline plan and Device admission before any allocation; successful
 candidate publication projects that same charge into
-`MemoryStats::staging`. The slot Buffers follow the same `R_b=L_b` and backend
-`C_b` laws above and every retained owner is included in
-`PipelinePlan::{peak_bytes,committed_peak_bytes}` before materialization and in
-Pipeline `MemoryStats` afterward. The compact page plan
-and its active-slot count are execution evidence, not `F_b`: neither portable
-fixed slots nor a logical backing proves OS/device physical page residency.
+`MemoryStats::staging`. The frame Buffers follow the same `R_b=L_b` and backend
+`C_b` laws above. Their exact checked sum is admitted once by the Device-global
+Pool and remains visible in the Device/VirtualPipeline memory view; it is
+intentionally absent from each sharing Pipeline's private
+`PipelinePlan::{peak_bytes,committed_peak_bytes}`. Pipeline-private native
+transfer/submission owners are still included in that Pipeline plan before
+materialization. The compact page plan
+and its active-frame count are execution evidence, not `F_b`: neither portable
+fixed frames nor a logical backing proves OS/device physical page residency.
 
 Device-wide Buffer accounting uses allocation meters inside the existing
 `DeviceMemory` owner. Its one mutex serializes paired logical/committed

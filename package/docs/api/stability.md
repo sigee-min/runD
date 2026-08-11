@@ -258,7 +258,7 @@ does not guess that arbitrary compiler, standard-library, or dependency
 versions form a valid ABI tuple; artifact selection remains constrained to a
 published supported tuple whose recorded identity matches the consumer
 environment.
-The CMake version file uses exact-version matching. `1.0.7` is the current
+The CMake version file uses exact-version matching. `1.0.8` is the current
 checked-in package identity; a major-only version range is not a supported
 consumption contract.
 
@@ -333,6 +333,27 @@ that meaning from `Backend`. These layouts and the Virtual method implementation
 come from one matched `1.0.7` artifact; a `1.0.6` header or library may not be
 mixed into the tuple.
 
+The `1.0.8` Alpha establishes a byte-budgeted, Device-global page-cache
+authority. `ResidencyConfig` is the 16-byte pair
+of device-resident and host-staging byte budgets; frame count is derived and
+is not public policy. The 192-byte `ResidencyStats` adds cache hits, eviction,
+prefetch/late-page, logical page-I/O, stall, and overlap evidence without a
+second telemetry ledger. This yields a 376-byte `PipelineStats`, 856-byte
+`Stats`, 1,160-byte `compute::telemetry::Profile`, 1,352-byte inline `Run`, and
+1,360-byte `Result<Run>` on the checked 64-bit ABI. `ResidencyPlan` retains its
+64-byte layout but its executable vocabulary is frame/epoch/resident bytes.
+One frame's resident budget covers the canonical cache input/output pair and
+the disposable execution input/output pair; host budget covers the input and
+output mirrors plus two fixed prefetch images. The page cache
+and its staging retain one reservation from the existing Device Pipeline
+budget, and per-Pipeline plans hold only shared references to that authority.
+`VirtualBacking::tier()` and `max_parallel_reads()` are matched `1.0.8`
+physical-I/O capability methods. Their defaults preserve serialized Host
+backing behavior; an explicitly concurrent Persistent backing may use both
+preallocated lanes.
+Headers and linked implementations must come from one matched `1.0.8`
+artifact; a `1.0.7` header or library may not be mixed into the tuple.
+
 ## Compute Contract
 
 `<rund/compute.hpp>` owns the basic `Flow`, `Target`, `Backend` observations,
@@ -355,7 +376,7 @@ parse the future/task construction templates.
 functions and matrix, transform, factor, solve, and spectrum stages. It owns
 no second graph, target, compilation, or execution authority.
 `<rund/compute/virtual.hpp>` is the opt-in focused owner of bounded logical
-backing, fixed prepared residency slots, multi-wave execution, residency
+backing, a Device-global admitted page cache, multi-epoch execution, residency
 sampling, and its terminal `Stats`, `MemoryStats`, `PipelinePlan`, and
 `Profile` observations. The default `<rund/compute.hpp>` entry does not import
 this facade or the Pipeline templates it consumes.
@@ -604,7 +625,7 @@ not repeated as API behavior here.
 ## Verification
 
 The release route installs the artifact, configures it through
-`find_package(runD 1.0.7 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
+`find_package(runD 1.0.8 EXACT CONFIG REQUIRED)`, builds all consumers, and runs them
 against `runD::sdk`. Those consumers compile the current runtime and Compute
 usage from the installed package. They cover
 explicit no-fallback CPU, Metal, and Vulkan selection and execution,

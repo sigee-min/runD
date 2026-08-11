@@ -20,7 +20,7 @@ virtual_graph_hash(const VirtualPipelineState &state,
   hash.Number(state.pipeline->plan.residency.logical_bytes);
   hash.Number(state.pipeline->plan.residency.page_bytes);
   hash.Number(state.pipeline->plan.residency.page_count);
-  hash.Number(state.pipeline->plan.residency.slot_capacity);
+  hash.Number(state.pipeline->plan.residency.frame_capacity);
   hash.Number(state.pipeline->plan.residency.identity_hi);
   hash.Number(state.pipeline->plan.residency.identity_lo);
   return hash.Finish();
@@ -69,7 +69,7 @@ Stats begin_virtual_run_evidence(const VirtualPipelineState &state,
       .active_count = active_count,
       .page_bytes = state.pipeline->plan.residency.page_bytes,
       .page_count = state.pipeline->plan.residency.page_count,
-      .slot_capacity = state.pipeline->plan.residency.slot_capacity,
+      .frame_capacity = state.pipeline->plan.residency.frame_capacity,
       .sampled_runs = previous.sampled_runs,
       .allocation_free_runs = previous.allocation_free_runs,
       .plan_identity_hi = state.pipeline->plan.residency.identity_hi,

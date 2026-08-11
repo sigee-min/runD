@@ -132,12 +132,15 @@ BackendDownload DownloadBatch(const rund::AccelDevice &pick,
 }
 
 BackendCopy CopyBatch(const rund::AccelDevice &pick,
-                      const std::span<const CopyRoute> requests) {
+                      const std::span<const CopyRoute> requests,
+                      const TransferAuthority authority) {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
+  (void)authority;
   return CopyVulkanResidentBuffers(pick, requests);
 #else
   (void)pick;
   (void)requests;
+  (void)authority;
   return {};
 #endif
 }

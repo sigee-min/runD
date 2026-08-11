@@ -792,6 +792,8 @@ Status restore_pipeline_state(
           .source = source_buffer,
           .target = target_buffer,
           .bytes = published.bytes,
+          .source_offset = 0u,
+          .target_offset = 0u,
       };
       copied = ::rund::detail::counter::SaturatingAdd(copied, published.bytes);
     }
@@ -812,12 +814,15 @@ Status restore_pipeline_state(
       CpuBufferState *const target_cpu = cpu_buffer(*request.target);
       if (source_cpu == nullptr || target_cpu == nullptr ||
           source_cpu->data == nullptr || target_cpu->data == nullptr ||
-          source_cpu->bytes < request.bytes ||
-          target_cpu->bytes < request.bytes) {
+          request.source_offset > source_cpu->bytes ||
+          request.bytes > source_cpu->bytes - request.source_offset ||
+          request.target_offset > target_cpu->bytes ||
+          request.bytes > target_cpu->bytes - request.target_offset) {
         restored = Status::fail(Reason::TransferInvalid);
         break;
       }
-      std::memcpy(target_cpu->data.get(), source_cpu->data.get(),
+      std::memcpy(target_cpu->data.get() + request.target_offset,
+                  source_cpu->data.get() + request.source_offset,
                   request.bytes);
     }
   } else if (copy_count != 0u) {
@@ -827,7 +832,8 @@ Status restore_pipeline_state(
     } else {
       const CopyResult result = state->device->ops->copy_batch(
           *state->device,
-          std::span<const CopyRequest>{copy_storage.data(), copy_count});
+          std::span<const CopyRequest>{copy_storage.data(), copy_count},
+          node::accel::detail::TransferAuthority::Shared);
       restored = result.status;
       copy_commands = result.command_submits;
       ::rund::detail::counter::Accumulate(

@@ -57,7 +57,8 @@ DownloadBackendBuffers(const std::shared_ptr<PickToken> &token,
 
 [[nodiscard]] BackendCopy
 CopyBackendBuffers(const std::shared_ptr<PickToken> &token,
-                   std::span<const CopyRoute> requests);
+                   std::span<const CopyRoute> requests,
+                   TransferAuthority authority);
 
 [[nodiscard]] BackendLookup
 LookupBackendBuffer(const std::shared_ptr<PickToken> &token,

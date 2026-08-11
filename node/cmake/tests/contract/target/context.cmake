@@ -25,6 +25,12 @@ function(rund_node_compile_context target)
   if(RUND_CONTEXT_CASE AND RUND_NODE_FOCUSED_BACKEND STREQUAL "cpu")
     target_compile_definitions(${target} PRIVATE
       RUND_NODE_TEST_BACKEND_CPU=1)
+  elseif(RUND_CONTEXT_CASE AND RUND_NODE_FOCUSED_BACKEND STREQUAL "metal")
+    target_compile_definitions(${target} PRIVATE
+      RUND_NODE_TEST_BACKEND_METAL=1)
+  elseif(RUND_CONTEXT_CASE AND RUND_NODE_FOCUSED_BACKEND STREQUAL "vulkan")
+    target_compile_definitions(${target} PRIVATE
+      RUND_NODE_TEST_BACKEND_VULKAN=1)
   endif()
   if(RUND_CONTEXT_PLATFORM AND RUND_NODE_USE_UNAVAILABLE_PLATFORM)
     target_compile_definitions(${target} PRIVATE

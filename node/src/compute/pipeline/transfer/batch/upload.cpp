@@ -5,6 +5,7 @@
 #include "../../transfer.hpp"
 #include "model.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -22,55 +23,65 @@ namespace {
 
 } // namespace
 
-PipelineSlotUploadResult upload_pipeline_slots_impl(
-    PipelineState &state, const std::span<const PipelineSlotUpload> slots,
+PipelineFrameUploadResult upload_pipeline_frames_impl(
+    PipelineState &state, const std::span<const PipelineFrameUpload> frames,
     const node::accel::detail::TransferAuthority authority) noexcept {
-  PipelineSlotUploadResult result{};
+  PipelineFrameUploadResult result{};
   const Status ready = validate_pipeline_transfer_ready(state);
   if (!ready) {
     result.transfer.status = ready;
     return result;
   }
-  if (slots.size() > PipelineLeafCapacity || slots.empty()) {
+  if (frames.size() > PipelineLeafCapacity || frames.empty()) {
     result.transfer.status = Status::fail(
-        slots.empty() ? Reason::TransferInvalid : Reason::PipelineCapacity);
+        frames.empty() ? Reason::TransferInvalid : Reason::PipelineCapacity);
     return result;
   }
   const bool owner_local =
       authority == node::accel::detail::TransferAuthority::PipelinePrivate;
   if (owner_local &&
-      (!has_private_residency_authority(state) || slots.size() != 1u ||
+      (!has_private_residency_authority(state) ||
        state.residency_input >= state.resources.size() ||
-       state.resources[state.residency_input].buffer.get() !=
-           slots.front().buffer)) {
+       std::any_of(frames.begin(), frames.end(), [&](const auto &frame) {
+         return state.resources[state.residency_input].buffer.get() !=
+                frame.buffer;
+       }))) {
     result.transfer.status = Status::fail(Reason::TransferInvalid);
     return result;
   }
   std::array<BufferClaim, PipelineLeafCapacity> claim_storage{};
   std::array<UploadRequest, PipelineLeafCapacity> request_storage{};
   std::size_t request_count = 0u;
-  for (std::size_t index = 0u; index < slots.size(); ++index) {
-    const PipelineSlotUpload slot = slots[index];
-    if (slot.buffer == nullptr || slot.buffer->device != state.device ||
-        slot.bytes != slot.buffer->bytes ||
-        (slot.bytes != 0u && slot.data == nullptr) ||
-        !add_pipeline_transfer_bytes(slot.bytes, result.bytes)) {
+  for (std::size_t index = 0u; index < frames.size(); ++index) {
+    const PipelineFrameUpload frame = frames[index];
+    if (frame.buffer == nullptr || frame.buffer->device != state.device ||
+        frame.offset > frame.buffer->bytes ||
+        frame.bytes > frame.buffer->bytes - frame.offset ||
+        (frame.bytes != 0u && frame.data == nullptr) ||
+        !add_pipeline_transfer_bytes(frame.bytes, result.bytes)) {
       result.transfer.status = Status::fail(Reason::TransferInvalid);
       return result;
     }
     for (std::size_t prior = 0u; prior < index; ++prior) {
-      if (slots[prior].buffer == slot.buffer) {
+      const bool overlap =
+          frames[prior].buffer == frame.buffer &&
+          frame.offset < frames[prior].offset + frames[prior].bytes &&
+          frames[prior].offset < frame.offset + frame.bytes;
+      if ((!owner_local && frames[prior].buffer == frame.buffer) || overlap) {
         result.transfer.status = Status::fail(Reason::TransferInvalid);
         return result;
       }
     }
-    claim_storage[index] = BufferClaim{.buffer = slot.buffer, .write = true};
-    if (slot.bytes != 0u) {
-      request_storage[request_count++] = UploadRequest{
-          .buffer = slot.buffer, .data = slot.data, .bytes = slot.bytes};
+    claim_storage[index] = BufferClaim{.buffer = frame.buffer, .write = true};
+    if (frame.bytes != 0u) {
+      request_storage[request_count++] = UploadRequest{.buffer = frame.buffer,
+                                                       .data = frame.data,
+                                                       .bytes = frame.bytes,
+                                                       .offset = frame.offset};
     }
   }
-  const std::span<const BufferClaim> claims{claim_storage.data(), slots.size()};
+  const std::span<const BufferClaim> claims{claim_storage.data(),
+                                            frames.size()};
   const Status claimed =
       owner_local ? Status::success() : acquire_claims(*state.device, claims);
   if (!claimed) {
@@ -85,12 +96,14 @@ PipelineSlotUploadResult upload_pipeline_slots_impl(
         const UploadRequest request = request_storage[index];
         CpuBufferState *const storage = cpu_buffer(*request.buffer);
         if (storage == nullptr || storage->data == nullptr ||
-            storage->bytes != request.bytes) {
+            request.offset > storage->bytes ||
+            request.bytes > storage->bytes - request.offset) {
           result.transfer.status = Status::fail(Reason::TransferInvalid);
           result.bytes = 0u;
           return result;
         }
-        std::memcpy(storage->data.get(), request.data, request.bytes);
+        std::memcpy(storage->data.get() + request.offset, request.data,
+                    request.bytes);
       }
     } else {
       if (state.device->ops == nullptr ||
@@ -101,6 +114,8 @@ PipelineSlotUploadResult upload_pipeline_slots_impl(
       }
       const bool prepared_transfer =
           state.residency_transfer_prepared && request_count == 1u &&
+          request_storage[0].offset == 0u &&
+          request_storage[0].bytes == request_storage[0].buffer->bytes &&
           state.device->ops->upload_pipeline_transfer != nullptr &&
           state.residency_input < state.resources.size() &&
           state.resources[state.residency_input].buffer.get() ==
@@ -145,18 +160,18 @@ PipelineSlotUploadResult upload_pipeline_slots_impl(
   return result;
 }
 
-PipelineSlotUploadResult upload_pipeline_slots(
+PipelineFrameUploadResult upload_pipeline_frames(
     PipelineState &state,
-    const std::span<const PipelineSlotUpload> slots) noexcept {
-  return upload_pipeline_slots_impl(
-      state, slots, node::accel::detail::TransferAuthority::Shared);
+    const std::span<const PipelineFrameUpload> frames) noexcept {
+  return upload_pipeline_frames_impl(
+      state, frames, node::accel::detail::TransferAuthority::Shared);
 }
 
-PipelineSlotUploadResult upload_pipeline_private_slots(
+PipelineFrameUploadResult upload_pipeline_private_frames(
     PipelineState &state,
-    const std::span<const PipelineSlotUpload> slots) noexcept {
-  return upload_pipeline_slots_impl(
-      state, slots, node::accel::detail::TransferAuthority::PipelinePrivate);
+    const std::span<const PipelineFrameUpload> frames) noexcept {
+  return upload_pipeline_frames_impl(
+      state, frames, node::accel::detail::TransferAuthority::PipelinePrivate);
 }
 
 } // namespace rund::compute::detail

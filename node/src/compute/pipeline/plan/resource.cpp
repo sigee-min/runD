@@ -68,15 +68,29 @@ PipelineScheduleResources::admit(const PipelineBinding &binding,
     if (width == 0u || !size::multiply(internal.count, width, internal_bytes)) {
       return Result<std::uint32_t>::fail(Reason::PipelineCapacity);
     }
-    resolved.locator = PipelineInternalResourcePlan{.fill = internal.fill};
+    resolved.locator = PipelineInternalResourcePlan{
+        .owner = internal.owner,
+        .fill = internal.fill,
+    };
     resolved.count = internal.count;
     resolved.bytes = internal_bytes;
-    const auto committed =
-        planned_buffer_storage_bytes(*build.device, internal_bytes);
-    if (!committed) {
-      return Result<std::uint32_t>::fail(committed.reason());
+    if (internal.owner != nullptr) {
+      if (internal.owner->device != build.device ||
+          internal.owner->type != internal.type ||
+          internal.owner->count != internal.count ||
+          internal.owner->bytes != internal_bytes ||
+          internal.owner->physical_bytes < internal.owner->bytes) {
+        return Result<std::uint32_t>::fail(Reason::PipelineInvalid);
+      }
+      resolved.physical_bytes = internal.owner->physical_bytes;
+    } else {
+      const auto committed =
+          planned_buffer_storage_bytes(*build.device, internal_bytes);
+      if (!committed) {
+        return Result<std::uint32_t>::fail(committed.reason());
+      }
+      resolved.physical_bytes = *committed;
     }
-    resolved.physical_bytes = *committed;
   }
   if (resources.size() >= PipelineResourceCapacity) {
     return Result<std::uint32_t>::fail(Reason::PipelineCapacity);
@@ -184,8 +198,9 @@ Result<PipelinePublicationViewPlan> PipelineScheduleResources::publication_view(
                     external->owner->physical_bytes >= external->owner->bytes;
   } else if (binding.owner < build.internals.size()) {
     const PipelineInternal &internal = build.internals[binding.owner];
-    owner_matches = std::holds_alternative<PipelineInternalResourcePlan>(
-                        resource.locator) &&
+    const auto *planned =
+        std::get_if<PipelineInternalResourcePlan>(&resource.locator);
+    owner_matches = planned != nullptr && planned->owner == internal.owner &&
                     internal.type == slot_type &&
                     internal.format == slot_format &&
                     internal.count == resource.count;

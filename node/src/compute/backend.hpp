@@ -57,12 +57,14 @@ struct UploadRequest final {
   BufferState *buffer = nullptr;
   const void *data = nullptr;
   std::size_t bytes = 0u;
+  std::size_t offset = 0u;
 };
 
 struct DownloadRequest final {
   const BufferState *buffer = nullptr;
   void *data = nullptr;
   std::size_t bytes = 0u;
+  std::size_t offset = 0u;
   std::uint64_t *payload_hash = nullptr;
 };
 
@@ -70,6 +72,8 @@ struct CopyRequest final {
   const BufferState *source = nullptr;
   BufferState *target = nullptr;
   std::size_t bytes = 0u;
+  std::size_t source_offset = 0u;
+  std::size_t target_offset = 0u;
 };
 
 struct DeviceOps final {
@@ -90,8 +94,8 @@ struct DeviceOps final {
   DownloadResult (*download_batch)(
       DeviceState &, std::span<const DownloadRequest>,
       node::accel::detail::TransferAuthority) = nullptr;
-  CopyResult (*copy_batch)(DeviceState &,
-                           std::span<const CopyRequest>) = nullptr;
+  CopyResult (*copy_batch)(DeviceState &, std::span<const CopyRequest>,
+                           node::accel::detail::TransferAuthority) = nullptr;
   Status (*compile)(DeviceState &, AccelProgram &,
                     const rund::AccelGraph &) = nullptr;
   RangeSnapshot (*program_ranges)(const AccelProgram &,

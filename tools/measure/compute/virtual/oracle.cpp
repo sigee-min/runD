@@ -105,12 +105,15 @@ bool ExactProfile(const ::rund::compute::telemetry::Profile &profile,
   const std::uint64_t active_pages =
       active_count / PageElements +
       static_cast<std::uint64_t>(active_count % PageElements != 0u);
-  const std::uint64_t active_waves =
-      active_pages / SlotCapacity +
-      static_cast<std::uint64_t>(active_pages % SlotCapacity != 0u);
+  const std::uint64_t active_epochs =
+      active_pages / FrameCapacity +
+      static_cast<std::uint64_t>(active_pages % FrameCapacity != 0u);
   const std::uint64_t backing_bytes = active_count * sizeof(std::int32_t);
-  const std::uint64_t transfer_bytes =
-      active_waves * SlotCapacity * physical_page_bytes;
+  const std::uint64_t supplied_pages =
+      residency.page_in_count + residency.cache_hit_count;
+  const std::uint64_t uploaded_bytes =
+      residency.page_in_count * physical_page_bytes;
+  const std::uint64_t downloaded_bytes = active_pages * physical_page_bytes;
   const bool warm_exact =
       sampled_runs == 0u ||
       (residency.samples_allocation_free(sampled_runs) &&
@@ -123,28 +126,33 @@ bool ExactProfile(const ::rund::compute::telemetry::Profile &profile,
          plan.residency.logical_bytes == logical_bytes &&
          plan.residency.page_bytes == page_bytes &&
          plan.residency.page_count == PageCount &&
-         plan.residency.slot_capacity == SlotCapacity &&
-         plan.residency.wave_count == WaveCount &&
+         plan.residency.frame_capacity == FrameCapacity &&
+         plan.residency.epoch_count == EpochCount &&
          residency.logical_bytes == logical_bytes &&
          residency.active_count == active_count &&
          residency.page_bytes == page_bytes &&
          residency.page_count == PageCount &&
-         residency.slot_capacity == SlotCapacity &&
-         residency.active_slots_peak ==
-             std::min(active_pages, static_cast<std::uint64_t>(SlotCapacity)) &&
-         residency.wave_count == active_waves &&
-         residency.load_count == active_pages &&
-         residency.writeback_count == active_pages &&
-         residency.backing_read_bytes == backing_bytes &&
+         residency.frame_capacity == FrameCapacity &&
+         residency.resident_frames_peak ==
+             std::min(active_pages,
+                      static_cast<std::uint64_t>(FrameCapacity)) &&
+         residency.epoch_count == active_epochs &&
+         supplied_pages == active_pages &&
+         residency.page_out_count == active_pages &&
+         residency.prefetch_count + residency.late_page_count ==
+             residency.page_in_count &&
+         residency.page_in_bytes == residency.backing_read_bytes &&
+         residency.backing_read_bytes <= backing_bytes &&
+         residency.page_out_bytes == backing_bytes &&
          residency.backing_write_bytes == backing_bytes &&
          residency.plan_identity_hi == plan.residency.identity_hi &&
          residency.plan_identity_lo == plan.residency.identity_lo &&
          residency.sampled_runs == sampled_runs && warm_exact &&
-         stats.dispatches == active_waves * SlotCapacity &&
+         stats.dispatches == active_epochs * FrameCapacity &&
          stats.transfer_submissions.host_to_device == 0u &&
          stats.transfer_submissions.device_to_host == 0u &&
-         stats.uploaded_bytes == transfer_bytes &&
-         stats.downloaded_bytes == transfer_bytes;
+         stats.uploaded_bytes == uploaded_bytes &&
+         stats.downloaded_bytes == downloaded_bytes;
 }
 
 } // namespace rund::measure::compute::virtual_residency

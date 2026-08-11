@@ -106,6 +106,7 @@ upload_batch(DeviceState &device, const std::span<const UploadRequest> requests,
         .buffer = &target->buffer,
         .data = request.data,
         .bytes = request.bytes,
+        .offset = request.offset,
     };
   }
   const node::accel::detail::AccelTransfer transfer =
@@ -185,6 +186,7 @@ download_batch(DeviceState &device,
         .buffer = &source->buffer,
         .data = request.data,
         .bytes = request.bytes,
+        .offset = request.offset,
         .payload_hash = request.payload_hash,
     };
   }
@@ -215,7 +217,8 @@ download_batch(DeviceState &device,
 }
 
 CopyResult copy_batch(DeviceState &device,
-                      const std::span<const CopyRequest> requests) {
+                      const std::span<const CopyRequest> requests,
+                      const node::accel::detail::TransferAuthority authority) {
   const AccelDeviceState *const accel = accel_device(device);
   if (accel == nullptr || requests.empty()) {
     return CopyResult{.status = Status::fail(Reason::TransferInvalid)};
@@ -238,6 +241,8 @@ CopyResult copy_batch(DeviceState &device,
         .source = &source->buffer,
         .target = &target->buffer,
         .bytes = request.bytes,
+        .source_offset = request.source_offset,
+        .target_offset = request.target_offset,
     };
   }
   const node::accel::detail::AccelCopy copied =
@@ -246,7 +251,8 @@ CopyResult copy_batch(DeviceState &device,
           std::span<const node::accel::detail::CopyEntry>{transfers.data(),
                                                           requests.size()},
           std::span<node::accel::detail::CopyRoute>{routes.data(),
-                                                    requests.size()});
+                                                    requests.size()},
+          authority);
   return CopyResult{
       .status = copied.check.ok
                     ? Status::success()

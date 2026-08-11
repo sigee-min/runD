@@ -24,6 +24,9 @@ namespace rund::compute::detail {
 
 struct DeviceOps;
 class CompileService;
+namespace residency {
+class Registry;
+}
 
 struct AllocationMeter final {
   AllocationMeter() noexcept = default;
@@ -92,6 +95,9 @@ struct DeviceState final {
   std::weak_ptr<CompileService> compile;
   Compile compile_resources{.workers = 0u, .capacity = 0u};
   std::shared_ptr<DeviceClaims> claims{std::make_shared<DeviceClaims>()};
+  // Sole mutable page-to-frame authority for every virtual execution on this
+  // Device. Physical backends consume leases; they never own a second cache.
+  std::shared_ptr<residency::Registry> residency;
 };
 
 [[nodiscard]] Status

@@ -1,4 +1,5 @@
 #include "../device/info.hpp"
+#include "../device/residency_pool.hpp"
 #include "../device/state.hpp"
 #include "../status.hpp"
 
@@ -85,6 +86,11 @@ Status initialize_device_state(
   }
   state.host_page_bytes = static_cast<std::uint64_t>(page_bytes);
   state.pipeline_memory_budget = std::move(budget);
+  try {
+    state.residency = std::make_shared<residency::Registry>();
+  } catch (const std::bad_alloc &) {
+    return Status::fail(Reason::DeviceCapacity);
+  }
   return initialize_device_info(state);
 }
 

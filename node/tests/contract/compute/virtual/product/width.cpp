@@ -51,8 +51,7 @@ int CheckProductWidthProjection(const rund::compute::Backend backend) {
   auto output = virtual_buffer<std::uint32_t>(LogicalElements, output_backing);
   auto prepared =
       input && output
-          ? virtual_pipeline(*program, *input, *output,
-                             ResidencyConfig{.slots = SlotCapacity})
+          ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
           : Result<VirtualPipeline<std::uint32_t(std::uint64_t)>>::fail(
                 Reason::PipelineInvalid);
   if (!prepared || !prepared->run()) {
@@ -76,16 +75,14 @@ int CheckProductWidthProjection(const rund::compute::Backend backend) {
                  plan.residency.page_bytes ==
                      InputPageBytes + OutputPageBytes &&
                  plan.residency.page_count == PageCount &&
-                 plan.residency.slot_capacity == SlotCapacity &&
-                 plan.residency.working_set_bytes ==
-                     SlotCapacity * (InputPageBytes + OutputPageBytes) &&
+                 plan.residency.frame_capacity == FrameCapacity &&
+                 plan.residency.resident_bytes ==
+                     FrameCapacity * 2u * (InputPageBytes + OutputPageBytes) &&
                  residency.active_count == LogicalElements &&
                  residency.backing_read_bytes == InputBytes &&
                  residency.backing_write_bytes == OutputBytes &&
-                 stats.uploaded_bytes ==
-                     WaveCount * SlotCapacity * InputPageBytes &&
-                 stats.downloaded_bytes ==
-                     WaveCount * SlotCapacity * OutputPageBytes
+                 stats.uploaded_bytes == PageCount * InputPageBytes &&
+                 stats.downloaded_bytes == PageCount * OutputPageBytes
              ? 0
              : 7;
 }

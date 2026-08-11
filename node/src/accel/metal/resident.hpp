@@ -44,6 +44,7 @@ DownloadMetalResidentBuffers(const rund::AccelDevice &pick,
 
 [[nodiscard]] BackendCopy
 CopyMetalResidentBuffers(const rund::AccelDevice &pick,
-                         std::span<const CopyRoute> requests);
+                         std::span<const CopyRoute> requests,
+                         TransferAuthority authority);
 
 } // namespace rund::node::accel::detail

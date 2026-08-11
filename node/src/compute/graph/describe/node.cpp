@@ -231,6 +231,12 @@ primitive_memory(const GraphPrimitive &primitive,
   const kernel::ComputeIR &ir = draft.description.map_operations.back().ir();
   info.operation = graph::Operation::Map;
   info.elements = count;
+  info.footprint = graph::Footprint{
+      .pattern = graph::AccessPattern::Pointwise,
+      .input_elements = count,
+      .output_elements = count,
+      .tile_elements = count,
+  };
   canonical = kernel::GraphNode{.op_hash_hi = ir.op_hash_hi,
                                 .op_hash_lo = ir.op_hash_lo,
                                 .buffers = refs.data(),
@@ -313,6 +319,13 @@ primitive_memory(const GraphPrimitive &primitive,
 
   info.operation = graph::Operation::Scan;
   info.elements = desc.element_count;
+  info.footprint = graph::Footprint{
+      .pattern = graph::AccessPattern::Prefix,
+      .input_elements = desc.element_count,
+      .output_elements = desc.element_count,
+      .tile_elements = desc.block_size,
+      .operation = static_cast<std::uint32_t>(desc.op),
+  };
   canonical = kernel::GraphNode{.buffers = refs.data(),
                                 .buffer_count = refs.size(),
                                 .kind = kernel::NodeKind::Scan,
@@ -380,6 +393,38 @@ primitive_memory(const GraphPrimitive &primitive,
   }
   info.operation = *operation;
   info.elements = primitive.node.element_count;
+  switch (primitive.primitive) {
+  case Primitive::Window:
+    info.footprint = graph::Footprint{
+        .pattern = graph::AccessPattern::Window,
+        .input_elements = primitive.node.window.input_count,
+        .output_elements = primitive.node.window.output_count,
+        .tile_elements = primitive.node.window.output_count,
+        .window_size = primitive.node.window.window_size,
+        .stride = primitive.node.window.stride,
+        .pad_left = primitive.node.window.pad_left,
+        .operation = static_cast<std::uint32_t>(primitive.node.window.op),
+        .boundary = static_cast<std::uint32_t>(primitive.node.window.boundary),
+    };
+    break;
+  case Primitive::Reduce:
+    info.footprint = graph::Footprint{
+        .pattern = graph::AccessPattern::Reduction,
+        .input_elements = primitive.node.reduce.element_count,
+        .output_elements = 1u,
+        .tile_elements = primitive.node.reduce.block_size,
+        .operation = static_cast<std::uint32_t>(primitive.node.reduce.op),
+    };
+    break;
+  default:
+    info.footprint = graph::Footprint{
+        .pattern = graph::AccessPattern::Indirect,
+        .input_elements = primitive.node.element_count,
+        .output_elements = primitive.node.element_count,
+        .tile_elements = primitive.node.element_count,
+    };
+    break;
+  }
   canonical =
       kernel::GraphNode{.buffers = refs.data(),
                         .buffer_count = refs.size(),

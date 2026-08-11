@@ -12,10 +12,10 @@
 namespace rund_node_test_pipeline_transfer {
 
 using rund::compute::detail::BufferState;
-using rund::compute::detail::PipelineSlotDownload;
-using rund::compute::detail::PipelineSlotDownloadResult;
-using rund::compute::detail::PipelineSlotUpload;
-using rund::compute::detail::PipelineSlotUploadResult;
+using rund::compute::detail::PipelineFrameDownload;
+using rund::compute::detail::PipelineFrameDownloadResult;
+using rund::compute::detail::PipelineFrameUpload;
+using rund::compute::detail::PipelineFrameUploadResult;
 using rund::compute::detail::PipelineState;
 
 struct NativeBuffer final {
@@ -53,12 +53,13 @@ struct Fixture final {
   void fill_output(std::size_t index, std::byte seed) const;
 };
 
-[[nodiscard]] PipelineSlotUploadResult
-transfer_locked(Fixture &fixture, std::span<const PipelineSlotUpload> slots);
-[[nodiscard]] PipelineSlotDownloadResult
-transfer_locked(Fixture &fixture, std::span<const PipelineSlotDownload> slots);
+[[nodiscard]] PipelineFrameUploadResult
+transfer_locked(Fixture &fixture, std::span<const PipelineFrameUpload> frames);
+[[nodiscard]] PipelineFrameDownloadResult
+transfer_locked(Fixture &fixture,
+                std::span<const PipelineFrameDownload> frames);
 
-[[nodiscard]] std::array<PipelineSlotUpload, 2u>
+[[nodiscard]] std::array<PipelineFrameUpload, 2u>
 uploads(Fixture &fixture, const std::array<std::uint32_t, 4u> &first,
         const std::array<std::uint32_t, 3u> &tail) noexcept;
 

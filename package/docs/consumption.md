@@ -7,7 +7,7 @@ artifact through CMake package discovery.
 Choose link visibility from the application's C++ boundary:
 
 ```cmake
-find_package(runD 1.0.7 EXACT CONFIG REQUIRED)
+find_package(runD 1.0.8 EXACT CONFIG REQUIRED)
 
 # runD appears only in this target's implementation.
 target_link_libraries(engine PRIVATE runD::sdk)
@@ -61,7 +61,7 @@ consumers add `<rund/compute/async.hpp>` only for `compile_async()`, add
 factor, solve, and spectrum stages, and add
 `<rund/compute/pipeline.hpp>` only for prepared dependent-Program execution;
 add `<rund/compute/virtual.hpp>` only for bounded logical backing and prepared
-multi-wave residency execution. The basic `<rund/compute.hpp>` entry
+multi-epoch residency execution. The basic `<rund/compute.hpp>` entry
 deliberately excludes both Pipeline and Virtual templates.
 Add `<rund/compute/session.hpp>` only when submitting a resident Job or
 Pipeline through a Session; that entry supplies `Request`, `Submission`,

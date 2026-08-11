@@ -71,7 +71,7 @@ private:
 inline int VirtualResidency() {
   using namespace rund::compute;
   constexpr std::size_t page_elements = 16u;
-  constexpr std::size_t slot_capacity = 2u;
+  constexpr std::size_t frame_capacity = 2u;
   constexpr std::size_t page_count = 5u;
   constexpr std::size_t active_count = 35u;
   std::array<std::int32_t, virtual_detail::logical_elements> input_values{};
@@ -94,24 +94,31 @@ inline int VirtualResidency() {
 
   auto input_backing = std::make_shared<virtual_detail::Backing>();
   auto output_backing = std::make_shared<virtual_detail::Backing>();
+  if (input_backing->tier() != VirtualBackingTier::Host ||
+      input_backing->max_parallel_reads() != 1u) {
+    return 3;
+  }
   input_backing->seed(input_values);
   auto input = virtual_buffer<std::int32_t>(input_values.size(), input_backing);
   auto output =
       virtual_buffer<std::int32_t>(input_values.size(), output_backing);
   if (!input || !output) {
-    return 3;
+    return 4;
   }
   auto prepared = virtual_pipeline(
       *program, *input, *output,
-      ResidencyConfig{.slots = static_cast<std::uint32_t>(slot_capacity)});
+      ResidencyConfig{.device_resident_bytes = frame_capacity * page_elements *
+                                               sizeof(std::int32_t) * 4u,
+                      .host_staging_bytes = frame_capacity * page_elements *
+                                            sizeof(std::int32_t) * 4u});
   if (!prepared) {
-    return 4;
+    return 5;
   }
   const Status executed = prepared->run(active_count);
   if (!executed) {
     std::fprintf(stderr, "package virtual run failed: %s\n",
                  executed.error().data());
-    return 5;
+    return 6;
   }
 
   const auto observed = output_backing->values();
@@ -119,7 +126,7 @@ inline int VirtualResidency() {
     const std::int32_t expected =
         index < active_count ? input_values[index] * 3 + 7 : 0;
     if (observed[index] != expected) {
-      return 6;
+      return 7;
     }
   }
 
@@ -135,19 +142,19 @@ inline int VirtualResidency() {
   return plan.residency.logical_bytes == logical_bytes &&
                  plan.residency.page_bytes == paired_page_bytes &&
                  plan.residency.page_count == page_count &&
-                 plan.residency.slot_capacity == slot_capacity &&
-                 plan.residency.wave_count == 3u &&
+                 plan.residency.frame_capacity == frame_capacity &&
+                 plan.residency.epoch_count == 3u &&
                  residency.logical_bytes == logical_bytes &&
                  residency.active_count == active_count &&
                  residency.page_bytes == paired_page_bytes &&
                  residency.page_count == page_count &&
-                 residency.slot_capacity == slot_capacity &&
-                 residency.wave_count == 2u && residency.load_count == 3u &&
-                 residency.writeback_count == 3u && stats.output_hash != 0u &&
+                 residency.frame_capacity == frame_capacity &&
+                 residency.epoch_count == 2u && residency.page_in_count == 3u &&
+                 residency.page_out_count == 3u && stats.output_hash != 0u &&
                  memory.available() && profile &&
                  profile->execution().output_hash == stats.output_hash
              ? 0
-             : 7;
+             : 8;
 }
 
 } // namespace package_compute

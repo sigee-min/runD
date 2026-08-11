@@ -38,9 +38,9 @@ void PrintCounter(const ::rund::compute::MemoryCounter &counter) {
 void PrintColumns() {
   std::fputs(
       "virtual_residency_columns,evidence_scope,phase,backend,status,"
-      "logical_elements,active_count,slot_elements,n_over_c,plan_page_count,"
-      "plan_slot_capacity,plan_logical_bytes,plan_page_bytes,"
-      "plan_working_set_bytes,plan_capacity_waves,waves,dispatches,"
+      "logical_elements,active_count,frame_elements,n_over_c,plan_page_count,"
+      "plan_frame_capacity,plan_logical_bytes,plan_page_bytes,"
+      "plan_resident_bytes,plan_capacity_epochs,epochs,dispatches,"
       "compute_submissions,h2d_submissions,"
       "d2h_submissions,d2d_submissions,uploaded_bytes,downloaded_bytes,"
       "internal_roundtrip_bytes,external_roundtrip_bytes,download_events,"
@@ -87,20 +87,20 @@ void PrintEvidence(const char *const phase, const Backend backend,
   const ::rund::compute::MemoryStats &memory = profile.memory();
   const ::rund::compute::Stats &preparation_stats = preparation.execution();
   const auto &residency = stats.pipeline.residency;
-  std::printf("virtual_residency,current_source_diagnostic,%s,%s,ok,%zu,%zu,"
-              "%zu,%.9f,%llu,%llu,%llu,%llu,%llu,%llu",
-              phase, Name(backend), LogicalElements, active_count, SlotElements,
-              static_cast<double>(active_count) /
-                  static_cast<double>(SlotElements),
-              static_cast<unsigned long long>(plan.residency.page_count),
-              static_cast<unsigned long long>(plan.residency.slot_capacity),
-              static_cast<unsigned long long>(plan.residency.logical_bytes),
-              static_cast<unsigned long long>(plan.residency.page_bytes),
-              static_cast<unsigned long long>(plan.residency.working_set_bytes),
-              static_cast<unsigned long long>(plan.residency.wave_count));
+  std::printf(
+      "virtual_residency,current_source_diagnostic,%s,%s,ok,%zu,%zu,"
+      "%zu,%.9f,%llu,%llu,%llu,%llu,%llu,%llu",
+      phase, Name(backend), LogicalElements, active_count, FrameElements,
+      static_cast<double>(active_count) / static_cast<double>(FrameElements),
+      static_cast<unsigned long long>(plan.residency.page_count),
+      static_cast<unsigned long long>(plan.residency.frame_capacity),
+      static_cast<unsigned long long>(plan.residency.logical_bytes),
+      static_cast<unsigned long long>(plan.residency.page_bytes),
+      static_cast<unsigned long long>(plan.residency.resident_bytes),
+      static_cast<unsigned long long>(plan.residency.epoch_count));
   std::printf(",%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
               "%llu,%llu,%llu,%llu",
-              static_cast<unsigned long long>(residency.wave_count),
+              static_cast<unsigned long long>(residency.epoch_count),
               static_cast<unsigned long long>(stats.dispatches),
               static_cast<unsigned long long>(stats.command_submits),
               static_cast<unsigned long long>(
@@ -120,8 +120,8 @@ void PrintEvidence(const char *const phase, const Backend backend,
               static_cast<unsigned long long>(stats.kernel_samples),
               static_cast<unsigned long long>(residency.backing_io_ns));
   std::printf(",%llu,%llu,%u,%u,rund_owned,%s,%s",
-              static_cast<unsigned long long>(residency.load_count),
-              static_cast<unsigned long long>(residency.writeback_count),
+              static_cast<unsigned long long>(residency.page_in_count),
+              static_cast<unsigned long long>(residency.page_out_count),
               residency.sampled_runs, residency.allocation_free_runs,
               ProcessGlobalAllocationStatus(),
               PreparationEvidenceStatus(

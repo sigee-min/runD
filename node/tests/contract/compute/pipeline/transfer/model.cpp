@@ -170,23 +170,23 @@ void Fixture::fill_output(const std::size_t index, const std::byte seed) const {
   }
 }
 
-PipelineSlotUploadResult
+PipelineFrameUploadResult
 transfer_locked(Fixture &fixture,
-                const std::span<const PipelineSlotUpload> slots) {
+                const std::span<const PipelineFrameUpload> frames) {
   std::lock_guard pipeline_lock{fixture.state->gate};
   std::lock_guard publication_lock{fixture.state->publication->gate};
-  return upload_pipeline_slots(*fixture.state, slots);
+  return upload_pipeline_frames(*fixture.state, frames);
 }
 
-PipelineSlotDownloadResult
+PipelineFrameDownloadResult
 transfer_locked(Fixture &fixture,
-                const std::span<const PipelineSlotDownload> slots) {
+                const std::span<const PipelineFrameDownload> frames) {
   std::lock_guard pipeline_lock{fixture.state->gate};
   std::lock_guard publication_lock{fixture.state->publication->gate};
-  return download_pipeline_slots(*fixture.state, slots);
+  return download_pipeline_frames(*fixture.state, frames);
 }
 
-std::array<PipelineSlotUpload, 2u>
+std::array<PipelineFrameUpload, 2u>
 uploads(Fixture &fixture, const std::array<std::uint32_t, 4u> &first,
         const std::array<std::uint32_t, 3u> &tail) noexcept {
   return {{{fixture.inputs[0u].get(), first.data(), Fixture::first_bytes},

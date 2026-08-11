@@ -27,6 +27,10 @@
 
 namespace rund::compute::detail {
 
+namespace residency {
+class Pool;
+}
+
 struct PipelinePublicationState;
 struct SnapshotStorageState;
 
@@ -122,6 +126,10 @@ enum class PipelineFill : std::uint8_t {
 };
 
 struct PipelineInternal final {
+  // A residency cache may prebind one Device-global physical owner. Ordinary
+  // Pipeline internals leave this empty and are materialized exactly once by
+  // the Pipeline allocator.
+  std::shared_ptr<BufferState> owner;
   Type type{Type::U32};
   FixedFormat format{};
   std::size_t count{};
@@ -278,6 +286,7 @@ struct PipelineExternalResourcePlan final {
 };
 
 struct PipelineInternalResourcePlan final {
+  std::shared_ptr<BufferState> owner;
   PipelineFill fill{PipelineFill::None};
 };
 
@@ -323,19 +332,20 @@ struct PipelineWorkspaceRoute final {
 
 // Logical residency requirements are frozen into the existing Pipeline plan.
 // The compact planner owns page policy; PipelineMemoryPlan remains the sole
-// placement and admission owner for its fixed slots and host staging.
+// placement projection. The Device-global Pool is the sole allocation and
+// admission owner for resident frames and host tiers.
 struct PipelineResidencyPlan final {
   std::shared_ptr<const residency::ResidencyPlan> pages;
+  std::shared_ptr<residency::Pool> pool;
   std::uint64_t logical_bytes{};
   std::uint64_t input_page_bytes{};
   std::uint64_t output_page_bytes{};
-  std::uint64_t staging_bytes{};
   // Exact backend allocation charge of the native reusable transfer arena.
   // Zero on backends that do not retain such an owner.
   std::uint64_t transfer_committed_bytes{};
   std::uint64_t resident_bytes{};
   std::uint32_t first_step{};
-  std::uint32_t slot_count{};
+  std::uint32_t frame_count{};
 };
 
 struct PipelineMemoryPlan final {
@@ -813,15 +823,12 @@ struct PipelineState final {
   node::accel::detail::PreparedKernelPipeline prepared;
   node::accel::detail::PreparedKernelPipeline alternate_prepared;
   std::shared_ptr<const residency::ResidencyPlan> residency;
-  std::unique_ptr<std::byte[]> residency_staging;
-  // Canonical fixed-slot arenas. Every logical slot is a disjoint View into
-  // these two Pipeline-owned resources, so preparation retains two Buffers
-  // rather than O(K) Buffer owners while the compact plan remains O(1).
+  std::shared_ptr<residency::Pool> residency_pool;
+  // Views into the Device-global Pool's resident frame arenas.
   std::uint32_t residency_input{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t residency_output{std::numeric_limits<std::uint32_t>::max()};
   std::uint64_t residency_input_page_bytes{};
   std::uint64_t residency_output_page_bytes{};
-  std::uint64_t residency_staging_bytes{};
   std::uint64_t residency_transfer_committed_bytes{};
   bool residency_transfer_prepared{};
   PipelinePlan plan{};

@@ -95,14 +95,25 @@ struct ResidencyStats final {
   std::uint64_t active_count{};
   std::uint64_t page_bytes{};
   std::uint64_t page_count{};
-  std::uint64_t slot_capacity{};
-  std::uint64_t active_slots_peak{};
-  std::uint64_t wave_count{};
-  std::uint64_t load_count{};
-  std::uint64_t writeback_count{};
+  std::uint64_t frame_capacity{};
+  std::uint64_t resident_frames_peak{};
+  std::uint64_t epoch_count{};
+  std::uint64_t page_in_count{};
+  std::uint64_t page_out_count{};
   std::uint64_t backing_read_bytes{};
   std::uint64_t backing_write_bytes{};
   std::uint64_t backing_io_ns{};
+  // Cache and supply evidence is emitted by the same residency authority as
+  // page movement. A cache hit never increments page-in bytes; a late page is
+  // a demanded page whose fetch was not completed before its execution epoch.
+  std::uint64_t cache_hit_count{};
+  std::uint64_t eviction_count{};
+  std::uint64_t prefetch_count{};
+  std::uint64_t late_page_count{};
+  std::uint64_t page_in_bytes{};
+  std::uint64_t page_out_bytes{};
+  std::uint64_t stall_ns{};
+  std::uint64_t overlap_ns{};
   std::uint32_t sampled_runs{};
   std::uint32_t allocation_free_runs{};
   std::uint64_t plan_identity_hi{};

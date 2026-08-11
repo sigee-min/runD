@@ -220,12 +220,13 @@ DownloadBackendBuffers(const std::shared_ptr<PickToken> &token,
 }
 
 BackendCopy CopyBackendBuffers(const std::shared_ptr<PickToken> &token,
-                               const std::span<const CopyRoute> requests) {
+                               const std::span<const CopyRoute> requests,
+                               const TransferAuthority authority) {
   if (!ValidRoute(token) || requests.empty() ||
       token->ops->copy_batch == nullptr) {
     return {};
   }
-  return token->ops->copy_batch(token->raw, requests);
+  return token->ops->copy_batch(token->raw, requests, authority);
 }
 
 BackendLookup

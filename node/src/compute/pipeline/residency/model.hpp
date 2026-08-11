@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace rund::compute::detail::residency {
 
@@ -16,6 +18,62 @@ struct PageRun final {
   std::uint64_t page_count{};
 };
 
+struct PageKey final {
+  std::uint32_t resource{};
+  std::uint64_t page{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const PageKey &) const noexcept = default;
+  [[nodiscard]] constexpr bool operator<(const PageKey &other) const noexcept {
+    return resource < other.resource ||
+           (resource == other.resource && page < other.page);
+  }
+};
+
+enum class Access : std::uint8_t {
+  Read,
+  Write,
+  ReadWrite,
+};
+
+[[nodiscard]] constexpr bool reads(const Access access) noexcept {
+  return access != Access::Write;
+}
+
+[[nodiscard]] constexpr bool writes(const Access access) noexcept {
+  return access != Access::Read;
+}
+
+struct PageUse final {
+  PageKey key{};
+  Access access{Access::Read};
+};
+
+enum class TransitionKind : std::uint8_t {
+  Writeback,
+  Unmap,
+  Fetch,
+  Map,
+};
+
+struct Transition final {
+  PageKey key{};
+  std::uint32_t frame{};
+  TransitionKind kind{TransitionKind::Fetch};
+
+  [[nodiscard]] constexpr bool
+  operator==(const Transition &) const noexcept = default;
+};
+
+struct Epoch final {
+  std::uint32_t node{};
+  std::uint32_t tile{};
+  std::size_t first_use{};
+  std::size_t use_count{};
+  std::size_t first_transition{};
+  std::size_t transition_count{};
+};
+
 struct Identity final {
   std::uint64_t hi{};
   std::uint64_t lo{};
@@ -26,37 +84,49 @@ struct Identity final {
   [[nodiscard]] bool operator==(const Identity &) const noexcept = default;
 };
 
-struct PlanInput final {
+struct StreamPlanInput final {
   std::uint64_t page_bytes{};
   std::uint64_t page_count{};
-  std::uint64_t requested_slots{};
-  std::uint64_t max_slots{};
+  std::uint64_t requested_frames{};
+  std::uint64_t max_frames{};
 };
 
-class LinearPlan final {
+class StreamPlan final {
 public:
-  constexpr LinearPlan() noexcept = default;
-  constexpr LinearPlan(const std::uint64_t page_count,
-                       const std::uint64_t slot_capacity) noexcept
-      : page_count_(page_count), slot_capacity_(slot_capacity) {}
+  constexpr StreamPlan() noexcept = default;
+  constexpr StreamPlan(const std::uint64_t page_count,
+                       const std::uint64_t frame_capacity) noexcept
+      : page_count_(page_count), frame_capacity_(frame_capacity) {}
 
   [[nodiscard]] constexpr std::uint64_t page_count() const noexcept {
     return page_count_;
   }
-  [[nodiscard]] constexpr std::uint64_t slot_capacity() const noexcept {
-    return slot_capacity_;
+  [[nodiscard]] constexpr std::uint64_t frame_capacity() const noexcept {
+    return frame_capacity_;
   }
-  [[nodiscard]] constexpr std::uint64_t wave_count() const noexcept {
-    return slot_capacity_ == 0u ? 0u
-                                : page_count_ / slot_capacity_ +
-                                      static_cast<std::uint64_t>(
-                                          page_count_ % slot_capacity_ != 0u);
+  [[nodiscard]] constexpr std::uint64_t epoch_count() const noexcept {
+    return frame_capacity_ == 0u ? 0u
+                                 : page_count_ / frame_capacity_ +
+                                       static_cast<std::uint64_t>(
+                                           page_count_ % frame_capacity_ != 0u);
   }
-  [[nodiscard]] bool wave(std::uint64_t index, PageRun &run) const noexcept;
+  [[nodiscard]] bool epoch(std::uint64_t index, PageRun &run) const noexcept;
 
 private:
   std::uint64_t page_count_{};
-  std::uint64_t slot_capacity_{};
+  std::uint64_t frame_capacity_{};
+};
+
+struct DemandEpoch final {
+  std::uint32_t node{};
+  std::uint32_t tile{};
+  std::vector<PageUse> uses;
+};
+
+struct GraphPlanInput final {
+  std::uint64_t page_bytes{};
+  std::uint32_t frame_capacity{};
+  std::vector<DemandEpoch> epochs;
 };
 
 class ResidencyPlan;
@@ -73,17 +143,38 @@ public:
   [[nodiscard]] std::uint64_t page_bytes() const noexcept {
     return page_bytes_;
   }
-  [[nodiscard]] const LinearPlan &linear() const noexcept { return linear_; }
+  [[nodiscard]] bool streamed() const noexcept { return epochs_.empty(); }
+  [[nodiscard]] const StreamPlan &stream() const noexcept { return stream_; }
+  [[nodiscard]] std::uint32_t frame_capacity() const noexcept {
+    return frame_capacity_;
+  }
+  [[nodiscard]] const std::vector<PageUse> &uses() const noexcept {
+    return uses_;
+  }
+  [[nodiscard]] const std::vector<Transition> &transitions() const noexcept {
+    return transitions_;
+  }
+  [[nodiscard]] const std::vector<Epoch> &epochs() const noexcept {
+    return epochs_;
+  }
   [[nodiscard]] Identity identity() const noexcept { return identity_; }
 
 private:
-  friend PlanResult PlanResidency(const PlanInput &input) noexcept;
+  friend PlanResult PlanResidency(const StreamPlanInput &input) noexcept;
+  friend PlanResult PlanResidency(const GraphPlanInput &input) noexcept;
 
-  ResidencyPlan(std::uint64_t page_bytes, LinearPlan linear,
+  ResidencyPlan(std::uint64_t page_bytes, StreamPlan stream,
                 Identity identity) noexcept;
+  ResidencyPlan(std::uint64_t page_bytes, std::uint32_t frame_capacity,
+                std::vector<PageUse> uses, std::vector<Transition> transitions,
+                std::vector<Epoch> epochs, Identity identity) noexcept;
 
   std::uint64_t page_bytes_{};
-  LinearPlan linear_{};
+  std::uint32_t frame_capacity_{};
+  StreamPlan stream_{};
+  std::vector<PageUse> uses_;
+  std::vector<Transition> transitions_;
+  std::vector<Epoch> epochs_;
   Identity identity_{};
 };
 

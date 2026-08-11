@@ -1,11 +1,15 @@
 #include "backing.hpp"
 #include "local.hpp"
 #include "run/backing.hpp"
+#include "run/cache.hpp"
+#include "run/epoch.hpp"
 #include "run/evidence.hpp"
 #include "run/projection.hpp"
-#include "run/wave.hpp"
+#include "run/reduce.hpp"
+#include "run/scan.hpp"
 
 #include "../../hash/fnv.hpp"
+#include "../device/residency_pool.hpp"
 
 #include <mutex>
 
@@ -32,7 +36,8 @@ Status run_virtual_pipeline(const std::shared_ptr<VirtualPipelineState> &state,
     return Status::fail(Reason::PipelinePoisoned);
   }
   if (active_count > state->input->count ||
-      active_count > state->output->count) {
+      (state->geometry.route != VirtualRoute::Reduction &&
+       active_count > state->output->count)) {
     return Status::fail(Reason::ShapeMismatch);
   }
   state->phase = VirtualPipelinePhase::Running;
@@ -51,12 +56,37 @@ Status run_virtual_pipeline(const std::shared_ptr<VirtualPipelineState> &state,
   std::scoped_lock backing_locks{VirtualBackingAccess::gate(input_backing),
                                  VirtualBackingAccess::gate(output_backing)};
 
+  if (state->pipeline->residency_pool == nullptr) {
+    poison_pipeline = true;
+    return finish(Status::fail(Reason::PipelineInvalid));
+  }
+  std::unique_lock pool_lock{state->pipeline->residency_pool->execution_gate,
+                             std::try_to_lock};
+  if (!pool_lock.owns_lock()) {
+    return finish(Status::fail(Reason::PipelineBusy));
+  }
+
   VirtualRunProjection run{};
   if (!project_virtual_run(*state, active_count, run)) {
     poison_pipeline = true;
     return finish(Status::fail(Reason::PipelineInvalid));
   }
-  stats.pipeline.residency.active_slots_peak = run.active.active_slots_peak;
+  stats.pipeline.residency.resident_frames_peak =
+      run.active.resident_frames_peak;
+  VirtualReduction reduction{};
+  if (run.reduction) {
+    const Status initialized = begin_virtual_reduction(run, reduction);
+    if (!initialized) {
+      return finish(initialized);
+    }
+  }
+  VirtualScan scan{};
+  if (run.scan) {
+    const Status initialized = begin_virtual_scan(run, scan);
+    if (!initialized) {
+      return finish(initialized);
+    }
+  }
   const Status recovery = validate_virtual_recovery(
       input_backing, output_backing, run.active.output_bytes);
   if (!recovery) {
@@ -65,19 +95,64 @@ Status run_virtual_pipeline(const std::shared_ptr<VirtualPipelineState> &state,
 
   ::rund::node::hash_detail::Fnv output_hash{};
   if (active_count == 0u) {
+    if (run.reduction) {
+      const Status reduced =
+          finish_virtual_reduction(output_backing, run, reduction,
+                                   stats.pipeline.residency, output_hash);
+      if (!reduced) {
+        return finish(reduced);
+      }
+      clear_virtual_recovery(output_backing);
+    }
     return finish(Status::success(), output_hash.Finish());
   }
   if (!bind_virtual_run_transfer(*state, run)) {
     poison_pipeline = true;
     return finish(Status::fail(Reason::PipelineInvalid));
   }
-  for (std::uint64_t wave = 0u; wave < run.active.linear.wave_count(); ++wave) {
-    const VirtualWaveResult result = execute_virtual_wave(
-        *state, input_backing, output_backing, run, wave, stats, output_hash);
+  std::array<bool, 2u> prefetch_pending{};
+  for (std::uint64_t epoch = 0u; epoch < run.active.stream.epoch_count();
+       ++epoch) {
+    const VirtualEpochResult result = execute_virtual_epoch(
+        *state, input_backing, output_backing, run, epoch, prefetch_pending,
+        stats, output_hash, run.reduction ? &reduction : nullptr,
+        run.scan ? &scan : nullptr);
     if (!result.status) {
       failed_page = result.failed_page;
       poison_pipeline = result.poison_pipeline;
       return finish(result.status);
+    }
+  }
+
+  if (run.reduction) {
+    const Status reduced = finish_virtual_reduction(
+        output_backing, run, reduction, stats.pipeline.residency, output_hash);
+    if (!reduced) {
+      failed_page = run.active.stream.page_count() == 0u
+                        ? ResidencyStats::no_failed_page
+                        : run.active.stream.page_count() - 1u;
+      return finish(reduced);
+    }
+  } else {
+    const residency::AuthorityResult drain =
+        state->pipeline->residency_pool->authority.drain_dirty();
+    if (!drain) {
+      poison_pipeline = true;
+      return finish(Status::fail(Reason::PipelineInvalid));
+    }
+    const Status written = writeback_residency_cache(
+        output_backing, run, drain.lease.transitions, stats.pipeline.residency);
+    const bool completed =
+        written ? state->pipeline->residency_pool->authority.complete(
+                      drain.lease.token, true)
+                : state->pipeline->residency_pool->authority.discard(
+                      drain.lease.token);
+    if (!written || !completed) {
+      failed_page = drain.lease.transitions.empty()
+                        ? ResidencyStats::no_failed_page
+                        : drain.lease.transitions.front().key.page;
+      poison_pipeline = !completed;
+      return finish(written ? Status::fail(Reason::PipelineInvalid) : written);
     }
   }
 

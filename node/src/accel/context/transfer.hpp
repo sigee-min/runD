@@ -75,9 +75,11 @@ UploadAccelBuffers(const rund::AccelContext &context,
     std::span<DownloadRoute> routes,
     TransferAuthority authority = TransferAuthority::Shared);
 
-[[nodiscard]] AccelCopy CopyAccelBuffers(const rund::AccelContext &context,
-                                         std::span<const CopyEntry> requests,
-                                         std::span<CopyRoute> routes);
+[[nodiscard]] AccelCopy
+CopyAccelBuffers(const rund::AccelContext &context,
+                 std::span<const CopyEntry> requests,
+                 std::span<CopyRoute> routes,
+                 TransferAuthority authority = TransferAuthority::Shared);
 
 [[nodiscard]] rund::AccelCheck PrepareAccelPipelineTransfer(
     const rund::AccelContext &context, const PreparedKernelPipeline &prepared,

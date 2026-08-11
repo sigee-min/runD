@@ -13,6 +13,8 @@ namespace rund::compute::detail {
 // therefore cannot publish competing poison or callback order.
 struct VirtualBackingState final {
   std::mutex gate;
+  std::uint64_t id{};
+  std::uint64_t version{1u};
   // Zero is clean. A nonzero value is the output prefix that a successful
   // retry must overwrite completely before this backing can become readable.
   std::uint64_t recovery_bytes{};
@@ -36,6 +38,23 @@ struct VirtualBackingAccess final {
 
   static void clear_recovery(VirtualBacking &backing) noexcept {
     backing.state_->recovery_bytes = 0u;
+  }
+
+  [[nodiscard]] static std::uint64_t
+  id(const VirtualBacking &backing) noexcept {
+    return backing.state_->id;
+  }
+
+  [[nodiscard]] static std::uint64_t
+  version(const VirtualBacking &backing) noexcept {
+    return backing.state_->version;
+  }
+
+  static void publish_write(VirtualBacking &backing) noexcept {
+    ++backing.state_->version;
+    if (backing.state_->version == 0u) {
+      backing.state_->version = 1u;
+    }
   }
 };
 

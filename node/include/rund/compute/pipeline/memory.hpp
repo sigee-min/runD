@@ -22,16 +22,17 @@ struct MemoryBudget final {
 };
 
 // Compact public projection of one frozen virtual working set. A page is one
-// input/output transform pair, slots are the simultaneously retained pairs,
-// and working_set_bytes is their exact logical Buffer extent. Backend
-// allocation granularity remains the committed-memory authority.
+// input/output transform pair. One frame has a canonical cache pair and a
+// disposable execution pair; resident_bytes is the exact logical extent of
+// all four arenas at the selected frame capacity. Backend allocation
+// granularity remains the committed-memory authority.
 struct ResidencyPlan final {
   std::uint64_t logical_bytes{};
   std::uint64_t page_bytes{};
   std::uint64_t page_count{};
-  std::uint64_t slot_capacity{};
-  std::uint64_t working_set_bytes{};
-  std::uint64_t wave_count{};
+  std::uint64_t frame_capacity{};
+  std::uint64_t resident_bytes{};
+  std::uint64_t epoch_count{};
   std::uint64_t identity_hi{};
   std::uint64_t identity_lo{};
 

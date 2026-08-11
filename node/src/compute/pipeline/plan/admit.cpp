@@ -1,6 +1,7 @@
 #include "prepare.hpp"
 #include "publication.hpp"
 
+#include "../../device/residency_pool.hpp"
 #include "../../type.hpp"
 #include "../claim.hpp"
 #include "../local.hpp"
@@ -199,29 +200,29 @@ Status admit_pipeline(const std::shared_ptr<PipelineBuildState> &build,
   state->plan = plan.summary;
   if (plan.residency.pages != nullptr) {
     std::uint64_t residency_page_bytes = 0u;
-    if (!plan.residency.pages->identity() ||
+    std::uint64_t expected_staging_bytes = 0u;
+    if (!plan.residency.pages->identity() || plan.residency.pool == nullptr ||
         plan.residency.input_page_bytes == 0u ||
         plan.residency.output_page_bytes == 0u ||
         !kernel::checked::add(plan.residency.input_page_bytes,
                               plan.residency.output_page_bytes,
                               residency_page_bytes) ||
         residency_page_bytes != plan.residency.pages->page_bytes() ||
-        plan.residency.staging_bytes == 0u || plan.residency.slot_count == 0u ||
-        plan.residency.slot_count !=
-            plan.residency.pages->linear().slot_capacity() ||
-        plan.residency.staging_bytes >
-            std::numeric_limits<std::size_t>::max() ||
+        plan.residency.frame_count == 0u ||
+        !kernel::checked::mul(residency_page_bytes, plan.residency.frame_count,
+                              expected_staging_bytes) ||
+        plan.residency.pool->staging == nullptr ||
+        plan.residency.pool->staging_bytes != expected_staging_bytes ||
+        plan.residency.frame_count !=
+            plan.residency.pages->stream().frame_capacity() ||
         ((state->device->backend == Backend::Vulkan) !=
          (plan.residency.transfer_committed_bytes != 0u)) ||
         state->plan.residency.logical_bytes != plan.residency.logical_bytes ||
-        state->plan.residency.working_set_bytes !=
-            plan.residency.resident_bytes) {
+        state->plan.residency.resident_bytes != plan.residency.resident_bytes) {
       return Status::fail(Reason::PipelineInvalid);
     }
     state->residency = plan.residency.pages;
-    state->residency_staging = std::make_unique<std::byte[]>(
-        static_cast<std::size_t>(plan.residency.staging_bytes));
-    state->residency_staging_bytes = plan.residency.staging_bytes;
+    state->residency_pool = plan.residency.pool;
     state->residency_transfer_committed_bytes =
         plan.residency.transfer_committed_bytes;
   }

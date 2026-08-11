@@ -257,16 +257,17 @@ count.
 `tools/measure/compute/run --virtual-residency <cpu|metal|vulkan>` is a separate
 current-source product diagnostic over the public opt-in
 `<rund/compute/virtual.hpp>` surface. Each of three sequential process packets
-opens an executable selected backend and measures one real fixed-slot workload with
-`L = 65,537` logical `I32` elements, a 4,096-element page, and three physical
-slot pairs, so `C = 12,288` elements and `L > C`. The tail makes 17 logical
-pages and the fixed capacity makes six waves per run. Packet markers delimit
+opens an executable selected backend and measures one real Device-global
+fixed-frame workload with `L = 65,537` logical `I32` elements, a 4,096-element
+page, and three physical frame pairs, so `C = 12,288` elements and `L > C`.
+The tail makes 17 logical pages and the fixed capacity makes six epochs per
+run. Packet markers delimit
 the three complete CSV streams; they are diagnostic packet boundaries, not
 Release evidence packets and are never inputs to baseline admission.
-The backing transfers cover 17 active pages, or 278,528 bytes per direction;
-the fixed physical batch covers all three slots in every wave, including the
-padded tail slot, or 294,912 bytes per direction. The CSV keeps those facts in
-separate Profile-owned columns.
+Cold backing traffic is the exact 262,148-byte logical extent per direction.
+Physical frame traffic covers 17 active frames, or 278,528 bytes per
+direction; inactive terminal frames are not transferred. The CSV keeps
+logical backing and physical frame facts in separate Profile-owned columns.
 
 The cold interval starts at public graph authoring, then includes compile,
 VirtualBacking and VirtualBuffer construction, VirtualPipeline preparation,
@@ -308,7 +309,7 @@ The same prepared VirtualPipeline then opens one sample epoch and runs exactly
 60 times. There is no Profile projection or caller observation between warm
 runs. After the sample epoch closes, the route performs one full backing read
 and one Profile projection. It reports nearest-rank warm p95, the ordinary
-even-sample median p50, logical elements per second from p50, per-run waves,
+even-sample median p50, logical elements per second from p50, per-run epochs,
 compute/H2D/D2H submissions, backing and physical transfer bytes, `L/C`, plan
 identity, graph/result hashes, raw compile/buffer/descriptor allocation
 counters, and Profile MemoryStats. `ResidencyStats` must report 60 sampled,
@@ -331,7 +332,7 @@ download-event and readback, kernel and backing-I/O time, plan peak/committed
 and scratch bytes, and the Host, Device, Resident, Staging and Transfer
 current/peak/cumulative counters directly from the terminal `Profile` and
 frozen `PipelinePlan`. Page count, selected slot capacity, logical/page/working
-set bytes and capacity wave count are the plan's values rather than fixture
+set bytes and capacity epoch count are the plan's values rather than fixture
 constants. `terminal_reads=1` and `profile_projections=1` describe
 the harness observation boundary; they are not backend counters. The warm
 allocation columns are explicitly named `rund_allocation_free_runs` and

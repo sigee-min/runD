@@ -15,12 +15,18 @@ bool CheckBatchDownloadAndHash() {
   active_probe = &failed_probe;
   std::array<std::byte, Fixture::first_bytes> first_result{};
   std::array<std::byte, Fixture::tail_bytes> tail_result{};
-  const std::array<PipelineSlotDownload, 2u> forward{{
-      {failed.outputs[0u].get(), first_result.data(), first_result.size(), 0u},
-      {failed.outputs[1u].get(), tail_result.data(), tail_result.size(), 1u},
+  const std::array<PipelineFrameDownload, 2u> forward{{
+      {.buffer = failed.outputs[0u].get(),
+       .data = first_result.data(),
+       .bytes = first_result.size(),
+       .output = 0u},
+      {.buffer = failed.outputs[1u].get(),
+       .data = tail_result.data(),
+       .bytes = tail_result.size(),
+       .output = 1u},
   }};
-  const PipelineSlotDownloadResult rejected = transfer_locked(failed, forward);
-  const PipelineSlotDownloadResult retried = transfer_locked(failed, forward);
+  const PipelineFrameDownloadResult rejected = transfer_locked(failed, forward);
+  const PipelineFrameDownloadResult retried = transfer_locked(failed, forward);
   const std::uint64_t forward_hash = failed.state->stats.output_hash;
   if (rejected.transfer.status.reason() != Reason::TransferInvalid ||
       rejected.bytes != 0u || rejected.events != 0u ||
@@ -46,13 +52,18 @@ bool CheckBatchDownloadAndHash() {
   active_probe = &reversed_probe;
   std::array<std::byte, Fixture::first_bytes> reversed_first{};
   std::array<std::byte, Fixture::tail_bytes> reversed_tail{};
-  const std::array<PipelineSlotDownload, 2u> reverse{{
-      {reversed.outputs[1u].get(), reversed_tail.data(), reversed_tail.size(),
-       1u},
-      {reversed.outputs[0u].get(), reversed_first.data(), reversed_first.size(),
-       0u},
+  const std::array<PipelineFrameDownload, 2u> reverse{{
+      {.buffer = reversed.outputs[1u].get(),
+       .data = reversed_tail.data(),
+       .bytes = reversed_tail.size(),
+       .output = 1u},
+      {.buffer = reversed.outputs[0u].get(),
+       .data = reversed_first.data(),
+       .bytes = reversed_first.size(),
+       .output = 0u},
   }};
-  const PipelineSlotDownloadResult ordered = transfer_locked(reversed, reverse);
+  const PipelineFrameDownloadResult ordered =
+      transfer_locked(reversed, reverse);
   active_probe = nullptr;
   return ordered.transfer.status && ordered.events == 2u &&
          ordered.transfer.command_submits == 1u &&

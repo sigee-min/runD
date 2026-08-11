@@ -83,8 +83,9 @@ BackendDownload DownloadBatch(const rund::AccelDevice &pick,
 }
 
 BackendCopy CopyBatch(const rund::AccelDevice &pick,
-                      const std::span<const CopyRoute> requests) {
-  return CopyMetalResidentBuffers(pick, requests);
+                      const std::span<const CopyRoute> requests,
+                      const TransferAuthority authority) {
+  return CopyMetalResidentBuffers(pick, requests, authority);
 }
 
 BackendLookup Lookup(const rund::AccelDevice &pick,

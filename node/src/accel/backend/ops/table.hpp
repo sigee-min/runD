@@ -89,7 +89,8 @@ struct BackendOps final {
                                     std::span<const DownloadRoute>,
                                     TransferAuthority) = nullptr;
   BackendCopy (*copy_batch)(const rund::AccelDevice &,
-                            std::span<const CopyRoute>) = nullptr;
+                            std::span<const CopyRoute>,
+                            TransferAuthority) = nullptr;
   BackendLookup (*lookup)(const rund::AccelDevice &,
                           const rund::kernel::ResidentBufferRef &,
                           const std::shared_ptr<void> &) = nullptr;

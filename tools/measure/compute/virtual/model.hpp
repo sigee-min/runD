@@ -8,21 +8,25 @@ namespace rund::measure::compute::virtual_residency {
 
 inline constexpr std::size_t PageElements = 4'096u;
 inline constexpr std::size_t LogicalElements = 65'537u;
-inline constexpr std::uint32_t SlotCapacity = 3u;
+inline constexpr std::uint32_t FrameCapacity = 3u;
 inline constexpr std::size_t WarmSamples = 60u;
 inline constexpr std::byte TailPoison{0xa5};
 inline constexpr std::array<std::size_t, 4u> ActiveCounts{
     0u, 17u, LogicalElements / 2u + 1u, LogicalElements};
-inline constexpr std::size_t SlotElements = PageElements * SlotCapacity;
+inline constexpr std::size_t FrameElements = PageElements * FrameCapacity;
+inline constexpr std::size_t ResidentBytes =
+    FrameElements * sizeof(std::int32_t) * 4u;
+inline constexpr std::size_t HostStagingBytes =
+    FrameElements * sizeof(std::int32_t) * 4u;
 inline constexpr std::size_t PageCount =
     LogicalElements / PageElements +
     (LogicalElements % PageElements == 0u ? 0u : 1u);
-inline constexpr std::size_t WaveCount =
-    PageCount / SlotCapacity + (PageCount % SlotCapacity == 0u ? 0u : 1u);
+inline constexpr std::size_t EpochCount =
+    PageCount / FrameCapacity + (PageCount % FrameCapacity == 0u ? 0u : 1u);
 
-static_assert(LogicalElements > SlotElements);
+static_assert(LogicalElements > FrameElements);
 static_assert(PageCount == 17u);
-static_assert(WaveCount == 6u);
+static_assert(EpochCount == 6u);
 
 [[nodiscard]] constexpr std::size_t
 nearest_rank_index(const std::size_t count, const std::size_t percentile) {

@@ -78,30 +78,43 @@ namespace {
   const std::uint64_t pages =
       active_count / PageElements +
       static_cast<std::uint64_t>(active_count % PageElements != 0u);
-  const std::uint64_t waves =
-      pages / SlotCapacity +
-      static_cast<std::uint64_t>(pages % SlotCapacity != 0u);
-  const std::uint64_t physical = waves * SlotCapacity * ElementPageBytes;
+  const std::uint64_t epochs =
+      pages / FrameCapacity +
+      static_cast<std::uint64_t>(pages % FrameCapacity != 0u);
+  const std::uint64_t physical_output = pages * ElementPageBytes;
   const std::uint64_t submits =
-      backend == rund::compute::Backend::Cpu ? 0u : waves;
+      backend == rund::compute::Backend::Cpu ? 0u : epochs;
   const auto &residency = stats.pipeline.residency;
+  const std::uint64_t supplied =
+      residency.page_in_count + residency.cache_hit_count;
+  const std::uint64_t expected_upload =
+      residency.page_in_count * ElementPageBytes;
+  const std::uint64_t readable =
+      active_count * static_cast<std::uint64_t>(sizeof(std::int32_t));
   return residency.logical_bytes == LogicalBytes * 2u &&
          residency.active_count == active_count &&
          residency.page_bytes == ResidencyPageBytes &&
          residency.page_count == PageCount &&
-         residency.slot_capacity == SlotCapacity &&
-         residency.active_slots_peak ==
-             std::min(pages, static_cast<std::uint64_t>(SlotCapacity)) &&
-         residency.wave_count == waves && residency.load_count == pages &&
-         residency.writeback_count == pages &&
-         residency.backing_read_bytes == active_count * sizeof(std::int32_t) &&
+         residency.frame_capacity == FrameCapacity &&
+         residency.resident_frames_peak ==
+             std::min(pages, static_cast<std::uint64_t>(FrameCapacity)) &&
+         residency.epoch_count == epochs && supplied == pages &&
+         residency.prefetch_count + residency.late_page_count ==
+             residency.page_in_count &&
+         residency.page_in_bytes == residency.backing_read_bytes &&
+         residency.page_out_bytes == active_count * sizeof(std::int32_t) &&
+         residency.overlap_ns <= residency.backing_io_ns &&
+         (pages == 0u || residency.stall_ns != 0u) &&
+         residency.page_out_count == pages &&
+         residency.backing_read_bytes <= readable &&
          residency.backing_write_bytes == active_count * sizeof(std::int32_t) &&
          residency.samples_allocation_free(WarmRuns) &&
          residency.failed_page ==
              rund::compute::ResidencyStats::no_failed_page &&
-         stats.dispatches == waves * SlotCapacity &&
-         stats.command_submits == submits && stats.uploaded_bytes == physical &&
-         stats.downloaded_bytes == physical &&
+         stats.dispatches == epochs * FrameCapacity &&
+         stats.command_submits == submits &&
+         stats.uploaded_bytes == expected_upload &&
+         stats.downloaded_bytes == physical_output &&
          stats.transfer_submissions.host_to_device == 0u &&
          stats.transfer_submissions.device_to_host == 0u &&
          stats.transfer_submissions.device_to_device == 0u;
@@ -140,8 +153,7 @@ int CheckProductActiveCount(const rund::compute::Backend backend) {
   auto output = virtual_buffer<std::int32_t>(LogicalElements, output_backing);
   auto prepared =
       input && output
-          ? virtual_pipeline(*program, *input, *output,
-                             ResidencyConfig{.slots = SlotCapacity})
+          ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
   if (!prepared) {
@@ -202,9 +214,6 @@ int CheckProductActiveCount(const rund::compute::Backend backend) {
     const std::uint64_t pages =
         active_count / PageElements +
         static_cast<std::uint64_t>(active_count % PageElements != 0u);
-    const std::uint64_t waves =
-        pages / SlotCapacity +
-        static_cast<std::uint64_t>(pages % SlotCapacity != 0u);
     const BackingFacts input_delta =
         delta(input_backing->facts(), input_before);
     const BackingFacts output_delta =
@@ -220,11 +229,11 @@ int CheckProductActiveCount(const rund::compute::Backend backend) {
         profile->execution().pipeline.residency.active_count != active_count ||
         profile->execution().output_hash != stats.output_hash ||
         stats.output_hash != HashValues(expected) ||
-        input_delta.read_count != (WarmRuns + 1u) * waves ||
-        input_delta.read_bytes !=
+        input_delta.read_count > (WarmRuns + 1u) * pages ||
+        input_delta.read_bytes >
             (WarmRuns + 1u) * active_count * sizeof(std::int32_t) ||
         input_delta.write_count != 0u || input_delta.observation_count != 0u ||
-        output_delta.write_count != (WarmRuns + 1u) * waves ||
+        output_delta.write_count != (WarmRuns + 1u) * pages ||
         output_delta.write_bytes !=
             (WarmRuns + 1u) * active_count * sizeof(std::int32_t) ||
         output_delta.observation_count != 1u ||
@@ -253,8 +262,59 @@ int CheckProductActiveCount(const rund::compute::Backend backend) {
           static_cast<unsigned long long>(output_delta.observation_bytes),
           stats.pipeline.residency.sampled_runs,
           stats.pipeline.residency.allocation_free_runs);
+      std::fprintf(
+          stderr,
+          "virtual cache pages=%llu epochs=%llu load=%llu hit=%llu evict=%llu "
+          "late=%llu pin=%llu pout=%llu stall=%llu overlap=%llu upload=%llu "
+          "download=%llu submits=%llu writeback=%llu\n",
+          static_cast<unsigned long long>(pages),
+          static_cast<unsigned long long>(stats.pipeline.residency.epoch_count),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.page_in_count),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.cache_hit_count),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.eviction_count),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.late_page_count),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.page_in_bytes),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.page_out_bytes),
+          static_cast<unsigned long long>(stats.pipeline.residency.stall_ns),
+          static_cast<unsigned long long>(stats.pipeline.residency.overlap_ns),
+          static_cast<unsigned long long>(stats.uploaded_bytes),
+          static_cast<unsigned long long>(stats.downloaded_bytes),
+          static_cast<unsigned long long>(stats.command_submits),
+          static_cast<unsigned long long>(
+              stats.pipeline.residency.page_out_count));
+      for (std::size_t index = 0u;
+           index < std::min<std::size_t>(active_count, 40u); ++index) {
+        std::int32_t value = 0;
+        std::memcpy(&value, observed.data() + index * sizeof(value),
+                    sizeof(value));
+        if (value != golden[index]) {
+          std::fprintf(stderr,
+                       "virtual mismatch index=%zu value=%d expected=%d\n",
+                       index, value, golden[index]);
+          break;
+        }
+      }
       return 11;
     }
+  }
+  const BackingFacts before_invalidate = input_backing->facts();
+  if (!input_backing->invalidate() || !prepared->run(7u)) {
+    return 12;
+  }
+  const Stats invalidated = prepared->stats();
+  const BackingFacts after_invalidate = input_backing->facts();
+  if (invalidated.pipeline.residency.page_in_count != 1u ||
+      invalidated.pipeline.residency.cache_hit_count != 0u ||
+      after_invalidate.read_count != before_invalidate.read_count + 1u ||
+      after_invalidate.read_bytes !=
+          before_invalidate.read_bytes + 7u * sizeof(std::int32_t)) {
+    return 13;
   }
   return 0;
 }

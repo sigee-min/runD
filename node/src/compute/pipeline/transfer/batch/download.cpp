@@ -6,6 +6,7 @@
 #include "../../transfer.hpp"
 #include "model.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +19,7 @@ namespace {
                                      const std::size_t output,
                                      const BufferState *const buffer,
                                      const std::size_t bytes,
+                                     const std::size_t offset,
                                      const bool validate_generation) noexcept {
   if (output >= state.outputs.size()) {
     return Status::fail(Reason::ReadBufferMismatch);
@@ -28,7 +30,8 @@ namespace {
   }
   const PipelineResource &resource = state.resources[observed.resource];
   if (resource.output != output || resource.buffer.get() != buffer ||
-      buffer == nullptr || resource.bytes != bytes || buffer->bytes != bytes ||
+      buffer == nullptr || resource.bytes != buffer->bytes ||
+      offset > buffer->bytes || bytes > buffer->bytes - offset ||
       (validate_generation && buffer->generation != observed.generation)) {
     return Status::fail(Reason::ReadBufferMismatch);
   }
@@ -37,27 +40,29 @@ namespace {
 
 } // namespace
 
-PipelineSlotDownloadResult download_pipeline_slots_impl(
-    PipelineState &state, const std::span<const PipelineSlotDownload> slots,
+PipelineFrameDownloadResult download_pipeline_frames_impl(
+    PipelineState &state, const std::span<const PipelineFrameDownload> frames,
     const node::accel::detail::TransferAuthority authority) noexcept {
-  PipelineSlotDownloadResult result{};
+  PipelineFrameDownloadResult result{};
   const Status ready = validate_pipeline_transfer_ready(state);
   if (!ready) {
     result.transfer.status = ready;
     return result;
   }
-  if (slots.size() > PipelineLeafCapacity || slots.empty()) {
+  if (frames.size() > PipelineLeafCapacity || frames.empty()) {
     result.transfer.status = Status::fail(
-        slots.empty() ? Reason::TransferInvalid : Reason::PipelineCapacity);
+        frames.empty() ? Reason::TransferInvalid : Reason::PipelineCapacity);
     return result;
   }
   const bool owner_local =
       authority == node::accel::detail::TransferAuthority::PipelinePrivate;
   if (owner_local &&
-      (!has_private_residency_authority(state) || slots.size() != 1u ||
+      (!has_private_residency_authority(state) ||
        state.residency_output >= state.resources.size() ||
-       state.resources[state.residency_output].buffer.get() !=
-           slots.front().buffer)) {
+       std::any_of(frames.begin(), frames.end(), [&](const auto &frame) {
+         return state.resources[state.residency_output].buffer.get() !=
+                frame.buffer;
+       }))) {
     result.transfer.status = Status::fail(Reason::TransferInvalid);
     return result;
   }
@@ -65,36 +70,43 @@ PipelineSlotDownloadResult download_pipeline_slots_impl(
   std::array<DownloadRequest, PipelineLeafCapacity> request_storage{};
   std::array<std::uint64_t, PipelineLeafCapacity> hashes{};
   std::size_t request_count = 0u;
-  for (std::size_t index = 0u; index < slots.size(); ++index) {
-    const PipelineSlotDownload slot = slots[index];
-    const Status output =
-        validate_output(state, slot.output, slot.buffer, slot.bytes, false);
-    if (!output || (slot.bytes != 0u && slot.data == nullptr) ||
-        !add_pipeline_transfer_bytes(slot.bytes, result.bytes)) {
+  for (std::size_t index = 0u; index < frames.size(); ++index) {
+    const PipelineFrameDownload frame = frames[index];
+    const Status output = validate_output(state, frame.output, frame.buffer,
+                                          frame.bytes, frame.offset, false);
+    if (!output || (frame.bytes != 0u && frame.data == nullptr) ||
+        !add_pipeline_transfer_bytes(frame.bytes, result.bytes)) {
       result.transfer.status =
           output ? Status::fail(Reason::TransferInvalid) : output;
       return result;
     }
     for (std::size_t prior = 0u; prior < index; ++prior) {
-      if (slots[prior].buffer == slot.buffer ||
-          slots[prior].output == slot.output) {
+      const bool overlap =
+          frames[prior].buffer == frame.buffer &&
+          frame.offset < frames[prior].offset + frames[prior].bytes &&
+          frames[prior].offset < frame.offset + frame.bytes;
+      if ((!owner_local && (frames[prior].buffer == frame.buffer ||
+                            frames[prior].output == frame.output)) ||
+          overlap) {
         result.transfer.status = Status::fail(Reason::TransferInvalid);
         return result;
       }
     }
     claim_storage[index] =
-        BufferClaim{.buffer = const_cast<BufferState *>(slot.buffer)};
+        BufferClaim{.buffer = const_cast<BufferState *>(frame.buffer)};
     hashes[index] = ::rund::node::hash_detail::ZeroHash(0u);
-    if (slot.bytes != 0u) {
+    if (frame.bytes != 0u) {
       request_storage[request_count++] = DownloadRequest{
-          .buffer = slot.buffer,
-          .data = slot.data,
-          .bytes = slot.bytes,
+          .buffer = frame.buffer,
+          .data = frame.data,
+          .bytes = frame.bytes,
+          .offset = frame.offset,
           .payload_hash = &hashes[index],
       };
     }
   }
-  const std::span<const BufferClaim> claims{claim_storage.data(), slots.size()};
+  const std::span<const BufferClaim> claims{claim_storage.data(),
+                                            frames.size()};
   const Status claimed =
       owner_local ? Status::success() : acquire_claims(*state.device, claims);
   if (!claimed) {
@@ -106,9 +118,9 @@ PipelineSlotDownloadResult download_pipeline_slots_impl(
   // Generation cannot change while the read claims are live. Revalidate the
   // canonical output projection after claim acquisition to close the race
   // with a public Buffer write that completed between validation and claim.
-  for (const PipelineSlotDownload slot : slots) {
-    const Status output =
-        validate_output(state, slot.output, slot.buffer, slot.bytes, true);
+  for (const PipelineFrameDownload frame : frames) {
+    const Status output = validate_output(state, frame.output, frame.buffer,
+                                          frame.bytes, frame.offset, true);
     if (!output) {
       result.transfer.status = output;
       result.bytes = 0u;
@@ -121,13 +133,15 @@ PipelineSlotDownloadResult download_pipeline_slots_impl(
         const DownloadRequest request = request_storage[index];
         const CpuBufferState *const storage = cpu_buffer(*request.buffer);
         if (storage == nullptr || storage->data == nullptr ||
-            storage->bytes != request.bytes ||
+            request.offset > storage->bytes ||
+            request.bytes > storage->bytes - request.offset ||
             request.payload_hash == nullptr) {
           result.transfer.status = Status::fail(Reason::TransferInvalid);
           result.bytes = 0u;
           return result;
         }
-        std::memcpy(request.data, storage->data.get(), request.bytes);
+        std::memcpy(request.data, storage->data.get() + request.offset,
+                    request.bytes);
         *request.payload_hash =
             ::rund::node::hash_detail::HashBytes(request.data, request.bytes);
       }
@@ -141,6 +155,8 @@ PipelineSlotDownloadResult download_pipeline_slots_impl(
       }
       const bool prepared_transfer =
           state.residency_transfer_prepared && request_count == 1u &&
+          request_storage[0].offset == 0u &&
+          request_storage[0].bytes == request_storage[0].buffer->bytes &&
           state.device->ops->download_pipeline_transfer != nullptr &&
           state.residency_output < state.resources.size() &&
           state.resources[state.residency_output].buffer.get() ==
@@ -167,9 +183,9 @@ PipelineSlotDownloadResult download_pipeline_slots_impl(
     }
     result.events = request_count;
   }
-  for (std::size_t index = 0u; index < slots.size(); ++index) {
+  for (std::size_t index = 0u; index < frames.size(); ++index) {
     const Status published = publish_pipeline_output_observation(
-        state, slots[index].output, hashes[index]);
+        state, frames[index].output, hashes[index]);
     if (!published) {
       result.transfer.status = published;
       result.bytes = 0u;
@@ -183,18 +199,18 @@ PipelineSlotDownloadResult download_pipeline_slots_impl(
   return result;
 }
 
-PipelineSlotDownloadResult download_pipeline_slots(
+PipelineFrameDownloadResult download_pipeline_frames(
     PipelineState &state,
-    const std::span<const PipelineSlotDownload> slots) noexcept {
-  return download_pipeline_slots_impl(
-      state, slots, node::accel::detail::TransferAuthority::Shared);
+    const std::span<const PipelineFrameDownload> frames) noexcept {
+  return download_pipeline_frames_impl(
+      state, frames, node::accel::detail::TransferAuthority::Shared);
 }
 
-PipelineSlotDownloadResult download_pipeline_private_slots(
+PipelineFrameDownloadResult download_pipeline_private_frames(
     PipelineState &state,
-    const std::span<const PipelineSlotDownload> slots) noexcept {
-  return download_pipeline_slots_impl(
-      state, slots, node::accel::detail::TransferAuthority::PipelinePrivate);
+    const std::span<const PipelineFrameDownload> frames) noexcept {
+  return download_pipeline_frames_impl(
+      state, frames, node::accel::detail::TransferAuthority::PipelinePrivate);
 }
 
 } // namespace rund::compute::detail

@@ -17,17 +17,17 @@ using namespace rund::compute;
   active_probe = &probe;
   constexpr std::array<std::uint32_t, 4u> first{1u, 2u, 3u, 4u};
   constexpr std::array<std::uint32_t, 3u> tail{5u, 6u, 7u};
-  const auto slots = uploads(fixture, first, tail);
+  const auto frames = uploads(fixture, first, tail);
   {
     std::lock_guard lock{fixture.device->claims->gate};
     fixture.inputs[0u]->writer = true;
   }
-  const PipelineSlotUploadResult rejected = transfer_locked(fixture, slots);
+  const PipelineFrameUploadResult rejected = transfer_locked(fixture, frames);
   {
     std::lock_guard lock{fixture.device->claims->gate};
     fixture.inputs[0u]->writer = false;
   }
-  const PipelineSlotUploadResult retried = transfer_locked(fixture, slots);
+  const PipelineFrameUploadResult retried = transfer_locked(fixture, frames);
   active_probe = nullptr;
   return rejected.transfer.status.reason() == Reason::BufferBusy &&
          rejected.bytes == 0u && rejected.transfer.command_submits == 0u &&
@@ -44,7 +44,7 @@ using namespace rund::compute;
   active_probe = &probe;
   constexpr std::array<std::uint32_t, 4u> first{1u, 2u, 3u, 4u};
   constexpr std::array<std::uint32_t, 3u> tail{5u, 6u, 7u};
-  const PipelineSlotUploadResult result =
+  const PipelineFrameUploadResult result =
       transfer_locked(fixture, uploads(fixture, first, tail));
   active_probe = nullptr;
   return result.transfer.status.reason() == Reason::TransferInvalid &&

@@ -99,10 +99,37 @@ struct Access final {
   std::uint64_t stride_bytes{};
 };
 
+enum class AccessPattern : unsigned char {
+  Pointwise,
+  Window,
+  Prefix,
+  Reduction,
+  Indirect,
+};
+
+// Canonical logical footprint needed by schedulers which do not retain the
+// authored Flow objects. Numeric operation/boundary values are the stable
+// public enum ordinals frozen into the compiled primitive identity.
+struct Footprint final {
+  AccessPattern pattern{AccessPattern::Pointwise};
+  std::uint64_t input_elements{};
+  std::uint64_t output_elements{};
+  std::uint64_t tile_elements{};
+  std::uint64_t window_size{1u};
+  std::uint64_t stride{1u};
+  std::uint64_t pad_left{};
+  std::uint32_t operation{};
+  std::uint32_t boundary{};
+
+  [[nodiscard]] constexpr bool
+  operator==(const Footprint &) const noexcept = default;
+};
+
 struct Node final {
   std::uint32_t index{};
   Operation operation{Operation::Map};
   std::uint64_t elements{};
+  Footprint footprint{};
   std::vector<Access> accesses{};
   std::vector<std::uint32_t> dependencies{};
 };

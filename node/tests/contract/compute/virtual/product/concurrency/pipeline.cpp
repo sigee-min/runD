@@ -34,10 +34,13 @@ int CheckProductPipelineConcurrency(const rund::compute::Backend backend) {
       std::make_shared<ConcurrentBacking>(ElementPageBytes, probe, TailPoison);
   auto input = virtual_buffer<std::int32_t>(PageElements, input_backing);
   auto output = virtual_buffer<std::int32_t>(PageElements, output_backing);
-  auto prepared = input && output
-                      ? virtual_pipeline(*program, *input, *output,
-                                         ResidencyConfig{.slots = 1u})
-                      : Result<VirtualMap>::fail(Reason::PipelineInvalid);
+  auto prepared =
+      input && output
+          ? virtual_pipeline(
+                *program, *input, *output,
+                ResidencyConfig{.device_resident_bytes = ElementPageBytes * 4u,
+                                .host_staging_bytes = ElementPageBytes * 4u})
+          : Result<VirtualMap>::fail(Reason::PipelineInvalid);
   if (!prepared) {
     return 3;
   }

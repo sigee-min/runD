@@ -102,10 +102,14 @@ bool MeasureVirtualResidency(const Backend backend) {
   auto output = virtual_buffer<std::int32_t>(LogicalElements, output_backing);
   auto prepared =
       program && input && output
-          ? virtual_pipeline(*program, *input, *output,
-                             ResidencyConfig{.slots = SlotCapacity})
-          : decltype(virtual_pipeline(*program, *input, *output,
-                                      ResidencyConfig{.slots = SlotCapacity}))::
+          ? virtual_pipeline(
+                *program, *input, *output,
+                ResidencyConfig{.device_resident_bytes = ResidentBytes,
+                                .host_staging_bytes = HostStagingBytes})
+          : decltype(virtual_pipeline(
+                *program, *input, *output,
+                ResidencyConfig{.device_resident_bytes = ResidentBytes,
+                                .host_staging_bytes = HostStagingBytes}))::
                 fail(::rund::compute::Reason::PipelineInvalid);
   const auto prepared_at = Clock::now();
   if (!program || !input || !output || !prepared) {
@@ -210,6 +214,29 @@ bool MeasureVirtualResidency(const Backend backend) {
             ContentHash(observed, active_count) ||
         !ExactProfile(*warm_profile, plan, backend, active_count,
                       WarmSamples)) {
+      if (warm_profile) {
+        const auto &facts = warm_profile->execution();
+        const auto &residency = facts.pipeline.residency;
+        std::fprintf(
+            stderr,
+            "virtual residency facts active=%zu pages=%llu epochs=%llu "
+            "loads=%llu hits=%llu late=%llu prefetch=%llu out=%llu "
+            "backing=%llu/%llu transfer=%llu/%llu dispatch=%llu "
+            "samples=%u/%u\n",
+            active_count, static_cast<unsigned long long>(residency.page_count),
+            static_cast<unsigned long long>(residency.epoch_count),
+            static_cast<unsigned long long>(residency.page_in_count),
+            static_cast<unsigned long long>(residency.cache_hit_count),
+            static_cast<unsigned long long>(residency.late_page_count),
+            static_cast<unsigned long long>(residency.prefetch_count),
+            static_cast<unsigned long long>(residency.page_out_count),
+            static_cast<unsigned long long>(residency.backing_read_bytes),
+            static_cast<unsigned long long>(residency.backing_write_bytes),
+            static_cast<unsigned long long>(facts.uploaded_bytes),
+            static_cast<unsigned long long>(facts.downloaded_bytes),
+            static_cast<unsigned long long>(facts.dispatches),
+            residency.sampled_runs, residency.allocation_free_runs);
+      }
       std::fprintf(stderr,
                    "virtual residency %s active=%zu warm evidence failed\n",
                    Name(backend), active_count);

@@ -5,7 +5,7 @@
 
 namespace rund::compute::detail {
 
-[[nodiscard]] Status accumulate_virtual_wave(Stats &total,
-                                             const Stats &wave) noexcept;
+[[nodiscard]] Status accumulate_virtual_epoch(Stats &total,
+                                              const Stats &epoch) noexcept;
 
 } // namespace rund::compute::detail

@@ -301,8 +301,8 @@ The main Compute semantic owners are:
 | `compute.static-matrix` | exact Flow/Program types and `graph::Info` shape for Matrix, Transform, Factor, Solve, and Spectrum |
 | `compute.flow-numeric-modes` | arbitrary Fixed formats, rounding, overflow, and backend parity |
 | `compute.graph-services` | graph identity, cache, async coalescing, resource graph, and bounded downstream behavior |
-| `compute.virtual-residency-oracle` | test-only memory backing, poisoned-tail CPU golden, fixed-slot working-set, terminal observation, and zero-allocation warm oracle; it is not native virtual-residency evidence |
-| `compute.virtual-residency-product` | public VirtualBuffer/VirtualPipeline capability and execution: CPU and Metal run one full-capacity cold terminal followed on the same owner by active prefixes `{0,small,mid,M}`, one unobserved conditioning run and sixty allocation-free sampled runs per prefix, fixed plan/memory identity, exact active/page/wave/transfer/submission evidence, zero-work execution, poisoned inactive tail, terminal-only backing observation and Profile, and complete retry after partial backing write failure; a portability-subset Vulkan adapter is classified blocked only after exact `BackendUnsupported`, zero backing callbacks, and unchanged Device allocation/admission evidence |
+| `compute.virtual-residency-oracle` | test-only memory backing, poisoned-tail CPU golden, bounded working-set, terminal observation, and zero-allocation warm oracle; it is not native virtual-residency evidence |
+| `compute.virtual-residency-product` | public VirtualBuffer/VirtualPipeline capability and execution: CPU and Metal run Map, cross-page Window, deterministic page-partial Reduce, and checked Scan; the product also proves active prefixes `{0,small,mid,M}`, global cache reuse across Pipelines, prefetch/writeback overlap, dirty-frame discard after failed publication, exact traffic/hash/Profile evidence, backing poison/retry, concurrency serialization, and sixty allocation-free warm terminals; a portability-subset Vulkan adapter is classified blocked only after exact `BackendUnsupported`, zero backing callbacks, and unchanged Device allocation/admission evidence |
 
 Large Compute cases keep one registered runner and place independent semantic
 owners below the matching one-word folder. Each case has one shared
@@ -500,7 +500,7 @@ native reports under `.cache/evidence/leaks/`.
 
 `tools/release/run` configures the six subsystem contract owners, stages a
 fresh installed prefix, and runs `package.consumer` through an external
-`find_package(runD 1.0.7 EXACT CONFIG REQUIRED)` configure/build/run. The
+`find_package(runD 1.0.8 EXACT CONFIG REQUIRED)` configure/build/run. The
 external consumer cannot build the repository. Only its installed Compute
 phase takes the accelerator lock.
 

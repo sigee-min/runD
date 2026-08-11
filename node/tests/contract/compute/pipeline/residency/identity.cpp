@@ -14,11 +14,11 @@ using namespace rund::compute::detail::residency;
                               const std::uint64_t pages,
                               const std::uint64_t requested,
                               const std::uint64_t maximum = 4u) noexcept {
-  return PlanResidency(PlanInput{
+  return PlanResidency(StreamPlanInput{
       .page_bytes = page_bytes,
       .page_count = pages,
-      .requested_slots = requested,
-      .max_slots = maximum,
+      .requested_frames = requested,
+      .max_frames = maximum,
   });
 }
 

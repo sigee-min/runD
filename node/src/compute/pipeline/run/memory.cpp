@@ -116,9 +116,6 @@ PipelineMemoryView pipeline_memory_view_locked(
   };
   std::uint64_t metadata = base_host_bytes(state);
   shared.host = fixed_memory(metadata);
-  // This is retained page-I/O payload, not object metadata and not a backend
-  // transfer lease. It remains under the Pipeline's Host/Internal owner.
-  merge_memory(shared.host, fixed_memory(state.residency_staging_bytes));
   std::array<const JobWorkspace *, PipelineRouteCapacity> shared_workspaces{};
   std::size_t shared_workspace_count = 0u;
   const CpuPreparedArena *const shared_cpu_arena =

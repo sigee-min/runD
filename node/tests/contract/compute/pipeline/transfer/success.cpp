@@ -22,10 +22,10 @@ bool CheckBatchSuccessAndAccounting() {
   active_probe = &probe;
   constexpr std::array<std::uint32_t, 4u> first{1u, 2u, 3u, 4u};
   constexpr std::array<std::uint32_t, 3u> tail{9u, 8u, 7u};
-  const auto upload_slots = uploads(fixture, first, tail);
+  const auto upload_frames = uploads(fixture, first, tail);
   node_compute_allocation::Start();
-  const PipelineSlotUploadResult uploaded =
-      transfer_locked(fixture, upload_slots);
+  const PipelineFrameUploadResult uploaded =
+      transfer_locked(fixture, upload_frames);
   node_compute_allocation::Stop();
   const std::uint64_t upload_allocations = node_compute_allocation::Count();
   if (!uploaded.transfer.status || uploaded.bytes != Fixture::total_bytes ||
@@ -67,13 +67,19 @@ bool CheckBatchSuccessAndAccounting() {
 
   std::array<std::byte, Fixture::first_bytes> first_result{};
   std::array<std::byte, Fixture::tail_bytes> tail_result{};
-  const std::array<PipelineSlotDownload, 2u> download_slots{{
-      {fixture.outputs[0u].get(), first_result.data(), first_result.size(), 0u},
-      {fixture.outputs[1u].get(), tail_result.data(), tail_result.size(), 1u},
+  const std::array<PipelineFrameDownload, 2u> download_frames{{
+      {.buffer = fixture.outputs[0u].get(),
+       .data = first_result.data(),
+       .bytes = first_result.size(),
+       .output = 0u},
+      {.buffer = fixture.outputs[1u].get(),
+       .data = tail_result.data(),
+       .bytes = tail_result.size(),
+       .output = 1u},
   }};
   node_compute_allocation::Start();
-  const PipelineSlotDownloadResult downloaded =
-      transfer_locked(fixture, download_slots);
+  const PipelineFrameDownloadResult downloaded =
+      transfer_locked(fixture, download_frames);
   node_compute_allocation::Stop();
   const std::uint64_t download_allocations = node_compute_allocation::Count();
   const Stats &stats = fixture.state->stats;
