@@ -54,5 +54,11 @@ else
   exit 2
 fi
 
-ctest --test-dir "$build" -R "$pattern" \
-  --output-on-failure --no-tests=error --parallel
+# An explicit --parallel without a value overrides CTest's environment bound.
+# Let CTest interpret a supplied value (including its standard empty/0 modes).
+set --
+if [ "${CTEST_PARALLEL_LEVEL+x}" != x ]; then
+  set -- --parallel
+fi
+exec ctest --test-dir "$build" -R "$pattern" \
+  --output-on-failure --no-tests=error "$@"

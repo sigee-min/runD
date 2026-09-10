@@ -70,7 +70,9 @@ identity invalidate the appropriate graph proof.
 
 CMake's standard `CMAKE_BUILD_PARALLEL_LEVEL` environment value, when set to a
 positive integer, is forwarded to that same Ninja owner.
-`CTEST_PARALLEL_LEVEL` independently bounds selected test processes. These
+`CTEST_PARALLEL_LEVEL` independently bounds selected test processes. The runner
+leaves a supplied value to CTest and adds no overriding `--parallel` option;
+only an unset value selects CTest's automatic parallelism. These
 controls change only physical concurrency; target identity, selection metadata,
 and verification order remain owned by the configured route.
 

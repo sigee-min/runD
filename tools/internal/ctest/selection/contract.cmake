@@ -227,6 +227,7 @@ file(WRITE "${run_selection}"
 execute_process(
   COMMAND
     "${CMAKE_COMMAND}" -E env
+    --unset=CTEST_PARALLEL_LEVEL
     "PATH=${fake_bin}:$ENV{PATH}"
     "RUND_SELECTION_CTEST_ARGS=${run_args}"
     sh "${ROOT}/tools/internal/ctest/selection/run"
@@ -246,6 +247,75 @@ if(NOT actual_run_args STREQUAL expected_run_args)
   message(FATAL_ERROR
     "frozen CTest runner arguments disagree:\n${actual_run_args}")
 endif()
+
+foreach(level IN ITEMS "1" "3" "0" "" " ")
+  execute_process(
+    COMMAND
+      "${CMAKE_COMMAND}" -E env
+      "CTEST_PARALLEL_LEVEL=${level}"
+      "PATH=${fake_bin}:$ENV{PATH}"
+      "RUND_SELECTION_CTEST_ARGS=${run_args}"
+      sh "${ROOT}/tools/internal/ctest/selection/run"
+      "${fixture}/run-build" "${run_selection}"
+    RESULT_VARIABLE bounded_result
+    OUTPUT_QUIET ERROR_VARIABLE bounded_error)
+  file(READ "${run_args}" bounded_args)
+  string(REPLACE "--parallel\n" "" bounded_expected "${expected_run_args}")
+  if(NOT bounded_result EQUAL 0 OR NOT bounded_args STREQUAL bounded_expected)
+    message(FATAL_ERROR
+      "CTest environment bound '${level}' was overridden: ${bounded_error}\n${bounded_args}")
+  endif()
+endforeach()
+
+# Exercise the real scheduler as well as argv precedence. A shared counter
+# observes actual child-process overlap without relying on elapsed-time ratios.
+set(concurrency_build "${fixture}/concurrency-build")
+set(concurrency_state "${concurrency_build}/state")
+set(concurrency_worker "${concurrency_build}/worker.cmake")
+set(concurrency_selection "${concurrency_build}/selection.tsv")
+file(MAKE_DIRECTORY "${concurrency_build}")
+file(WRITE "${concurrency_state}" "0;0")
+file(WRITE "${concurrency_worker}" [=[
+file(LOCK "${STATE}.lock" GUARD PROCESS TIMEOUT 5)
+file(READ "${STATE}" counts)
+list(GET counts 0 active)
+list(GET counts 1 peak)
+math(EXPR active "${active} + 1")
+if(active GREATER peak)
+  set(peak "${active}")
+endif()
+file(WRITE "${STATE}" "${active};${peak}")
+file(LOCK "${STATE}.lock" RELEASE)
+execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 0.15)
+file(LOCK "${STATE}.lock" GUARD PROCESS TIMEOUT 5)
+file(READ "${STATE}" counts)
+list(GET counts 0 active)
+list(GET counts 1 peak)
+math(EXPR active "${active} - 1")
+file(WRITE "${STATE}" "${active};${peak}")
+]=])
+file(WRITE "${concurrency_selection}" "target\tfixture-target\n")
+file(WRITE "${concurrency_build}/CTestTestfile.cmake" "")
+foreach(index RANGE 1 8)
+  file(APPEND "${concurrency_selection}" "test\tbounded-${index}\n")
+  file(APPEND "${concurrency_build}/CTestTestfile.cmake"
+    "add_test(bounded-${index} \"${CMAKE_COMMAND}\" \"-DSTATE=${concurrency_state}\" -P \"${concurrency_worker}\")\n")
+endforeach()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env "CTEST_PARALLEL_LEVEL=2"
+    sh "${ROOT}/tools/internal/ctest/selection/run"
+    "${concurrency_build}" "${concurrency_selection}"
+  RESULT_VARIABLE concurrency_result
+  OUTPUT_VARIABLE concurrency_output ERROR_VARIABLE concurrency_error)
+file(READ "${concurrency_state}" concurrency_counts)
+list(GET concurrency_counts 0 concurrency_active)
+list(GET concurrency_counts 1 concurrency_peak)
+if(NOT concurrency_result EQUAL 0 OR NOT concurrency_active EQUAL 0 OR
+   concurrency_peak LESS 1 OR concurrency_peak GREATER 2)
+  message(FATAL_ERROR
+    "CTest worker bound failed: active=${concurrency_active} peak=${concurrency_peak}\n${concurrency_output}\n${concurrency_error}")
+endif()
+message(STATUS "CTest selected-process concurrency: peak=${concurrency_peak} bound=2")
 
 file(WRITE "${run_selection}" "target\tfixture-target\n")
 execute_process(
