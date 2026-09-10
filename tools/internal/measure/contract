@@ -1124,6 +1124,7 @@ print RundMeasureSchema::data_rows($system) + 1;
 PERL
 )
 [ "$(wc -l <"$work/candidate.tsv" | tr -d ' ')" -eq "$expected_rows" ]
+profile_rows=$((expected_rows - 1))
 grep -q '^fixture	measure-compute	product/cold/cpu/window/n4096_r4/first_result_us	upper	10.000	25	us$' \
   "$work/candidate.tsv"
 grep -q '^fixture	measure-compute	product/warm/metal/rolling/m262144_r1024_n257/warm_p50_us	upper	10.000	25	us$' \
@@ -1209,7 +1210,7 @@ grep -q '^packet	measure-scheduler	1	.cache/evidence/measure-scheduler/20260101T
   "$work/admission.log"
 grep -q '^candidate	manifest	[0-9a-f]\{64\}$' "$work/admission.log"
 grep -q "^candidate	sha256	$candidate_sha$" "$work/admission.log"
-grep -q "^metrics	$darwin_rows$" "$work/admission.log"
+grep -q "^metrics	$profile_rows$" "$work/admission.log"
 grep -q '^status	passed$' "$work/admission.log"
 admit >"$work/admission-repeat.log"
 cmp "$work/admission.log" "$work/admission-repeat.log"
@@ -1239,7 +1240,7 @@ printf '%s\n' \
   'proof:route	measure-admit' \
   'proof:status	passed' \
   'proof:profile	fixture' \
-  "proof:metrics	$darwin_rows" \
+  "proof:metrics	$profile_rows" \
   'proof:log	candidate.tsv' \
   "proof:log:sha256	$admit_candidate_sha" \
   'proof:result	admission.log' \

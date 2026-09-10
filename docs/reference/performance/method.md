@@ -61,6 +61,9 @@ still requires the exact checked-in host facts described above.
 The measurement-harness contract compares canonical TSV header, semantic, and
 metric rows as exact strings with literal tabs, so GNU and BSD `grep` exercise
 the same byte-level boundary without relying on regexp escape extensions.
+Its synthetic admission count comes from the schema's current-host row count,
+including that host's environment fields; Darwin's extra model/CPU fields
+are not imposed on Linux fixtures.
 
 The `baseline` rows retain the pre-edit product manifest and three raw-log
 SHA-256 identities per route. The adjacent same-machine observations are
