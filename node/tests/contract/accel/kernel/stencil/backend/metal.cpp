@@ -27,6 +27,7 @@
 namespace node_accel_contract::stencil::backend {
 namespace {
 
+#if defined(__APPLE__)
 [[nodiscard]] rund::node::accel::detail::RangePlan
 MetalStencilRangePlan(const rund::AccelDevice &pick,
                       const rund::kernel::StencilPlan &plan,
@@ -51,7 +52,6 @@ MetalStencilRangePlan(const rund::AccelDevice &pick,
                            : RangePlan::rejected("accel_kernel_graph_invalid");
 }
 
-#if defined(__APPLE__)
 [[nodiscard]] RuntimeSharedProbe
 MetalMaximumSharedShapeContract(const rund::AccelDevice &pick) {
   using namespace rund::node::accel::detail;
