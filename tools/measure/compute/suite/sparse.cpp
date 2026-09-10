@@ -232,14 +232,15 @@ bool CollectiveWorkloads(const Backend backend, const std::size_t count,
   };
 #if defined(RUND_COMPUTE_FOCUS)
   const auto range_valid = [count](const auto &values) {
-    constexpr std::uint32_t sum = 2u * range_radius + 1u;
     const auto &sums = std::get<0u>(values);
     const auto &minimums = std::get<1u>(values);
     const auto &maximums = std::get<2u>(values);
     return sums.size() == count && minimums.size() == count &&
            maximums.size() == count &&
            std::all_of(sums.begin(), sums.end(),
-                       [](const auto value) { return value == sum; }) &&
+                       [](const auto value) {
+                         return value == 2u * range_radius + 1u;
+                       }) &&
            std::all_of(minimums.begin(), minimums.end(),
                        [](const auto value) { return value == 1u; }) &&
            std::all_of(maximums.begin(), maximums.end(),

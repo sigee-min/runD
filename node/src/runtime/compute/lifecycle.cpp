@@ -1,5 +1,7 @@
 #include "state.hpp"
 
+#include <exception>
+
 namespace rund::node::runtime_detail {
 
 ComputeHostAdmission ComputeHostLifecycle::admission() const noexcept {
@@ -16,6 +18,7 @@ ComputeHostAdmission ComputeHostLifecycle::admission() const noexcept {
   case ComputeHostPhase::Closed:
     return ComputeHostAdmission::Offline;
   }
+  std::terminate();
 }
 
 bool ComputeHostLifecycle::bindable() const noexcept {
@@ -68,6 +71,7 @@ ComputeHostCloseClaim ComputeHostLifecycle::claim_close() noexcept {
   case ComputeHostPhase::Closed:
     return ComputeHostCloseClaim::Closed;
   }
+  std::terminate();
 }
 
 void ComputeHostLifecycle::begin_retirement() noexcept {

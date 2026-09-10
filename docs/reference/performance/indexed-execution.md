@@ -56,6 +56,9 @@ Host: Apple M4 Pro, arm64, 12 CPU cores, 24 GiB, macOS 26.3 (25D125),
 change; the after executables link the rebuilt `runD-compute-focus` Release
 closure. This is a same-host diagnostic comparison, not a sealed installed-SDK
 baseline or evidence for another machine.
+The measured implementation point is `24aaf1d7`. Subsequent portability fixes
+complete exhaustive Runtime lifecycle and native-result switches; the tables
+below remain observations of that measured point, not newly sampled timings.
 
 Each public Pipeline is prepared once with resident buffers. Timing covers
 `Pipeline::run()` through completion/publication. Preparation, input upload,

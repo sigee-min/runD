@@ -112,8 +112,9 @@ int CheckReadyManyRollbackRequest() {
 
 int CheckReadyManyPublicationRollback(
     const ReadyManyPublicationFailure failure) {
-  rund::node::SchedulerState state{};
-  rund::node::TaskRecord record{.id = 17u};
+  rund::node::SchedulerState state;
+  rund::node::TaskRecord record{};
+  record.id = 17u;
   std::array<rund::node::ReactorManyRequest, 2u> requests{};
   rund::node::ReadyManyEntry entry{
       .record = &record,

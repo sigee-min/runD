@@ -96,6 +96,11 @@ also retires the platform-private interest mirror, so a consumed cleanup
 remove cannot be rediscovered indefinitely by a later blocking poll. Logical
 change retry remains owned by the scheduler queue.
 
+Native result projections handle every admitted disposition explicitly. An
+out-of-enum value is an internal invariant failure and terminates; a non-void
+projection cannot fall through or invent a successful native result. Kqueue
+batch-index rebasing and single-operation projection follow the same rule.
+
 A queued registration change has exactly one kind: `Add`, `Modify`, or
 `CleanupRemove`. The non-aggregate value can be created only by its matching
 factory. `Add` and `Modify` carry the target interest and are strict;

@@ -18,7 +18,7 @@
 #include <vector>
 
 namespace rund::compute::detail {
-struct VirtualDeviceVsmRouteProof;
+class VirtualDeviceVsmRouteProof;
 struct VirtualExecutionDeviceVsmPrepared;
 struct VirtualExecutionResult;
 struct VirtualPipelineState;

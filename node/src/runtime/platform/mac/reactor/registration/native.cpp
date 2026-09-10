@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <exception>
 
 namespace rund::node {
 
@@ -44,6 +45,7 @@ ProjectBatchOperationResult(const ReactorPlatformBatchResult result) noexcept {
   case ReactorPlatformBatchDisposition::Success:
     return ReactorPlatformOpResult::success();
   }
+  std::terminate();
 }
 
 ReactorPlatformOpResult KqueueSubmit(ReactorPlatform& platform,

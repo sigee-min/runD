@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <exception>
 
 namespace rund::node {
 namespace {
@@ -25,6 +26,7 @@ RebaseBatchFailure(const ReactorPlatformBatchResult result,
   case ReactorPlatformBatchDisposition::Success:
     return ReactorPlatformBatchResult::success();
   }
+  std::terminate();
 }
 
 } // namespace

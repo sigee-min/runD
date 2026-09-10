@@ -84,6 +84,9 @@ single route-evidence accumulator and lifecycle/hash/capability checks,
 `observer/hooks.cpp` owns the two delegating DeviceOps hooks, and
 `observer/lifecycle.cpp` owns installation, reset, sealing, and restoration;
 `observer/local.hpp` contains only their shared state and declarations.
+The observer obtains route kind and endpoint from the selected typed proof's
+queries. It preserves the existing CSV flag encoding without reconstructing
+parallel route fields or owning a second physical topology.
 The CSV also carries lifecycle observations/mismatches and per-run authority,
 pipeline-terminal, and capability-guarantee counts; a DeviceVsm cohort is
 accepted only with 62 observations, zero mismatches, and every required

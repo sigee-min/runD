@@ -437,6 +437,8 @@ The internal admission, retirement and normalized reactor-result switches
 remain exhaustive. A value outside those closed enums is an invariant failure
 and terminates; it cannot fall through a non-void function. Valid admission,
 join, wait, retirement and backend-failure transitions are unchanged.
+This includes host lifecycle admission and close claims as well as the
+separate Device-opening and Submission reason projections.
 
 This retirement phase is not the task's atomic terminal phase. The terminal
 phase arbitrates cancellation, backend finish, and logical completion without

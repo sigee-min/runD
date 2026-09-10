@@ -21,18 +21,18 @@ void add(std::uint64_t &target, const std::uint64_t value) noexcept {
 [[nodiscard]] std::uint32_t proof_bits(
     const ::rund::compute::detail::VirtualDeviceVsmRouteProof &proof) noexcept {
   const bool staged_loop =
-      proof.kind ==
+      proof.kind() ==
       ::rund::compute::detail::VirtualDeviceVsmRouteKind::StagedLoop;
   const bool graph_resident =
-      proof.kind ==
+      proof.kind() ==
       ::rund::compute::detail::VirtualDeviceVsmRouteKind::GraphResident;
   const std::uint32_t mode =
-      proof.kind ==
+      proof.kind() ==
               ::rund::compute::detail::VirtualDeviceVsmRouteKind::WindowRing
           ? static_cast<std::uint32_t>(WindowRingMode)
           : 0u;
   return (staged_loop ? 1u : 0u) | (graph_resident ? 2u : 0u) | (mode << 2u) |
-         (static_cast<std::uint32_t>(proof.endpoint) << 4u);
+         (static_cast<std::uint32_t>(proof.endpoint()) << 4u);
 }
 
 [[nodiscard]] std::uint32_t capability_bits(const auto &capability) noexcept {
@@ -61,17 +61,17 @@ void observe_proof(
     evidence.proof_seen = true;
     evidence.proof_valid = valid;
     evidence.proof_staged_loop =
-        proof.kind ==
+        proof.kind() ==
         ::rund::compute::detail::VirtualDeviceVsmRouteKind::StagedLoop;
     evidence.proof_graph_resident =
-        proof.kind ==
+        proof.kind() ==
         ::rund::compute::detail::VirtualDeviceVsmRouteKind::GraphResident;
     evidence.proof_mode =
-        proof.kind ==
+        proof.kind() ==
                 ::rund::compute::detail::VirtualDeviceVsmRouteKind::WindowRing
             ? WindowRingMode
             : 0u;
-    evidence.proof_endpoint = static_cast<std::uint64_t>(proof.endpoint);
+    evidence.proof_endpoint = static_cast<std::uint64_t>(proof.endpoint());
     evidence.proof_identity_stable = true;
     evidence.proof_flags_stable = true;
     observer.proof_flags = flags;

@@ -6,6 +6,7 @@
 #include <rund/task/handle/spawn.hpp>
 
 #include <chrono>
+#include <exception>
 #include <utility>
 
 namespace rund::compute {
@@ -40,6 +41,7 @@ ComputeHostFrom(const std::weak_ptr<void> &host) noexcept {
   case node::runtime_detail::ComputeHostAdmission::Offline:
     return Reason::RuntimeMissing;
   }
+  std::terminate();
 }
 
 void RetireCompute(const std::shared_ptr<void> &host, void *state) noexcept {
