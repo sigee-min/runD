@@ -17,15 +17,26 @@ concurrency:
 
 jobs:
   linux-cpu-contracts:
-    name: Linux CPU/source contracts
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux CPU/source contracts
+            command: tools/check/run
+            evidence: contract
+          - name: Linux no-device platform
+            command: tools/check/platform/unavailable
+            evidence: platform
     env:
       CC: clang-18
       CXX: clang++-18
       CMAKE_BUILD_PARALLEL_LEVEL: 2
       CTEST_PARALLEL_LEVEL: 2
       CMAKE_CXX_LINKER_LAUNCHER: /usr/bin/time;-v
+      LDFLAGS: -fuse-ld=lld --ld-path=/usr/bin/ld.lld-18 -Wl,--threads=2
       LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
       Clang_DIR: /usr/lib/llvm-18/lib/cmake/clang
 
@@ -45,6 +56,7 @@ jobs:
             clang-18 \
             cmake \
             libclang-18-dev \
+            lld-18 \
             llvm-18 \
             llvm-18-dev \
             llvm-18-tools \
@@ -59,28 +71,37 @@ jobs:
           cmake --version
           ninja --version
           clang++-18 --version
+          /usr/bin/ld.lld-18 --version
           /usr/lib/llvm-18/bin/llvm-config --version
           flock --version
+          nproc
           free -h
           df -h .
 
-      - name: Run the complete Debug contract matrix
+      - name: Run the selected public verification operator
+        env:
+          VERIFICATION_COMMAND: ${{ matrix.command }}
         shell: bash
         run: |
           set -euo pipefail
-          tools/check/run
-
-      - name: Verify the no-device platform boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/check/platform/unavailable
+          # GNU time reports only completed links. Keep evidence for a link
+          # interrupted by runner shutdown as well.
+          while sleep 2; do
+            if link_rows=$(ps -C ld.bfd,ld.lld-18 -o pid=,comm=,rss=); then
+              printf 'link resources %s (PID, command, RSS KiB)\n%s\n' \
+                "$(date -u +%FT%TZ)" "$link_rows"
+              awk '/^MemAvailable:/ { print }' /proc/meminfo
+            fi
+          done &
+          link_monitor_pid=$!
+          trap 'kill "$link_monitor_pid" 2>/dev/null || true; wait "$link_monitor_pid" 2>/dev/null || true' EXIT
+          "$VERIFICATION_COMMAND"
 
       - name: Upload Linux contract evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ci-linux-contract-evidence-${{ github.run_id }}
+          name: ci-linux-${{ matrix.evidence }}-evidence-${{ github.run_id }}
           if-no-files-found: ignore
           include-hidden-files: true
           retention-days: 7

@@ -42,8 +42,11 @@ bytes.
 groups, and manual dispatch. Its stable gates reuse the public verification
 operators instead of maintaining a CI-only test selection:
 
-- Linux CPU/source contracts: the complete Debug matrix and explicit
-  unavailable-platform contracts with Clang 18 on Ubuntu 24.04.
+- Linux CPU/source contracts: the complete Debug matrix with Clang 18 on
+  Ubuntu 24.04.
+- Linux no-device platform: the explicit unavailable-platform and Vulkan
+  discovery-transition contracts, independently scheduled with the same
+  Clang 18 toolchain.
 - Linux installed SDK consumer: the Release and external-consumer matrix with
   GCC 13 and the LLVM/Clang 18 tooling tuple.
 - Static site build and checks: locked dependency installation, dependency
@@ -51,6 +54,12 @@ operators instead of maintaining a CI-only test selection:
 
 Jobs run with read-only repository permissions and retain diagnostic artifacts
 even on failure. Linux build and test concurrency are bounded independently.
+The two Clang routes share one workflow matrix and toolchain definition, but
+own separate check names, build roots, evidence artifacts, and 60-minute job
+budgets. Neither depends on the other or cancels the other on failure. Their
+public operators and complete test selections are unchanged. Scheduling the
+platform route independently removes its cold build from the Debug matrix's
+serial path and lets it run even when the Debug job cannot finish.
 These gates validate Linux source and installed consumption; they do not
 promote Linux to a supported binary release or claim physical GPU parity.
 Native Darwin ARM64 CPU/Metal/MoltenVK, sanitizer, leak, and performance
@@ -120,6 +129,17 @@ the reserved default name cannot have a second depth owner. The build-selection
 contract checks generated Ninja rules for both default and explicit-pool cases.
 Linux CI records host memory and link-command maximum RSS/exit status through
 CMake's linker launcher. Runner shutdown alone is not evidence of OOM.
+The Linux Clang tuple explicitly selects LLVM 18's ELF linker through
+`LDFLAGS=-fuse-ld=lld --ld-path=/usr/bin/ld.lld-18 -Wl,--threads=2`; its version
+is recorded.
+This bounds linker worker concurrency within the single link slot and retains
+full Debug information, strict warnings, and every selected contract. GCC
+Release and caller toolchain defaults keep their existing linker selection.
+The Clang jobs also sample active linker RSS and available host memory every
+two seconds because an interrupted link cannot emit GNU time's final report.
+This records unfinished-link evidence without treating a monitor as a fix or
+inferring an OOM cause from an absent final measurement. Actual Linux gates
+remain the verification authority for this linker tuple.
 
 Repository verification forces strict warnings after caller options:
 
