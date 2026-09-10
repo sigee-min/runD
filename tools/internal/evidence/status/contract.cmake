@@ -33,11 +33,12 @@ my ($source, $fixture, $flow_path, $metrics_path) = @ARGV;
 require "$source/tools/internal/measure/schema.pm";
 my $schema = RundMeasureSchema::load($source, 1);
 my $host = RundMeasureSchema::host();
-my ($source_profile) = grep {
-  $schema->{profiles}{$_}{environment}{system}{value} eq $host->{system}
-} sort keys %{$schema->{profiles}};
+# These rows are synthetic comparator input, not a measurement of this host.
+# Bind the fixture's environment below without requiring a product baseline
+# for the machine that happens to execute the contract.
+my ($source_profile) = sort keys %{$schema->{profiles}};
 defined $source_profile
-    or die "checked-in baseline has no profile for $host->{system}\n";
+    or die "checked-in baseline has no complete rule profile\n";
 my $source_rows = $schema->{profiles}{$source_profile};
 
 my $flow_rows = $source_rows->{'measure-flow'};

@@ -146,7 +146,7 @@ if [ "${1:-}" = "--held-flat" ]; then
       held_code=$?
     fi
   elif command -v flock >/dev/null 2>&1; then
-    if flock -x -E 75 -n "$held_lock" sh -c ':' 2>/dev/null; then
+    if flock -o -x -E 75 -n "$held_lock" sh -c ':' 2>/dev/null; then
       exit 1
     else
       held_code=$?
@@ -326,12 +326,12 @@ if [ "$flat_scope" -eq 1 ]; then
           "$capability_hash" "$@"
         ;;
       flock:1)
-        set -- -x -E 75 "$lock" sh -c "$flat_command" rund-lock \
+        set -- -o -x -E 75 "$lock" sh -c "$flat_command" rund-lock \
           "$owner" "$invoke_started" "$lock" "$lock.owner" \
           "$capability_hash" "$@"
         ;;
       flock:0)
-        set -- -x -E 75 -n "$lock" sh -c "$flat_command" rund-lock \
+        set -- -o -x -E 75 -n "$lock" sh -c "$flat_command" rund-lock \
           "$owner" "$invoke_started" "$lock" "$lock.owner" \
           "$capability_hash" "$@"
         ;;
@@ -413,11 +413,13 @@ invoke_lock() {
         "$slot_fd" "$owner" "$invoke_started" "$@"
       ;;
     flock:1)
-      set -- -x -E 75 "$lock" sh -c "$lock_command" rund-lock \
+      # Keep the advisory lock in flock's waiting parent, not in background
+      # descendants. The separate inherited proof slots remain available.
+      set -- -o -x -E 75 "$lock" sh -c "$lock_command" rund-lock \
         "$slot_fd" "$owner" "$invoke_started" "$@"
       ;;
     flock:0)
-      set -- -x -E 75 -n "$lock" sh -c "$lock_command" rund-lock \
+      set -- -o -x -E 75 -n "$lock" sh -c "$lock_command" rund-lock \
         "$slot_fd" "$owner" "$invoke_started" "$@"
       ;;
     *)

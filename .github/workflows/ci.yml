@@ -61,6 +61,7 @@ jobs:
             llvm-18-dev \
             llvm-18-tools \
             ninja-build \
+            ripgrep \
             time \
             util-linux
 
@@ -74,9 +75,17 @@ jobs:
           /usr/bin/ld.lld-18 --version
           /usr/lib/llvm-18/bin/llvm-config --version
           flock --version
+          rg --version
           nproc
           free -h
           df -h .
+
+      - name: Verify operator regressions before the full build
+        if: ${{ matrix.evidence == 'contract' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/test/run --fresh --match '^tools\.(lock|measure|evidence-status)$'
 
       - name: Run the selected public verification operator
         env:
@@ -151,6 +160,7 @@ jobs:
             llvm-18-dev \
             llvm-18-tools \
             ninja-build \
+            ripgrep \
             time \
             util-linux
 
@@ -165,6 +175,7 @@ jobs:
           /usr/lib/llvm-18/bin/clang++ --version
           /usr/lib/llvm-18/bin/llvm-config --version
           flock --version
+          rg --version
           free -h
           df -h .
 

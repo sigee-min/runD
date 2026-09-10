@@ -52,6 +52,13 @@ mirror those changing values. An unmatched kernel or machine fails closed
 instead of silently borrowing another environment's timing budget. A new host
 requires a reviewed profile in the same table.
 
+The evidence-status contract uses a synthetic profile under its test build
+root. It deterministically selects one checked-in set of comparison rules and
+binds the synthetic environment to the test host, even when that host has no
+product baseline. This tests packet sealing and comparison without performing
+a measurement or admitting a new product profile. Real measurement selection
+still requires the exact checked-in host facts described above.
+
 The `baseline` rows retain the pre-edit product manifest and three raw-log
 SHA-256 identities per route. The adjacent same-machine observations are
 `x_1`, `x_2`, and `x_3`; every metric freezes the exact decimal spelling of

@@ -54,6 +54,12 @@ operators instead of maintaining a CI-only test selection:
 
 Jobs run with read-only repository permissions and retain diagnostic artifacts
 even on failure. Linux build and test concurrency are bounded independently.
+The Linux toolchain installation includes `ripgrep`, which the measurement
+contract uses to inspect its checked-in source owners.
+Before the cold Debug build, the public focused operator runs the lock,
+measurement-harness, and evidence-status regressions that previously failed
+only after that build. This early selection does not replace the complete
+Debug matrix; all three tests still belong to and run in that matrix.
 The two Clang routes share one workflow matrix and toolchain definition, but
 own separate check names, build roots, evidence artifacts, and 60-minute job
 budgets. Neither depends on the other or cancels the other on failure. Their
@@ -248,7 +254,13 @@ own root. Release consumers share the Release route; a measurement also owns
 its workload route.
 
 Darwin/BSD `lockf` and Linux `flock` implement route and state locks. The
-portable shell capability pool is `F = {9,8,7,6,5,4}`. For active keys `L`, the
+Linux wrapper uses `flock --close`: the waiting lock process retains the
+advisory-lock descriptor, while its command receives only the separate proof
+descriptors. A background descendant therefore cannot extend the advisory
+lock after the wrapper invalidates the proof and returns. The existing
+descendant-reacquisition contract exercises this lifetime boundary.
+
+The portable shell capability pool is `F = {9,8,7,6,5,4}`. For active keys `L`, the
 slot assignment `f: L -> F` is injective. Re-entry for path `p` is valid only
 when a slot's recorded path, inode, mode `0600`, unlinked state, and zero size
 match its open descriptor. Environment text is not ownership. State locks are
