@@ -24,6 +24,14 @@ the installed `node` archive.
 No filename convention, test body, generated cache, or parallel table may
 infer any of these fields.
 
+The retained `KernelExecutionStep` footprint bound is enforced on libc++ and
+libstdc++. Binding indices keep four inline U64 entries; the overflow vector
+owns its own length, while only the inline arm retains a byte-sized count.
+There is no mirrored heap length. Packing the Map semantic flags and placing
+the binding-valid flag beside that summary removes padding without changing
+the 1,280-byte execution-step ceiling. Memory admission continues to account
+actual `sizeof` values on the selected ABI.
+
 When a semantic test is split, each compiled leaf must retain the original
 case membership in its owning `cmake/tests/sources/` manifest. Repeat's bounded and
 reset leaves belong only to `compute.pipeline`; the boundary-mode leaves

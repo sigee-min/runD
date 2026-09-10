@@ -50,6 +50,23 @@ using KernelBindingIndices = rund::node::accel::detail::KernelBindingIndices;
 
   KernelBindingIndices reserved_indices{};
   reserved_indices.reserve(5u);
+  if (!reserved_indices.valid() || !reserved_indices.heap ||
+      reserved_indices.size() != 0u) {
+    return false;
+  }
+  auto migrated = inline_indices;
+  migrated.reserve(9u);
+  if (!migrated.valid() || !migrated.heap || migrated.size() != 4u ||
+      !ContainsRange(migrated, 10u, 4u) || !PushRange(migrated, 14u, 5u) ||
+      migrated.size() != 9u || !ContainsRange(migrated, 10u, 9u) ||
+      inline_indices.heap || inline_indices.size() != 4u) {
+    return false;
+  }
+  auto copied = migrated;
+  if (!copied.push_back(19u) || copied.size() != 10u ||
+      migrated.size() != 9u || !copied.valid() || !migrated.valid()) {
+    return false;
+  }
   return PushRange(reserved_indices, 30u, 5u) &&
          reserved_indices.valid() && reserved_indices.heap &&
          reserved_indices.size() == 5u && reserved_indices[4] == 34u;

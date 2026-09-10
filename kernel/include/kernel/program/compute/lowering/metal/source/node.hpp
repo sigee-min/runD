@@ -1,5 +1,5 @@
 #pragma once
 
-#include "node/body.hpp"
-#include "node/ordinary.hpp"
-#include "node/wide.hpp"
+#include <kernel/program/compute/lowering/metal/source/node/body.hpp>
+#include <kernel/program/compute/lowering/metal/source/node/ordinary.hpp>
+#include <kernel/program/compute/lowering/metal/source/node/wide.hpp>

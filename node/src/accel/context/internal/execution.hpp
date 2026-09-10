@@ -72,17 +72,17 @@ enum class MapSemanticKind : std::uint8_t {
 
 struct MapSemantic final {
   MapSemanticKind kind{MapSemanticKind::Unknown};
-  std::uint32_t immediate{};
-  std::uint32_t maximum{};
-  std::uint32_t tile{};
-  std::uint32_t windows{};
   // Cold proof, derived from ParsedIR, that every node is total for all
   // admitted lane values. Summary-only consumers use this bit; DeviceVsm also
   // requires the retained typed admission above. Neither reparses source text.
   bool recurrence_total{};
+  std::uint32_t immediate{};
+  std::uint32_t maximum{};
+  std::uint32_t tile{};
+  std::uint32_t windows{};
 };
 
-static_assert(sizeof(MapSemantic) == 24u);
+static_assert(sizeof(MapSemantic) == 20u);
 
 static_assert(sizeof(SourceStep) == 4u);
 static_assert(sizeof(ExecStep) == 4u);
@@ -93,8 +93,8 @@ struct KernelExecutionStep {
   rund::kernel::LoweringArtifact artifact{};
   rund::kernel::compute_lowering_detail::ComputeInputAdmission cpu_input{};
   MapSemantic map_semantic{};
-  KernelBindingIndices graph_binding_indices{};
   bool graph_binding_indices_ok = false;
+  KernelBindingIndices graph_binding_indices{};
   std::uint64_t primitive_hash_hi = 0u;
   std::uint64_t primitive_hash_lo = 0u;
   std::uint64_t element_count = 0u;

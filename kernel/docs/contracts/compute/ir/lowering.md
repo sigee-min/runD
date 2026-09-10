@@ -1,5 +1,11 @@
 # Compute IR And Lowering Contract
 
+Backend source aggregators use fully qualified backend-specific include paths.
+Metal and Vulkan aggregators must remain distinct even when a clean checkout
+gives them equal timestamps: GCC 13 can coalesce byte-identical `#pragma once`
+headers despite their different relative include targets. The Release compile
+of `kernel/src/program/compute/lowering.cpp` exercises both emitters together.
+
 ## Fusion Planning
 
 `FusionPolicy`, `FusionPlan`, and `PlanFusion(...)` are the
