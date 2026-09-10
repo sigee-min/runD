@@ -1,6 +1,7 @@
 #pragma once
 
 #include <kernel/program/compute/model.hpp>
+#include <kernel/program/compute/scatter/reduce/cpu/plan.hpp>
 
 #include <array>
 #include <cstdint>
@@ -33,7 +34,8 @@ struct CpuScatterPrimitiveScratch final {
 };
 
 struct CpuScatterReducePrimitiveScratch final {
-  std::span<kernel::u32> sorted_indices;
+  kernel::ScatterReduceCpuPlan plan;
+  std::span<kernel::u32> words;
 };
 
 template <class Lane> struct CpuTransformScratch final {

@@ -22,15 +22,15 @@ namespace {
 multi_pointwise_shape(const VirtualPipelineState &state,
                       const VirtualRunProjection &run) noexcept {
   return state.geometry.route == VirtualRoute::MultiPointwise &&
-         run.multi_pointwise && run.input_count == state.input_count &&
+         run.multi_pointwise() && run.input_count == state.input_count &&
          run.input_count >= 2u &&
          run.input_count <= VirtualPipelineState::InputCapacity;
 }
 
 [[nodiscard]] bool multi_scan_shape(const VirtualPipelineState &state,
                                     const VirtualRunProjection &run) noexcept {
-  return state.geometry.route == VirtualRoute::Scan && run.scan &&
-         run.multi_scan && run.input_count == state.input_count &&
+  return state.geometry.route == VirtualRoute::Scan && run.scan() &&
+         run.multi_scan() && run.input_count == state.input_count &&
          run.input_count >= 2u &&
          run.input_count <= VirtualPipelineState::InputCapacity;
 }
@@ -62,7 +62,7 @@ graph_stage_count(const VirtualPipelineState &state) noexcept {
                                           const VirtualRunProjection &run,
                                           const std::size_t stages) noexcept {
   return state.geometry.route == VirtualRoute::GraphReduction &&
-         run.graph_reduction && run.reduction && !run.scan &&
+         run.graph_reduction() && run.reduction() && !run.scan() &&
          run.input_type == Type::U64 && run.output_type == Type::U64 &&
          run.active.output_bytes == sizeof(std::uint64_t) &&
          run.output_page_bytes == sizeof(std::uint64_t) &&
@@ -90,8 +90,8 @@ graph_stage_count(const VirtualPipelineState &state) noexcept {
                                          const VirtualRunProjection &run,
                                          const std::size_t stages) noexcept {
   return state.geometry.route == VirtualRoute::GraphPointwise &&
-         run.graph_execution && !run.graph_reduction && !run.reduction &&
-         !run.scan &&
+         run.graph_execution() && !run.graph_reduction() && !run.reduction() &&
+         !run.scan() &&
          (run.input_type == Type::U32 || run.input_type == Type::U64) &&
          run.output_type == run.input_type && run.input_count != 0u &&
          run.input_count == state.input_count &&
@@ -109,15 +109,15 @@ graph_stage_count(const VirtualPipelineState &state) noexcept {
 [[nodiscard]] bool scan_shape(const VirtualPipelineState &state,
                               const VirtualRunProjection &run,
                               const bool multi_scan) noexcept {
-  return state.geometry.route == VirtualRoute::Scan && run.scan &&
-         !run.reduction && !run.graph_reduction && !run.clamp_window &&
+  return state.geometry.route == VirtualRoute::Scan && run.scan() &&
+         !run.reduction() && !run.graph_reduction() && !run.clamp_window &&
          !run.clip_window &&
          (run.input_type == Type::U32 || run.input_type == Type::U64) &&
-         (!run.multi_scan || run.input_type == Type::U64) &&
+         (!run.multi_scan() || run.input_type == Type::U64) &&
          run.output_type == run.input_type &&
          run.input_count == state.input_count &&
-         ((run.multi_scan && multi_scan) ||
-          (!run.multi_scan && run.input_count == 1u)) &&
+         ((run.multi_scan() && multi_scan) ||
+          (!run.multi_scan() && run.input_count == 1u)) &&
          (run.operation ==
               static_cast<std::uint32_t>(kernel::ScanOp::InclusiveSum) ||
           run.operation ==
@@ -130,8 +130,8 @@ graph_stage_count(const VirtualPipelineState &state) noexcept {
 [[nodiscard]] bool reduce_shape(const VirtualPipelineState &state,
                                 const VirtualRunProjection &run,
                                 const std::size_t element_bytes) noexcept {
-  return state.geometry.route == VirtualRoute::Reduction && run.reduction &&
-         !run.graph_reduction && !run.scan && !run.clamp_window &&
+  return state.geometry.route == VirtualRoute::Reduction && run.reduction() &&
+         !run.graph_reduction() && !run.scan() && !run.clamp_window &&
          !run.clip_window &&
          (run.input_type == Type::U32 || run.input_type == Type::U64) &&
          run.output_type == run.input_type &&

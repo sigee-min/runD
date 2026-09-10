@@ -101,7 +101,17 @@ ordered control-initialize-fold submission, and `finish` owns status,
 telemetry, and dispatch accounting. The backend-local `model` is the sole
 prepared-resource layout authority.
 
-## Metal Scatter Reduce aggregation
+## CPU Scatter Reduce scratch
+
+The CPU Scatter Reduce adapter and public prepared Pipeline use the Kernel
+`PlanScatterReduceCpu` strategy and exact scratch-word count. The prepared
+Pipeline retains that plan beside its arena span; execution consumes it without
+allocation. Dense outputs use a seen bitmap for exact conflict counting, while
+sparse outputs retain the reference sorted-key policy. Arithmetic order,
+preflight failure publication and strategy bounds are owned by the
+[Kernel primitive contract](../../../../kernel/docs/contracts/compute/primitives.md#scatter-reduce-primitive).
+
+## Native Scatter Reduce aggregation
 
 `metal/scatter/reduce/source.cpp` owns control, initialization and ordered
 fold emission. `source/parallel.hpp` owns the associative 32-bit fold body.
@@ -109,12 +119,14 @@ Both are consumed by the same exact source materialization/byte-count emitter;
 the parallel executable no longer emits the unused ordered arithmetic helper.
 The Kernel parallel-fold predicate remains the only reassociation authority.
 
-Preflight preserves the 256-lane stride and count-overflow precedence. Each
-SIMD cohort reduces its earliest invalid ordinal; one elected active lane
-merges a non-identity minimum into a 4-byte threadgroup atomic word. Two
-barriers bracket that merge. This replaces a declared 1024-byte array and
-nine barriers without changing the first-error result. Input inspection still
-uses one workgroup; there is no cross-workgroup synchronization or new pass.
+Preflight consumes the Kernel indexed validation shape. Each Metal group
+reduces its earliest invalid ordinal through SIMD cohorts and one 4-byte
+threadgroup atomic word between two barriers. Small inputs validate and
+publish in that group. Large inputs dispatch G groups that overwrite private
+minima in the status tail, then reuse the same control pipeline with one group
+to publish the global first error after an API buffer barrier. Vulkan follows
+the same grid/ownership law with its shared local minimum tree. Count overflow
+still takes precedence and output is untouched on preflight failure.
 
 On the parallel fold, active-lane prefix/sum produces rank and cohort size;
 broadcast/vote proves whether all active targets are equal. Uniform cohorts
@@ -138,9 +150,11 @@ statistics contention. The ordered 64-bit/Fixed-saturating fold instead counts
 conflicts in its sole writer's register and publishes once after the unchanged
 source-order arithmetic loop.
 
-Control-initialize-fold ordering, three dispatches, parameter ABI, retained
-`4*O + 16 + 24` device scratch, error reasons and untouched output on failed
-preflight remain unchanged. Source-array and atomic counts are algorithm
+Control-initialize-fold ordering and parameter size remain unchanged. Small
+inputs use three dispatches; large inputs use four, reusing the control
+pipeline and descriptor set. Retained device scratch is
+`4*O + 16 + preflight.partial_bytes + 24`; the extra tail is bounded by 4 KiB.
+The frozen Kernel plan owns command count and all scratch bytes. Source-array and atomic counts are algorithm
 bounds, not physical occupancy measurements. Host-specific latency observations
 are owned by [the performance record](../../../../docs/reference/performance/metal-scatter-reduce.md).
 

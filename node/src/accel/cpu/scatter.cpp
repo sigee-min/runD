@@ -4,7 +4,7 @@
 #include "../scatter/shape.hpp"
 #include "buffer/batch.hpp"
 #include "scatter/linear.hpp"
-#include <kernel/program/compute/scatter/reduce/reference.hpp>
+#include <kernel/program/compute/scatter/reduce/cpu/execution.hpp>
 
 #include <memory>
 #include <limits>
@@ -124,41 +124,42 @@ rund::AccelCheck ExecuteCpuScatterReduce(
     return {false, "compute_scatter_reduce_buffer_invalid"};
   }
   std::lock_guard<std::mutex> lock{adapter->mutex};
+  const auto cpu = rund::kernel::PlanScatterReduceCpu(plan);
   adapter->scatter_reduce_indices.resize(
-      static_cast<std::size_t>(plan.element_count));
+      static_cast<std::size_t>(cpu.scratch_words));
   auto *const sorted_indices = adapter->scatter_reduce_indices.data();
   const std::size_t sorted_index_capacity =
       adapter->scatter_reduce_indices.size();
   rund::kernel::ScatterReduceResult result{};
   if (plan.domain == rund::kernel::ComputeDomain::I32) {
-    result = rund::kernel::ReferenceScatterReduceI32(
+    result = rund::kernel::ExecuteScatterReduceCpu(
         reinterpret_cast<const rund::kernel::i32 *>(value_raw), index,
-        reinterpret_cast<rund::kernel::i32 *>(output_raw), logical, plan,
+        reinterpret_cast<rund::kernel::i32 *>(output_raw), logical, plan, cpu,
         sorted_indices, sorted_index_capacity);
   } else if (plan.domain == rund::kernel::ComputeDomain::U32) {
-    result = rund::kernel::ReferenceScatterReduceU32(
+    result = rund::kernel::ExecuteScatterReduceCpu(
         reinterpret_cast<const rund::kernel::u32 *>(value_raw), index,
-        reinterpret_cast<rund::kernel::u32 *>(output_raw), logical, plan,
+        reinterpret_cast<rund::kernel::u32 *>(output_raw), logical, plan, cpu,
         sorted_indices, sorted_index_capacity);
   } else if (plan.domain == rund::kernel::ComputeDomain::I64) {
-    result = rund::kernel::ReferenceScatterReduceI64(
+    result = rund::kernel::ExecuteScatterReduceCpu(
         reinterpret_cast<const rund::kernel::i64 *>(value_raw), index,
-        reinterpret_cast<rund::kernel::i64 *>(output_raw), logical, plan,
+        reinterpret_cast<rund::kernel::i64 *>(output_raw), logical, plan, cpu,
         sorted_indices, sorted_index_capacity);
   } else if (plan.domain == rund::kernel::ComputeDomain::U64) {
-    result = rund::kernel::ReferenceScatterReduceU64(
+    result = rund::kernel::ExecuteScatterReduceCpu(
         reinterpret_cast<const rund::kernel::u64 *>(value_raw), index,
-        reinterpret_cast<rund::kernel::u64 *>(output_raw), logical, plan,
+        reinterpret_cast<rund::kernel::u64 *>(output_raw), logical, plan, cpu,
         sorted_indices, sorted_index_capacity);
   } else if (plan.element_bytes == 4u) {
-    result = rund::kernel::ReferenceScatterReduceFixedI32(
+    result = rund::kernel::ExecuteScatterReduceCpu(
         reinterpret_cast<const rund::kernel::i32 *>(value_raw), index,
-        reinterpret_cast<rund::kernel::i32 *>(output_raw), logical, plan,
+        reinterpret_cast<rund::kernel::i32 *>(output_raw), logical, plan, cpu,
         sorted_indices, sorted_index_capacity);
   } else {
-    result = rund::kernel::ReferenceScatterReduceFixedI64(
+    result = rund::kernel::ExecuteScatterReduceCpu(
         reinterpret_cast<const rund::kernel::i64 *>(value_raw), index,
-        reinterpret_cast<rund::kernel::i64 *>(output_raw), logical, plan,
+        reinterpret_cast<rund::kernel::i64 *>(output_raw), logical, plan, cpu,
         sorted_indices, sorted_index_capacity);
   }
   return {result.ok, result.reason};

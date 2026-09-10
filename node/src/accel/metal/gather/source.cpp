@@ -14,7 +14,7 @@ struct GatherParams {
   ulong element_count;
   ulong source_count;
   uint count_source;
-  uint reserved;
+  uint validation_groups;
 };
 
 inline ulong rund_gather_count(device const uint* words,
@@ -30,13 +30,25 @@ kernel void rund_compute_gather_control(
     device uint* status [[buffer(2)]],
     device uint* indirect [[buffer(3)]],
     constant GatherParams& params [[buffer(4)]],
-    uint tid [[thread_index_in_threadgroup]]) {
+    uint tid [[thread_index_in_threadgroup]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint3 grid [[threadgroups_per_grid]]) {
   const ulong logical = rund_gather_count(count_words, params);
   uint local_invalid = 0xffffffffu;
+  const bool chunks = grid.x > 1u;
   if (logical <= params.element_count) {
-    for (ulong ordinal = ulong(tid); ordinal < logical; ordinal += 256u) {
-      if (ulong(indices[ordinal]) >= params.source_count) {
-        local_invalid = min(local_invalid, uint(ordinal));
+    if (!chunks && params.validation_groups > 1u) {
+      for (uint partial = tid; partial < params.validation_groups;
+           partial += 256u) {
+        local_invalid = min(local_invalid, status[2u + partial]);
+      }
+    } else {
+      const ulong stride = ulong(grid.x) * 256u;
+      for (ulong ordinal = ulong(group.x) * 256u + tid; ordinal < logical;
+           ordinal += stride) {
+        if (ulong(indices[ordinal]) >= params.source_count) {
+          local_invalid = min(local_invalid, uint(ordinal));
+        }
       }
     }
   }
@@ -50,6 +62,10 @@ kernel void rund_compute_gather_control(
     threadgroup_barrier(mem_flags::mem_threadgroup);
   }
   if (tid != 0u) { return; }
+  if (chunks) {
+    status[2u + group.x] = invalids[0];
+    return;
+  }
   status[0] = 0u;
   status[1] = uint(min(logical, 0xfffffffful));
   indirect[0] = 0u;

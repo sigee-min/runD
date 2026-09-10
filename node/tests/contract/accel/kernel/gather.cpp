@@ -46,7 +46,9 @@ namespace {
 bool BackendRunsGather(const rund::AccelDevice &pick) {
   return gather::MatchesU32(pick) && gather::MatchesU64(pick) &&
          gather::RejectsOutOfRangeIndex(pick) &&
-         gather::RejectsBoundedCountOverflowWithoutMutation(pick);
+         gather::RejectsBoundedCountOverflowWithoutMutation(pick) &&
+         gather::RejectsOutOfRangeIndex(pick, 65537u) &&
+         gather::RejectsBoundedCountOverflowWithoutMutation(pick, 65537u);
 }
 
 bool RequiredMetalRunsGather() {
@@ -90,7 +92,9 @@ bool RequiredMetalRunsGather() {
     return false;
   }
   return gather::RejectsOutOfRangeIndex(pick) &&
-         gather::RejectsBoundedCountOverflowWithoutMutation(pick);
+         gather::RejectsBoundedCountOverflowWithoutMutation(pick) &&
+         gather::RejectsOutOfRangeIndex(pick, 65537u) &&
+         gather::RejectsBoundedCountOverflowWithoutMutation(pick, 65537u);
 }
 
 bool RequiredVulkanRunsGather() {

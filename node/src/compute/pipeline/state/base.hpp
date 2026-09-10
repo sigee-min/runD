@@ -73,7 +73,7 @@ struct PipelineInternal final {
   // A residency cache may prebind one Device-global physical owner. Ordinary
   // Pipeline internals leave this empty and are materialized exactly once by
   // the Pipeline allocator.
-  std::shared_ptr<BufferState> owner;
+  std::shared_ptr<BufferState> owner{};
   Type type{Type::U32};
   FixedFormat format{};
   std::size_t count{};

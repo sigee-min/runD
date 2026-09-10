@@ -7,8 +7,8 @@ namespace rund::compute::detail {
 
 Status begin_virtual_scan(const VirtualRunProjection &run,
                           VirtualScan &scan) noexcept {
-  scan = VirtualScan{.type = run.input_type, .inclusive = run.inclusive_scan};
-  return run.scan && run.input_type == run.output_type &&
+  scan = VirtualScan{.type = run.input_type, .inclusive = run.inclusive_scan()};
+  return run.scan() && run.input_type == run.output_type &&
                  run.input_payload_bytes == run.output_payload_bytes
              ? Status::success()
              : Status::fail(Reason::PipelineInvalid);
@@ -21,7 +21,7 @@ capture_virtual_scan_input(const VirtualEpochProjection &epoch,
                            const residency::PrefetchReceipt *const prefetched,
                            VirtualScan &scan) noexcept {
   scan.input_count = 0u;
-  if (!run.scan || input_lease.bindings.empty() ||
+  if (!run.scan() || input_lease.bindings.empty() ||
       input_lease.bindings.size() > PipelineLeafCapacity ||
       (run.host_output_frame_capacity != 0u && prefetched == nullptr)) {
     return Status::fail(Reason::PipelineInvalid);

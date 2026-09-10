@@ -19,8 +19,8 @@ staged_views_match(const VirtualPipelineState &state,
           ? nullptr
           : accel_device(*state.pipeline->device);
   if (native == nullptr ||
-      owner.route_proof.kind == VirtualDeviceVsmRouteKind::GraphResident ||
-      owner.route_proof.endpoint != VirtualDeviceVsmEndpoint::Staged ||
+      owner.route_proof.kind() == VirtualDeviceVsmRouteKind::GraphResident ||
+      owner.route_proof.endpoint() != VirtualDeviceVsmEndpoint::Staged ||
       owner.input_count != 1u || owner.resident_output != nullptr ||
       owner.resident_inputs[0u] != nullptr) {
     return false;
@@ -48,13 +48,13 @@ bool resident_bindings_match(const VirtualPipelineState &state,
     return false;
   }
   const bool graph_resident =
-      owner.route_proof.kind == VirtualDeviceVsmRouteKind::GraphResident;
+      owner.route_proof.kind() == VirtualDeviceVsmRouteKind::GraphResident;
   const bool staged =
-      owner.route_proof.endpoint == VirtualDeviceVsmEndpoint::Staged;
+      owner.route_proof.endpoint() == VirtualDeviceVsmEndpoint::Staged;
   const bool mapped = !graph_resident && staged;
   const bool all_resident =
       graph_resident
-          ? owner.route_proof.endpoint == VirtualDeviceVsmEndpoint::Resident
+          ? owner.route_proof.endpoint() == VirtualDeviceVsmEndpoint::Resident
           : owner.resident_output != nullptr;
   const bool all_staged =
       owner.resident_output == nullptr &&

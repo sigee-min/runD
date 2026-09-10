@@ -15,12 +15,12 @@ drain_virtual_epoch_output(VirtualEpochContext &context) noexcept {
           keys, context.pool->first_output_frame,
           context.pool->output_frame_count);
     }
-    return context.run.reduction ? context.pool->authority().begin_discard(
-                                       keys, context.pool->first_output_frame,
-                                       context.pool->output_frame_count)
-                                 : context.pool->authority().begin_writeback(
-                                       keys, context.pool->first_output_frame,
-                                       context.pool->output_frame_count);
+    return context.run.reduction() ? context.pool->authority().begin_discard(
+                                         keys, context.pool->first_output_frame,
+                                         context.pool->output_frame_count)
+                                   : context.pool->authority().begin_writeback(
+                                         keys, context.pool->first_output_frame,
+                                         context.pool->output_frame_count);
   };
   residency::AuthorityResult writeback = begin_device_drain();
   if (!writeback) {
@@ -63,7 +63,7 @@ drain_virtual_epoch_output(VirtualEpochContext &context) noexcept {
     }
     const std::span<const residency::CacheKey> host_keys{
         output_keys.data(), context.output_lease.bindings.size()};
-    writeback = context.run.reduction
+    writeback = context.run.reduction()
                     ? context.pool->authority().begin_discard(
                           host_keys, context.pool->first_host_output_frame,
                           context.pool->host_output_frame_count)
@@ -74,7 +74,7 @@ drain_virtual_epoch_output(VirtualEpochContext &context) noexcept {
       const bool prefetch_terminal =
           cancel_virtual_prefetch(context.pool, context.prefetch_pending);
       const residency::AuthorityResult retry =
-          context.run.reduction
+          context.run.reduction()
               ? context.pool->authority().begin_discard(
                     host_keys, context.pool->first_host_output_frame,
                     context.pool->host_output_frame_count)
@@ -90,7 +90,7 @@ drain_virtual_epoch_output(VirtualEpochContext &context) noexcept {
       return result;
     }
   }
-  if (context.run.reduction) {
+  if (context.run.reduction()) {
     const bool completed =
         context.pool->authority().discard(writeback.lease.token);
     if (!completed) {

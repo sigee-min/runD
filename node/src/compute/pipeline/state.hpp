@@ -80,9 +80,9 @@ struct PipelineOutputState final {
 };
 
 struct PipelineStep final {
-  std::shared_ptr<ProgramState> program;
-  std::shared_ptr<JobState> job;
-  std::shared_ptr<JobState> alternate_job;
+  std::shared_ptr<ProgramState> program{};
+  std::shared_ptr<JobState> job{};
+  std::shared_ptr<JobState> alternate_job{};
   std::uint32_t logical_step{};
   std::uint32_t iteration{};
   std::uint32_t iteration_bound{1u};

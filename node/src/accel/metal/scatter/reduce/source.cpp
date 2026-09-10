@@ -78,7 +78,7 @@ struct ScatterReduceParams {
   ulong element_count;
   ulong output_count;
   uint count_source;
-  uint reserved;
+  uint validation_groups;
   uint value_base;
   uint index_base;
   uint count_base;
@@ -98,13 +98,25 @@ kernel void rund_scatter_reduce_control(
     device atomic_uint* status [[buffer(4)]],
     device uint* indirect [[buffer(5)]],
     constant ScatterReduceParams& params [[buffer(6)]],
-    uint tid [[thread_index_in_threadgroup]]) {
+    uint tid [[thread_index_in_threadgroup]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint3 grid [[threadgroups_per_grid]]) {
   const ulong logical = rund_scatter_reduce_count(count_words, params);
   uint local_invalid = 0xffffffffu;
+  const bool chunks = grid.x > 1u;
   if (logical <= params.element_count) {
-    for (ulong ordinal = ulong(tid); ordinal < logical; ordinal += 256u) {
-      if (ulong(indices[ordinal]) >= params.output_count) {
-        local_invalid = min(local_invalid, uint(ordinal));
+    if (!chunks && params.validation_groups > 1u) {
+      for (uint partial = tid; partial < params.validation_groups;
+           partial += 256u) {
+        local_invalid = min(local_invalid, atomic_load_explicit(&status[4u + partial], memory_order_relaxed));
+      }
+    } else {
+      const ulong stride = ulong(grid.x) * 256u;
+      for (ulong ordinal = ulong(group.x) * 256u + tid; ordinal < logical;
+           ordinal += stride) {
+        if (ulong(indices[ordinal]) >= params.output_count) {
+          local_invalid = min(local_invalid, uint(ordinal));
+        }
       }
     }
   }
@@ -120,6 +132,10 @@ kernel void rund_scatter_reduce_control(
   threadgroup_barrier(mem_flags::mem_threadgroup);
   if (tid != 0u) { return; }
   const uint invalid = atomic_load_explicit(&first_invalid, memory_order_relaxed);
+  if (chunks) {
+    atomic_store_explicit(&status[4u + group.x], invalid, memory_order_relaxed);
+    return;
+  }
   atomic_store_explicit(&status[0], 0u, memory_order_relaxed);
   atomic_store_explicit(&status[1], uint(min(logical, 0xfffffffful)),
                         memory_order_relaxed);

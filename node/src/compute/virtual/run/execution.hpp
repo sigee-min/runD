@@ -1,5 +1,6 @@
 #pragma once
 
+#include "device_vsm/route/proof.hpp"
 #include "projection.hpp"
 #include "transaction.hpp"
 
@@ -132,121 +133,12 @@ enum class VirtualDeviceVsmPreparedOrigin : std::uint8_t {
   WarmCached,
 };
 
-enum class VirtualDeviceVsmEndpoint : std::uint8_t {
-  Invalid,
-  Resident,
-  Staged,
-};
-
-enum class VirtualDeviceVsmRouteKind : std::uint8_t {
-  Direct,
-  StagedLoop,
-  WindowRing,
-  GraphResident,
-};
-
-struct VirtualDeviceVsmRouteProof final {
-  VirtualDeviceVsmRouteKind kind{VirtualDeviceVsmRouteKind::Direct};
-  VirtualDeviceVsmEndpoint endpoint{VirtualDeviceVsmEndpoint::Invalid};
-  std::uint64_t stamp_hi{};
-  std::uint64_t stamp_lo{};
-  std::uint64_t page_count{};
-  std::uint64_t frame_capacity{};
-  // WindowRing carries the exact sealed prepare decision. Other kinds keep
-  // this value defaulted, so no downstream consumer can reselect a route.
-  VirtualWindowPreflight window{};
-
-  [[nodiscard]] constexpr bool valid() const noexcept {
-    if (endpoint != VirtualDeviceVsmEndpoint::Invalid &&
-        endpoint != VirtualDeviceVsmEndpoint::Resident &&
-        endpoint != VirtualDeviceVsmEndpoint::Staged) {
-      return false;
-    }
-    if ((stamp_hi == 0u && stamp_lo == 0u) || page_count < 2u ||
-        page_count > std::numeric_limits<std::uint32_t>::max() ||
-        frame_capacity == 0u || frame_capacity > page_count) {
-      return false;
-    }
-    switch (kind) {
-    case VirtualDeviceVsmRouteKind::Direct:
-      return endpoint == VirtualDeviceVsmEndpoint::Invalid &&
-             window == VirtualWindowPreflight{};
-    case VirtualDeviceVsmRouteKind::GraphResident:
-      return (endpoint == VirtualDeviceVsmEndpoint::Resident ||
-              endpoint == VirtualDeviceVsmEndpoint::Staged) &&
-             window == VirtualWindowPreflight{};
-    case VirtualDeviceVsmRouteKind::StagedLoop:
-      return endpoint == VirtualDeviceVsmEndpoint::Staged &&
-             window == VirtualWindowPreflight{};
-    case VirtualDeviceVsmRouteKind::WindowRing: {
-      if (window.mode != VirtualWindowPreflightMode::WindowRing ||
-          window.page_count != page_count ||
-          window.frame_capacity != frame_capacity ||
-          window.frame_capacity != 2u || window.input_bytes == 0u ||
-          window.output_bytes == 0u || window.input_frame_bytes == 0u ||
-          window.output_frame_bytes == 0u || window.frame_bytes == 0u ||
-          window.device_storage_bytes == 0u || window.host.input == 0u ||
-          window.host.output == 0u || window.host.storage_bytes == 0u ||
-          window.host.input != page_count ||
-          window.host.output != frame_capacity) {
-        return false;
-      }
-      const bool endpoint_match =
-          (window.endpoint == VirtualWindowPreflightEndpoint::Resident &&
-           endpoint == VirtualDeviceVsmEndpoint::Resident) ||
-          (window.endpoint == VirtualWindowPreflightEndpoint::Staged &&
-           endpoint == VirtualDeviceVsmEndpoint::Staged);
-      if (!endpoint_match) {
-        return false;
-      }
-      constexpr std::uint64_t max = std::numeric_limits<std::uint64_t>::max();
-      if (window.input_frame_bytes > max - window.output_frame_bytes) {
-        return false;
-      }
-      const std::uint64_t frame_bytes =
-          window.input_frame_bytes + window.output_frame_bytes;
-      if (frame_bytes != window.frame_bytes ||
-          frame_bytes > max / window.frame_capacity) {
-        return false;
-      }
-      const std::uint64_t device_bank_bytes =
-          frame_bytes * window.frame_capacity;
-      if (device_bank_bytes > max / residency::execution::BankCapacity ||
-          window.device_storage_bytes !=
-              device_bank_bytes * residency::execution::BankCapacity ||
-          window.host.input > max / window.input_frame_bytes ||
-          window.host.output > max / window.output_frame_bytes) {
-        return false;
-      }
-      const std::uint64_t host_input_bytes =
-          window.host.input * window.input_frame_bytes;
-      const std::uint64_t host_output_bytes =
-          window.host.output * window.output_frame_bytes;
-      if (host_input_bytes > max - host_output_bytes ||
-          host_input_bytes + host_output_bytes >
-              max / residency::execution::BankCapacity ||
-          window.host.storage_bytes != (host_input_bytes + host_output_bytes) *
-                                           residency::execution::BankCapacity) {
-        return false;
-      }
-      return true;
-    }
-    default:
-      return false;
-    }
-  }
-
-  [[nodiscard]] constexpr bool
-  operator==(const VirtualDeviceVsmRouteProof &) const noexcept = default;
-};
-
 // Cold aggregate owner for the pointwise or centered-Window page-coordinate
 // DeviceVsm product. Unlike the Sliding owner, this route exposes no
 // per-coordinate Host service surface: the prepared GPU owner receives the
 // complete page recurrence in one submit.
 struct VirtualExecutionDeviceVsmPrepared final {
   std::shared_ptr<void> owner{};
-  std::uint64_t page_count{};
   const char *reason{"compute_backend_unsupported"};
   // Immutable route proof copied at the side-effecting preparation boundary.
   // The lower owner remains responsible for credential and mapping checks.
@@ -259,7 +151,7 @@ struct VirtualExecutionDeviceVsmPrepared final {
   bool rearm_mutated{};
 
   [[nodiscard]] explicit operator bool() const noexcept {
-    return owner != nullptr && page_count >= 2u;
+    return owner != nullptr && proof.page_count() >= 2u;
   }
 };
 

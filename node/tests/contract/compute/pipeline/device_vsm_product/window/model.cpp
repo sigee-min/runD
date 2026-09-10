@@ -212,7 +212,7 @@ ExactRingProof(const PreparedProduct &prepared,
       !owner->proof->window.ring.gpu_owned || owner->proof->width != 2u ||
       !owner->preparation.capability.physical_ring_storage ||
       !owner->preparation.capability.one_native_submit ||
-      owner->route_proof.endpoint !=
+      owner->route_proof.endpoint() !=
           (prepared.resident
                ? rund::compute::detail::VirtualDeviceVsmEndpoint::Resident
                : rund::compute::detail::VirtualDeviceVsmEndpoint::Staged)) {

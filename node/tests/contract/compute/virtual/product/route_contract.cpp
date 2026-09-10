@@ -2,6 +2,7 @@
 #include "golden.hpp"
 #include "model.hpp"
 #include "route.hpp"
+#include "route/proof.hpp"
 
 #include "../../../target/selection.hpp"
 
@@ -232,6 +233,10 @@ int RunComputeVirtualRouteSelectionContract() {
 } // namespace rund_node_test_virtual::product
 
 int RunComputeVirtualRouteSelectionContract() {
+  if (!rund_node_test_virtual::product::route_detail::check_route_proof()) {
+    return 100;
+  }
+
   return rund_node_test_virtual::product::
       RunComputeVirtualRouteSelectionContract();
 }

@@ -29,6 +29,15 @@ EncodeVulkanScatterReduce(VulkanAdapter &adapter,
   BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         state->control_pipeline->pipeline_layout, 0u, 1u,
                         &state->control_descriptor, 0u, nullptr);
+  if (state->plan.preflight.group_count > 1u) {
+    DispatchVulkan(command, state->plan.preflight.group_count, 1u, 1u);
+    const auto partial_barrier = VulkanBufferBarrier(
+        state->status.device, VK_ACCESS_SHADER_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 0u, nullptr,
+                         1u, &partial_barrier, 0u, nullptr);
+  }
   DispatchVulkan(command, 1u, 1u, 1u);
   const std::array<VkBufferMemoryBarrier, 2u> control_barriers{
       VulkanBufferBarrier(state->indirect, VK_ACCESS_SHADER_WRITE_BIT,

@@ -79,7 +79,7 @@ bool RunCase(
       !owner->evidence->bounded_external_page_service &&
       (force_device_vsm ||
        (owner != nullptr &&
-        owner->route_proof.kind ==
+        owner->route_proof.kind() ==
             rund::compute::detail::VirtualDeviceVsmRouteKind::StagedLoop)) &&
       ExactDeviceVsmEvidence(observation, pages, pages, bytes, bytes, 0u) &&
       ExactPublication(before_primary, after_primary, before_alternate,
@@ -88,10 +88,9 @@ bool RunCase(
       stats.window_handoff_count == 1u && stats.window_batch_count == 1u &&
       stats.window_queue_call_count == 1u && run_stats.command_submits == 1u &&
       ExactWholeRunTransfers(*owner, run_stats, bytes) &&
-      stats.page_in_count == pages &&
-      stats.page_out_count == pages && stats.backing_read_bytes == bytes &&
-      stats.backing_write_bytes == bytes && stats.page_in_bytes == bytes &&
-      stats.page_out_bytes == bytes;
+      stats.page_in_count == pages && stats.page_out_count == pages &&
+      stats.backing_read_bytes == bytes && stats.backing_write_bytes == bytes &&
+      stats.page_in_bytes == bytes && stats.page_out_bytes == bytes;
   if (valid) {
     std::fprintf(
         stderr,

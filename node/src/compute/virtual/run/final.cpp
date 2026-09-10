@@ -168,7 +168,7 @@ Status finish_virtual_empty(VirtualPipelineState &state, Stats stats,
         poison_pipeline, resources);
   }
   ::rund::node::hash_detail::Fnv output_hash{};
-  if (run.reduction) {
+  if (run.reduction()) {
     const Status reduced = finish_virtual_reduction(
         output, run, reduction, stats.pipeline.residency, output_hash);
     if (!reduced) {
@@ -216,7 +216,7 @@ Status finish_virtual_dispatch(VirtualPipelineState &state, Stats stats,
     const Status reduced = finish_virtual_reduction(
         output, run, reduction, stats.pipeline.residency, output_hash);
     if (!reduced) {
-      failed_page = run.graph_execution
+      failed_page = run.graph_execution()
                         ? run.active.graph.page_count() - 1u
                         : (run.active.stream.page_count() == 0u
                                ? ResidencyStats::no_failed_page

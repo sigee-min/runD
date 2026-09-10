@@ -116,12 +116,12 @@ struct ResidentObservation final {
 };
 
 struct Preparation final {
-  std::unique_ptr<Case> value;
+  std::unique_ptr<Case> value{};
   int reason{};
 };
 
 struct ResidentPreparation final {
-  std::unique_ptr<ResidentCase> value;
+  std::unique_ptr<ResidentCase> value{};
   int reason{};
 };
 

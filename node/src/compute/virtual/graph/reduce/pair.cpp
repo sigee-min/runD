@@ -11,7 +11,7 @@ namespace rund::compute::detail::graph_reduce {
 
 bool graph_wavefront_pair_eligible(const VirtualPipelineState &state,
                                    const VirtualRunProjection &run) noexcept {
-  if (!run.graph_execution || run.graph_reduction ||
+  if (!run.graph_execution() || run.graph_reduction() ||
       state.geometry.route != VirtualRoute::GraphPointwise ||
       state.pipeline == nullptr || state.pipeline->device == nullptr ||
       state.pipeline->device->backend == Backend::Cpu ||

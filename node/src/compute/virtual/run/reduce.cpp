@@ -44,7 +44,7 @@ void merge_extreme(VirtualReduction &reduction,
 template <class T>
 void merge_unsigned(VirtualReduction &reduction,
                     const std::byte *const source) noexcept {
-  reduction.total += static_cast<unsigned __int128>(load<T>(source));
+  reduction.total += static_cast<__uint128_t>(load<T>(source));
 }
 
 [[nodiscard]] Status merge(VirtualReduction &reduction,
@@ -87,7 +87,7 @@ void merge_unsigned(VirtualReduction &reduction,
 template <class T>
 [[nodiscard]] Status encode_total(VirtualReduction &reduction) noexcept {
   if (reduction.total >
-      static_cast<unsigned __int128>(std::numeric_limits<T>::max())) {
+      static_cast<__uint128_t>(std::numeric_limits<T>::max())) {
     return Status::fail(
         reduction.operation ==
                 static_cast<std::uint32_t>(kernel::ReduceOp::CountNonzero)
@@ -106,7 +106,7 @@ Status begin_virtual_reduction(const VirtualRunProjection &run,
                                VirtualReduction &reduction) noexcept {
   reduction =
       VirtualReduction{.operation = run.operation, .type = run.output_type};
-  if (!run.reduction || run.output_payload_bytes == 0u ||
+  if (!run.reduction() || run.output_payload_bytes == 0u ||
       run.output_payload_bytes > reduction.value.size()) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -126,7 +126,7 @@ Status begin_virtual_reduction(const VirtualRunProjection &run,
 Status consume_virtual_reduction(const VirtualRunProjection &run,
                                  const residency::EpochLease lease,
                                  VirtualReduction &reduction) noexcept {
-  if (!run.reduction || lease.bindings.empty()) {
+  if (!run.reduction() || lease.bindings.empty()) {
     return Status::fail(Reason::PipelineInvalid);
   }
   for (const residency::CacheBinding &binding : lease.bindings) {

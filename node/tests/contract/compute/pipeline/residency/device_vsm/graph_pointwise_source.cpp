@@ -78,8 +78,8 @@ struct Stage final {
       .semantic =
           accel::MapSemantic{
               .kind = accel::MapSemanticKind::AddWrapU64Immediate,
-              .immediate = 7u,
               .recurrence_total = true,
+              .immediate = 7u,
           },
   };
 }

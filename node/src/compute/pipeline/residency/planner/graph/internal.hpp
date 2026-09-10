@@ -11,9 +11,9 @@ namespace rund::compute::detail::residency {
 struct GraphPlanningState final {
   const TiledGraphPlanInput &input;
   std::uint64_t frames{};
-  std::vector<TiledGraphResource> resources;
-  std::vector<TiledGraphStage> stages;
-  std::vector<TiledGraphPhysicalClass> physical_classes;
+  std::vector<TiledGraphResource> resources{};
+  std::vector<TiledGraphStage> stages{};
+  std::vector<TiledGraphPhysicalClass> physical_classes{};
   std::uint64_t page_bytes{};
 };
 

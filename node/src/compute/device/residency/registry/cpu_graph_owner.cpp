@@ -114,8 +114,8 @@ bool CpuGraphOwner::close_cpu_epoch(const CpuReservationKey key,
     info->token = token;
     info->generation = generation;
     info->flags = static_cast<std::uint8_t>(
-        (success ? CloseInfo::Success : 0u) |
-        (invalidate_all ? CloseInfo::Invalidate : 0u));
+        (success ? CloseInfo::Success : CloseInfo::Flag{}) |
+        (invalidate_all ? CloseInfo::Invalidate : CloseInfo::Flag{}));
   }
   std::lock_guard lock{authority_.gate_};
   if (authority_.view_commit_quarantined_locked()) {
@@ -205,9 +205,10 @@ bool CpuGraphOwner::close_cpu_epoch(const CpuReservationKey key,
       info->binding_relocated = binding->relocated;
       info->binding_retire = binding->retire_on_success;
       info->flags = static_cast<std::uint8_t>(
-          info->flags | (binding->fetch ? CloseInfo::Fetch : 0u) |
-          (binding->relocated ? CloseInfo::Relocated : 0u) |
-          (binding->retire_on_success ? CloseInfo::Retire : 0u));
+          info->flags |
+          (binding->fetch ? CloseInfo::Fetch : CloseInfo::Flag{}) |
+          (binding->relocated ? CloseInfo::Relocated : CloseInfo::Flag{}) |
+          (binding->retire_on_success ? CloseInfo::Retire : CloseInfo::Flag{}));
     }
     if (frame < authority_.frames_.size()) {
       const Frame &value = authority_.frames_[frame];

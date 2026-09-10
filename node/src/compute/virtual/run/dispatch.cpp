@@ -33,7 +33,7 @@ VirtualRunDispatchResult dispatch_run(
         .certainty = VirtualRunWriteCertainty::KnownNoWrite,
     };
   }
-  if (run.graph_execution) {
+  if (run.graph_execution()) {
     return virtual_run_dispatch::dispatch_graph(state, inputs, output, run,
                                                 stats, work);
   }

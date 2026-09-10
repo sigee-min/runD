@@ -108,7 +108,7 @@ namespace rund::node::accel::detail {
     break;
   }
   case rund::kernel::NodeKind::Gather:
-    direct = 1u;
+    direct = step.operation.get<operation::Gather>().plan.preflight.pass_count;
     indirect = 1u;
     break;
   case rund::kernel::NodeKind::Partition: {
@@ -128,7 +128,8 @@ namespace rund::node::accel::detail {
     break;
   }
   case rund::kernel::NodeKind::ScatterReduce:
-    direct = 1u;
+    direct = step.operation.get<operation::ScatterReduce>()
+                 .plan.preflight.pass_count;
     indirect = 2u;
     break;
   case rund::kernel::NodeKind::Window: {

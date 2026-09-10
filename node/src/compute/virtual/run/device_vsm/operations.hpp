@@ -11,7 +11,7 @@ class Pool;
 
 namespace rund::compute::detail {
 struct VirtualRunResources;
-struct VirtualDeviceVsmRouteProof;
+class VirtualDeviceVsmRouteProof;
 }
 
 namespace rund::compute::detail::device_vsm_product_detail {
@@ -42,10 +42,8 @@ lifecycle_open(const DeviceVsmProductRun &run) noexcept {
 [[nodiscard]] ::rund::AccelCheck admit_virtual_device_vsm(
     const VirtualPipelineState &, const VirtualRunProjection &,
     const VirtualDeviceVsmRouteProof &) noexcept;
-[[nodiscard]] std::shared_ptr<PipelineState>
-primary_pipeline(VirtualPipelineState &, const VirtualRunProjection &) noexcept;
 [[nodiscard]] bool select_pipelines(
-    VirtualPipelineState &, const VirtualRunProjection &,
+    VirtualPipelineState &, VirtualRunTopology,
     std::array<std::shared_ptr<PipelineState>, DeviceVsmPipelineCapacity> &,
     std::array<std::uint32_t, DeviceVsmPipelineCapacity> &,
     std::size_t &) noexcept;

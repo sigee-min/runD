@@ -68,7 +68,7 @@ Status schedule_virtual_prefetch(
   const bool coherent = !coherent_input.empty();
   std::uint64_t input_bytes = 0u;
   if (coherent &&
-      (run.scan || run.reduction || run.graph_reduction ||
+      (run.scan() || run.reduction() || run.graph_reduction() ||
        !kernel::checked::mul(run.input_page_bytes, device_region.count,
                              input_bytes) ||
        input_bytes != coherent_input.size() ||
@@ -77,7 +77,7 @@ Status schedule_virtual_prefetch(
            std::span<residency::CacheUse>{outputs.data(), page_count}))) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  if (!coherent && !run.scan &&
+  if (!coherent && !run.scan() &&
       !pool.authority().probe(
           std::span<const residency::CacheKey>{keys.data(), page_count},
           std::span<std::uint8_t>{device_resident.data(), page_count},
@@ -205,7 +205,7 @@ Status schedule_virtual_prefetch(
           expected_first_page.leading_fill_bytes &&
       projected_pages[0u].trailing_fill_offset ==
           expected_first_page.trailing_fill_offset;
-  if (!coherent && !run.graph_execution && !run.reduction && !run.scan &&
+  if (!coherent && !run.graph_execution() && !run.reduction() && !run.scan() &&
       epoch.failed_page != 0u && valid_target_bank && exact_first_page) {
     VirtualInputPageProjection prior{};
     if (project_virtual_input_page(run, epoch.failed_page - 1u, prior)) {

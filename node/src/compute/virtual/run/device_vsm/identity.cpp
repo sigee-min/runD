@@ -8,15 +8,15 @@ node::accel::detail::DeviceVsmIdentity
 route_stamp(const VirtualPipelineState &state, const VirtualRunProjection &run,
             const VirtualDeviceVsmRouteProof &proof) noexcept {
   const std::shared_ptr<PipelineState> selected =
-      run.graph_reduction && state.device_vsm_semantic_pipeline != nullptr
+      run.graph_reduction() && state.device_vsm_semantic_pipeline != nullptr
           ? state.device_vsm_semantic_pipeline
           : state.pipeline;
   const graph::Fingerprint pipeline = pipeline_fingerprint(selected);
   const std::shared_ptr<PipelineState> terminal_pipeline =
-      run.graph_execution ? graph_terminal_pipeline(state, 0u) : nullptr;
+      run.graph_execution() ? graph_terminal_pipeline(state, 0u) : nullptr;
   const graph::Fingerprint collective =
-      run.graph_execution ? pipeline_fingerprint(terminal_pipeline)
-                          : graph::Fingerprint{};
+      run.graph_execution() ? pipeline_fingerprint(terminal_pipeline)
+                            : graph::Fingerprint{};
   ::rund::node::hash_detail::Fnv hi{
       ::rund::node::hash_detail::kFnvStandardOffset};
   ::rund::node::hash_detail::Fnv lo{};
@@ -27,13 +27,16 @@ route_stamp(const VirtualPipelineState &state, const VirtualRunProjection &run,
     hi.Number(value);
     lo.Number(value ^ 0x9e3779b97f4a7c15ull);
   };
-  mix(static_cast<std::uint64_t>(proof.kind));
-  mix(static_cast<std::uint64_t>(proof.endpoint));
+  mix(static_cast<std::uint64_t>(proof.kind()));
+  mix(static_cast<std::uint64_t>(proof.endpoint()));
   mix(static_cast<std::uint64_t>(run.input_type));
   mix(static_cast<std::uint64_t>(run.output_type));
-  mix(proof.page_count);
-  mix(proof.frame_capacity);
-  const VirtualWindowPreflight &window = proof.window;
+  mix(proof.page_count());
+  mix(proof.frame_capacity());
+  // Preserve the existing identity wire sequence for non-Window routes.
+  const VirtualWindowPreflight empty{};
+  const VirtualWindowPreflight &window =
+      proof.window() == nullptr ? empty : *proof.window();
   mix(static_cast<std::uint64_t>(window.mode));
   mix(static_cast<std::uint64_t>(window.endpoint));
   mix(window.page_count);
@@ -51,7 +54,7 @@ route_stamp(const VirtualPipelineState &state, const VirtualRunProjection &run,
   mix(pipeline.lo);
   mix(collective.hi);
   mix(collective.lo);
-  if (run.graph_execution && !run.graph_reduction) {
+  if (run.graph_execution() && !run.graph_reduction()) {
     const std::size_t stage_count =
         state.pipeline == nullptr || state.pipeline->residency == nullptr
             ? 0u
@@ -68,7 +71,7 @@ route_stamp(const VirtualPipelineState &state, const VirtualRunProjection &run,
     mix(run.active.graph.page_count());
   }
   const bool staged_graph =
-      proof.kind == VirtualDeviceVsmRouteKind::GraphResident;
+      proof.kind() == VirtualDeviceVsmRouteKind::GraphResident;
   mix(run.input_count);
   for (std::size_t index = 0u; index < run.input_count; ++index) {
     mix(run.inputs[index].identity_hi);
@@ -92,15 +95,15 @@ route_stamp(const VirtualPipelineState &state, const VirtualRunProjection &run,
   mix(state.geometry.boundary);
   mix(state.geometry.materialization_hi);
   mix(state.geometry.materialization_lo);
-  mix(proof.kind == VirtualDeviceVsmRouteKind::WindowRing ? 0x57524e47u : 0u);
-  mix(run.graph_execution ? run.active.graph.page_count()
-                          : run.active.stream.page_count());
-  mix(run.graph_execution && state.pipeline != nullptr &&
+  mix(proof.kind() == VirtualDeviceVsmRouteKind::WindowRing ? 0x57524e47u : 0u);
+  mix(run.graph_execution() ? run.active.graph.page_count()
+                            : run.active.stream.page_count());
+  mix(run.graph_execution() && state.pipeline != nullptr &&
               state.pipeline->residency != nullptr
           ? state.pipeline->residency->tiled_graph().stages().size()
           : 0u);
   const residency::Identity residency_identity =
-      run.graph_execution && state.pipeline != nullptr &&
+      run.graph_execution() && state.pipeline != nullptr &&
               state.pipeline->residency != nullptr
           ? state.pipeline->residency->identity()
           : residency::Identity{};

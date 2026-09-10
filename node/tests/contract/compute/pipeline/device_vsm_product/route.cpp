@@ -1,4 +1,5 @@
 #include "route.hpp"
+#include "../../virtual/product/route/proof.hpp"
 
 #include "src/compute/backend.hpp"
 #include "src/compute/device/state.hpp"
@@ -27,43 +28,23 @@ proof_tamper_rejected(const VirtualPipelineState &state,
   if (!proof.valid() || !proof_matches(state, run, proof)) {
     return false;
   }
-  VirtualDeviceVsmRouteProof endpoint = proof;
-  endpoint.endpoint =
-      proof.kind ==
-              rund::compute::detail::VirtualDeviceVsmRouteKind::GraphResident
-          ? rund::compute::detail::VirtualDeviceVsmEndpoint::Invalid
-      : proof.endpoint ==
-              rund::compute::detail::VirtualDeviceVsmEndpoint::Staged
-          ? rund::compute::detail::VirtualDeviceVsmEndpoint::Resident
-      : proof.endpoint ==
-              rund::compute::detail::VirtualDeviceVsmEndpoint::Resident
-          ? rund::compute::detail::VirtualDeviceVsmEndpoint::Staged
-          : rund::compute::detail::VirtualDeviceVsmEndpoint::Resident;
-  if (endpoint.valid()) {
+  if (!rund_node_test_virtual::product::route_detail::proof_tamper_rejected(
+          proof)) {
     return false;
   }
-  VirtualDeviceVsmRouteProof host = proof;
-  host.window.host.input ^= 1u;
-  if (host.valid()) {
+  VirtualDeviceVsmRouteProof stamped = proof;
+  stamped.stamp_hi ^= 1u;
+  if (proof_matches(state, run, stamped))
     return false;
+  if (const auto *window = proof.window()) {
+    auto changed = *window;
+    changed.input_bytes ^= 1u;
+    const VirtualDeviceVsmRouteProof snapshot{
+        rund::compute::detail::VirtualDeviceVsmWindowRing{changed},
+        proof.stamp_hi, proof.stamp_lo};
+    return snapshot.valid() && !proof_matches(state, run, snapshot);
   }
-  VirtualDeviceVsmRouteProof frame = proof;
-  if (proof.kind ==
-      rund::compute::detail::VirtualDeviceVsmRouteKind::WindowRing) {
-    frame.window.frame_capacity ^= 1u;
-  } else {
-    frame.frame_capacity = 0u;
-  }
-  if (frame.valid()) {
-    return false;
-  }
-  if (proof.kind !=
-      rund::compute::detail::VirtualDeviceVsmRouteKind::WindowRing) {
-    return true;
-  }
-  VirtualDeviceVsmRouteProof snapshot = proof;
-  snapshot.window.input_bytes ^= 1u;
-  return snapshot.valid() && !proof_matches(state, run, snapshot);
+  return true;
 }
 
 thread_local RouteObservation *active_observation{};

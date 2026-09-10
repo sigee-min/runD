@@ -12,7 +12,7 @@ VirtualRunDispatchResult dispatch_poolless(
     return VirtualRunDispatchResult{.status = Status::success(),
                                     .direct_terminal = true,
                                     .empty = true,
-                                    .reduction_pending = run.reduction};
+                                    .reduction_pending = run.reduction()};
   }
   if (!candidate.device_vsm()) {
     return VirtualRunDispatchResult{

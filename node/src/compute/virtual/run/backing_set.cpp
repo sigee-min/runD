@@ -130,10 +130,10 @@ Status stage_pool(VirtualPipelineState &state, const VirtualRunProjection &run,
     return Status::fail(Reason::PipelineBusy);
   }
 
-  resources.page_count = run.graph_execution ? run.active.graph.page_count()
-                                             : run.active.stream.page_count();
+  resources.page_count = run.graph_execution() ? run.active.graph.page_count()
+                                               : run.active.stream.page_count();
   const bool retry =
-      run.graph_execution && state.pipeline->device != nullptr &&
+      run.graph_execution() && state.pipeline->device != nullptr &&
       state.pipeline->device->backend == Backend::Cpu &&
       state.cpu_receipts != nullptr &&
       persist_owner.has_cpu_graph_retry(state.cpu_receipts->domain());
@@ -142,7 +142,7 @@ Status stage_pool(VirtualPipelineState &state, const VirtualRunProjection &run,
              residency::TiledGraphResourceCapacity * residency::Pool::BankCount>
       views{};
   std::size_t view_count = 0u;
-  if (run.graph_execution && !retry) {
+  if (run.graph_execution() && !retry) {
     for (const residency::PoolPhysicalOwner &owner : pool.graph_owners) {
       for (const residency::FrameRegion region : owner.cache_regions) {
         if (view_count >= views.size()) {
@@ -155,7 +155,7 @@ Status stage_pool(VirtualPipelineState &state, const VirtualRunProjection &run,
   }
 
   if (resources.page_count == 0u) {
-    if (run.graph_execution && !retry) {
+    if (run.graph_execution() && !retry) {
       const residency::registry_model::ViewCommitPlan plan{
           .kind = residency::registry_model::ViewCommitPlan::Kind::Graph,
           .activation_regions =
@@ -180,7 +180,7 @@ Status stage_pool(VirtualPipelineState &state, const VirtualRunProjection &run,
   const std::uint64_t last_page = resources.page_count - 1u;
   residency::CacheKey last{};
   const bool projected =
-      run.graph_execution
+      run.graph_execution()
           ? residency::project_graph_cache_key(
                 run.graph_input,
                 residency::PageKey{.resource = run.graph_input.resource,
@@ -194,7 +194,7 @@ Status stage_pool(VirtualPipelineState &state, const VirtualRunProjection &run,
   if (retry) {
     execution_frozen = projected;
     host_frozen = projected;
-  } else if (projected && run.graph_execution) {
+  } else if (projected && run.graph_execution()) {
     const residency::TiledGraphPlan *const graph =
         state.pipeline->residency != nullptr &&
                 state.pipeline->residency->graph_tiled()

@@ -80,7 +80,8 @@ rund::AccelCheck PrepareVulkanGather(const rund::AccelDevice &pick,
                               kGatherDescriptorCount, 1u);
   const GatherParams params_value{
       plan.element_count, plan.source_count,
-      static_cast<rund::kernel::u32>(plan.count_source), 0u};
+      static_cast<rund::kernel::u32>(plan.count_source),
+      plan.preflight.group_count};
   if (raw->control_pipeline == nullptr || raw->gather_pipeline == nullptr ||
       !CreateVulkanGatherBuffers(*adapter, *raw, params_value)) {
     return rund::AccelCheck{false, VulkanLastError(adapter)};

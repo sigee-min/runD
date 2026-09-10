@@ -52,8 +52,8 @@ seal_virtual_execution(const VirtualPipelineState &state,
   SealResult invalid{};
   if (pipeline == nullptr || pipeline->device == nullptr ||
       pipeline->residency_pool == nullptr ||
-      pipeline->device->backend == Backend::Cpu || run.reduction || run.scan ||
-      run.graph_reduction ||
+      pipeline->device->backend == Backend::Cpu || run.reduction() ||
+      run.scan() || run.graph_reduction() ||
       (state.geometry.route != VirtualRoute::Pointwise &&
        state.geometry.route != VirtualRoute::Window) ||
       run.active.stream.page_count() == 0u || run.frame_capacity == 0u ||

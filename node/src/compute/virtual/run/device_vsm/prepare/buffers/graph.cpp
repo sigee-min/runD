@@ -41,15 +41,15 @@ bool graph_resident_bindings_match(
       state.output->backing == nullptr) {
     return false;
   }
-  if (owner.route_proof.kind != VirtualDeviceVsmRouteKind::GraphResident ||
-      (owner.route_proof.endpoint != VirtualDeviceVsmEndpoint::Resident &&
-       owner.route_proof.endpoint != VirtualDeviceVsmEndpoint::Staged)) {
+  if (owner.route_proof.kind() != VirtualDeviceVsmRouteKind::GraphResident ||
+      (owner.route_proof.endpoint() != VirtualDeviceVsmEndpoint::Resident &&
+       owner.route_proof.endpoint() != VirtualDeviceVsmEndpoint::Staged)) {
     return false;
   }
   EndpointSet endpoints{};
   const EndpointMode observed = classify_endpoints(state, run, endpoints);
   const EndpointMode sealed =
-      owner.route_proof.endpoint == VirtualDeviceVsmEndpoint::Resident
+      owner.route_proof.endpoint() == VirtualDeviceVsmEndpoint::Resident
           ? EndpointMode::Resident
           : EndpointMode::Staged;
   if (observed != sealed) {

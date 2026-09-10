@@ -19,7 +19,7 @@ struct ByteRange final {
 struct FootprintEpoch final {
   std::uint32_t node{};
   std::uint32_t tile{};
-  std::vector<PageDemand> uses;
+  std::vector<PageDemand> uses{};
 };
 
 struct WindowFootprint final {

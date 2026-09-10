@@ -36,7 +36,7 @@ struct TiledGraphResourceInput final {
   std::uint64_t logical_bytes{};
   GraphResourceKind kind{GraphResourceKind::Internal};
   ResourcePersistence persistence{ResourcePersistence::Backing};
-  std::vector<GraphPageRemap> remaps;
+  std::vector<GraphPageRemap> remaps{};
   [[nodiscard]] constexpr bool
   operator==(const TiledGraphResourceInput &) const noexcept = default;
 };
@@ -129,9 +129,9 @@ struct TiledGraphStage final {
   std::uint32_t node{};
   StageDomain domain{StageDomain::Tile};
   std::uint16_t active_count_input{NoGraphControl};
-  std::vector<TiledGraphPort> ports;
-  std::vector<TiledGraphStageDependency> same_batch_predecessors;
-  std::vector<TiledGraphStageDependency> prior_batch_predecessors;
+  std::vector<TiledGraphPort> ports{};
+  std::vector<TiledGraphStageDependency> same_batch_predecessors{};
+  std::vector<TiledGraphStageDependency> prior_batch_predecessors{};
   [[nodiscard]] bool
   operator==(const TiledGraphStage &) const noexcept = default;
 };
@@ -139,7 +139,7 @@ struct TiledGraphStage final {
 struct TiledGraphStageInput final {
   std::uint32_t node{};
   StageDomain domain{StageDomain::Tile};
-  std::vector<TiledGraphPortInput> ports;
+  std::vector<TiledGraphPortInput> ports{};
   [[nodiscard]] bool
   operator==(const TiledGraphStageInput &) const noexcept = default;
 };
@@ -153,8 +153,8 @@ struct TiledGraphPlanInput final {
   std::uint64_t prefetch_distance{};
   std::uint64_t graph_fingerprint_hi{};
   std::uint64_t graph_fingerprint_lo{};
-  std::vector<TiledGraphResourceInput> resources;
-  std::vector<TiledGraphStageInput> stages;
+  std::vector<TiledGraphResourceInput> resources{};
+  std::vector<TiledGraphStageInput> stages{};
 };
 
 struct PlanResult;

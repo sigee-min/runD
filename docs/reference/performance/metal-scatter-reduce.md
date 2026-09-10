@@ -21,11 +21,14 @@ reordering 64-bit or Fixed saturating arithmetic. Preflight's shared minimum
 uses one atomic word and two barriers instead of a 256-word array and nine
 barriers. The associative source emitter omits the unused ordered-fold helper.
 
-Declared preflight threadgroup storage changes from 1024 to 4 bytes. Retained
-device scratch, three dispatches, one submission and public graph identity do
-not change. These are source/contract bounds, not measured occupancy or total
-application memory reductions. One-workgroup input preflight remains and limits
-scaling; no claim is made that this change removes all serialized GPU work.
+At this measurement point, declared preflight threadgroup storage changed from
+1024 to 4 bytes. Retained device scratch, three dispatches, one submission and
+public graph identity did not change. These are source/contract bounds, not
+measured occupancy or total application memory reductions. One-workgroup input
+preflight still limited scaling at that point. The subsequent
+[Indexed Execution](./indexed-execution.md) change replaces large-input
+preflight with bounded parallel groups; the measurements below describe the
+earlier cohort-aggregation change only.
 
 ## Measurement method
 

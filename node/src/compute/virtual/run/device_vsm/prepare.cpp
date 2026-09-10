@@ -53,7 +53,6 @@ Status prepare_accel_virtual_execution_device_vsm(
   }
   state.device_vsm_product_cache = owner;
   prepared.owner = std::move(owner);
-  prepared.page_count = proof.page_count;
   prepared.reason = "ok";
   prepared.proof = proof;
   prepared.origin = origin;

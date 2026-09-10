@@ -16,7 +16,7 @@ struct ParsedBinding {
   std::string name;
   u32 element_bytes = 0u;
   bool floating_point_param = false;
-  std::vector<u8> value_bytes;
+  std::vector<u8> value_bytes{};
 };
 
 struct ParsedNode {

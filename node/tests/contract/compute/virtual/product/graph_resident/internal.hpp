@@ -173,12 +173,12 @@ struct U32Case final {
 };
 
 struct Preparation final {
-  std::unique_ptr<Case> value;
+  std::unique_ptr<Case> value{};
   int reason{};
 };
 
 struct U32Preparation final {
-  std::unique_ptr<U32Case> value;
+  std::unique_ptr<U32Case> value{};
   int reason{};
 };
 

@@ -1,6 +1,8 @@
 #include "rolling.hpp"
 
-#if defined(RUND_NODE_TEST_BACKEND_CPU) || defined(RUND_NODE_TEST_BACKEND_METAL)
+#if !defined(RUND_NODE_HAVE_VULKAN_SDK) ||                                     \
+    defined(RUND_NODE_TEST_BACKEND_CPU) ||                                     \
+    defined(RUND_NODE_TEST_BACKEND_METAL)
 
 #else
 

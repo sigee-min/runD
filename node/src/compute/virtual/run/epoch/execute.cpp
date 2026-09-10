@@ -5,8 +5,8 @@ namespace rund::compute::detail {
 Status execute_virtual_epoch_pipeline(VirtualEpochContext &context) noexcept {
   const bool defer = context.transaction != nullptr &&
                      context.transaction->cursor.active &&
-                     context.scan != nullptr && context.run.scan &&
-                     !context.run.graph_execution;
+                     context.scan != nullptr && context.run.scan() &&
+                     !context.run.graph_execution();
   const std::uint64_t control_generation =
       defer ? context.transaction->cursor.control_generation[context.bank]
             : PipelineNoGeneration;

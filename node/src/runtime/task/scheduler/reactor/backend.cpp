@@ -10,6 +10,8 @@
 #include "scratch.hpp"
 #include "stats.hpp"
 
+#include <exception>
+
 namespace rund::node {
 namespace {
 
@@ -25,6 +27,7 @@ EnsureBackendOpen(ReactorRuntime &reactor) noexcept {
   case ReactorPlatformOpDisposition::Failed:
     return ReactorApplyResult::failed();
   }
+  std::terminate();
 }
 
 } // namespace

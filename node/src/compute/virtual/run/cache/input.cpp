@@ -9,8 +9,8 @@ BufferWriteView residency_input_view(PipelineState &pipeline,
       pipeline.device->ops == nullptr ||
       pipeline.device->ops->host_write == nullptr ||
       pipeline.residency_pool == nullptr ||
-      pipeline.residency_stage != PipelineResidencyStage::Direct || run.scan ||
-      run.reduction || run.graph_reduction ||
+      pipeline.residency_stage != PipelineResidencyStage::Direct ||
+      run.scan() || run.reduction() || run.graph_reduction() ||
       pipeline.residency_bank >= residency::Pool::BankCount ||
       pipeline.residency_input >= pipeline.resources.size()) {
     return {};

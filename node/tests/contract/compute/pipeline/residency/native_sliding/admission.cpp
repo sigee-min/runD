@@ -144,7 +144,6 @@ namespace rund_node_test_pipeline_residency::native_sliding {
   SlidingWait wait{};
   wait.coordinate_count = 1u;
   wait.stride = 1u;
-  const auto original_project = ProjectSliding;
   const auto invalid_project =
       +[](void *const raw, const std::uint64_t c, const std::uint64_t turn,
           const std::uint8_t slot,
@@ -155,8 +154,7 @@ namespace rund_node_test_pipeline_residency::native_sliding {
       };
   auto request = MakeRequest(fixture, wait, 1u);
   request.project = invalid_project;
-  if (original_project == nullptr ||
-      !accel::SubmitPreparedKernelPipelineSliding(fixture.context, request,
+  if (!accel::SubmitPreparedKernelPipelineSliding(fixture.context, request,
                                                   fixture.control)
            .ok ||
       !WaitForFinal(wait)) {

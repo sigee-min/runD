@@ -1,3 +1,4 @@
+#include "gather.hpp"
 #include "local.hpp"
 #include "scatter.hpp"
 
@@ -178,6 +179,8 @@ template <class T>
   return bounded_run && bounded_run->run() &&
          ReadExact(*bounded_run, *output_buffer, observed) &&
          observed == std::array<std::int32_t, 4u>{0, 16, 20, 0} &&
+         CheckGatherPreflight<std::uint32_t>(device) &&
+         CheckGatherPreflight<std::uint64_t>(device) &&
          CheckScatterCohortTelemetry<std::uint32_t>(device) &&
          CheckScatterCohortTelemetry<std::uint64_t>(device);
 }

@@ -32,6 +32,48 @@ templates and an algebraic projection keyed by global coordinates such as
 `(epoch, stage, phase)`. Physical journals retain global coordinate tags so a
 cyclic slot can never authenticate stale work.
 
+## Prepared Virtual topology ownership
+
+`VirtualRunProjection` freezes one `VirtualRunTopology` at its ordinary,
+multiple-input, or graph projection boundary. Direct, LocalWindow, Reduction,
+Scan, MultiPointwise, MultiScan, GraphPointwise and GraphReduction are exclusive
+states. Graph/reduction/scan/poolless queries are derived from that value;
+Scan inclusivity comes from the existing operation. There are no independent
+`reduction`, `graph_execution`, `graph_reduction`, `scan`, `inclusive_scan`,
+`multi_pointwise`, or `multi_scan` fields. Dispatch, epoch projection, admission,
+cache publication and native preparation all consume the same topology.
+Pipeline-owner selection accepts only this topology, instead of constructing
+a mostly empty full invocation to carry two selection flags.
+
+The physical DeviceVsm decision is separately owned by
+`compute/virtual/run/device_vsm/route/proof.hpp`. Its proof contains a stamp
+and exactly one value alternative: Direct, StagedLoop, WindowRing, or
+GraphResident. Direct has no explicit endpoint; StagedLoop always means
+Staged. Only WindowRing owns a `VirtualWindowPreflight`, from which its page
+count, frame capacity and endpoint are derived. Other alternatives own their
+own bounded shape; GraphResident also owns its endpoint. The proof has no
+parallel route tag, endpoint, page count or default Window snapshot. Its
+variant storage is inline, has no heap allocation, and is bounded to 120
+bytes. Window byte arithmetic, nonwrapping capacity and host/device ownership
+laws remain checked before native admission.
+
+Probe constructs the alternative before side effects; the stamp authenticates
+its exact value. Admission, cold/warm preparation, resident matching and
+staging consume that same proof. The prepared handoff gets its page count
+from the proof, with no second count field. Native credentials and Authority
+leases retain their existing owners; a topology value does not authorize a
+lease or publication. The stamp serialization remains unchanged, including
+zero Window fields for non-Window routes, so this internal layout change does
+not alter identity or numeric behavior.
+
+The CPU route-selection contract exercises every proof alternative, invalid
+shape, unsigned stamp, byte-overflow and storage mismatch. Native route
+observers additionally require a changed stamp or valid-but-altered Window
+snapshot to fail `proof_matches`; existing product contracts execute the
+cold/warm routes and their failure/publication paths. This refactor changes
+representation and consumers of existing routes; native availability remains
+as specified in the topology sections below.
+
 ## Shared terminal algebra
 
 All topologies share four terminal laws:

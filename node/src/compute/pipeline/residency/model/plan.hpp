@@ -55,7 +55,7 @@ private:
 
 struct PlanResult final {
   Failure failure{Failure::Invalid};
-  ResidencyPlan plan;
+  ResidencyPlan plan{};
   [[nodiscard]] explicit operator bool() const noexcept {
     return failure == Failure::None;
   }

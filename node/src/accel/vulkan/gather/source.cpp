@@ -19,7 +19,7 @@ layout(set = 0, binding = 0, std430) readonly buffer Params {
   uint64_t element_count;
   uint64_t source_count;
   uint count_source;
-  uint reserved;
+  uint validation_groups;
 } params;
 layout(set = 0, binding = 1, std430) readonly buffer Values {
 )glsl") ||
@@ -64,11 +64,22 @@ void main() {
   const uint tid = gl_LocalInvocationID.x;
   const uint64_t logical = logical_count();
   uint local_invalid = 0xffffffffu;
+  const bool chunks = gl_NumWorkGroups.x > 1u;
   if (logical <= params.element_count) {
-    for (uint ordinal = tid; uint64_t(ordinal) < logical;) {
-      if (uint64_t(indices[ordinal]) >= params.source_count) { local_invalid = min(local_invalid, ordinal); }
-      if (ordinal > 0xffffffffu - 256u) { break; }
-      ordinal += 256u;
+    if (!chunks && params.validation_groups > 1u) {
+      for (uint partial = tid; partial < params.validation_groups;
+           partial += 256u) {
+        local_invalid = min(local_invalid, status[2u + partial]);
+      }
+    } else {
+      const uint step = gl_NumWorkGroups.x * 256u;
+      for (uint ordinal = gl_GlobalInvocationID.x; uint64_t(ordinal) < logical;) {
+        if (uint64_t(indices[ordinal]) >= params.source_count) {
+          local_invalid = min(local_invalid, ordinal);
+        }
+        if (ordinal > 0xffffffffu - step) { break; }
+        ordinal += step;
+      }
     }
   }
   invalids[tid] = local_invalid;
@@ -78,6 +89,10 @@ void main() {
     barrier();
   }
   if (tid != 0u) { return; }
+  if (chunks) {
+    status[2u + gl_WorkGroupID.x] = invalids[0];
+    return;
+  }
   status[0] = 0u; status[1] = uint(min(logical, uint64_t(0xffffffffu)));
   indirect_args[0] = 0u; indirect_args[1] = 1u; indirect_args[2] = 1u; indirect_args[3] = 0u;
   if (logical > params.element_count) { status[0] = 1u; status[1] = uint(params.element_count); return; }

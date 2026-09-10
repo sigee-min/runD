@@ -8,7 +8,6 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <queue>
 #include <set>
 #include <tuple>
 #include <utility>
@@ -202,18 +201,17 @@ place_ordinary(const std::span<const graph::Resource> resources,
   }
   result = {};
   std::fill(offsets.begin(), offsets.end(), 0u);
-  std::vector<Active> queue;
-  queue.reserve(ids.size());
-  std::priority_queue<Active, std::vector<Active>, std::greater<>> active{
-      std::greater<>{}, std::move(queue)};
+  std::vector<Active> active;
+  active.reserve(ids.size());
   Free free{page_bytes};
   std::vector<bool> consumed(resources.size());
   for (const std::uint32_t id : ids) {
     const graph::Resource &value = resources[id - 1u];
     const Lifetime lifetime = lifetimes[id - 1u];
-    while (!active.empty() && active.top().last < lifetime.first) {
-      const Active expired = active.top();
-      active.pop();
+    while (!active.empty() && active.front().last < lifetime.first) {
+      const Active expired = active.front();
+      std::pop_heap(active.begin(), active.end(), std::greater<>{});
+      active.pop_back();
       if (consumed[expired.id - 1u]) {
         continue;
       }
@@ -250,10 +248,11 @@ place_ordinary(const std::span<const graph::Resource> resources,
       }
     }
     offsets[id - 1u] = offset;
-    active.push(Active{.last = lifetime.last,
-                       .id = id,
-                       .offset = offset,
-                       .bytes = value.bytes});
+    active.push_back(Active{.last = lifetime.last,
+                            .id = id,
+                            .offset = offset,
+                            .bytes = value.bytes});
+    std::push_heap(active.begin(), active.end(), std::greater<>{});
   }
   return true;
 }

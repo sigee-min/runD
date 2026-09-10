@@ -111,8 +111,9 @@ Status upload(
                                         const AccelDeviceState &native,
                                         const std::uint64_t bytes) noexcept {
   if (run.owner == nullptr ||
-      run.owner->route_proof.kind == VirtualDeviceVsmRouteKind::GraphResident ||
-      run.owner->route_proof.endpoint != VirtualDeviceVsmEndpoint::Staged ||
+      run.owner->route_proof.kind() ==
+          VirtualDeviceVsmRouteKind::GraphResident ||
+      run.owner->route_proof.endpoint() != VirtualDeviceVsmEndpoint::Staged ||
       run.input_count == 0u) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -144,8 +145,9 @@ Status upload(
                                   const std::uint64_t bytes) noexcept {
   if (run.projection == nullptr || run.owner == nullptr ||
       run.owner->proof == nullptr ||
-      run.owner->route_proof.kind != VirtualDeviceVsmRouteKind::GraphResident ||
-      run.owner->route_proof.endpoint != VirtualDeviceVsmEndpoint::Staged ||
+      run.owner->route_proof.kind() !=
+          VirtualDeviceVsmRouteKind::GraphResident ||
+      run.owner->route_proof.endpoint() != VirtualDeviceVsmEndpoint::Staged ||
       run.owner->proof->topology !=
           node::accel::detail::DeviceVsmTopology::GraphResident ||
       run.output == nullptr ||
@@ -263,10 +265,11 @@ Status stage_input(DeviceVsmProductRun &run) noexcept {
   }
   const std::uint64_t begin = pipeline_clock();
   const bool graph_staged =
-      run.input_count > 1u && run.projection->graph_execution &&
+      run.input_count > 1u && run.projection->graph_execution() &&
       run.owner->proof != nullptr &&
-      run.owner->route_proof.kind == VirtualDeviceVsmRouteKind::GraphResident &&
-      run.owner->route_proof.endpoint == VirtualDeviceVsmEndpoint::Staged &&
+      run.owner->route_proof.kind() ==
+          VirtualDeviceVsmRouteKind::GraphResident &&
+      run.owner->route_proof.endpoint() == VirtualDeviceVsmEndpoint::Staged &&
       run.owner->proof->topology ==
           node::accel::detail::DeviceVsmTopology::GraphResident &&
       std::all_of(run.owner->resident_inputs.begin(),
@@ -280,8 +283,9 @@ Status stage_input(DeviceVsmProductRun &run) noexcept {
     return status;
   }
   const bool mapped =
-      run.owner->route_proof.kind != VirtualDeviceVsmRouteKind::GraphResident &&
-      run.owner->route_proof.endpoint == VirtualDeviceVsmEndpoint::Staged;
+      run.owner->route_proof.kind() !=
+          VirtualDeviceVsmRouteKind::GraphResident &&
+      run.owner->route_proof.endpoint() == VirtualDeviceVsmEndpoint::Staged;
   if (mapped) {
     const Status status = stage_staged_input(run, *native, bytes);
     run.stats->pipeline.residency.backing_io_ns += pipeline_clock() - begin;

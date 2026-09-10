@@ -21,7 +21,7 @@ bool project_virtual_epoch(const VirtualRunProjection &run,
   std::uint64_t active_output_bytes = 0u;
   if (!kernel::checked::mul(pages.first_page, run.input_payload_bytes,
                             projection.input_offset) ||
-      (!run.reduction &&
+      (!run.reduction() &&
        !kernel::checked::mul(pages.first_page, run.output_payload_bytes,
                              projection.output_offset)) ||
       !kernel::checked::mul(pages.page_count, run.input_payload_bytes,
@@ -29,7 +29,8 @@ bool project_virtual_epoch(const VirtualRunProjection &run,
       !kernel::checked::mul(pages.page_count, run.output_payload_bytes,
                             active_output_bytes) ||
       projection.input_offset >= run.active.input_bytes ||
-      (!run.reduction && projection.output_offset >= run.active.output_bytes) ||
+      (!run.reduction() &&
+       projection.output_offset >= run.active.output_bytes) ||
       active_input_bytes > std::numeric_limits<std::size_t>::max() ||
       active_output_bytes > std::numeric_limits<std::size_t>::max()) {
     return false;
@@ -37,7 +38,7 @@ bool project_virtual_epoch(const VirtualRunProjection &run,
   projection.logical_input_bytes = static_cast<std::size_t>(std::min(
       active_input_bytes, run.active.input_bytes - projection.input_offset));
   projection.logical_output_bytes = static_cast<std::size_t>(
-      run.reduction
+      run.reduction()
           ? active_output_bytes
           : std::min(active_output_bytes,
                      run.active.output_bytes - projection.output_offset));
@@ -70,7 +71,7 @@ bool project_virtual_input_page(
   }
   const std::uint64_t suffix_elements =
       run.input_frame_elements - prefix_elements - payload_elements;
-  if (run.scan) {
+  if (run.scan()) {
     std::uint64_t logical_offset = 0u;
     std::uint64_t target_offset = 0u;
     std::uint64_t transfer_elements =
@@ -225,8 +226,8 @@ residency::CacheKey virtual_output_cache_key(
       .materialization_hi = run.result_identity_hi,
       .materialization_lo = run.result_identity_lo,
       .page = page,
-      .domain = run.reduction ? residency::CacheDomain::Transient
-                              : residency::CacheDomain::Backing,
+      .domain = run.reduction() ? residency::CacheDomain::Transient
+                                : residency::CacheDomain::Backing,
   };
 }
 

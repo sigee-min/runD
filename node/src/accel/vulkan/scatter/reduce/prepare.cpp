@@ -141,9 +141,14 @@ rund::AccelCheck PrepareVulkanScatterReduce(
     return {false, "compute_resident_bytes_invalid"};
   }
   const ScatterReduceParams params{
-      plan.element_count, plan.output_count,
-      static_cast<std::uint32_t>(plan.count_source), 0u, values.base,
-      indices.base, count.base, output.base};
+      plan.element_count,
+      plan.output_count,
+      static_cast<std::uint32_t>(plan.count_source),
+      plan.preflight.group_count,
+      values.base,
+      indices.base,
+      count.base,
+      output.base};
   if (raw->control_pipeline == nullptr || raw->init_pipeline == nullptr ||
       raw->fold_pipeline == nullptr ||
       !CreateVulkanBuffer(*adapter, sizeof(params),

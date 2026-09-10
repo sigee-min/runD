@@ -1,5 +1,7 @@
 #pragma once
 
+#include "proof.hpp"
+
 #include "../model.hpp"
 #include "../route.hpp"
 
@@ -45,8 +47,6 @@ extern std::mutex protocol_mutex;
 extern std::condition_variable protocol_cv;
 extern ObserverProtocol protocol;
 
-[[nodiscard]] bool proof_tamper_rejected(
-    const VirtualDeviceVsmRouteProof &) noexcept;
 [[nodiscard]] bool incompatible_owners(std::uint32_t existing,
                                        std::uint32_t incoming) noexcept;
 

@@ -38,11 +38,11 @@ prepare_cold_owner(VirtualPipelineState &state, const VirtualRunProjection &run,
       return {};
     }
     const bool graph_resident =
-        proof.kind == VirtualDeviceVsmRouteKind::GraphResident;
+        proof.kind() == VirtualDeviceVsmRouteKind::GraphResident;
     const bool window_ring =
-        proof.kind == VirtualDeviceVsmRouteKind::WindowRing;
+        proof.kind() == VirtualDeviceVsmRouteKind::WindowRing;
     const bool graph_pointwise =
-        run.graph_execution && !run.graph_reduction &&
+        run.graph_execution() && !run.graph_reduction() &&
         state.geometry.route == VirtualRoute::GraphPointwise && !graph_resident;
     storage::Reservation capacity{};
     status = reserve_device_vsm_capacity(state, capacity);
@@ -53,8 +53,8 @@ prepare_cold_owner(VirtualPipelineState &state, const VirtualRunProjection &run,
     auto owner = std::make_shared<DeviceVsmProductOwner>();
     owner->capacity = std::move(capacity);
     owner->route_proof = proof;
-    if (!select_pipelines(state, run, owner->pipelines, owner->pipeline_stages,
-                          owner->pipeline_count)) {
+    if (!select_pipelines(state, run.topology, owner->pipelines,
+                          owner->pipeline_stages, owner->pipeline_count)) {
       status = Status::fail(Reason::BackendUnsupported);
       reason = "compute_backend_unsupported";
       return {};
@@ -111,12 +111,12 @@ prepare_cold_owner(VirtualPipelineState &state, const VirtualRunProjection &run,
         .target_offset_bytes = run.input_prefix_bytes,
         .read_suffix_bytes = run.input_page_bytes - run.input_prefix_bytes -
                              run.input_payload_bytes,
-        .page_count = run.graph_execution ? run.active.graph.page_count()
-                                          : run.active.stream.page_count(),
+        .page_count = run.graph_execution() ? run.active.graph.page_count()
+                                            : run.active.stream.page_count(),
         .element_bytes = static_cast<std::uint32_t>(element_bytes),
     };
     accel::DeviceVsmGraphWavefrontProof graph_wavefront{};
-    if (run.graph_execution &&
+    if (run.graph_execution() &&
         !project_graph_wavefront(
             state.pipeline->residency->tiled_graph(), geometry.page_count,
             owner->pipeline_stages[0u],
@@ -167,10 +167,10 @@ prepare_cold_owner(VirtualPipelineState &state, const VirtualRunProjection &run,
     accel::DeviceVsmProofRequest proof_request{
         .pipeline = owner->pipelines[0u]->prepared,
         .peer_pipeline = graph_pointwise ? owner->pipelines[1u]->prepared
-                         : (graph_resident || run.graph_reduction)
+                         : (graph_resident || run.graph_reduction())
                              ? accel::PreparedKernelPipeline{}
                              : state.alternate_pipeline->prepared,
-        .graph_collective_pipeline = run.graph_reduction
+        .graph_collective_pipeline = run.graph_reduction()
                                          ? terminal_pipeline->prepared
                                          : accel::PreparedKernelPipeline{},
         .graph_pointwise_page_map = graph_pointwise_page_map,
@@ -185,11 +185,11 @@ prepare_cold_owner(VirtualPipelineState &state, const VirtualRunProjection &run,
                 : window_ring  ? accel::DeviceVsmProjectionKind::WindowRing
                 : graph_pointwise
                     ? accel::DeviceVsmProjectionKind::GraphPointwise
-                : run.graph_reduction
+                : run.graph_reduction()
                     ? accel::DeviceVsmProjectionKind::GraphMapReduce
-                : run.scan      ? accel::DeviceVsmProjectionKind::Scan
-                : run.reduction ? accel::DeviceVsmProjectionKind::Reduce
-                                : accel::DeviceVsmProjectionKind::Direct,
+                : run.scan()      ? accel::DeviceVsmProjectionKind::Scan
+                : run.reduction() ? accel::DeviceVsmProjectionKind::Reduce
+                                  : accel::DeviceVsmProjectionKind::Direct,
     };
     if (graph_pointwise) {
       proof_request.graph_pointwise_pipeline_count =

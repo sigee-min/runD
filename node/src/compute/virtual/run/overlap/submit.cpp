@@ -56,7 +56,7 @@ finish_epoch(PreparedEpoch &prepared, const VirtualRunProjection &run,
                                                 pool.output_frame_count);
       }
     }
-    return run.reduction
+    return run.reduction()
                ? pool.authority().begin_discard(keys, pool.first_output_frame,
                                                 pool.output_frame_count)
                : pool.authority().begin_writeback(keys, pool.first_output_frame,
@@ -110,7 +110,7 @@ finish_epoch(PreparedEpoch &prepared, const VirtualRunProjection &run,
     return folded ? retained : folded;
   }
   if constexpr (UseAccelerator) {
-    if (!run.reduction) {
+    if (!run.reduction()) {
       const BufferReadView view = residency_output_view(*prepared.pipeline);
       const residency::EpochLease outputs = execution_output_lease(prepared);
       prepared.coherent_output = static_cast<bool>(view);

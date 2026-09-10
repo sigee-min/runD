@@ -85,16 +85,19 @@ Reject(const GatherDesc &desc, const u64 element_bytes, const u64 index_bytes,
         gather_plan_detail::kStatusBytes, 0u, "compute_gather_temp_overflow");
   }
 
+  const auto preflight = PlanIndexPreflight(desc.element_count);
   return GatherPlan{
       .element = desc.element,
       .element_count = desc.element_count,
       .source_count = desc.source_count,
       .element_bytes = element_bytes,
       .index_bytes = gather_plan_detail::kIndexBytes,
-      .status_bytes = gather_plan_detail::kStatusBytes,
-      .temp_bytes =
-          gather_plan_detail::kStatusBytes + gather_plan_detail::kIndirectBytes,
-      .pass_count = 2u,
+      .preflight = preflight,
+      .status_bytes =
+          gather_plan_detail::kStatusBytes + preflight.partial_bytes,
+      .temp_bytes = gather_plan_detail::kStatusBytes + preflight.partial_bytes +
+                    gather_plan_detail::kIndirectBytes,
+      .pass_count = preflight.pass_count + 1u,
       .count_source = desc.count_source,
       .ok = true,
       .reason = "ok",
@@ -109,6 +112,7 @@ GatherPlanMatchesDesc(const GatherDesc &desc, const GatherPlan &plan) noexcept {
          plan.source_count == expected.source_count &&
          plan.element_bytes == expected.element_bytes &&
          plan.index_bytes == expected.index_bytes &&
+         plan.preflight == expected.preflight &&
          plan.status_bytes == expected.status_bytes &&
          plan.temp_bytes == expected.temp_bytes &&
          plan.pass_count == expected.pass_count &&

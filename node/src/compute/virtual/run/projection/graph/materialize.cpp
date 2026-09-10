@@ -182,9 +182,8 @@ bool materialize_virtual_graph_projection(
       .output_payload_bytes = inputs.output_page_bytes,
       .input_frame_elements = geometry.input_frame_elements,
       .device_vsm_required = geometry.device_vsm_required,
-      .reduction = inputs.graph_reduction,
-      .graph_execution = true,
-      .graph_reduction = inputs.graph_reduction,
+      .topology = inputs.graph_reduction ? VirtualRunTopology::GraphReduction
+                                         : VirtualRunTopology::GraphPointwise,
       .input_type = inputs.input->type,
       .output_type = state.output->type,
       .operation = geometry.operation,

@@ -296,7 +296,7 @@ execute_virtual_accel_overlap(VirtualPipelineState &state,
                               const VirtualRunProjection &run, Stats &stats,
                               ::rund::node::hash_detail::Fnv &output_hash,
                               VirtualReduction *const reduction) noexcept {
-  return run.reduction
+  return run.reduction()
              ? virtual_run_overlap::execute_overlap_impl<true, false>(
                    state, input, output, run, stats, output_hash, reduction)
              : virtual_run_overlap::execute_overlap_impl<true, true>(

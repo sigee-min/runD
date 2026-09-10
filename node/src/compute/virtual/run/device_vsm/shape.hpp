@@ -20,14 +20,16 @@ namespace rund::compute::detail::device_vsm_product_detail {
 [[nodiscard]] inline bool
 staged_loop_shape(const VirtualPipelineState &state,
                   const VirtualRunProjection &run) noexcept {
-  return !run.device_vsm_required && !run.graph_execution &&
-         !run.graph_reduction && !run.reduction &&
-         !run.scan && !run.multi_pointwise && !run.multi_scan &&
+  return !run.device_vsm_required && !run.graph_execution() &&
+         !run.graph_reduction() && !run.reduction() && !run.scan() &&
+         !run.multi_pointwise() && !run.multi_scan() &&
          state.geometry.route == VirtualRoute::Pointwise &&
          run.input_count == 1u && state.input_count == 1u &&
          state.inputs[0u] != nullptr && state.output != nullptr &&
-         state.inputs[0u]->backing != nullptr && state.output->backing != nullptr &&
-         VirtualBackingAccess::resident(*state.inputs[0u]->backing) == nullptr &&
+         state.inputs[0u]->backing != nullptr &&
+         state.output->backing != nullptr &&
+         VirtualBackingAccess::resident(*state.inputs[0u]->backing) ==
+             nullptr &&
          VirtualBackingAccess::resident(*state.output->backing) == nullptr &&
          run.input_page_bytes != 0u &&
          run.input_page_bytes == run.input_payload_bytes &&

@@ -40,6 +40,23 @@ int GatherShape() {
   TEST_ASSERT(u64_plan.status_bytes == 8u);
   TEST_ASSERT(u64_plan.pass_count == 2u);
   TEST_ASSERT(u64_plan.temp_bytes == 24u);
+  for (const rund::kernel::u64 capacity :
+       {65536ull, 65537ull, 1048576ull, 4194304ull, 4294967295ull}) {
+    auto desc = U32Gather();
+    desc.element_count = capacity;
+    const auto plan = rund::kernel::PlanGather(desc);
+    TEST_ASSERT(plan.ok);
+    TEST_ASSERT(plan.preflight.group_count >= 1u);
+    TEST_ASSERT(plan.preflight.group_count <= 1024u);
+    TEST_ASSERT(plan.preflight.partial_bytes <= 4096u);
+    TEST_ASSERT(plan.pass_count == (capacity <= 65536u ? 2u : 3u));
+    TEST_ASSERT(plan.status_bytes == 8u + plan.preflight.partial_bytes);
+    TEST_ASSERT(plan.temp_bytes == plan.status_bytes + 16u);
+    TEST_ASSERT(rund::kernel::GatherPlanMatchesDesc(desc, plan));
+    auto forged_shape = plan;
+    ++forged_shape.preflight.group_count;
+    TEST_ASSERT(!rund::kernel::GatherPlanMatchesDesc(desc, forged_shape));
+  }
   return 0;
 }
 

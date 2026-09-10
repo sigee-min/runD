@@ -8,6 +8,8 @@
 #include "../model.hpp"
 #include "../stats.hpp"
 
+#include <exception>
+
 namespace rund::node {
 namespace {
 
@@ -45,6 +47,7 @@ ProjectApplyFailure(const ReactorPlatformBatchResult &result,
   case ReactorPlatformBatchDisposition::Success:
     return ReactorApplyResult::success();
   }
+  std::terminate();
 }
 
 } // namespace

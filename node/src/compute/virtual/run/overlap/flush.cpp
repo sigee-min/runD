@@ -139,13 +139,12 @@ flush_epoch(PreparedEpoch &prepared, VirtualBacking &output,
       const std::span<const residency::CacheKey> host_keys{
           output_keys.data(), output_lease.bindings.size()};
       const auto begin_host_drain = [&]() noexcept {
-        return run.reduction
-                   ? pool.authority().begin_discard(
-                         host_keys, pool.first_host_output_frame,
-                         pool.host_output_frame_count)
-                   : pool.authority().begin_writeback(
-                         host_keys, pool.first_host_output_frame,
-                         pool.host_output_frame_count);
+        return run.reduction() ? pool.authority().begin_discard(
+                                     host_keys, pool.first_host_output_frame,
+                                     pool.host_output_frame_count)
+                               : pool.authority().begin_writeback(
+                                     host_keys, pool.first_host_output_frame,
+                                     pool.host_output_frame_count);
       };
       const residency::AuthorityResult writeback = begin_host_drain();
       if (!writeback ||
@@ -173,7 +172,7 @@ flush_epoch(PreparedEpoch &prepared, VirtualBacking &output,
     if (!consumed) {
       return consumed;
     }
-  } else if (run.reduction) {
+  } else if (run.reduction()) {
     return Status::fail(Reason::PipelineInvalid);
   } else {
     for (std::size_t index = 0u; index < prepared.binding_count; ++index) {

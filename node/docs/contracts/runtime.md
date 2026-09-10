@@ -433,6 +433,11 @@ directly to `Retired`. After the prior task epoch releases its `SlotSet` claim,
 the next exclusive slot claim resets this phase to `Live` before publishing the
 new task epoch.
 
+The internal admission, retirement and normalized reactor-result switches
+remain exhaustive. A value outside those closed enums is an invariant failure
+and terminates; it cannot fall through a non-void function. Valid admission,
+join, wait, retirement and backend-failure transitions are unchanged.
+
 This retirement phase is not the task's atomic terminal phase. The terminal
 phase arbitrates cancellation, backend finish, and logical completion without
 the task mutex; handle retirement arbitrates exactly one blocking join. Both

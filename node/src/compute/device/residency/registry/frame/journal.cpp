@@ -82,8 +82,8 @@ void rollback(std::vector<Authority::Frame> &frames, Authority::LeaseSlot &slot,
       info->token = epoch.token;
       info->generation = epoch.generation;
       info->flags = static_cast<std::uint8_t>(
-          (success ? CloseInfo::Success : 0u) |
-          (invalidate_all ? CloseInfo::Invalidate : 0u));
+          (success ? CloseInfo::Success : CloseInfo::Flag{}) |
+          (invalidate_all ? CloseInfo::Invalidate : CloseInfo::Flag{}));
       if (binding != nullptr) {
         info->binding_index =
             binding_index == std::numeric_limits<std::size_t>::max()
@@ -99,9 +99,11 @@ void rollback(std::vector<Authority::Frame> &frames, Authority::LeaseSlot &slot,
         info->binding_retire = binding->retire_on_success;
         info->binding_dirty = binding->dirty;
         info->flags = static_cast<std::uint8_t>(
-            info->flags | (binding->fetch ? CloseInfo::Fetch : 0u) |
-            (binding->relocated ? CloseInfo::Relocated : 0u) |
-            (binding->retire_on_success ? CloseInfo::Retire : 0u));
+            info->flags |
+            (binding->fetch ? CloseInfo::Fetch : CloseInfo::Flag{}) |
+            (binding->relocated ? CloseInfo::Relocated : CloseInfo::Flag{}) |
+            (binding->retire_on_success ? CloseInfo::Retire
+                                        : CloseInfo::Flag{}));
       }
       info->frame_index = frame;
       if (frame < frames.size()) {

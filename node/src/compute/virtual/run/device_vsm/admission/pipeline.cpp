@@ -2,16 +2,8 @@
 
 namespace rund::compute::detail::device_vsm_product_detail {
 
-std::shared_ptr<PipelineState>
-primary_pipeline(VirtualPipelineState &state,
-                 const VirtualRunProjection &run) noexcept {
-  return run.graph_reduction && state.device_vsm_semantic_pipeline != nullptr
-             ? state.device_vsm_semantic_pipeline
-             : state.pipeline;
-}
-
 bool select_pipelines(
-    VirtualPipelineState &state, const VirtualRunProjection &run,
+    VirtualPipelineState &state, const VirtualRunTopology topology,
     std::array<std::shared_ptr<PipelineState>, DeviceVsmPipelineCapacity>
         &pipelines,
     std::array<std::uint32_t, DeviceVsmPipelineCapacity> &stages,
@@ -19,15 +11,17 @@ bool select_pipelines(
   pipelines = {};
   stages = {};
   count = 0u;
+  const bool graph = topology == VirtualRunTopology::GraphPointwise ||
+                     topology == VirtualRunTopology::GraphReduction;
   const std::uint32_t terminal =
-      run.graph_execution && state.pipeline != nullptr &&
+      graph && state.pipeline != nullptr &&
               state.pipeline->residency != nullptr &&
               !state.pipeline->residency->tiled_graph().stages().empty()
           ? static_cast<std::uint32_t>(
                 state.pipeline->residency->tiled_graph().stages().size() - 1u)
           : 0u;
   const bool graph_pointwise =
-      run.graph_execution && !run.graph_reduction &&
+      topology == VirtualRunTopology::GraphPointwise &&
       state.geometry.route == VirtualRoute::GraphPointwise;
   if (graph_pointwise) {
     const std::size_t stage_count = static_cast<std::size_t>(terminal) + 1u;
@@ -43,9 +37,12 @@ bool select_pipelines(
     count = stage_count;
     return true;
   }
-  pipelines[0u] = primary_pipeline(state, run);
-  pipelines[1u] = run.graph_execution ? graph_terminal_pipeline(state, 0u)
-                                      : state.alternate_pipeline;
+  pipelines[0u] = topology == VirtualRunTopology::GraphReduction &&
+                          state.device_vsm_semantic_pipeline != nullptr
+                      ? state.device_vsm_semantic_pipeline
+                      : state.pipeline;
+  pipelines[1u] =
+      graph ? graph_terminal_pipeline(state, 0u) : state.alternate_pipeline;
   stages[0u] = 0u;
   stages[1u] = terminal;
   count = 2u;

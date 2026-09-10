@@ -1,6 +1,6 @@
 #pragma once
 
-#include <kernel/program/compute/model.hpp>
+#include <kernel/program/compute/indexed/preflight.hpp>
 
 namespace rund::kernel {
 
@@ -22,6 +22,7 @@ struct GatherPlan {
   u64 source_count = 0u;
   u64 element_bytes = 0u;
   u64 index_bytes = 0u;
+  IndexPreflightPlan preflight{};
   u64 status_bytes = 0u;
   u64 temp_bytes = 0u;
   u64 pass_count = 0u;

@@ -53,7 +53,7 @@ Status start_accel_virtual_execution_device_vsm(
   const Status snapshot =
       snapshot_pipelines({owner->pipelines.data(), owner->pipeline_count},
                          {owner->pipeline_stages.data(), owner->pipeline_count},
-                         projection.graph_execution, run.snapshot);
+                         projection.graph_execution(), run.snapshot);
   if (!snapshot) {
     owner->submitted = false;
     if (snapshot.reason() == Reason::DeviceLost) {

@@ -67,8 +67,9 @@ Status download(DeviceVsmProductRun &run, const AccelDeviceState &native,
                                          const AccelDeviceState &native,
                                          const std::uint64_t bytes) noexcept {
   if (run.owner == nullptr ||
-      run.owner->route_proof.kind == VirtualDeviceVsmRouteKind::GraphResident ||
-      run.owner->route_proof.endpoint != VirtualDeviceVsmEndpoint::Staged ||
+      run.owner->route_proof.kind() ==
+          VirtualDeviceVsmRouteKind::GraphResident ||
+      run.owner->route_proof.endpoint() != VirtualDeviceVsmEndpoint::Staged ||
       run.output == nullptr) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -95,8 +96,9 @@ stage_graph_staged_output(DeviceVsmProductRun &run,
                           const AccelDeviceState &native,
                           const std::uint64_t bytes) noexcept {
   if (run.owner == nullptr ||
-      run.owner->route_proof.kind != VirtualDeviceVsmRouteKind::GraphResident ||
-      run.owner->route_proof.endpoint != VirtualDeviceVsmEndpoint::Staged ||
+      run.owner->route_proof.kind() !=
+          VirtualDeviceVsmRouteKind::GraphResident ||
+      run.owner->route_proof.endpoint() != VirtualDeviceVsmEndpoint::Staged ||
       run.output == nullptr || run.output_staging.size() != bytes ||
       VirtualBackingAccess::resident(*run.output) != nullptr) {
     return Status::fail(Reason::PipelineInvalid);
@@ -132,8 +134,9 @@ Status stage_output(DeviceVsmProductRun &run) noexcept {
     return Status::fail(Reason::PipelineCapacity);
   }
   const bool graph_staged =
-      run.owner->route_proof.kind == VirtualDeviceVsmRouteKind::GraphResident &&
-      run.owner->route_proof.endpoint == VirtualDeviceVsmEndpoint::Staged;
+      run.owner->route_proof.kind() ==
+          VirtualDeviceVsmRouteKind::GraphResident &&
+      run.owner->route_proof.endpoint() == VirtualDeviceVsmEndpoint::Staged;
   if (graph_staged) {
     const std::uint64_t begin = pipeline_clock();
     const Status status = stage_graph_staged_output(run, *native, bytes);
@@ -141,8 +144,9 @@ Status stage_output(DeviceVsmProductRun &run) noexcept {
     return status;
   }
   const bool mapped =
-      run.owner->route_proof.kind != VirtualDeviceVsmRouteKind::GraphResident &&
-      run.owner->route_proof.endpoint == VirtualDeviceVsmEndpoint::Staged;
+      run.owner->route_proof.kind() !=
+          VirtualDeviceVsmRouteKind::GraphResident &&
+      run.owner->route_proof.endpoint() == VirtualDeviceVsmEndpoint::Staged;
   if (mapped) {
     const std::uint64_t begin = pipeline_clock();
     const Status status = stage_staged_output(run, *native, bytes);

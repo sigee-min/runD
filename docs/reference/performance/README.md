@@ -12,6 +12,7 @@ live compiler graph through its separate boundary.
 | --- | --- |
 | [GPU Workload Sizing](./gpu.md) | Arithmetic intensity, offload break-even, execution-shape guidance, and the interpretation of admitted GPU evidence. |
 | [Metal Scatter Reduce](./metal-scatter-reduce.md) | Current-source warm indexed fold contention comparison and shared-memory bounds. |
+| [Indexed Execution](./indexed-execution.md) | CPU Scatter Reduce scratch and native indexed preflight comparisons, Virtual route ownership, and claim-gate diagnostic limits. |
 | [Metal Histogram](./metal-histogram.md) | Current-source warm Histogram contention/locality comparison and claim limits. |
 | [Metal SIMD-group Min/Max](./metal-extrema.md) | Current-source warm GPU extrema comparison, exact SIMD packing and claim limits. |
 | [CPU Affine Maps](./cpu-affine.md) | Current-source warm integer Map comparison, method and claim limits. |

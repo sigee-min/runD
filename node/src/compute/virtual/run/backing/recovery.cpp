@@ -38,7 +38,7 @@ Status
 validate_virtual_run_recovery(const VirtualRunProjection &run,
                               const std::span<VirtualBacking *const> inputs,
                               const VirtualBacking &output) noexcept {
-  if (run.graph_execution || run.poolless_device_vsm()) {
+  if (run.graph_execution() || run.poolless_device_vsm()) {
     return validate_virtual_recovery(inputs, output, run.active.output_bytes);
   }
   if (inputs.empty() || inputs.front() == nullptr) {

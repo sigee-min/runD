@@ -121,11 +121,13 @@ bool project_virtual_ordinary_run(VirtualPipelineState &state,
                      geometry.boundary == static_cast<std::uint32_t>(
                                               kernel::WindowBoundary::Clip),
       .device_vsm_required = geometry.device_vsm_required,
-      .reduction = geometry.route == VirtualRoute::Reduction,
-      .scan = geometry.route == VirtualRoute::Scan,
-      .inclusive_scan = geometry.route == VirtualRoute::Scan &&
-                        geometry.operation == static_cast<std::uint32_t>(
-                                                  kernel::ScanOp::InclusiveSum),
+      .topology = geometry.route == VirtualRoute::Reduction
+                      ? VirtualRunTopology::Reduction
+                  : geometry.route == VirtualRoute::Scan
+                      ? VirtualRunTopology::Scan
+                  : geometry.route == VirtualRoute::Window
+                      ? VirtualRunTopology::LocalWindow
+                      : VirtualRunTopology::Direct,
       .input_type = input.type,
       .output_type = state.output->type,
       .operation = geometry.operation,

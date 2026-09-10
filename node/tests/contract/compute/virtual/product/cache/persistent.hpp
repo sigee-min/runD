@@ -68,7 +68,7 @@ StagedLoopOwnerOf(Pipeline &pipeline) noexcept {
     const StagedLoopOwner *const owner, const StagedLoopEvidence &evidence,
     const std::uint64_t cold_prepare, const std::uint64_t warm_rearm) noexcept {
   if (owner == nullptr ||
-      owner->route_proof.kind !=
+      owner->route_proof.kind() !=
           rund::compute::detail::VirtualDeviceVsmRouteKind::StagedLoop) {
     return false;
   }

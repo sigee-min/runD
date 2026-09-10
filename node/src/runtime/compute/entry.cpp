@@ -12,6 +12,8 @@
 #include <mutex>
 #include <utility>
 
+#include <exception>
+
 namespace rund::compute::detail {
 
 namespace {
@@ -27,6 +29,7 @@ namespace {
   case node::runtime_detail::ComputeHostAdmission::Offline:
     return Reason::RuntimeNotRunning;
   }
+  std::terminate();
 }
 
 void ControlCompile(const std::shared_ptr<CompileService> &service,

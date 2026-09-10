@@ -23,6 +23,13 @@ inline void EncodeMetalGatherDispatch(const MetalGatherCommandState& state,
   [state.encoder setBuffer:state.status offset:0u atIndex:2u];
   [state.encoder setBuffer:state.indirect offset:0u atIndex:3u];
   [state.encoder setBytes:&params length:sizeof(params) atIndex:4u];
+  if (gather.plan.preflight.group_count > 1u) {
+    [state.encoder
+         dispatchThreadgroups:MTLSizeMake(gather.plan.preflight.group_count, 1u,
+                                          1u)
+        threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+    [state.encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+  }
   [state.encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
                 threadsPerThreadgroup:MTLSizeMake(kGatherThreadgroupSize, 1u,
                                                   1u)];

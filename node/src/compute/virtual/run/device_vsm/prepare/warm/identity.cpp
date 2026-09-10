@@ -43,18 +43,18 @@ same_ring_plan(const VirtualRunProjection &run, const bool expected,
 [[nodiscard]] node::accel::detail::DeviceVsmTopology
 topology(const VirtualPipelineState &state, const VirtualRunProjection &run,
          const VirtualDeviceVsmRouteProof &proof) noexcept {
-  if (run.graph_reduction) {
+  if (run.graph_reduction()) {
     return node::accel::detail::DeviceVsmTopology::GraphMapReduce;
   }
-  if (run.graph_execution) {
-    return proof.kind == VirtualDeviceVsmRouteKind::GraphResident
+  if (run.graph_execution()) {
+    return proof.kind() == VirtualDeviceVsmRouteKind::GraphResident
                ? node::accel::detail::DeviceVsmTopology::GraphResident
                : node::accel::detail::DeviceVsmTopology::GraphPointwise;
   }
-  if (run.scan) {
+  if (run.scan()) {
     return node::accel::detail::DeviceVsmTopology::Scan;
   }
-  if (run.reduction) {
+  if (run.reduction()) {
     return node::accel::detail::DeviceVsmTopology::Reduce;
   }
   return state.geometry.route == VirtualRoute::Window
@@ -65,8 +65,8 @@ topology(const VirtualPipelineState &state, const VirtualRunProjection &run,
 } // namespace
 
 std::uint64_t page_count(const VirtualRunProjection &run) noexcept {
-  return run.graph_execution ? run.active.graph.page_count()
-                             : run.active.stream.page_count();
+  return run.graph_execution() ? run.active.graph.page_count()
+                               : run.active.stream.page_count();
 }
 
 bool owner_ready(const DeviceVsmProductOwner *const owner) noexcept {
@@ -89,7 +89,7 @@ bool owner_shape_matches(const VirtualPipelineState &state,
          owner.input_count == run.input_count &&
          owner.proof->residents.input_count == run.input_count &&
          same_ring_plan(run,
-                        proof.kind == VirtualDeviceVsmRouteKind::WindowRing,
+                        proof.kind() == VirtualDeviceVsmRouteKind::WindowRing,
                         *owner.proof) &&
          resident_bindings_match(state, run, owner);
 }

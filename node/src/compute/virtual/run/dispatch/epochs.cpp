@@ -14,7 +14,7 @@ dispatch_epochs(VirtualPipelineState &state, VirtualBacking &input,
                 VirtualRunTransaction *const transaction) noexcept {
   ::rund::node::hash_detail::Fnv output_hash{};
   std::array<bool, 2u> prefetch_pending{};
-  if (run.scan) {
+  if (run.scan()) {
     for (std::uint64_t epoch = 0u; epoch < run.active.stream.epoch_count();
          ++epoch) {
       const VirtualEpochResult epoch_result = execute_virtual_epoch(
@@ -35,10 +35,10 @@ dispatch_epochs(VirtualPipelineState &state, VirtualBacking &input,
         state.pipeline->device->backend == Backend::Cpu
             ? execute_virtual_cpu_overlap(
                   state, input, output, run, stats, output_hash,
-                  run.reduction ? &work.reduction : nullptr)
+                  run.reduction() ? &work.reduction : nullptr)
             : execute_virtual_accel_overlap(
                   state, input, output, run, stats, output_hash,
-                  run.reduction ? &work.reduction : nullptr);
+                  run.reduction() ? &work.reduction : nullptr);
     if (!epoch_result.status) {
       return VirtualRunDispatchResult{
           .status = epoch_result.status,
@@ -52,7 +52,7 @@ dispatch_epochs(VirtualPipelineState &state, VirtualBacking &input,
   return VirtualRunDispatchResult{
       .status = Status::success(),
       .output_hash = output_hash.Finish(),
-      .reduction_pending = run.reduction,
+      .reduction_pending = run.reduction(),
   };
 }
 

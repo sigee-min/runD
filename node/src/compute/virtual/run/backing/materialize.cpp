@@ -125,7 +125,7 @@ VirtualInputMaterializationResult materialize_virtual_input(
       return result;
     }
   }
-  const bool fill = run.clamp_window || run.clip_window || run.reduction;
+  const bool fill = run.clamp_window || run.clip_window || run.reduction();
   const std::size_t element_bytes =
       run.input_frame_elements == 0u
           ? 0u
@@ -136,7 +136,7 @@ VirtualInputMaterializationResult materialize_virtual_input(
       (element_bytes == 0u || element_bytes > identity.size() ||
        (run.clip_window &&
         !window_identity(run.input_type, run.operation, identity.data())) ||
-       (run.reduction &&
+       (run.reduction() &&
         !reduce_identity(run.input_type, run.operation, identity.data())))) {
     result.status = Status::fail(Reason::PrimitiveUnsupported);
     return result;

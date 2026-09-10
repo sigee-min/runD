@@ -63,7 +63,7 @@ struct Case final {
 };
 
 struct Preparation final {
-  std::unique_ptr<Case> value;
+  std::unique_ptr<Case> value{};
   int reason{};
 };
 

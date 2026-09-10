@@ -21,13 +21,13 @@ defer_ordinary_callback_route(const VirtualPipelineState &state,
                               const bool graph_resident_accepted) noexcept {
   if (state.pipeline == nullptr || state.pipeline->device == nullptr ||
       state.pipeline->device->backend == Backend::Cpu ||
-      run.device_vsm_required || run.scan || run.multi_pointwise ||
-      run.multi_scan || run.poolless_device_vsm() ||
+      run.device_vsm_required || run.scan() || run.multi_pointwise() ||
+      run.multi_scan() || run.poolless_device_vsm() ||
       VirtualBackingAccess::resident(output) != nullptr) {
     return false;
   }
 
-  if (run.graph_execution) {
+  if (run.graph_execution()) {
     if (graph_resident_accepted) {
       return false;
     }
@@ -38,7 +38,7 @@ defer_ordinary_callback_route(const VirtualPipelineState &state,
     return graph_reduce::graph_wavefront_pair_eligible(state, run) ||
            VirtualBackingAccess::write_lanes(output) >= 2u;
   }
-  if (run.reduction || run.graph_reduction || run.input_count != 1u ||
+  if (run.reduction() || run.graph_reduction() || run.input_count != 1u ||
       inputs.size() != 1u || inputs.front() == nullptr ||
       inputs.front()->max_parallel_reads() > 1u ||
       VirtualBackingAccess::resident(*inputs.front()) != nullptr) {
@@ -126,22 +126,20 @@ probe_virtual_device_vsm_route(const VirtualPipelineState &state,
       state.pipeline->device->backend == Backend::Cpu) {
     return unavailable_candidate(run.device_vsm_required);
   }
-  const VirtualDeviceVsmRouteKind kind =
-      staged_loop      ? VirtualDeviceVsmRouteKind::StagedLoop
-      : window_ring    ? VirtualDeviceVsmRouteKind::WindowRing
-      : graph_resident ? VirtualDeviceVsmRouteKind::GraphResident
-                       : VirtualDeviceVsmRouteKind::Direct;
-  const std::uint64_t page_count = run.graph_execution
+  const std::uint64_t page_count = run.graph_execution()
                                        ? run.active.graph.page_count()
                                        : run.active.stream.page_count();
-  VirtualDeviceVsmRouteProof proof{
-      .kind = kind,
-      .endpoint = endpoint,
-      .page_count = page_count,
-      .frame_capacity = run.frame_capacity,
-      .window = kind == VirtualDeviceVsmRouteKind::WindowRing
-                    ? state.window_preflight
-                    : VirtualWindowPreflight{}};
+  VirtualDeviceVsmRouteProof::Route route =
+      VirtualDeviceVsmDirect{page_count, run.frame_capacity};
+  if (staged_loop) {
+    route = VirtualDeviceVsmStagedLoop{page_count, run.frame_capacity};
+  } else if (window_ring) {
+    route = VirtualDeviceVsmWindowRing{state.window_preflight};
+  } else if (graph_resident) {
+    route =
+        VirtualDeviceVsmGraphResident{page_count, run.frame_capacity, endpoint};
+  }
+  VirtualDeviceVsmRouteProof proof{route};
   const node::accel::detail::DeviceVsmIdentity stamp =
       device_vsm_product_detail::route_stamp(state, run, proof);
   proof.stamp_hi = stamp.hi;

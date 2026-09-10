@@ -90,11 +90,11 @@ Status prepare_physical_buffers(VirtualPipelineState &state,
   // Route admission already selected the immutable proof. The remaining
   // checks authenticate bytes, ranges, and mapped views.
   const bool graph_resident =
-      proof.kind == VirtualDeviceVsmRouteKind::GraphResident;
-  const bool staged = proof.endpoint == VirtualDeviceVsmEndpoint::Staged;
+      proof.kind() == VirtualDeviceVsmRouteKind::GraphResident;
+  const bool staged = proof.endpoint() == VirtualDeviceVsmEndpoint::Staged;
   const bool mapped = !graph_resident && staged;
-  if (proof.kind == VirtualDeviceVsmRouteKind::WindowRing &&
-      proof.endpoint == VirtualDeviceVsmEndpoint::Invalid) {
+  if (proof.kind() == VirtualDeviceVsmRouteKind::WindowRing &&
+      proof.endpoint() == VirtualDeviceVsmEndpoint::Invalid) {
     reason = "compute_backend_unsupported";
     return Status::fail(Reason::BackendUnsupported);
   }
@@ -103,7 +103,7 @@ Status prepare_physical_buffers(VirtualPipelineState &state,
                                     ? classify_endpoints(state, run, endpoints)
                                     : EndpointMode::Invalid;
   const EndpointMode sealed =
-      proof.endpoint == VirtualDeviceVsmEndpoint::Resident
+      proof.endpoint() == VirtualDeviceVsmEndpoint::Resident
           ? EndpointMode::Resident
           : EndpointMode::Staged;
   if (graph_resident &&
@@ -118,7 +118,7 @@ Status prepare_physical_buffers(VirtualPipelineState &state,
   for (std::size_t index = 0u; index < owner.input_count; ++index) {
     owner.resident_inputs[index] =
         graph_resident
-            ? (proof.endpoint == VirtualDeviceVsmEndpoint::Resident
+            ? (proof.endpoint() == VirtualDeviceVsmEndpoint::Resident
                    ? endpoints.inputs[index]
                    : std::shared_ptr<BufferState>{})
             : (run.clip_window
@@ -126,9 +126,9 @@ Status prepare_physical_buffers(VirtualPipelineState &state,
                    : resident_backing(state.inputs[index],
                                       state.pipeline->device, run.input_type,
                                       run.active.input_bytes));
-    if (proof.kind == VirtualDeviceVsmRouteKind::WindowRing &&
+    if (proof.kind() == VirtualDeviceVsmRouteKind::WindowRing &&
         (owner.resident_inputs[index] != nullptr) !=
-            (proof.endpoint == VirtualDeviceVsmEndpoint::Resident)) {
+            (proof.endpoint() == VirtualDeviceVsmEndpoint::Resident)) {
       reason = "compute_backend_unsupported";
       return Status::fail(Reason::BackendUnsupported);
     }
@@ -167,14 +167,14 @@ Status prepare_physical_buffers(VirtualPipelineState &state,
 
   owner.resident_output =
       graph_resident
-          ? (proof.endpoint == VirtualDeviceVsmEndpoint::Resident
+          ? (proof.endpoint() == VirtualDeviceVsmEndpoint::Resident
                  ? endpoints.output
                  : std::shared_ptr<BufferState>{})
           : resident_backing(state.output, state.pipeline->device,
                              run.output_type, run.active.output_bytes);
-  if (proof.kind == VirtualDeviceVsmRouteKind::WindowRing &&
+  if (proof.kind() == VirtualDeviceVsmRouteKind::WindowRing &&
       (owner.resident_output != nullptr) !=
-          (proof.endpoint == VirtualDeviceVsmEndpoint::Resident)) {
+          (proof.endpoint() == VirtualDeviceVsmEndpoint::Resident)) {
     reason = "compute_backend_unsupported";
     return Status::fail(Reason::BackendUnsupported);
   }
@@ -190,7 +190,7 @@ Status prepare_physical_buffers(VirtualPipelineState &state,
     if (!owner.output ||
         !accel::ReadAccelBuffer(native.context, owner.output)) {
       if (graph_resident &&
-          proof.endpoint == VirtualDeviceVsmEndpoint::Resident) {
+          proof.endpoint() == VirtualDeviceVsmEndpoint::Resident) {
         reason = "device_vsm_graph_resident_external_binding_invalid";
         return Status::fail(Reason::BackendUnsupported);
       }

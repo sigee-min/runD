@@ -18,18 +18,18 @@ template <class T>
 template <class T>
 [[nodiscard]] bool add(const T left, const T right, T &result) noexcept {
   if constexpr (std::is_signed_v<T>) {
-    const __int128 sum =
-        static_cast<__int128>(left) + static_cast<__int128>(right);
-    if (sum < static_cast<__int128>(std::numeric_limits<T>::lowest()) ||
-        sum > static_cast<__int128>(std::numeric_limits<T>::max())) {
+    const __int128_t sum =
+        static_cast<__int128_t>(left) + static_cast<__int128_t>(right);
+    if (sum < static_cast<__int128_t>(std::numeric_limits<T>::lowest()) ||
+        sum > static_cast<__int128_t>(std::numeric_limits<T>::max())) {
       return false;
     }
     result = static_cast<T>(sum);
     return true;
   } else {
-    const unsigned __int128 sum = static_cast<unsigned __int128>(left) +
-                                  static_cast<unsigned __int128>(right);
-    if (sum > static_cast<unsigned __int128>(std::numeric_limits<T>::max())) {
+    const __uint128_t sum =
+        static_cast<__uint128_t>(left) + static_cast<__uint128_t>(right);
+    if (sum > static_cast<__uint128_t>(std::numeric_limits<T>::max())) {
       return false;
     }
     result = static_cast<T>(sum);
@@ -86,7 +86,7 @@ Status prepare_virtual_scan_uniform(const VirtualEpochProjection &epoch,
                                     const residency::EpochLease input_lease,
                                     const residency::EpochLease output_lease,
                                     VirtualScan &scan) noexcept {
-  if (!run.scan || input_lease.bindings.empty() ||
+  if (!run.scan() || input_lease.bindings.empty() ||
       input_lease.bindings.size() > PipelineLeafCapacity ||
       output_lease.bindings.size() != input_lease.bindings.size() ||
       scan.input_count != input_lease.bindings.size()) {

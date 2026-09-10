@@ -3,6 +3,8 @@
 
 #include <rund/task/coroutine.hpp>
 
+#include <exception>
+
 namespace rund::node::compute_detail {
 
 TaskRetirementClaim TaskRetirement::claim(const bool joinable) noexcept {
@@ -19,6 +21,7 @@ TaskRetirementClaim TaskRetirement::claim(const bool joinable) noexcept {
   case TaskRetirementPhase::Retired:
     return TaskRetirementClaim::Retired;
   }
+  std::terminate();
 }
 
 void TaskRetirement::publish() noexcept {

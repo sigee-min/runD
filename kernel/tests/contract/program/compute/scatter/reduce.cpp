@@ -6,8 +6,101 @@
 #include <array>
 #include <limits>
 #include <string_view>
+#include <vector>
 
 namespace program_compute_contract {
+
+template <typename T>
+int CheckCpuScatterReduce(const rund::kernel::ComputeDomain domain,
+                          const rund::kernel::ComputeFixedFormat format = {}) {
+  using namespace rund::kernel;
+  constexpr u64 capacity = 97u;
+  std::array<T, capacity> values{};
+  std::array<u32, capacity> indices{};
+  std::array<u32, capacity> sorted{};
+  for (u64 i = 0u; i < capacity; ++i) {
+    values[i] = i % 3u == 0u ? std::numeric_limits<T>::max()
+                             : (i % 3u == 1u ? T{10} : static_cast<T>(-20));
+  }
+  for (const auto op :
+       {ScatterReduceOp::Sum, ScatterReduceOp::Min, ScatterReduceOp::Max}) {
+    for (const u64 outputs : {1u, 31u, 32u, 33u, 4096u}) {
+      const auto plan = PlanScatterReduce({.op = op,
+                                           .domain = domain,
+                                           .fixed_format = format,
+                                           .element_count = capacity,
+                                           .output_count = outputs});
+      const auto cpu = PlanScatterReduceCpu(plan);
+      TEST_ASSERT(plan.ok);
+      TEST_ASSERT(cpu.scratch_words <= capacity);
+      TEST_ASSERT((cpu.strategy == ScatterReduceCpuStrategy::SortedKeys) ==
+                  (outputs == 4096u));
+      std::vector<u32> scratch(cpu.scratch_words + 2u, 0xcdcdcdcdu);
+      std::vector<T> actual(outputs, T{41});
+      std::vector<T> expected(outputs, T{41});
+      for (unsigned reuse = 0u; reuse < 2u; ++reuse) {
+        for (u64 i = 0u; i < capacity; ++i) {
+          indices[i] = reuse == 0u ? static_cast<u32>((i * 31u) % outputs)
+                                   : static_cast<u32>(outputs - 1u);
+        }
+        for (const u64 count : {0u, 1u, 32u, 97u}) {
+          const auto reference =
+              scatter_reduce_reference_detail::ReferenceScatterReduce(
+                  values.data(), indices.data(), expected.data(), count, plan,
+                  domain == ComputeDomain::Fixed, sorted.data(), sorted.size());
+          const auto result = ExecuteScatterReduceCpu(
+              values.data(), indices.data(), actual.data(), count, plan, cpu,
+              scratch.data() + 1u, cpu.scratch_words);
+          TEST_ASSERT(reference.ok && result.ok);
+          TEST_ASSERT(actual == expected);
+          TEST_ASSERT(result.conflict_count == reference.conflict_count);
+          TEST_ASSERT(result.first_rejected_ordinal == count);
+          TEST_ASSERT(scratch.front() == 0xcdcdcdcdu);
+          TEST_ASSERT(scratch.back() == 0xcdcdcdcdu);
+        }
+      }
+      const auto protected_output = actual;
+      indices[33u] = static_cast<u32>(outputs);
+      indices[70u] = static_cast<u32>(outputs);
+      const auto bad = ExecuteScatterReduceCpu(
+          values.data(), indices.data(), actual.data(), capacity, plan, cpu,
+          scratch.data() + 1u, cpu.scratch_words);
+      TEST_ASSERT(!bad.ok && bad.first_rejected_ordinal == 33u);
+      TEST_ASSERT(bad.conflict_count == 0u);
+      TEST_ASSERT(actual == protected_output);
+      const auto overflow = ExecuteScatterReduceCpu(
+          values.data(), indices.data(), actual.data(), capacity + 1u, plan,
+          cpu, scratch.data() + 1u, cpu.scratch_words);
+      TEST_ASSERT(!overflow.ok && overflow.first_rejected_ordinal == capacity);
+      TEST_ASSERT(actual == protected_output);
+      const auto short_scratch = ExecuteScatterReduceCpu(
+          values.data(), indices.data(), actual.data(), capacity, plan, cpu,
+          scratch.data() + 1u, cpu.scratch_words - 1u);
+      TEST_ASSERT(!short_scratch.ok);
+      TEST_ASSERT(actual == protected_output);
+      auto forged = cpu;
+      ++forged.scratch_words;
+      const auto invalid_plan = ExecuteScatterReduceCpu(
+          values.data(), indices.data(), actual.data(), capacity, plan, forged,
+          scratch.data(), scratch.size());
+      TEST_ASSERT(!invalid_plan.ok);
+      TEST_ASSERT(actual == protected_output);
+      // Reuse the dirty scratch left by an invalid preflight.
+      indices[33u] = 0u;
+      indices[70u] = 0u;
+      const auto reference =
+          scatter_reduce_reference_detail::ReferenceScatterReduce(
+              values.data(), indices.data(), expected.data(), capacity, plan,
+              domain == ComputeDomain::Fixed, sorted.data(), sorted.size());
+      const auto recovered = ExecuteScatterReduceCpu(
+          values.data(), indices.data(), actual.data(), capacity, plan, cpu,
+          scratch.data() + 1u, cpu.scratch_words);
+      TEST_ASSERT(recovered.ok && reference.ok && actual == expected);
+      TEST_ASSERT(recovered.conflict_count == reference.conflict_count);
+    }
+  }
+  return 0;
+}
 
 int RunScatterReduceContract() {
   using namespace rund::kernel;
@@ -18,6 +111,15 @@ int RunScatterReduceContract() {
       .overflow = ComputeOverflow::Saturate,
       .approximation = ComputeApproximation::Deterministic,
   };
+  TEST_ASSERT(CheckCpuScatterReduce<i32>(ComputeDomain::I32) == 0);
+  TEST_ASSERT(CheckCpuScatterReduce<u32>(ComputeDomain::U32) == 0);
+  TEST_ASSERT(CheckCpuScatterReduce<i64>(ComputeDomain::I64) == 0);
+  TEST_ASSERT(CheckCpuScatterReduce<u64>(ComputeDomain::U64) == 0);
+  TEST_ASSERT(CheckCpuScatterReduce<i32>(ComputeDomain::Fixed, fixed) == 0);
+  auto fixed64 = fixed;
+  fixed64.integer_bits = 32u;
+  fixed64.fraction_bits = 32u;
+  TEST_ASSERT(CheckCpuScatterReduce<i64>(ComputeDomain::Fixed, fixed64) == 0);
   constexpr ScatterReduceDesc fixed_desc{
       .op = ScatterReduceOp::Sum,
       .domain = ComputeDomain::Fixed,
@@ -41,6 +143,17 @@ int RunScatterReduceContract() {
   TEST_ASSERT(fixed_plan.count_source == ComputeCountSource::BufferU32);
   TEST_ASSERT(ScatterReducePlanMatchesDesc(fixed_desc, fixed_plan));
   TEST_ASSERT(!ScatterReduceFoldParallel(fixed_plan));
+  auto large_desc = fixed_desc;
+  large_desc.element_count = 1048576u;
+  const auto large_plan = PlanScatterReduce(large_desc);
+  TEST_ASSERT(large_plan.ok && large_plan.pass_count == 4u);
+  TEST_ASSERT(large_plan.preflight.group_count == 256u);
+  TEST_ASSERT(large_plan.status_bytes == 16u + 1024u);
+  TEST_ASSERT(large_plan.temp_bytes ==
+              large_plan.segment_bytes + large_plan.status_bytes + 24u);
+  auto forged_large = large_plan;
+  ++forged_large.preflight.partial_bytes;
+  TEST_ASSERT(!ScatterReducePlanMatchesDesc(large_desc, forged_large));
   ScatterReducePlan forged = fixed_plan;
   ++forged.indirect_bytes;
   TEST_ASSERT(!ScatterReducePlanMatchesDesc(fixed_desc, forged));

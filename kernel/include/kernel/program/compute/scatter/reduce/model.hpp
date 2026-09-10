@@ -1,6 +1,6 @@
 #pragma once
 
-#include <kernel/program/compute/model.hpp>
+#include <kernel/program/compute/indexed/preflight.hpp>
 
 namespace rund::kernel {
 
@@ -30,6 +30,7 @@ struct ScatterReducePlan final {
   u64 sorted_index_bytes = 0u;
   u64 sorted_value_bytes = 0u;
   u64 segment_bytes = 0u;
+  IndexPreflightPlan preflight{};
   u64 status_bytes = 0u;
   u64 indirect_bytes = 0u;
   u64 temp_bytes = 0u;

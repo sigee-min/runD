@@ -21,7 +21,7 @@ template <class T>
 [[nodiscard]] bool seed(PreparedReduce &prepared,
                         const bool overflow) noexcept {
   std::vector<T> input(static_cast<std::size_t>(prepared.element_count));
-  unsigned __int128 total = 0u;
+  __uint128_t total = 0u;
   for (std::size_t index = 0u; index < input.size(); ++index) {
     input[index] = static_cast<T>((index * 17u + 3u) % 101u);
     total += input[index];
@@ -34,7 +34,7 @@ template <class T>
     }
     input[first] = std::numeric_limits<T>::max();
     input[first + 1u] = 1u;
-    total = static_cast<unsigned __int128>(std::numeric_limits<T>::max()) + 1u;
+    total = static_cast<__uint128_t>(std::numeric_limits<T>::max()) + 1u;
   }
   prepared.expected = static_cast<std::uint64_t>(total);
   return prepared.input != nullptr &&

@@ -132,12 +132,8 @@ bool project_virtual_multi_run(VirtualPipelineState &state,
       .output_prefix_bytes = output_prefix_bytes,
       .input_frame_elements = geometry.input_frame_elements,
       .device_vsm_required = true,
-      .scan = scan,
-      .inclusive_scan =
-          scan && geometry.operation ==
-                      static_cast<std::uint32_t>(kernel::ScanOp::InclusiveSum),
-      .multi_pointwise = pointwise,
-      .multi_scan = scan,
+      .topology = scan ? VirtualRunTopology::MultiScan
+                       : VirtualRunTopology::MultiPointwise,
       .input_type = first->type,
       .output_type = state.output->type,
       .operation = geometry.operation,

@@ -12,7 +12,7 @@
 namespace rund::compute::detail {
 
 struct VirtualReduction final {
-  unsigned __int128 total{};
+  __uint128_t total{};
   std::array<std::byte, sizeof(std::uint64_t)> value{};
   std::uint32_t operation{};
   Type type{Type::U32};

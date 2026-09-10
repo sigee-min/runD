@@ -195,11 +195,12 @@ VirtualExecutionResult finish(DeviceVsmProductRun &run,
     }
   }
   const bool strict_scan_overflow =
-      submission_count == 1u && !run.projection->graph_execution &&
-      run.projection->scan && status.reason() == Reason::ScanSumOverflow;
+      submission_count == 1u && !run.projection->graph_execution() &&
+      run.projection->scan() && status.reason() == Reason::ScanSumOverflow;
   const bool strict_reduce_overflow =
-      submission_count == 1u && !run.projection->graph_execution &&
-      run.projection->reduction && status.reason() == Reason::ReduceSumOverflow;
+      submission_count == 1u && !run.projection->graph_execution() &&
+      run.projection->reduction() &&
+      status.reason() == Reason::ReduceSumOverflow;
   result.failed_page =
       result.status ? ResidencyStats::no_failed_page
       : strict_scan_overflow || strict_reduce_overflow
@@ -207,7 +208,7 @@ VirtualExecutionResult finish(DeviceVsmProductRun &run,
       : run.failed_page != ResidencyStats::no_failed_page
           ? run.failed_page
           : std::min(completed,
-                     (run.projection->graph_execution
+                     (run.projection->graph_execution()
                           ? run.projection->active.graph.page_count()
                           : run.projection->active.stream.page_count()) -
                          1u);

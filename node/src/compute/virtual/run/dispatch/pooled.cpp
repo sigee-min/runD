@@ -43,7 +43,7 @@ VirtualRunDispatchResult dispatch_pooled(
     return VirtualRunDispatchResult{.status = Status::success(),
                                     .direct_terminal = true,
                                     .empty = true,
-                                    .reduction_pending = run.reduction};
+                                    .reduction_pending = run.reduction()};
   }
 
   VirtualDeviceVsmPostStage post{};
@@ -94,7 +94,7 @@ VirtualRunDispatchResult dispatch_pooled(
                                     .poison_pipeline = poison_pipeline,
                                     .direct_terminal = true};
   }
-  if (run.scan && !run.graph_execution && !run.device_vsm_required) {
+  if (run.scan() && !run.graph_execution() && !run.device_vsm_required) {
     const Status cursor_ready =
         begin_virtual_run_publication_cursor(state, transaction);
     if (!cursor_ready) {
@@ -103,7 +103,7 @@ VirtualRunDispatchResult dispatch_pooled(
                                       .direct_terminal = true};
     }
   }
-  if (!run.graph_execution && !bind_virtual_run_transfer(state, run)) {
+  if (!run.graph_execution() && !bind_virtual_run_transfer(state, run)) {
     poison_pipeline = true;
     return VirtualRunDispatchResult{
         .status = Status::fail(Reason::PipelineInvalid),

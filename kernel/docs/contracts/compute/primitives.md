@@ -671,6 +671,38 @@ Compact rejection reasons are contract vocabulary:
 See [Compute Partition](./partition.md) for the kernel-owned partition
 descriptor, hash, planner, reference, rejection, and non-backend scope.
 
+## Indexed Native Preflight
+
+`PlanIndexPreflight` owns the bounded validation shape shared by native Gather
+and Scatter Reduce. Capacity at most 65,536 uses one 256-lane group and no
+partial storage. Larger capacity uses
+`G = min(ceil(capacity/4096), 1024)` groups, `4*G` private bytes and one extra
+terminal dispatch. The shape is frozen into each primitive plan, including
+status extent and physical pass count; changing an embedded shape invalidates
+plan/descriptor matching.
+
+The same immutable control pipeline implements two exact grid shapes. A
+G-group dispatch partitions active source ordinals by global lane and stride
+`256*G`. Each group overwrites its own first-invalid slot after its local
+minimum reduction. An API buffer barrier makes all slots visible to a
+one-group terminal dispatch, which reduces those slots and publishes the exact
+reason, first ordinal and indirect payload arguments. A small-input one-group
+control instead validates source indices and publishes directly. No group
+polls or waits for another group; only the terminal dispatch writes public
+status fields. The partial tail belongs to the status allocation but is never
+interpreted as additional status entries or telemetry.
+
+Count overflow takes precedence and skips all source-index inspection. Empty
+and inactive groups still overwrite their private minimum with the identity,
+so reuse cannot retain a prior failure. Output mutation starts only after the
+terminal publication succeeds. Vulkan guards its U32 stride increment against
+wrap; Metal uses widened ordinals. Total validation work is `O(N + G)`, and
+the large-input scan/reduction dependency bound is
+`O(ceil(N/(256*G)) + ceil(G/256) + log(256))`; this is an execution model,
+not a latency or occupancy measurement. Extra scratch is bounded by 4,096
+bytes. Existing pipeline objects and descriptor sets are reused; command
+reservations and dispatch telemetry include the extra physical dispatch.
+
 ## Gather Primitive
 
 `GatherDesc`, `GatherPlan`, `GatherHash`,
@@ -695,12 +727,12 @@ most `element_count` before any output is published.
 A successful `GatherPlan` records element enum, output element count,
 source element count, element byte width, index byte width, status byte width,
 temp bytes, pass count, count source, `ok = true`, and reason `ok`. The plan has
-`index_bytes = 4`, `status_bytes = 8`, `temp_bytes = 24`, and
-`pass_count = 2`. The two status words carry the typed reason and first
-rejected ordinal; the remaining 16 bytes are the validated indirect-dispatch
-record. The first pass validates the entire active prefix and only the second
-pass writes gathered values, so an invalid count or index leaves the output
-byte-for-byte unchanged. This status is diagnostic fail-closed evidence for
+`index_bytes = 4`, `status_bytes = 8 + preflight.partial_bytes`,
+`temp_bytes = status_bytes + 16`, and `pass_count = preflight.pass_count + 1`.
+The first two status words carry the typed reason and first rejected ordinal;
+the optional tail carries private validation minima. The 16-byte indirect
+record admits the payload only after the complete active prefix is validated,
+so an invalid count or index leaves the output byte-for-byte unchanged. This status is diagnostic fail-closed evidence for
 out-of-range indices; it is not a semantic reduction, output accumulator, or
 ordering authority. Every multiply is checked in u64 before admission.
 
@@ -876,21 +908,14 @@ Min and Max compare in the descriptor's signed, unsigned, or Fixed domain.
 Empty logical input is valid and publishes the operation identity for every
 output: zero for Sum, numeric maximum for Min, and numeric minimum for Max.
 
-The native physical plan has three dispatches: one complete source preflight
-that writes two indirect commands, one parallel output/count-table identity
-initialization, and one fold. The preflight is one 256-lane workgroup: lane
-`t` scans source ordinals `t, t + 256, ...`. Vulkan follows this with an
-eight-stage shared minimum reduction. Metal reduces within each live SIMD
-cohort, then merges non-identity minima into one threadgroup atomic word
-between two barriers. The critical path remains `O(ceil(N/256) + log(256))`
-and total work is `O(N)`. It adds no dispatch, scratch allocation, payload copy, or command
-submission to the three-pass plan. Count overflow takes precedence and skips
-all index reads; otherwise the shared minimum publishes the exact first
-invalid ordinal independently of lane scheduling. The control lane publishes
-zero indirect x dimensions on failure and a zero-width fold for zero logical
-count. Planning caps input capacity at `UINT32_MAX`, matching the U32
-first-error ordinal and indirect-command ABI. Vulkan uses an explicit
-final-stride guard, so its U32 loop cannot wrap. On 32-bit carriers, wrapping
+The native physical plan consumes the shared indexed preflight, then one
+parallel output/count-table identity initialization and one fold. Small inputs
+use three dispatches; large inputs use four. Metal's local reduction uses SIMD
+minima and one threadgroup atomic word between two barriers; Vulkan uses a
+shared minimum tree. Both publish exactly two indirect commands after complete
+validation. The control lane publishes zero indirect x dimensions on failure
+and a zero-width parallel fold for zero logical count. Planning caps input
+capacity at `UINT32_MAX`, matching the U32 diagnostic and indirect ABI. On 32-bit carriers, wrapping
 Sum and signed/unsigned/Fixed Min/Max use
 hardware atomic folds. Metal combines a uniform active SIMD cohort targeting
 one destination before issuing that destination's count and value atomics;
@@ -901,10 +926,10 @@ of schedule. Fixed saturating Sum alone retains the strict source-ordinal fold
 because per-add saturation is non-associative. 64-bit carriers retain that
 source-order path because the supported Metal/Vulkan capability set does not
 promise portable 64-bit storage atomics. Valid input is visited once, physical
-work is `O(N + O)`, device scratch is `4*O + 16 + 24` bytes, and there are no
+work is `O(N + O)`, device scratch is `4*O + 16 + preflight.partial_bytes + 24` bytes, and there are no
 copied key/value arrays. `radix_pass_count` is zero, `fold_pass_count` is one,
-and `pass_count` is three. The plan is also the sole memory ABI authority:
-`segment_bytes = 4*O`, `status_bytes = 16`, `indirect_bytes = 24`, and
+and `pass_count` is `preflight.pass_count + 2`. The plan is also the sole memory ABI authority:
+`segment_bytes = 4*O`, `status_bytes = 16 + preflight.partial_bytes`, `indirect_bytes = 24`, and
 `temp_bytes` is their checked sum. Metal and Vulkan allocate from these fields
 rather than repeating byte constants. `ScatterReduceFoldParallel(plan)` is the
 single ordering-policy predicate: it admits exactly associative 32-bit cases
@@ -921,14 +946,28 @@ a physical implementation only for the associative 32-bit cases above;
 last-writer-wins and completion order are never semantic authorities.
 
 The CPU reference receives a caller-owned U32 index scratch with at least
-`logical_count` entries. Prepared execution allocates it once and retains it;
-warm execution performs no heap allocation. After the failure-atomic source
+`logical_count` entries. After the failure-atomic source
 preflight, it sorts only the copied target indices and derives the conflict
 count from adjacent equal keys, then folds the original values once in source
 order. The CPU bound is `O(N log N + N + O)` for `N` active values and `O`
 outputs. Sorting is used only for conflict detection; observable folding
 remains one source-order pass, so conflict detection cannot change fold order
 or failure publication.
+
+Prepared CPU execution uses `PlanScatterReduceCpu` as the single strategy and
+scratch authority. For `ceil(O/32) <= capacity`, it reserves that many U32
+bitmap words; otherwise it reserves `capacity` sorted keys and uses the
+reference policy. The choice is frozen before execution. The dense strategy
+clears its bitmap, validates every active target, and marks each newly seen
+target once. Its exact conflict result is `N - occupied_targets`. It then
+consumes the same source-ordinal arithmetic phase as the reference. Its work
+is `O(N + O)`, scratch payload is `4*ceil(O/32)` bytes, and it performs no warm
+allocation. The sparse strategy retains the bounded `O(N log N + N + O)`
+reference cost; scratch is never larger than the old `4*capacity` bound.
+Empty input needs no scratch access. Failed preflight may dirty private scratch
+but never output, and each subsequent nonempty run resets all active bitmap
+words before inspection. Node Pipeline planning, arena binding and the resident
+CPU adapter consume this same Kernel policy, without a second capacity formula.
 
 | Gate | Stable reason |
 | --- | --- |

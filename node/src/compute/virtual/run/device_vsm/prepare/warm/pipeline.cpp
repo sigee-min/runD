@@ -9,7 +9,7 @@ bool pipelines_match(VirtualPipelineState &state,
       pipelines{};
   std::array<std::uint32_t, DeviceVsmPipelineCapacity> stages{};
   std::size_t count = 0u;
-  if (!select_pipelines(state, run, pipelines, stages, count) ||
+  if (!select_pipelines(state, run.topology, pipelines, stages, count) ||
       owner.pipeline_count != count) {
     return false;
   }

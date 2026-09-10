@@ -17,19 +17,18 @@ execution_owner(VirtualPipelineState &state,
            node::accel::detail::DeviceVsmTopology::GraphPointwise ||
        owner->proof->topology ==
            node::accel::detail::DeviceVsmTopology::GraphResident);
-  const VirtualRunProjection selection_run{
-      .graph_execution = graph,
-      .graph_reduction =
-          owner != nullptr && owner->proof != nullptr &&
-          owner->proof->topology ==
-              node::accel::detail::DeviceVsmTopology::GraphMapReduce,
-  };
+  const VirtualRunTopology topology =
+      !graph ? VirtualRunTopology::Direct
+      : owner->proof->topology ==
+              node::accel::detail::DeviceVsmTopology::GraphMapReduce
+          ? VirtualRunTopology::GraphReduction
+          : VirtualRunTopology::GraphPointwise;
   std::array<std::shared_ptr<PipelineState>, DeviceVsmPipelineCapacity>
       pipelines{};
   std::array<std::uint32_t, DeviceVsmPipelineCapacity> stages{};
   std::size_t count = 0u;
   const bool selected =
-      select_pipelines(state, selection_run, pipelines, stages, count);
+      select_pipelines(state, topology, pipelines, stages, count);
   bool same = selected && owner != nullptr && owner->pipeline_count == count;
   for (std::size_t index = 0u; same && index < count; ++index) {
     same = owner->pipelines[index] == pipelines[index] &&
@@ -39,7 +38,8 @@ execution_owner(VirtualPipelineState &state,
                  !owner->preparation || owner->registration == nullptr ||
                  state.device_vsm_product_cache != prepared.owner || !same ||
                  owner->input_count != owner->proof->residents.input_count ||
-                 prepared.page_count != owner->proof->geometry.page_count ||
+                 prepared.proof.page_count() !=
+                     owner->proof->geometry.page_count ||
                  owner->proof->output_bytes == 0u
              ? std::shared_ptr<DeviceVsmProductOwner>{}
              : owner;

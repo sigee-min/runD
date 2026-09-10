@@ -18,9 +18,9 @@ CheckGraphMapReduceSource(const rund::kernel::ComputeApi api) {
   constexpr std::uint64_t Immediate = 0xfedcba9876543210ull;
   const accel::MapSemantic semantic{
       .kind = accel::MapSemanticKind::AddWrapU64Immediate,
+      .recurrence_total = true,
       .immediate = static_cast<std::uint32_t>(Immediate),
       .maximum = static_cast<std::uint32_t>(Immediate >> 32u),
-      .recurrence_total = true,
   };
   using rund::kernel::IrOp;
   namespace lowering = rund::kernel::compute_lowering_detail;

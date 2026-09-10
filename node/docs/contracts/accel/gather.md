@@ -29,6 +29,9 @@ Implementation authority:
 
 Verification authority:
 
+- `/node/tests/contract/compute/pipeline/view/gather.hpp` covers the one/two-pass
+  boundary, warm reuse, and exact earliest invalid ordinal through the public
+  Pipeline, including G=257 with the first invalid index in partial slot 256.
 - `/node/tests/contract/accel/kernel/gather.cpp`
 - `/node/tests/contract/accel/kernel/gather/match/`
 - `/node/tests/contract/accel/kernel/gather/reject/`
@@ -49,27 +52,25 @@ index and output buffer counts must exactly match `element_count`. Backend
 execution additionally rejects descriptor/plan pairs whose dispatch ABI cannot
 represent the planned element count.
 
-Native Gather execution is two deterministic passes: a failure-atomic control
-preflight followed by the indirect payload pass
-`output[i] = values[indices[i]]`. Duplicate indices are allowed because every
-payload lane writes exactly one distinct output slot. No backend timing,
-pipeline state, command scheduling, or cache state is semantic authority.
+Native Gather execution consumes the Kernel indexed preflight plan followed
+by `output[i] = values[indices[i]]`. Duplicate indices are allowed because
+payload lanes write distinct destinations. Capacity up to 65,536 retains one
+control dispatch; larger inputs use G chunk-validation groups followed by one
+terminal control group. The same immutable pipeline and descriptor set serve
+both shapes, with the frozen group count in the existing 24-byte parameter
+ABI. API buffer barriers order partial minima before terminal publication.
 
-CPU returns the kernel reference reason directly. Metal and Vulkan launch one
-256-lane workgroup for the control preflight. Lane `t` scans ordinals
-`t, t + 256, ...`; the workgroup then performs an eight-stage shared-memory
-minimum reduction over each lane's first invalid ordinal. Thus the critical
-path is `O(ceil(N/256) + 8)`, total validation work remains `O(N)`, and the
-implementation adds no dispatch, scratch allocation, payload copy, or command
-submission relative to the existing two-pass plan. The kernel plan caps
-`element_count` at `UINT32_MAX`; Vulkan therefore uses a U32 loop ordinal
-with an explicit final-stride termination check so the increment cannot wrap.
+Kernel owns the group bound, pass count, partial status tail and stride model
+in [Indexed Native Preflight](../../../../kernel/docs/contracts/compute/primitives.md#indexed-native-preflight).
+Metal and Vulkan encode exactly that plan; neither owns a second threshold or
+scratch formula. CPU returns the reference reason directly. No backend timing,
+cache state or workgroup arrival order defines semantic output or first error.
 
 The private status pair publishes a reason and exact first invalid ordinal.
 Logical-count overflow takes precedence and skips index reads; otherwise the
 shared minimum makes first-invalid selection independent of lane scheduling.
-Only lane zero clears and publishes status and indirect arguments. Zero
-logical count publishes a zero-width payload dispatch. If any index is greater
+Only lane zero of the terminal control dispatch publishes status and indirect
+arguments. Zero logical count publishes a zero-width payload dispatch. If any index is greater
 than or equal to `source_count`, both payload dispatch width and output
 mutation remain zero, and callers must not consume the output buffer as a
 semantic result.

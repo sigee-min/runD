@@ -9,35 +9,6 @@ std::mutex protocol_mutex;
 std::condition_variable protocol_cv;
 ObserverProtocol protocol;
 
-[[nodiscard]] bool proof_tamper_rejected(
-    const VirtualDeviceVsmRouteProof &proof) noexcept {
-  if (!proof.valid()) {
-    return false;
-  }
-  VirtualDeviceVsmRouteProof endpoint = proof;
-  endpoint.endpoint =
-      proof.kind == rund::compute::detail::VirtualDeviceVsmRouteKind::GraphResident
-          ? rund::compute::detail::VirtualDeviceVsmEndpoint::Invalid
-      : proof.endpoint == rund::compute::detail::VirtualDeviceVsmEndpoint::Staged
-          ? rund::compute::detail::VirtualDeviceVsmEndpoint::Resident
-      : proof.endpoint ==
-                    rund::compute::detail::VirtualDeviceVsmEndpoint::Resident
-          ? rund::compute::detail::VirtualDeviceVsmEndpoint::Staged
-          : rund::compute::detail::VirtualDeviceVsmEndpoint::Resident;
-  if (endpoint.valid()) {
-    return false;
-  }
-  VirtualDeviceVsmRouteProof snapshot = proof;
-  if (proof.kind ==
-      rund::compute::detail::VirtualDeviceVsmRouteKind::WindowRing) {
-    snapshot.window.input_bytes ^= 1u;
-  } else {
-    snapshot.window.mode =
-        rund::compute::detail::VirtualWindowPreflightMode::WindowRing;
-  }
-  return !snapshot.valid();
-}
-
 [[nodiscard]] bool incompatible_owners(const std::uint32_t existing,
                                        const std::uint32_t incoming) noexcept {
   if ((existing & incoming) != 0u) {

@@ -15,6 +15,15 @@ void EncodeVulkanGatherDispatch(const VulkanGatherEncodeResources &gather,
   BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         gather.control_pipeline->pipeline_layout, 0u, 1u,
                         &gather.control_descriptor, 0u, nullptr);
+  if (gather.plan.preflight.group_count > 1u) {
+    DispatchVulkan(command, gather.plan.preflight.group_count, 1u, 1u);
+    const auto partial_barrier = VulkanBufferBarrier(
+        gather.status.device, VK_ACCESS_SHADER_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 0u, nullptr,
+                         1u, &partial_barrier, 0u, nullptr);
+  }
   DispatchVulkan(command, 1u, 1u, 1u);
   const std::array<VkBufferMemoryBarrier, 2u> barriers{
       VulkanBufferBarrier(gather.indirect, VK_ACCESS_SHADER_WRITE_BIT,

@@ -5,6 +5,8 @@
 #include "../active.hpp"
 #include "../state.hpp"
 
+#include <kernel/program/compute/scan/model.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +21,18 @@ struct VirtualRunInputProjection final {
   std::uint64_t backing{};
   std::uint64_t version{};
   Type type{Type::I32};
+};
+
+// Exclusive logical topology. Derived queries never store independent flags.
+enum class VirtualRunTopology : std::uint8_t {
+  Direct,
+  LocalWindow,
+  Reduction,
+  Scan,
+  MultiPointwise,
+  MultiScan,
+  GraphPointwise,
+  GraphReduction,
 };
 
 struct VirtualRunProjection final {
@@ -63,13 +77,7 @@ struct VirtualRunProjection final {
   bool clamp_window{};
   bool clip_window{};
   bool device_vsm_required{};
-  bool reduction{};
-  bool graph_execution{};
-  bool graph_reduction{};
-  bool scan{};
-  bool inclusive_scan{};
-  bool multi_pointwise{};
-  bool multi_scan{};
+  VirtualRunTopology topology{VirtualRunTopology::Direct};
   Type input_type{Type::I32};
   Type output_type{Type::I32};
   std::uint32_t operation{};
@@ -110,8 +118,30 @@ struct VirtualRunProjection final {
   PipelineFrameUpload upload{};
   PipelineFrameDownload download{};
 
+  [[nodiscard]] constexpr bool graph_execution() const noexcept {
+    return topology == VirtualRunTopology::GraphPointwise || graph_reduction();
+  }
+  [[nodiscard]] constexpr bool graph_reduction() const noexcept {
+    return topology == VirtualRunTopology::GraphReduction;
+  }
+  [[nodiscard]] constexpr bool reduction() const noexcept {
+    return topology == VirtualRunTopology::Reduction || graph_reduction();
+  }
+  [[nodiscard]] constexpr bool multi_pointwise() const noexcept {
+    return topology == VirtualRunTopology::MultiPointwise;
+  }
+  [[nodiscard]] constexpr bool multi_scan() const noexcept {
+    return topology == VirtualRunTopology::MultiScan;
+  }
+  [[nodiscard]] constexpr bool scan() const noexcept {
+    return topology == VirtualRunTopology::Scan || multi_scan();
+  }
+  [[nodiscard]] constexpr bool inclusive_scan() const noexcept {
+    return scan() && operation == static_cast<std::uint32_t>(
+                                      kernel::ScanOp::InclusiveSum);
+  }
   [[nodiscard]] constexpr bool poolless_device_vsm() const noexcept {
-    return multi_pointwise || multi_scan;
+    return multi_pointwise() || multi_scan();
   }
 };
 

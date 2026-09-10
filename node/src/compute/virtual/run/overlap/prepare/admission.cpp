@@ -37,8 +37,8 @@ Status admit(Context &context) noexcept {
   }
 
   context.coherent_input_capable =
-      is_accelerator(context) && !context.run.scan && !context.run.reduction &&
-      !context.run.graph_reduction &&
+      is_accelerator(context) && !context.run.scan() &&
+      !context.run.reduction() && !context.run.graph_reduction() &&
       context.run.host_frame_capacity == context.run.frame_capacity &&
       context.prepared.pipeline->residency_stage ==
           PipelineResidencyStage::Direct &&

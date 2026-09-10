@@ -23,7 +23,7 @@ struct PipelineState;
 struct VirtualPipelineState;
 struct VirtualRunProjection;
 struct VirtualExecutionSlidingPrepared;
-struct VirtualDeviceVsmRouteProof;
+class VirtualDeviceVsmRouteProof;
 struct VirtualExecutionDeviceVsmPrepared;
 struct VirtualExecutionResult;
 namespace device_vsm_product_detail {

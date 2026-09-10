@@ -42,7 +42,7 @@ VirtualRunAdmission admit_virtual_run(const VirtualPipelineState &state,
       run.output_version == VirtualBackingAccess::version(output);
 
   const bool transaction_scan =
-      run.scan && !run.graph_execution && !run.reduction &&
+      run.scan() && !run.graph_execution() && !run.reduction() &&
       !run.device_vsm_required && !run.poolless_device_vsm() &&
       run.input_count == 1u && state.pipeline != nullptr &&
       state.pipeline->device != nullptr &&

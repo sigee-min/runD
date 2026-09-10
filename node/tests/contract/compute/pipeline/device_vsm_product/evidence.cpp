@@ -62,15 +62,15 @@ bool ExactWholeRunTransfers(
     return false;
   }
   const auto &transfers = stats.transfer_submissions;
-  if (owner.route_proof.kind == Route::StagedLoop &&
-      owner.route_proof.endpoint == Endpoint::Staged) {
+  if (owner.route_proof.kind() == Route::StagedLoop &&
+      owner.route_proof.endpoint() == Endpoint::Staged) {
     return no_staging(owner) && stats.uploaded_bytes == 0u &&
            stats.downloaded_bytes == 0u && transfers.host_to_device == 0u &&
            transfers.device_to_host == 0u &&
            stats.host_write_bytes == active_bytes;
   }
-  if (owner.route_proof.kind != Route::Direct ||
-      owner.route_proof.endpoint != Endpoint::Invalid ||
+  if (owner.route_proof.kind() != Route::Direct ||
+      owner.route_proof.endpoint() != Endpoint::Invalid ||
       !one_input_staging(owner, active_bytes) || stats.uploaded_bytes != 0u ||
       stats.host_write_bytes != active_bytes) {
     return false;

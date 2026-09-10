@@ -154,10 +154,10 @@ make_key(const VirtualPipelineState &state, const VirtualRunProjection &run,
       !add(run.first_host_output_frame) ||
       !add(run.host_output_frame_capacity) || !add(run.graph_resource_count) ||
       !add_bool(run.clamp_window) || !add_bool(run.clip_window) ||
-      !add_bool(run.device_vsm_required) || !add_bool(run.reduction) ||
-      !add_bool(run.graph_execution) || !add_bool(run.graph_reduction) ||
-      !add_bool(run.scan) || !add_bool(run.inclusive_scan) ||
-      !add_bool(run.multi_pointwise) || !add_bool(run.multi_scan)) {
+      !add_bool(run.device_vsm_required) || !add_bool(run.reduction()) ||
+      !add_bool(run.graph_execution()) || !add_bool(run.graph_reduction()) ||
+      !add_bool(run.scan()) || !add_bool(run.inclusive_scan()) ||
+      !add_bool(run.multi_pointwise()) || !add_bool(run.multi_scan())) {
     return false;
   }
   if (!add(static_cast<std::uint8_t>(input->backing->tier())) ||

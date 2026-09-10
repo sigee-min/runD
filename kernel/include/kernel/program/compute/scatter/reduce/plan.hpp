@@ -106,15 +106,17 @@ PlanScatterReduce(const ScatterReduceDesc &desc) noexcept {
   constexpr u64 sorted_index_bytes = 0u;
   constexpr u64 sorted_value_bytes = 0u;
   const u64 segment_bytes = desc.output_count * sizeof(u32);
-  if (!checked::add(segment_bytes, scatter_reduce_plan_detail::kStatusBytes) ||
-      !checked::add(segment_bytes + scatter_reduce_plan_detail::kStatusBytes,
+  const auto preflight = PlanIndexPreflight(desc.element_count);
+  const u64 status_bytes =
+      scatter_reduce_plan_detail::kStatusBytes + preflight.partial_bytes;
+  if (!checked::add(segment_bytes, status_bytes) ||
+      !checked::add(segment_bytes + status_bytes,
                     scatter_reduce_plan_detail::kIndirectBytes)) {
     return scatter_reduce_plan_detail::Reject(
         desc, element_bytes, "compute_scatter_reduce_temp_overflow");
   }
-  const u64 temp_bytes = segment_bytes +
-                         scatter_reduce_plan_detail::kStatusBytes +
-                         scatter_reduce_plan_detail::kIndirectBytes;
+  const u64 temp_bytes =
+      segment_bytes + status_bytes + scatter_reduce_plan_detail::kIndirectBytes;
   const u32 radix_pass_count = 0u;
   // Control/preflight, parallel initialization, source-ordinal fold.
   const u32 fold_pass_count = 1u;
@@ -129,12 +131,13 @@ PlanScatterReduce(const ScatterReduceDesc &desc) noexcept {
       .sorted_index_bytes = sorted_index_bytes,
       .sorted_value_bytes = sorted_value_bytes,
       .segment_bytes = segment_bytes,
-      .status_bytes = scatter_reduce_plan_detail::kStatusBytes,
+      .preflight = preflight,
+      .status_bytes = status_bytes,
       .indirect_bytes = scatter_reduce_plan_detail::kIndirectBytes,
       .temp_bytes = temp_bytes,
       .radix_pass_count = radix_pass_count,
       .fold_pass_count = fold_pass_count,
-      .pass_count = 3u,
+      .pass_count = preflight.pass_count + 2u,
       .count_source = desc.count_source,
       .ok = true,
       .reason = "ok",
@@ -155,6 +158,7 @@ ScatterReducePlanMatchesDesc(const ScatterReduceDesc &desc,
          plan.sorted_index_bytes == expected.sorted_index_bytes &&
          plan.sorted_value_bytes == expected.sorted_value_bytes &&
          plan.segment_bytes == expected.segment_bytes &&
+         plan.preflight == expected.preflight &&
          plan.status_bytes == expected.status_bytes &&
          plan.indirect_bytes == expected.indirect_bytes &&
          plan.temp_bytes == expected.temp_bytes &&

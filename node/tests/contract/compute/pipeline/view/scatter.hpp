@@ -12,7 +12,8 @@ namespace rund_node_test_pipeline::view {
 template <typename T>
 [[nodiscard]] bool CheckScatterCohortTelemetry(rund::compute::Device &device) {
   using namespace rund::compute;
-  for (const std::size_t count : {31u, 32u, 33u, 257u, 1027u}) {
+  for (const std::size_t count :
+       {31u, 32u, 33u, 257u, 1027u, 65536u, 65537u, 1048579u}) {
     for (const unsigned pattern : {0u, 1u, 2u}) {
       std::vector<T> values(count);
       std::vector<std::uint32_t> indices(count);
@@ -81,8 +82,12 @@ template <typename T>
         }
         if (op == Reduce::Sum && pattern == 0u) {
           auto invalid_indices = indices;
-          invalid_indices[1u] = static_cast<std::uint32_t>(occupied.size());
-          invalid_indices.back() = invalid_indices[1u];
+          const std::size_t invalid_ordinal = count > 65537u   ? 65536u
+                                              : count > 65536u ? count - 257u
+                                                               : 1u;
+          invalid_indices[invalid_ordinal] =
+              static_cast<std::uint32_t>(occupied.size());
+          invalid_indices.back() = invalid_indices[invalid_ordinal];
           auto invalid_targets = device.upload<std::uint32_t>(invalid_indices);
           auto invalid_output = device.buffer<T>(occupied.size());
           if (!invalid_targets || !invalid_output) {
@@ -101,7 +106,7 @@ template <typename T>
           const auto failed = rejected->run();
           if (failed ||
               failed.error() != "compute_scatter_reduce_index_out_of_range" ||
-              rejected->stats().control.overflow_ordinal != 1u ||
+              rejected->stats().control.overflow_ordinal != invalid_ordinal ||
               rejected->stats().control.conflict_count != 0u) {
             std::fprintf(stderr,
                          "scatter cohort rejection width=%zu count=%zu ok=%u "

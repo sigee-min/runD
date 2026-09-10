@@ -35,7 +35,7 @@ namespace {
                                         "  ulong element_count;\n"
                                         "  ulong source_count;\n"
                                         "  uint count_source;\n"
-                                        "  uint reserved;\n"
+                                        "  uint validation_groups;\n"
                                         "};") &&
          OneLayout(MetalHistogramSource(256u), "struct HistogramParams {\n"
                                                "  ulong element_count;\n"
@@ -89,7 +89,7 @@ namespace {
              "  uint64_t element_count;\n"
              "  uint64_t source_count;\n"
              "  uint count_source;\n"
-             "  uint reserved;\n"
+             "  uint validation_groups;\n"
              "} params;") &&
          OneLayout(
              VulkanHistogramSource(false),

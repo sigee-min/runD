@@ -4,7 +4,7 @@
 #include "../../scratch.hpp"
 
 #include <kernel/program/compute/gather/reference.hpp>
-#include <kernel/program/compute/scatter/reduce/reference.hpp>
+#include <kernel/program/compute/scatter/reduce/cpu/execution.hpp>
 #include <rund/counter.hpp>
 
 #include <algorithm>
@@ -76,47 +76,47 @@ Status run_cpu_primitive_indexed(PrimitiveContext &context) {
     kernel::ScatterReduceResult result{};
     switch (plan.domain) {
     case kernel::ComputeDomain::I32:
-      result = kernel::ReferenceScatterReduceI32(
+      result = kernel::ExecuteScatterReduceCpu(
           reinterpret_cast<const kernel::i32 *>(values.data),
           reinterpret_cast<const kernel::u32 *>(indices.data),
           reinterpret_cast<kernel::i32 *>(output.data), logical_count, plan,
-          scratch->sorted_indices.data(), scratch->sorted_indices.size());
+          scratch->plan, scratch->words.data(), scratch->words.size());
       break;
     case kernel::ComputeDomain::U32:
-      result = kernel::ReferenceScatterReduceU32(
+      result = kernel::ExecuteScatterReduceCpu(
           reinterpret_cast<const kernel::u32 *>(values.data),
           reinterpret_cast<const kernel::u32 *>(indices.data),
           reinterpret_cast<kernel::u32 *>(output.data), logical_count, plan,
-          scratch->sorted_indices.data(), scratch->sorted_indices.size());
+          scratch->plan, scratch->words.data(), scratch->words.size());
       break;
     case kernel::ComputeDomain::I64:
-      result = kernel::ReferenceScatterReduceI64(
+      result = kernel::ExecuteScatterReduceCpu(
           reinterpret_cast<const kernel::i64 *>(values.data),
           reinterpret_cast<const kernel::u32 *>(indices.data),
           reinterpret_cast<kernel::i64 *>(output.data), logical_count, plan,
-          scratch->sorted_indices.data(), scratch->sorted_indices.size());
+          scratch->plan, scratch->words.data(), scratch->words.size());
       break;
     case kernel::ComputeDomain::U64:
-      result = kernel::ReferenceScatterReduceU64(
+      result = kernel::ExecuteScatterReduceCpu(
           reinterpret_cast<const kernel::u64 *>(values.data),
           reinterpret_cast<const kernel::u32 *>(indices.data),
           reinterpret_cast<kernel::u64 *>(output.data), logical_count, plan,
-          scratch->sorted_indices.data(), scratch->sorted_indices.size());
+          scratch->plan, scratch->words.data(), scratch->words.size());
       break;
     case kernel::ComputeDomain::Fixed:
       result = plan.element_bytes == sizeof(kernel::i64)
-                   ? kernel::ReferenceScatterReduceFixedI64(
+                   ? kernel::ExecuteScatterReduceCpu(
                          reinterpret_cast<const kernel::i64 *>(values.data),
                          reinterpret_cast<const kernel::u32 *>(indices.data),
                          reinterpret_cast<kernel::i64 *>(output.data),
-                         logical_count, plan, scratch->sorted_indices.data(),
-                         scratch->sorted_indices.size())
-                   : kernel::ReferenceScatterReduceFixedI32(
+                         logical_count, plan, scratch->plan,
+                         scratch->words.data(), scratch->words.size())
+                   : kernel::ExecuteScatterReduceCpu(
                          reinterpret_cast<const kernel::i32 *>(values.data),
                          reinterpret_cast<const kernel::u32 *>(indices.data),
                          reinterpret_cast<kernel::i32 *>(output.data),
-                         logical_count, plan, scratch->sorted_indices.data(),
-                         scratch->sorted_indices.size());
+                         logical_count, plan, scratch->plan,
+                         scratch->words.data(), scratch->words.size());
       break;
     }
     if (result.ok) {

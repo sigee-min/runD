@@ -186,7 +186,7 @@ finish_virtual_epoch_output(VirtualEpochContext &context) noexcept {
       result.status = status;
       return result;
     }
-  } else if (context.run.reduction) {
+  } else if (context.run.reduction()) {
     result.status = Status::fail(Reason::PipelineInvalid);
     return result;
   } else {

@@ -12,11 +12,11 @@ namespace rund::compute::detail::residency {
 class Authority;
 
 struct EpochLease final {
-  std::span<const CacheBinding> bindings;
-  std::span<const CacheTransition> transitions;
-  std::span<const GraphLeasePort> ports;
-  std::span<const GraphRelocation> relocations;
-  std::span<const GraphPageRemap> remaps;
+  std::span<const CacheBinding> bindings{};
+  std::span<const CacheTransition> transitions{};
+  std::span<const GraphLeasePort> ports{};
+  std::span<const GraphRelocation> relocations{};
+  std::span<const GraphPageRemap> remaps{};
   std::uint64_t token{};
   std::uint64_t generation{};
 };

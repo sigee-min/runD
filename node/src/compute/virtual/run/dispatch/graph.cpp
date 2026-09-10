@@ -19,7 +19,7 @@ dispatch_graph(VirtualPipelineState &state,
         .certainty = VirtualRunWriteCertainty::KnownNoWrite};
   }
   const VirtualGraphResult graph =
-      run.graph_reduction
+      run.graph_reduction()
           ? execute_virtual_graph_reduction(state, inputs, run, stats,
                                             work.reduction)
           : execute_virtual_graph_pointwise(state, inputs, output, run, stats);
@@ -30,7 +30,7 @@ dispatch_graph(VirtualPipelineState &state,
         .output_hash = graph.output_hash,
         .poison_pipeline = graph.poison_pipeline,
         .graph_execution = true,
-        .reduction_pending = run.graph_reduction,
+        .reduction_pending = run.graph_reduction(),
         .certainty = epoch_certainty(graph.poison_pipeline),
     };
   }
@@ -39,7 +39,7 @@ dispatch_graph(VirtualPipelineState &state,
       .output_hash = graph.output_hash,
       .direct_terminal = true,
       .graph_execution = true,
-      .reduction_pending = run.graph_reduction,
+      .reduction_pending = run.graph_reduction(),
   };
 }
 

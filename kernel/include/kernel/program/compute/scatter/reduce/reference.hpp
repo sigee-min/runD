@@ -41,6 +41,43 @@ template <typename T>
                                            : std::numeric_limits<T>::lowest());
 }
 
+// Both execution policies consume the same source-ordinal arithmetic law.
+// Preflight and conflict accounting remain outside this output-mutating phase.
+template <typename T>
+[[nodiscard]] inline ScatterReduceResult
+FoldScatterReduce(const T *const values, const u32 *const indices,
+                  T *const output, const u64 logical_count,
+                  const ScatterReducePlan &plan, const bool fixed,
+                  const u64 conflict_count) noexcept {
+  for (u64 target = 0u; target < plan.output_count; ++target) {
+    output[target] = Identity<T>(plan.op);
+  }
+  // Source ordinal is the tie-breaker. Iterating the source once therefore
+  // defines the same fold order as stable (target, ordinal) sorting.
+  for (u64 ordinal = 0u; ordinal < logical_count; ++ordinal) {
+    T &selected = output[indices[ordinal]];
+    const T value = values[ordinal];
+    if (plan.op == ScatterReduceOp::Sum) {
+      selected = fixed ? compute_fixed_detail::Narrow<T>(
+                             static_cast<i128>(selected) + value,
+                             plan.fixed_format.overflow)
+                       : AddWrap(selected, value);
+    } else if (plan.op == ScatterReduceOp::Min) {
+      selected = value < selected ? value : selected;
+    } else {
+      selected = value > selected ? value : selected;
+    }
+  }
+  return ScatterReduceResult{
+      .element_count = logical_count,
+      .output_count = plan.output_count,
+      .first_rejected_ordinal = logical_count,
+      .conflict_count = conflict_count,
+      .ok = true,
+      .reason = "ok",
+  };
+}
+
 template <typename T>
 [[nodiscard]] inline ScatterReduceResult ReferenceScatterReduce(
     const T *const values, const u32 *const indices, T *const output,
@@ -86,33 +123,8 @@ template <typename T>
         sorted_indices[ordinal - 1u] == sorted_indices[ordinal] ? 1u : 0u;
   }
 
-  for (u64 target = 0u; target < plan.output_count; ++target) {
-    output[target] = Identity<T>(plan.op);
-  }
-  // Source ordinal is the tie-breaker. Iterating the source once therefore
-  // defines the same fold order as stable (target, ordinal) sorting.
-  for (u64 ordinal = 0u; ordinal < logical_count; ++ordinal) {
-    T &selected = output[indices[ordinal]];
-    const T value = values[ordinal];
-    if (plan.op == ScatterReduceOp::Sum) {
-      selected = fixed ? compute_fixed_detail::Narrow<T>(
-                             static_cast<i128>(selected) + value,
-                             plan.fixed_format.overflow)
-                       : AddWrap(selected, value);
-    } else if (plan.op == ScatterReduceOp::Min) {
-      selected = value < selected ? value : selected;
-    } else {
-      selected = value > selected ? value : selected;
-    }
-  }
-  return ScatterReduceResult{
-      .element_count = logical_count,
-      .output_count = plan.output_count,
-      .first_rejected_ordinal = logical_count,
-      .conflict_count = conflict_count,
-      .ok = true,
-      .reason = "ok",
-  };
+  return FoldScatterReduce(values, indices, output, logical_count, plan, fixed,
+                           conflict_count);
 }
 
 } // namespace scatter_reduce_reference_detail

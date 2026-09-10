@@ -17,7 +17,7 @@ namespace rund::compute::detail::device_vsm_route_detail {
 bool graph_host_product_eligible(const VirtualPipelineState &state,
                                  const std::span<VirtualBacking *const> inputs,
                                  const VirtualRunProjection &run) noexcept {
-  if (!run.graph_execution || run.graph_reduction ||
+  if (!run.graph_execution() || run.graph_reduction() ||
       state.geometry.route != VirtualRoute::GraphPointwise ||
       state.pipeline == nullptr || state.pipeline->device == nullptr ||
       state.pipeline->device->backend == Backend::Cpu ||
@@ -205,7 +205,7 @@ GraphResidentDecision
 graph_resident_decision(const VirtualPipelineState &state,
                         const std::span<VirtualBacking *const> inputs,
                         const VirtualRunProjection &run) noexcept {
-  if (!run.graph_execution || run.graph_reduction || run.reduction ||
+  if (!run.graph_execution() || run.graph_reduction() || run.reduction() ||
       state.geometry.route != VirtualRoute::GraphPointwise ||
       state.pipeline == nullptr || state.pipeline->residency == nullptr ||
       !state.pipeline->residency->graph_tiled() ||

@@ -23,18 +23,19 @@ fail(const char *const reason) noexcept {
 admit_virtual_device_vsm(const VirtualPipelineState &state,
                          const VirtualRunProjection &run,
                          const VirtualDeviceVsmRouteProof &proof) noexcept {
-  const std::uint64_t page_count = run.graph_execution
+  const std::uint64_t page_count = run.graph_execution()
                                        ? run.active.graph.page_count()
                                        : run.active.stream.page_count();
   if (!proof_matches(state, run, proof)) {
     return fail("compute_artifact_mismatch");
   }
-  if (proof.page_count != page_count ||
-      proof.frame_capacity != run.frame_capacity) {
+  if (proof.page_count() != page_count ||
+      proof.frame_capacity() != run.frame_capacity) {
     return fail("compute_shape_mismatch");
   }
 
-  const bool window_ring = proof.kind == VirtualDeviceVsmRouteKind::WindowRing;
+  const bool window_ring =
+      proof.kind() == VirtualDeviceVsmRouteKind::WindowRing;
   if (window_ring &&
       (state.pipeline == nullptr || state.alternate_pipeline == nullptr)) {
     return fail("compute_pipeline_invalid");
@@ -73,7 +74,7 @@ admit_virtual_device_vsm(const VirtualPipelineState &state,
   }
   if (!(shape.graph_pointwise || shape.graph_map_reduce || shape.scan ||
         shape.reduce ||
-        (!run.reduction && !run.graph_reduction && !run.scan))) {
+        (!run.reduction() && !run.graph_reduction() && !run.scan()))) {
     return fail("compute_primitive_route_invalid");
   }
   return admission_detail::check_bindings(

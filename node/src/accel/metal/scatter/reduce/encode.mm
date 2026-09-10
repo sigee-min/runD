@@ -50,7 +50,8 @@ EncodeMetalScatterReduce(MetalAdapter &adapter,
   }
   const ScatterReduceParams params{
       state->plan.element_count, state->plan.output_count,
-      static_cast<std::uint32_t>(state->plan.count_source), 0u};
+      static_cast<std::uint32_t>(state->plan.count_source),
+      state->plan.preflight.group_count};
   const auto bind = [&](id<MTLComputePipelineState> pipeline) {
     [encoder setComputePipelineState:pipeline];
     [encoder setBuffer:values
@@ -77,6 +78,12 @@ EncodeMetalScatterReduce(MetalAdapter &adapter,
                atIndex:7u];
   };
   bind(control);
+  if (state->plan.preflight.group_count > 1u) {
+    [encoder dispatchThreadgroups:MTLSizeMake(state->plan.preflight.group_count,
+                                              1u, 1u)
+            threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+    [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+  }
   [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
           threadsPerThreadgroup:MTLSizeMake(kScatterReduceWidth, 1u, 1u)];
   [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];

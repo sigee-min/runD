@@ -131,7 +131,8 @@ rund::AccelCheck EncodeMetalGather(MetalAdapter &adapter,
   }
   const GatherParams params{
       state.gather->plan.element_count, state.gather->plan.source_count,
-      static_cast<rund::kernel::u32>(state.gather->plan.count_source), 0u};
+      static_cast<rund::kernel::u32>(state.gather->plan.count_source),
+      state.gather->plan.preflight.group_count};
   EncodeMetalGatherDispatch(state, params);
   return rund::AccelCheck{true, "ok"};
 #else

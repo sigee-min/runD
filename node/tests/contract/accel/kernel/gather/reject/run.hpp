@@ -10,14 +10,15 @@
 
 namespace node_accel_contract::gather {
 
-bool RejectsOutOfRangeIndex(const rund::AccelDevice &pick) {
+bool RejectsOutOfRangeIndex(const rund::AccelDevice &pick,
+                            const std::size_t count) {
   namespace fix = node_accel_contract::primitive;
   namespace rej = node_accel_contract::gather::reject;
 
   if (!pick.check.ok) {
     return false;
   }
-  const rej::Work work{};
+  const rej::Work work{count};
   if (!rej::ReferenceRejectsOutOfRangeIndex(work)) {
     return false;
   }
@@ -37,20 +38,21 @@ bool RejectsOutOfRangeIndex(const rund::AccelDevice &pick) {
       evidence.run.transfer.device_to_host_bytes != 0u) {
     return false;
   }
-  std::array<rund::kernel::u32, 2u> observed{};
+  std::vector<rund::kernel::u32> observed(count);
   const rund::AccelCheck downloaded = rund::node::accel::DownloadAccelBuffer(
       resources.context, resources.output, observed.data(),
       observed.size() * sizeof(rund::kernel::u32));
   return downloaded.ok && observed == work.output_sentinel;
 }
 
-bool RejectsBoundedCountOverflowWithoutMutation(const rund::AccelDevice &pick) {
+bool RejectsBoundedCountOverflowWithoutMutation(const rund::AccelDevice &pick,
+                                                const std::size_t count) {
   namespace fix = node_accel_contract::primitive;
   namespace rej = node_accel_contract::gather::reject;
   if (!pick.check.ok) {
     return false;
   }
-  const rej::Work work{};
+  const rej::Work work{count};
   const rej::Resources resources = rej::BuildResources(pick, work, true);
   const auto bindings = rej::BoundedBindings(resources);
   const rund::AccelEvidence evidence =
@@ -65,7 +67,7 @@ bool RejectsBoundedCountOverflowWithoutMutation(const rund::AccelDevice &pick) {
       !fix::EvidenceReason(evidence, "compute_bounded_count_invalid")) {
     return false;
   }
-  std::array<rund::kernel::u32, 2u> observed{};
+  std::vector<rund::kernel::u32> observed(count);
   const rund::AccelCheck downloaded = rund::node::accel::DownloadAccelBuffer(
       resources.context, resources.output, observed.data(),
       observed.size() * sizeof(rund::kernel::u32));

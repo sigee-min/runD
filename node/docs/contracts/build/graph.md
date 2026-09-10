@@ -862,6 +862,24 @@ and selected native backend dependencies. Native definitions, SDK headers, and
 compiler usage apply only to their Metal or Vulkan OBJECT component.
 Internal archives never repeat external links already owned by their SCC root.
 
+Partial aggregate construction uses explicit empty defaults on the owning
+optional container, shared owner, and borrowed-span fields. Ordinary leases
+therefore carry empty graph views without producer-specific initializer
+mirrors. GCC and Clang keep `-Wextra -Wpedantic -Werror`; numeric accumulators
+use the compiler-provided signed/unsigned 128-bit typedef spelling with the
+same width and overflow checks. Native Vulkan contract code that names private
+SDK types is compiled only when that SDK is present and the requested backend
+allows Vulkan. Backend-neutral source/plan contracts and unavailable-backend
+reason checks remain separate.
+
+The cold ordinary resource placer owns one reserved `Active` vector and uses
+`push_heap`/`pop_heap` directly. Its min-heap comparator remains the exact
+`(last use, resource id)` order, and capacity remains the admitted resource
+count. It performs no empty-container heap construction or extra queue-owner
+move. Native release sorts its at-most-four distinct owners by bounded
+insertion into the same canonical mutex order. These operations avoid GCC 13
+optimizer diagnostics without disabling bounds warnings or changing ordering.
+
 The `tools.native-headers` CTest route is registered when both Node native
 OBJECT components participate in the configured graph. It derives compiler
 contexts from that tree's `compile_commands.json`, not a mirrored source list.

@@ -20,7 +20,7 @@ valid_transaction_sink(const VirtualBacking &output,
       !transaction.token ||
       dynamic_cast<VirtualBackingTransaction *>(transaction.output) !=
           transaction.provider ||
-      !run.scan || run.graph_execution || run.reduction) {
+      !run.scan() || run.graph_execution() || run.reduction()) {
     return false;
   }
   const VirtualBackingTransactionSpec spec = transaction.token.spec();
