@@ -53,6 +53,26 @@ string(FIND "${live_manifest_text}"
 if(layout_manifest_index EQUAL -1)
   message(FATAL_ERROR "source-manifest omitted its root-layout authority")
 endif()
+
+# Filesystem verification must not silently rely on product files that Git
+# ignores and therefore omits from a clean checkout. Source archives without
+# Git metadata retain the same filesystem-manifest contract.
+if(EXISTS "${ROOT}/.git")
+  string(REGEX REPLACE "[^\n\t]+\t[x-]\t([^\n]+)\n" "\\1\n"
+    live_paths "${live_manifest_text}")
+  file(WRITE "${fixture}/live-paths.txt" "${live_paths}")
+  execute_process(
+    COMMAND git check-ignore --no-index --stdin
+    WORKING_DIRECTORY "${ROOT}"
+    INPUT_FILE "${fixture}/live-paths.txt"
+    RESULT_VARIABLE ignored_result
+    OUTPUT_VARIABLE ignored_paths
+    ERROR_VARIABLE ignored_error)
+  if(NOT ignored_result EQUAL 1)
+    message(FATAL_ERROR
+      "admitted product sources must not be Git-ignored: ${ignored_paths}${ignored_error}")
+  endif()
+endif()
 # Root membership is consumed from one registry. An unregistered physical root
 # entry and a missing admitted owner must both fail closed.
 set(manifest_root "${fixture}/manifest-root")

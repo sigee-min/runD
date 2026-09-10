@@ -1,15 +1,5 @@
 # Build outputs
-build/
-!node/docs/contracts/build/
-!node/docs/contracts/build/**
-!kernel/src/reduction/graph/build/
-!kernel/src/reduction/graph/build/**
-!kernel/tests/contract/program/compute/fusion/build/
-!kernel/tests/contract/program/compute/fusion/build/**
-!node/src/compute/graph/build/
-!node/src/compute/graph/build/**
-!tools/measure/build/
-!tools/measure/build/**
+/build/
 cmake-build-*/
 out/
 dist/

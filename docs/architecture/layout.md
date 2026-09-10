@@ -63,3 +63,7 @@ Admitted product paths use printable ASCII without backslashes; control
 characters and ambiguous separator spellings fail closed before hashing.
 Tracked root changes are reviewed against this page and exercised by the
 affected build, package, and release contracts.
+In a Git checkout, the source-manifest contract also rejects admitted product
+files matched by Git ignore rules, including already tracked matches. Build
+output ignore rules must not hide semantic source directories named `build`;
+the root output rule is `/build/`, and generated task state belongs in `.cache`.
