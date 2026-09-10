@@ -872,6 +872,11 @@ SDK types is compiled only when that SDK is present and the requested backend
 allows Vulkan. Backend-neutral source/plan contracts and unavailable-backend
 reason checks remain separate.
 
+Diagnostic varargs use an explicit argument type matching each format
+specifier. In particular, `%llu` receives `unsigned long long`; `uint64_t`
+alone is not that ABI contract because it aliases different native integer
+types on Darwin and Linux. Width equality does not make varargs types equal.
+
 The cold ordinary resource placer owns one reserved `Active` vector and uses
 `push_heap`/`pop_heap` directly. Its min-heap comparator remains the exact
 `(last use, resource id)` order, and capacity remains the admitted resource

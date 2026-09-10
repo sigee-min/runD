@@ -89,8 +89,10 @@ template <std::size_t Iterations>
                  static_cast<unsigned long long>(before.native_storage_bytes),
                  static_cast<unsigned long long>(before.route_host_bytes),
                  static_cast<unsigned long long>(before.retained_bytes),
-                 proof == nullptr ? 0u : proof->output_pitch_bytes[0],
-                 proof == nullptr ? 0u : proof->outputs[0].bytes);
+                 static_cast<unsigned long long>(
+                     proof == nullptr ? 0u : proof->output_pitch_bytes[0]),
+                 static_cast<unsigned long long>(
+                     proof == nullptr ? 0u : proof->outputs[0].bytes));
     return false;
   }
   state_count = proof->state_count;
