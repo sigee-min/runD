@@ -80,8 +80,16 @@ invalidate_slot() {
 }
 
 capability_digest() {
-  printf '%s' "$1" | cmake -E sha256sum - 2>/dev/null |
-    awk 'NR == 1 { print $1 }'
+  # CMake 3.x interprets '-' as a file name. Use the same portable digest
+  # tools as the source manifest without persisting the raw capability.
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk 'NR == 1 { print $1 }'
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk 'NR == 1 { print $1 }'
+  else
+    echo "lock capability requires sha256sum or shasum" >&2
+    return 1
+  fi
 }
 
 if [ "${1:-}" = "--held" ]; then

@@ -100,6 +100,10 @@ tokens. Same-identity flat build-tool reentry uses an inherited random
 capability whose SHA-256 alone is recorded beside the held OS lock; this
 crosses configure-time tools that close extra descriptors without depending
 on process-table inspection.
+Capability hashing uses `sha256sum` or `shasum`, as does source-manifest
+hashing. It does not require CMake stdin hashing, which is unavailable in the
+CI CMake 3.31 toolchain. The lock contract covers flat reentry with that CMake
+operation unavailable, as well as real configure/build locking.
 
 All command caches, build trees, logs, packets, and temporary artifacts live
 under `.cache/`. They are disposable accelerators, never source authority.

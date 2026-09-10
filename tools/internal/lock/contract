@@ -186,6 +186,18 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Hashing a flat capability must not require CMake's newer stdin support.
+# Keep the installed CMake for the later real configure/build contracts.
+compat_bin="$work/cmake-stdin-unsupported-bin"
+mkdir -p "$compat_bin"
+printf '%s\n' '#!/bin/sh' 'echo "CMake stdin hashing is unavailable" >&2' \
+  'exit 1' >"$compat_bin/cmake"
+chmod 700 "$compat_bin/cmake"
+compat_lock="$work/cmake-stdin-unsupported.lock"
+PATH="$compat_bin:$PATH" sh "$helper" --flat "$compat_lock" \
+  "portable capability digest contract" \
+  sh "$helper" --held-flat "$compat_lock"
+
 sh "$helper" "$lock_a" "held lock contract" \
   sh "$contract" "$root" "$work" hold "$lock_a" "$ready" "$release" \
   "$token" "$holder_done" &
