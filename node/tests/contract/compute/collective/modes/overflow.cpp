@@ -98,7 +98,7 @@ CheckInclusiveOverflow(const rund::compute::Backend backend,
     }
     // Local wrap can disappear from the modulo block total. Test it
     // independently of the cross-block carry, with a fresh resident owner.
-    for (const auto positions :
+    for (const auto &positions :
          {std::pair{0u, 1u}, std::pair{254u, 255u},
           std::pair{256u, 257u}, std::pair{0u, 511u}}) {
       boundary.fill(Zero<T>());

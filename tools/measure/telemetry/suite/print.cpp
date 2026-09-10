@@ -166,7 +166,7 @@ void PrintSummary(const Operation operation, const Lifecycle lifecycle,
       deltas[pair] = Difference(basic[pair], detail[pair]);
       references[pair] = Difference(disabled[pair], basic[pair],
                                     Direction::Disabled, Direction::Basic);
-      for (const auto row : {std::pair{"delta", deltas[pair]},
+      for (const auto &row : {std::pair{"delta", deltas[pair]},
                              std::pair{"reference", references[pair]}}) {
         std::printf(
             "%s\t%.*s\t%.*s\t%zu\t%.*s\t%.*s\t%llu\n", row.first,
