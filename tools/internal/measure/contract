@@ -790,9 +790,10 @@ grep -q 'status=passed' "$work/pass.out"
 perl "$root/tools/internal/measure/compare" \
   "$fixture" measure-flow "$flow" observe >"$work/observe.tsv"
 grep -q '^profile	fixture$' "$work/observe.tsv"
-grep -q '^metric\tvalue\tunit$' "$work/observe.tsv"
-grep -q "^semantic\t${semantic}\tsha256$" "$work/observe.tsv"
-grep -q '^graph/median\t10.000\tus$' "$work/observe.tsv"
+# TSV fields are literal bytes, not implementation-specific regexp escapes.
+grep -Fqx 'metric	value	unit' "$work/observe.tsv"
+grep -Fqx "semantic	${semantic}	sha256" "$work/observe.tsv"
+grep -Fqx 'graph/median	10.000	us' "$work/observe.tsv"
 [ "$(wc -l <"$work/observe.tsv" | tr -d ' ')" -eq 7 ]
 
 perl "$root/tools/internal/measure/compare" \
