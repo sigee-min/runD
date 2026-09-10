@@ -1,6 +1,7 @@
 #include "../../../backend/result.hpp"
 
 #include "../../../kernel/backend/execute.hpp"
+#include "../../kernel.hpp"
 #include "residency/local.hpp"
 #include "transfer.hpp"
 
@@ -147,6 +148,13 @@ PersistentResidencySlidingPreparation PrepareVulkanResidencyPersistent(
   PersistentResidencySlidingPreparation result{};
   result.capability.check = rund::AccelCheck{false, "accel_vulkan_unavailable"};
   return result;
+}
+
+bool InspectVulkanFusedDirectRecurrence(
+    const std::shared_ptr<void> &,
+    VulkanFusedDirectRecurrenceDiagnostics &diagnostics) noexcept {
+  diagnostics = {};
+  return false;
 }
 
 #endif

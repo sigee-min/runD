@@ -862,6 +862,13 @@ and selected native backend dependencies. Native definitions, SDK headers, and
 compiler usage apply only to their Metal or Vulkan OBJECT component.
 Internal archives never repeat external links already owned by their SCC root.
 
+SDK-disabled native components must still resolve the complete backend
+interface. Each Pipeline's existing `stub.cpp` owns its unavailable
+definitions and includes the same declaration header as the SDK-enabled
+implementation. The native-header route checks a final executable link and
+unavailable behavior, in addition to standalone compilation and relocatable
+ODR links; object compilation alone cannot prove this closure.
+
 Partial aggregate construction uses explicit empty defaults on the owning
 optional container, shared owner, and borrowed-span fields. Ordinary leases
 therefore carry empty graph views without producer-specific initializer

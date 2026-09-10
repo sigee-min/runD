@@ -16,6 +16,7 @@ from typing import Sequence
 sys.dont_write_bytecode = True
 
 try:
+    from .availability import run_availability_probe
     from .fixtures import FixtureError, run_self_tests
     from .model import (
         CompileContext,
@@ -36,6 +37,7 @@ try:
     )
 except ImportError:  # Direct invocation from CTest/source tree.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from availability import run_availability_probe  # type: ignore[no-redef]
     from fixtures import FixtureError, run_self_tests  # type: ignore[no-redef]
     from model import (  # type: ignore[no-redef]
         CompileContext,
@@ -196,6 +198,11 @@ def _run_contract(arguments: argparse.Namespace) -> int:
         except ProbeError as error:
             raise ContractError(str(error)) from error
         print("odr.sdk_off=passed")
+        try:
+            run_availability_probe(portable, rows, root, scratch / "availability-sdk-off")
+        except ProbeError as error:
+            raise ContractError(str(error)) from error
+        print("availability.sdk_off=linked_and_executed")
         print(f"on_count={on_count}")
     return 0
 

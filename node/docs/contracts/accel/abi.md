@@ -50,6 +50,17 @@ component definitions; an unavailable SDK is reported, not claimed as tested.
 Negative fixtures exercise missing dependencies, SDK-conditional failures, and
 duplicate strong definitions. The check does not execute native work.
 
+The same route also compiles the configured Metal and Vulkan Pipeline
+SDK-disabled implementation owners, links a complete host executable against
+their declared interfaces, and executes their unavailable-backend contract.
+This verifies that residency readiness, sliding submission/abort, persistent
+preparation/service, and recurrence diagnostics remain link-complete without
+either SDK. Rejected submission cannot invoke a completion callback; diagnostic
+queries clear prior observations; unavailable persistent preparation publishes
+no lowering, request cell, ticket, or callable service. The two implementation
+rows come from the configured compile database. The probe creates no native
+device and does not count an unavailable path as native execution evidence.
+
 `tools/test/run --fresh accel.kernel-core` owns the native ABI check in
 `node/tests/contract/accel/kernel/metal/abi.cpp`, alongside the existing exact
 production-source length/hash contract. Each field receives a distinct offset
