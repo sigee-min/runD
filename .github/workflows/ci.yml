@@ -25,6 +25,7 @@ jobs:
       CXX: clang++-18
       CMAKE_BUILD_PARALLEL_LEVEL: 2
       CTEST_PARALLEL_LEVEL: 2
+      CMAKE_CXX_LINKER_LAUNCHER: /usr/bin/time;-v
       LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
       Clang_DIR: /usr/lib/llvm-18/lib/cmake/clang
 
@@ -48,6 +49,7 @@ jobs:
             llvm-18-dev \
             llvm-18-tools \
             ninja-build \
+            time \
             util-linux
 
       - name: Record the contract toolchain
@@ -59,6 +61,8 @@ jobs:
           clang++-18 --version
           /usr/lib/llvm-18/bin/llvm-config --version
           flock --version
+          free -h
+          df -h .
 
       - name: Run the complete Debug contract matrix
         shell: bash
@@ -99,6 +103,7 @@ jobs:
       CXX: g++-13
       CMAKE_BUILD_PARALLEL_LEVEL: 2
       CTEST_PARALLEL_LEVEL: 2
+      CMAKE_CXX_LINKER_LAUNCHER: /usr/bin/time;-v
       Clang_DIR: /usr/lib/llvm-18/lib/cmake/clang
       LLVM_CONFIG: /usr/lib/llvm-18/bin/llvm-config
       LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
@@ -125,6 +130,7 @@ jobs:
             llvm-18-dev \
             llvm-18-tools \
             ninja-build \
+            time \
             util-linux
 
       - name: Record the release toolchain tuple
@@ -138,6 +144,8 @@ jobs:
           /usr/lib/llvm-18/bin/clang++ --version
           /usr/lib/llvm-18/bin/llvm-config --version
           flock --version
+          free -h
+          df -h .
 
       - name: Run the Release installed-SDK consumer gate
         shell: bash

@@ -1,3 +1,23 @@
+# Large Debug closures can each retain substantial linker state. Bound their
+# aggregate working set independently of compiler parallelism.
+if(CMAKE_GENERATOR MATCHES "^Ninja" AND NOT DEFINED CMAKE_JOB_POOL_LINK)
+  get_property(_rund_pools_set GLOBAL PROPERTY JOB_POOLS SET)
+  if(_rund_pools_set)
+    get_property(_rund_pools GLOBAL PROPERTY JOB_POOLS)
+  else()
+    set(_rund_pools "${CMAKE_JOB_POOLS}")
+  endif()
+  if("${_rund_pools}" MATCHES "(^|;)rund_link=")
+    message(FATAL_ERROR
+      "rund_link is the default repository link pool; select a custom pool with CMAKE_JOB_POOL_LINK")
+  endif()
+  list(APPEND _rund_pools "rund_link=1")
+  set_property(GLOBAL PROPERTY JOB_POOLS "${_rund_pools}")
+  set(CMAKE_JOB_POOL_LINK rund_link)
+  unset(_rund_pools)
+  unset(_rund_pools_set)
+endif()
+
 set(_rund_compiler_launcher "")
 if(DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
   set(_rund_compiler_launcher "${CMAKE_CXX_COMPILER_LAUNCHER}")

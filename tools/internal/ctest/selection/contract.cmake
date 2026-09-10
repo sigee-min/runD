@@ -13,6 +13,7 @@ set(fixture "${BUILD}/build-ctest-selection-fixture")
 set(fake_bin "${fixture}/bin")
 set(fake_root "${fixture}/root")
 file(REMOVE_RECURSE "${fixture}")
+include("${ROOT}/tools/internal/ctest/selection/link.cmake")
 file(MAKE_DIRECTORY
   "${fake_bin}"
   "${fake_root}/tools/internal/state")

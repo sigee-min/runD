@@ -111,6 +111,16 @@ repository Ninja owner is invoked directly and owns regeneration, target
 selection, output mutation, and exit status. Missing Ninja and an existing
 non-Ninja contract tree fail before execution.
 
+The root compile policy gives Ninja link rules one default `rund_link` slot.
+Compiler parallelism remains controlled independently, and existing compiler
+pools are preserved. This bounds simultaneous linker working sets for large
+Debug closures without serializing compilation. A caller may explicitly select
+another declared pool through CMake's standard `CMAKE_JOB_POOL_LINK` variable;
+the reserved default name cannot have a second depth owner. The build-selection
+contract checks generated Ninja rules for both default and explicit-pool cases.
+Linux CI records host memory and link-command maximum RSS/exit status through
+CMake's linker launcher. Runner shutdown alone is not evidence of OOM.
+
 Repository verification forces strict warnings after caller options:
 
 - GNU/Clang C++ and Objective-C++: `-Wall -Wextra -Wpedantic -Werror`
