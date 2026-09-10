@@ -724,6 +724,8 @@ cp "$root/tools/internal/measure/compare" \
   "$fixture/tools/internal/measure/compare"
 cp "$root/tools/internal/measure/schema.pm" \
   "$fixture/tools/internal/measure/schema.pm"
+cp "$root/tools/internal/measure/quantile.pm" \
+  "$fixture/tools/internal/measure/quantile.pm"
 cp "$root/tools/internal/measure/context" \
   "$fixture/tools/internal/measure/context"
 cp "$root/tools/internal/measure/project" \
@@ -908,6 +910,8 @@ grep -q '^live/cold/allocations/p95	1	count$' \
   "$work/telemetry-observe.tsv"
 grep -q '^summary	live	cold	basic	wall	p95	ns	absolute	110$' \
   "$telemetry"
+perl "$root/tools/internal/measure/numeric-contract" \
+  "$root" "$fixture" "$telemetry" "$work"
 
 # Absolute allocation counts are diagnostic performance observations, not an
 # exact semantic identity. Moving every level by the same allocation leaves

@@ -15,6 +15,8 @@ configure_file("${ROOT}/tools/internal/measure/compare"
                "${fixture_root}/tools/internal/measure/compare" COPYONLY)
 configure_file("${ROOT}/tools/internal/measure/schema.pm"
                "${fixture_root}/tools/internal/measure/schema.pm" COPYONLY)
+configure_file("${ROOT}/tools/internal/measure/quantile.pm"
+               "${fixture_root}/tools/internal/measure/quantile.pm" COPYONLY)
 
 execute_process(COMMAND uname -a OUTPUT_VARIABLE current_host
                 OUTPUT_STRIP_TRAILING_WHITESPACE)

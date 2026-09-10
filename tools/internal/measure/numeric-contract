@@ -1,0 +1,120 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Math::BigFloat;
+
+@ARGV == 4 or die "usage: numeric-contract <root> <fixture> <telemetry> <work>\n";
+my ($root, $fixture, $telemetry, $work) = @ARGV;
+require "$root/tools/internal/measure/quantile.pm";
+
+sub oracle {
+  my ($values) = @_;
+  my @ordered = sort { $a->bcmp($b) }
+      map { Math::BigFloat->new($_) } @$values;
+  my $count = scalar @ordered;
+  my $median = $ordered[int(($count - 1) / 2)]->copy();
+  $median->badd($ordered[$count / 2])->bdiv(2) if $count % 2 == 0;
+  return ($median, $ordered[int((95 * $count + 99) / 100) - 1]->copy());
+}
+
+my @edges = qw(0 1 9007199254740991 9007199254740992 9007199254740993
+               9223372036854775807 9223372036854775808
+               18446744073709551614 18446744073709551615);
+my @signed = (@edges, map { "-$_" } @edges[1 .. $#edges]);
+for my $count (1, 2, 3, 19, 20, 59, 60, 61) {
+  for my $offset (0 .. $#signed) {
+    my @values = map { $signed[($_ * 7 + $offset) % @signed] } 0 .. $count - 1;
+    my @before = @values;
+    my @expected = oracle(\@values);
+    my @actual = RundMeasureQuantile::summarize(\@values);
+    $actual[$_]->bcmp($expected[$_]) == 0
+        or die "integer rank changed at count=$count offset=$offset\n"
+        for 0 .. 1;
+    join(',', @before) eq join(',', @values) or die "rank mutated its input\n";
+  }
+}
+for my $invalid (undef, '', '-0', '00', '+1', '1.0', '1e2', 'NaN') {
+  !eval { RundMeasureQuantile::summarize([$invalid]); 1 }
+      or die "rank accepted a noncanonical integer\n";
+}
+!eval { RundMeasureQuantile::summarize([]); 1 }
+    or die "rank accepted an empty population\n";
+my ($half) = RundMeasureQuantile::summarize([qw(18446744073709551614 18446744073709551615)]);
+$half->bstr() eq '18446744073709551614.5' or die "uint64 half median rounded\n";
+my ($negative_half) = RundMeasureQuantile::summarize([qw(-1 0)]);
+$negative_half->bstr() eq '-0.5' or die "negative half median rounded\n";
+my (undef, $rank) = RundMeasureQuantile::summarize([map { "$_" } 1 .. 60]);
+$rank->bstr() eq '57' or die "nearest-rank p95 changed\n";
+
+# Exercise the complete raw parser with uint64 boundary samples and signed
+# differences. The oracle deliberately retains arbitrary-precision arithmetic
+# for every value, independently of the production string ordering.
+open my $input, '<', $telemetry or die "cannot read $telemetry: $!";
+my @rows = map { chomp; [split /\t/, $_, -1] } <$input>;
+close $input or die "cannot close $telemetry: $!";
+my %samples;
+my $ordinal = 0;
+for my $row (@rows) {
+  next unless $row->[0] eq 'sample';
+  $row->[8] = $edges[($ordinal++ * 7) % @edges];
+  $samples{join('/', @$row[1 .. 4])} = $row->[8];
+  if ($row->[1] eq 'live') {
+    # Public evidence rows saturate: UINT64_MAX observations + one host event.
+    $row->[18] = '18446744073709551615';
+    $row->[19] = '1';
+    $row->[45] = '18446744073709551615';
+    $row->[64] = '18446744073709551615' unless $row->[4] eq 'disabled';
+  }
+}
+my %deltas;
+for my $row (@rows) {
+  next unless ($row->[0] eq 'delta' || $row->[0] eq 'reference') &&
+              $row->[4] eq 'cpu';
+  my $prefix = join('/', @$row[1 .. 3]);
+  my ($left, $right) = $row->[0] eq 'delta'
+      ? ('basic', 'detail') : ('disabled', 'basic');
+  my $difference = Math::BigFloat->new($samples{"$prefix/$right"});
+  $difference->bsub($samples{"$prefix/$left"});
+  $deltas{"$row->[0]/$prefix"} = $difference->bstr();
+  my $sign = $difference->bcmp(0);
+  $row->[5] = $sign < 0 ? $left : $sign > 0 ? $right : 'equal';
+  $row->[6] = $difference->babs()->bstr();
+}
+my %expected;
+for my $row (@rows) {
+  next unless $row->[0] eq 'summary' && $row->[4] eq 'cpu';
+  my ($operation, $lifecycle, $level, $stat) = @$row[1, 2, 3, 5];
+  my $prefix = "$operation/$lifecycle";
+  my $paired = $level eq 'delta' || $level eq 'reference';
+  my @values = map {
+    $paired ? $deltas{"$level/$prefix/$_"} : $samples{"$prefix/$_/$level"}
+  } 1 .. 60;
+  my ($median, $p95) = oracle(\@values);
+  my $value = $stat eq 'median' ? $median : $p95;
+  $expected{"$prefix/cpu/$stat"} = $value->is_pos() ? $value->bstr() : '0'
+      if $level eq 'delta';
+  if ($paired) {
+    my $sign = $value->bcmp(0);
+    $row->[7] = $sign == 0 ? 'equal' : $level eq 'delta'
+        ? ($sign < 0 ? 'basic' : 'detail')
+        : ($sign < 0 ? 'disabled' : 'basic');
+  }
+  $row->[8] = $value->babs()->bstr();
+}
+my $path = "$work/telemetry-integer-boundaries.tsv";
+open my $output, '>', $path or die "cannot write $path: $!";
+print {$output} join("\t", @$_), "\n" for @rows;
+close $output or die "cannot close $path: $!";
+open my $compare, '-|', 'perl', "$root/tools/internal/measure/compare",
+    $fixture, 'measure-telemetry', $path, 'observe'
+    or die "cannot start boundary comparator: $!";
+while (my $line = <$compare>) {
+  chomp $line;
+  my ($key, $value, $unit) = split /\t/, $line, -1;
+  next unless exists $expected{$key};
+  $unit eq 'ns' && Math::BigFloat->new($value)->bcmp($expected{$key}) == 0
+      or die "boundary projection changed: $key\n";
+  delete $expected{$key};
+}
+close $compare or die "boundary comparator failed\n";
+!keys %expected or die "boundary projection omitted metrics\n";

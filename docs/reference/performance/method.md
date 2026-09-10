@@ -730,6 +730,16 @@ because `ceil(0.95 * 60) = 57`. The p95 is therefore the fourth-highest
 observation, so one isolated high interruption cannot itself be emitted as
 the p95 order statistic. Half-integral medians use a `.5` suffix; integer
 arithmetic prevents binary floating-point rounding.
+The raw parser keeps validated integer samples as canonical decimal strings.
+`tools/internal/measure/quantile.pm` orders them by sign, digit count, and
+lexicographic magnitude; only the selected central values and p95 become
+arbitrary-precision decimal objects. Public integer projections compare
+canonical strings directly; saturating sums, differences, and phase sums use
+exact integer arithmetic. This preserves the full uint64 range, negative
+paired differences, and half-integral medians without allocating a numeric
+object for every sample or comparison. The measurement contract compares
+integer ranks to an independent arbitrary-precision oracle and exercises the
+complete parser with uint64 boundary samples and both delta directions.
 
 The log publishes absolute observations, paired Detail-minus-Basic deltas, and
 paired Basic-minus-Disabled reference deltas for each operation and lifecycle.

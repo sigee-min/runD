@@ -40,6 +40,7 @@ my $observe = defined($mode);
 my $project = defined($mode) && $mode eq 'project';
 my $schema_path = "$root/tools/internal/measure/schema.pm";
 require $schema_path;
+require "$root/tools/internal/measure/quantile.pm";
 my $schema;
 eval { $schema = RundMeasureSchema::load($root, !$project); 1 }
     or fail($@ =~ s/\n\z//r);
@@ -456,9 +457,6 @@ sub parse_telemetry {
   $lines[7] eq "design\tlevels\torder\tpermutations"
       or fail('telemetry level order changed');
   my $pairs = 60;
-  my $median_lower = $pairs / 2 - 1;
-  my $median_upper = $pairs / 2;
-  my $p95_index = (95 * $pairs + 99) / 100 - 1;
   my $valid_pair = sub {
     my ($value) = @_;
     return $value =~ /\A[1-9][0-9]*\z/ && $value <= $pairs;
@@ -725,10 +723,10 @@ sub parse_telemetry {
 
   sub telemetry_add {
     my @values = @_;
-    my $sum = Math::BigFloat->new(0);
+    my $sum = Math::BigInt->new(0);
     $sum->badd($_) for @values;
-    my $maximum = Math::BigFloat->new('18446744073709551615');
-    return $sum->bcmp($maximum) > 0 ? $maximum : $sum;
+    my $maximum = Math::BigInt->new('18446744073709551615');
+    return $sum->bcmp($maximum) > 0 ? $maximum->bstr() : $sum->bstr();
   }
 
   my @public = qw(
@@ -762,14 +760,12 @@ sub parse_telemetry {
 
         my $expected_input_rows = $basic->{inputs};
         my $expected_input_bytes =
-            $operation eq 'live' ? Math::BigFloat->new(32)
-                                 : Math::BigFloat->new($basic->{logical});
+            $operation eq 'live' ? 32 : $basic->{logical};
         my $expected_produced =
             $operation eq 'live' || $operation eq 'record'
-                ? Math::BigFloat->new($expected_input_rows)
-                : Math::BigFloat->new(0);
-        my $expected_choices =
-            Math::BigFloat->new($operation eq 'scenario' ? 1 : 0);
+                ? $expected_input_rows
+                : 0;
+        my $expected_choices = $operation eq 'scenario' ? 1 : 0;
         my $expected_evidence_rows =
             $operation eq 'live'
                 ? telemetry_add($basic->{observations}, $basic->{host_events},
@@ -779,29 +775,25 @@ sub parse_telemetry {
                                 $basic->{captures});
         my $expected_evidence_bytes =
             $operation eq 'live'
-                ? Math::BigFloat->new(0)
+                ? 0
                 : telemetry_add($basic->{encoded},
                                 $basic->{capture_retained});
         my $expected_retained =
             $operation eq 'live'
-                ? Math::BigFloat->new(0)
+                ? 0
                 : telemetry_add($basic->{retained},
                                 $basic->{capture_retained});
         my $expected_copied =
             $operation eq 'live'
-                ? Math::BigFloat->new(0)
+                ? 0
                 : telemetry_add($basic->{storage_copied},
                                 $basic->{capture_retained});
-        my $expected_growths =
-            Math::BigFloat->new($operation eq 'live' ? 0 : $basic->{growths});
-        my $expected_physical = Math::BigFloat->new(
-            $operation eq 'live' ? 0 : $basic->{physical});
-        my $expected_allocated = Math::BigFloat->new(
-            $operation eq 'live' ? 0 : $basic->{allocated});
-        my $expected_reserved = Math::BigFloat->new(
-            $operation eq 'live' ? 0 : $basic->{reserved});
+        my $expected_growths = $operation eq 'live' ? 0 : $basic->{growths};
+        my $expected_physical = $operation eq 'live' ? 0 : $basic->{physical};
+        my $expected_allocated = $operation eq 'live' ? 0 : $basic->{allocated};
+        my $expected_reserved = $operation eq 'live' ? 0 : $basic->{reserved};
         my %formula = (
-          public_input_rows => Math::BigFloat->new($expected_input_rows),
+          public_input_rows => $expected_input_rows,
           public_input_bytes => $expected_input_bytes,
           public_produced_rows => $expected_produced,
           public_choices => $expected_choices,
@@ -813,10 +805,10 @@ sub parse_telemetry {
           public_allocated => $expected_allocated,
           public_reserved => $expected_reserved,
           public_growths => $expected_growths,
-          public_hash => Math::BigFloat->new($basic->{result}),
+          public_hash => $basic->{result},
         );
         for my $field (sort keys %formula) {
-          Math::BigFloat->new($basic->{$field})->bcmp($formula{$field}) == 0
+          $basic->{$field} eq $formula{$field}
               or fail("telemetry public formula mismatch: $prefix/$field");
         }
 
@@ -874,10 +866,10 @@ sub parse_telemetry {
               $row->{finish} eq '0'
               or fail("non-Detail telemetry phase was measured: $prefix/$level");
         }
-        my $detail_phase = Math::BigFloat->new($detail->{prepare});
+        my $detail_phase = Math::BigInt->new($detail->{prepare});
         $detail_phase->badd($detail->{work});
         $detail_phase->badd($detail->{finish});
-        $detail_phase->bcmp(Math::BigFloat->new($detail->{wall})) <= 0
+        $detail_phase->bcmp($detail->{wall}) <= 0
             or fail("Detail telemetry phases exceed wall time: $prefix");
       }
     }
@@ -885,13 +877,13 @@ sub parse_telemetry {
 
   sub telemetry_delta {
     my ($left_value, $right_value, $left_direction, $right_direction) = @_;
-    my $left = Math::BigFloat->new($left_value);
-    my $right = Math::BigFloat->new($right_value);
-    my $comparison = $right->bcmp($left);
-    return ('equal', Math::BigFloat->new(0)) if $comparison == 0;
-    return ($right_direction, $right->copy()->bsub($left))
+    my $comparison = RundMeasureQuantile::order($right_value, $left_value);
+    return ('equal', '0') if $comparison == 0;
+    return ($right_direction,
+            Math::BigInt->new($right_value)->bsub($left_value)->bstr())
         if $comparison > 0;
-    return ($left_direction, $left->copy()->bsub($right));
+    return ($left_direction,
+            Math::BigInt->new($left_value)->bsub($right_value)->bstr());
   }
 
   for my $operation (@operations) {
@@ -908,7 +900,7 @@ sub parse_telemetry {
           my $key = "$prefix/$metric";
           my $row = $delta{$key} // fail("missing telemetry delta: $key");
           $row->{direction} eq $direction &&
-              Math::BigFloat->new($row->{magnitude})->bcmp($magnitude) == 0
+              $row->{magnitude} eq $magnitude
               or fail("telemetry delta mismatch: $key");
           my ($reference_direction, $reference_magnitude) =
               telemetry_delta($disabled->{$metric}, $basic->{$metric},
@@ -916,8 +908,7 @@ sub parse_telemetry {
           my $reference_row = $reference{$key}
               // fail("missing telemetry reference delta: $key");
           $reference_row->{direction} eq $reference_direction &&
-              Math::BigFloat->new($reference_row->{magnitude})
-                  ->bcmp($reference_magnitude) == 0
+              $reference_row->{magnitude} eq $reference_magnitude
               or fail("telemetry reference delta mismatch: $key");
         }
       }
@@ -930,57 +921,28 @@ sub parse_telemetry {
     for my $lifecycle (@lifecycles) {
       my $prefix = "$operation/$lifecycle";
       for my $metric (@metrics) {
-        my @disabled = map {
-          Math::BigFloat->new($sample{"$prefix/$_/disabled"}{$metric})
-        } 1 .. $pairs;
-        my @basic = map {
-          Math::BigFloat->new($sample{"$prefix/$_/basic"}{$metric})
-        } 1 .. $pairs;
-        my @detail = map {
-          Math::BigFloat->new($sample{"$prefix/$_/detail"}{$metric})
-        } 1 .. $pairs;
-        my @signed = map {
-          my $row = $delta{"$prefix/$_/$metric"};
-          my $value = Math::BigFloat->new($row->{magnitude});
-          $row->{direction} eq 'basic' ? $value->bneg() : $value;
-        } 1 .. $pairs;
-        my @reference_signed = map {
-          my $row = $reference{"$prefix/$_/$metric"};
-          my $value = Math::BigFloat->new($row->{magnitude});
-          $row->{direction} eq 'disabled' ? $value->bneg() : $value;
-        } 1 .. $pairs;
-        @disabled = sort { $a->bcmp($b) } @disabled;
-        @basic = sort { $a->bcmp($b) } @basic;
-        @detail = sort { $a->bcmp($b) } @detail;
-        @signed = sort { $a->bcmp($b) } @signed;
-        @reference_signed = sort { $a->bcmp($b) } @reference_signed;
-        my $disabled_median = $disabled[$median_lower]->copy();
-        $disabled_median->badd($disabled[$median_upper]);
-        $disabled_median->bdiv(2);
-        my $basic_median = $basic[$median_lower]->copy();
-        $basic_median->badd($basic[$median_upper]);
-        $basic_median->bdiv(2);
-        my $detail_median = $detail[$median_lower]->copy();
-        $detail_median->badd($detail[$median_upper]);
-        $detail_median->bdiv(2);
-        my $delta_median = $signed[$median_lower]->copy();
-        $delta_median->badd($signed[$median_upper]);
-        $delta_median->bdiv(2);
-        my $reference_median = $reference_signed[$median_lower]->copy();
-        $reference_median->badd($reference_signed[$median_upper]);
-        $reference_median->bdiv(2);
-        my %expected = (
-          'disabled/median' => $disabled_median,
-          'disabled/p95' => $disabled[$p95_index]->copy(),
-          'basic/median' => $basic_median,
-          'basic/p95' => $basic[$p95_index]->copy(),
-          'detail/median' => $detail_median,
-          'detail/p95' => $detail[$p95_index]->copy(),
-          'delta/median' => $delta_median,
-          'delta/p95' => $signed[$p95_index]->copy(),
-          'reference/median' => $reference_median,
-          'reference/p95' => $reference_signed[$p95_index]->copy(),
-        );
+        my %population;
+        for my $level (qw(disabled basic detail)) {
+          $population{$level} = [map {
+            $sample{"$prefix/$_/$level"}{$metric}
+          } 1 .. $pairs];
+        }
+        for my $kind (qw(delta reference)) {
+          my $rows = $kind eq 'delta' ? \%delta : \%reference;
+          my $negative = $kind eq 'delta' ? 'basic' : 'disabled';
+          $population{$kind} = [map {
+            my $row = $rows->{"$prefix/$_/$metric"};
+            $row->{direction} eq $negative && $row->{magnitude} ne '0'
+                ? "-$row->{magnitude}" : $row->{magnitude};
+          } 1 .. $pairs];
+        }
+        my %expected;
+        for my $level (qw(disabled basic detail delta reference)) {
+          my ($median, $p95) =
+              RundMeasureQuantile::summarize($population{$level});
+          $expected{"$level/median"} = $median;
+          $expected{"$level/p95"} = $p95;
+        }
         for my $level (qw(disabled basic detail delta reference)) {
           for my $stat (qw(median p95)) {
             my $key = "$prefix/$level/$metric/$stat";
