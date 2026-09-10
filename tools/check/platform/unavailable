@@ -65,10 +65,10 @@ audit() {
   vulkan=$2
   objects=$3
   run_step 60 "platform-unavailable-audit-$phase" \
-    cmake -D "ROOT=$root" -D "BUILD=$build" \
-      -D "PHASE=$phase" -D "VULKAN_ENABLED=$vulkan" \
-      -D "OBJECTS_REQUIRED=$objects" -D "REPORT=$report" \
-      -P "$root/tools/internal/platform/unavailable/verify.cmake"
+    python3 "$root/tools/internal/platform/unavailable/verify.py" \
+      --root "$root" --build "$build" --phase "$phase" \
+      --vulkan-enabled "$vulkan" --objects-required "$objects" \
+      --report "$report"
 }
 
 if sh "$root/tools/internal/process/run" 180 platform-unavailable-prepare \

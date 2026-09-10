@@ -60,6 +60,18 @@ budgets. Neither depends on the other or cancels the other on failure. Their
 public operators and complete test selections are unchanged. Scheduling the
 platform route independently removes its cold build from the Debug matrix's
 serial path and lets it run even when the Debug job cannot finish.
+The platform audit has one Python owner at
+`tools/internal/platform/unavailable/verify.py`. It parses the compile database
+once and visits each entry once; repeated full-document CMake JSON queries are
+not retained. The audit checks the exact unavailable and Vulkan source
+fragments, cache selections, runtime test owner/body, object existence, and
+absence of SDK/tool definitions after Vulkan discovery is disabled. Source
+and output paths resolve against each entry's working directory and must
+remain within their canonical source/target ownership. A phase is appended to
+the report only after all checks pass. `tools.platform-unavailable` covers
+OFF/ON/OFF transitions, relative paths, malformed/missing fields, duplicate
+runtime ownership, absent objects, SDK leakage, and one parse over a large
+database. The audit's existing 60-second execution bound is unchanged.
 These gates validate Linux source and installed consumption; they do not
 promote Linux to a supported binary release or claim physical GPU parity.
 Native Darwin ARM64 CPU/Metal/MoltenVK, sanitizer, leak, and performance

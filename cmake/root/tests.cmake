@@ -66,6 +66,17 @@ endif()
 
 find_program(rund_build_measure_python NAMES python3 REQUIRED)
 add_test(
+  NAME tools.platform-unavailable
+  COMMAND "${rund_build_measure_python}"
+          "${CMAKE_SOURCE_DIR}/tools/internal/platform/unavailable/contract.py"
+          --root "${CMAKE_SOURCE_DIR}"
+          --build "${CMAKE_BINARY_DIR}/platform-audit-contract")
+set_tests_properties(tools.platform-unavailable PROPERTIES
+  LABELS "rund_tools;rund_contract"
+  TIMEOUT 30)
+rund_test_route(tools.platform-unavailable NO_BUILD_TARGETS)
+
+add_test(
   NAME tools.build-measure
   COMMAND "${rund_build_measure_python}"
           "${CMAKE_SOURCE_DIR}/tools/measure/build/contract.py")
