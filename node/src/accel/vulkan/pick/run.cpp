@@ -15,7 +15,8 @@ rund::AccelDevice PickWithVulkanSdk() {
   }
 
   const VulkanAdapterPick adapter =
-      PickVulkanAdapterFromInstance(instance.instance);
+      PickVulkanAdapterFromInstance(instance.instance, instance.api_version,
+                                    instance.persistent_stream_submit_capacity);
   if (!adapter.check.ok) {
     vkDestroyInstance(instance.instance, nullptr);
     return RejectVulkan(adapter.check.reason);

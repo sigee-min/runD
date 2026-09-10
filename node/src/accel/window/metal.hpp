@@ -4,7 +4,7 @@
 #include <accel/device.hpp>
 
 #include "../kernel/bindings/range.hpp"
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/plan.hpp"
 #include <kernel/program/compute/window/model.hpp>
 
 #include <memory>
@@ -15,11 +15,6 @@ struct MetalAdapter;
 struct MetalKernelImmutablePipelines;
 struct BoundControl;
 
-[[nodiscard]] rund::AccelCheck
-ExecuteMetalWindow(const rund::AccelDevice &pick,
-                   const rund::kernel::WindowDesc &desc,
-                   const rund::kernel::WindowPlan &plan,
-                   const RangeBinds &bindings, const RangePlan &range);
 [[nodiscard]] rund::AccelCheck PrepareMetalWindow(
     const rund::AccelDevice &pick, const rund::kernel::WindowDesc &desc,
     const rund::kernel::WindowPlan &plan, const RangeBinds &bindings,

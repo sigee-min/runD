@@ -1,4 +1,4 @@
-#include "../prepared.hpp"
+#include "interface/api.hpp"
 
 #include "evidence.hpp"
 #include "model.hpp"
@@ -23,6 +23,7 @@ void CompletePipeline(void *const raw, const KernelResult backend) noexcept {
   PreparedPipelineCompletion completion = nullptr;
   void *user = nullptr;
   PreparedPipelineEvidence result{};
+  const bool quarantine = backend.terminal == NativeTerminal::UnknownMayWrite;
   {
     std::lock_guard lock{submission->mutex};
     prepared::PipelineState *const state = submission->pipeline();
@@ -30,13 +31,28 @@ void CompletePipeline(void *const raw, const KernelResult backend) noexcept {
       return;
     }
     prepared::PipelineState &pipeline = *state;
-    owner = std::move(submission->owner);
-    lifetime = std::move(submission->lifetime);
+    if (quarantine) {
+      // Keep the self-owned prepared Pipeline and its compute lifetime intact.
+      // This also retains the Device, Pool, frame owners, Metal command owner,
+      // and allocator without allocating a second quarantine registry.
+      submission->quarantined = true;
+    } else {
+      owner = std::move(submission->owner);
+      lifetime = std::move(submission->lifetime);
+    }
     completion = submission->completion;
     user = submission->user;
-    result = prepared::PipelineEvidence(pipeline.context, pipeline, backend);
+    const std::span<const std::uint32_t> selected{
+        submission->selected_steps, submission->selected_step_count};
+    result =
+        selected.empty()
+            ? prepared::PipelineEvidence(pipeline.context, pipeline, backend)
+            : prepared::PipelineEvidence(pipeline.context, pipeline, backend,
+                                         selected);
     submission->completion = nullptr;
     submission->user = nullptr;
+    submission->selected_steps = nullptr;
+    submission->selected_step_count = 0u;
   }
   static_cast<void>(owner);
   static_cast<void>(lifetime);
@@ -162,11 +178,11 @@ rund::AccelCheck SubmitPreparedKernel(const rund::AccelContext &context,
   return submitted;
 }
 
-rund::AccelCheck SubmitPreparedKernelPipeline(
+rund::AccelCheck SubmitPreparedKernelPipelineSelection(
     const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
     std::shared_ptr<void> lifetime, const PreparedPipelineCompletion completion,
-    void *const user, const KernelTiming timing,
-    const PipelineSubmitMode mode) noexcept {
+    void *const user, const KernelTiming timing, const PipelineSubmitMode mode,
+    const std::span<const std::uint32_t> selected_steps) noexcept {
   const rund::AccelCheck invalid{false, "accel_kernel_run_invalid"};
   auto *const pipeline =
       static_cast<prepared::PipelineState *>(prepared.owner.get());
@@ -187,9 +203,14 @@ rund::AccelCheck SubmitPreparedKernelPipeline(
     submission.lifetime = std::move(lifetime);
     submission.completion = completion;
     submission.user = user;
+    submission.selected_steps =
+        selected_steps.empty() ? nullptr : selected_steps.data();
+    submission.selected_step_count = selected_steps.size();
+    submission.quarantined = false;
   }
   const rund::AccelCheck submitted = pipeline->ops->submit_prepared_pipeline(
-      pipeline->backend, CompletePipeline, &submission, timing, mode);
+      pipeline->backend, CompletePipeline, &submission, timing, mode,
+      selected_steps);
   if (!submitted.ok) {
     std::lock_guard lock{submission.mutex};
     if (submission.active()) {
@@ -197,9 +218,22 @@ rund::AccelCheck SubmitPreparedKernelPipeline(
       submission.lifetime.reset();
       submission.completion = nullptr;
       submission.user = nullptr;
+      submission.selected_steps = nullptr;
+      submission.selected_step_count = 0u;
+      submission.quarantined = false;
     }
   }
   return submitted;
+}
+
+rund::AccelCheck SubmitPreparedKernelPipeline(
+    const rund::AccelContext &context, const PreparedKernelPipeline &prepared,
+    std::shared_ptr<void> lifetime, const PreparedPipelineCompletion completion,
+    void *const user, const KernelTiming timing,
+    const PipelineSubmitMode mode) noexcept {
+  return SubmitPreparedKernelPipelineSelection(context, prepared,
+                                               std::move(lifetime), completion,
+                                               user, timing, mode, {});
 }
 
 rund::AccelEvidence RunPreparedKernel(const rund::AccelContext &context,

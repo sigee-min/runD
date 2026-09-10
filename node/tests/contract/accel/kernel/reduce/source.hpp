@@ -3,7 +3,7 @@
 [[nodiscard]] bool SignedReduceSourcesCarryDomainOrder() {
   const std::string metal = rund::node::accel::detail::MetalReduceSource(
       rund::kernel::ReduceOp::Min, 64u, rund::kernel::ComputeDomain::I32);
-  if (metal.find("min(int(sums[tid]), int(rhs))") == std::string::npos) {
+  if (metal.find("simd_min(as_type<int>(value))") == std::string::npos) {
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)

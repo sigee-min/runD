@@ -7,7 +7,10 @@
 namespace node_accel_contract {
 
 bool BackendRunsHistogram(const rund::AccelDevice &pick) {
-  return histogram::MatchesU32(pick) && histogram::RejectsOutOfRangeBin(pick);
+  return histogram::MatchesU32(pick) && histogram::MatchesParallelU32(pick) &&
+         histogram::MatchesContentionAndTail(pick) &&
+         histogram::RejectsPartialCohort(pick) &&
+         histogram::RejectsOutOfRangeBin(pick);
 }
 
 bool RequiredMetalRunsHistogram() {

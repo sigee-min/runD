@@ -1,3 +1,4 @@
+#include <rund/compute/abi/primitive.hpp>
 #include "model.hpp"
 
 namespace rund::compute::detail::graph_build_detail {

@@ -173,50 +173,6 @@ ForgedReadWriteSameNameIrBytes() {
   return bytes;
 }
 
-[[nodiscard]] inline std::vector<rund::kernel::u8> UnsupportedBinaryOpIrBytes(
-    const rund::kernel::IrOp op) {
-  std::vector<rund::kernel::u8> bytes;
-  AppendBytes(bytes, "rund.compute.ir");
-  AppendBytes(bytes, "unsupported-binary");
-  AppendU8(bytes, kI32NumericMode);
-  AppendIntegerNumericPolicy(bytes);
-  AppendU32(bytes, 3u);
-
-  AppendBinding(bytes, 2u, "lhs");
-  AppendBinding(bytes, 2u, "rhs");
-  AppendBinding(bytes, 3u, "out");
-
-  AppendU32(bytes, 4u);
-  AppendNode(bytes, rund::kernel::IrOp::Read, 0u, 0u, 0u);
-  AppendNode(bytes, rund::kernel::IrOp::Read, 0u, 0u, 1u);
-  AppendNode(bytes, op, 1u, 2u, 0u);
-  AppendNode(bytes, rund::kernel::IrOp::Write, 3u, 0u, 2u);
-  return bytes;
-}
-
-[[nodiscard]] inline std::vector<rund::kernel::u8> UnsupportedTernaryOpIrBytes(
-    const rund::kernel::IrOp op) {
-  std::vector<rund::kernel::u8> bytes;
-  AppendBytes(bytes, "rund.compute.ir");
-  AppendBytes(bytes, "unsupported-ternary");
-  AppendU8(bytes, kI32NumericMode);
-  AppendIntegerNumericPolicy(bytes);
-  AppendU32(bytes, 4u);
-
-  AppendParamBinding(bytes, "param", 7u);
-  AppendBinding(bytes, 2u, "lhs");
-  AppendBinding(bytes, 2u, "rhs");
-  AppendBinding(bytes, 3u, "out");
-
-  AppendU32(bytes, 5u);
-  AppendNode(bytes, rund::kernel::IrOp::Param, 0u, 0u, 0u);
-  AppendNode(bytes, rund::kernel::IrOp::Read, 0u, 0u, 1u);
-  AppendNode(bytes, rund::kernel::IrOp::Read, 0u, 0u, 2u);
-  AppendNode(bytes, op, 1u, 2u, 3u);
-  AppendNode(bytes, rund::kernel::IrOp::Write, 4u, 0u, 3u);
-  return bytes;
-}
-
 [[nodiscard]] inline std::vector<rund::kernel::u8> WrongUnaryArityIrBytes(
     const rund::kernel::IrOp op) {
   std::vector<rund::kernel::u8> bytes;

@@ -3,14 +3,19 @@ use strict;
 use warnings;
 
 use Cwd qw(abs_path);
+use Digest::SHA qw(sha256_hex);
 
 sub fail {
   print STDERR "performance baseline cut: $_[0]\n";
   exit 1;
 }
 
+my @ceiling;
+if (@ARGV == 19 && $ARGV[0] eq '--ceiling') {
+  @ceiling = splice @ARGV, 0, 2;
+}
 @ARGV == 17
-    or die "usage: tools/internal/measure/cut <root> <profile> " .
+    or die "usage: tools/internal/measure/cut [--ceiling prior-table] <root> <profile> " .
            "<scheduler1> <scheduler2> <scheduler3> " .
            "<compute1> <compute2> <compute3> " .
            "<flow1> <flow2> <flow3> <graph1> <graph2> <graph3> " .
@@ -20,9 +25,22 @@ $profile =~ /\A[a-z0-9]+\z/ or fail('invalid requested profile');
 my $root = abs_path($root_argument) // fail("missing root $root_argument");
 my $baseline = "$root/docs/reference/performance/baseline.tsv";
 -f $baseline or fail("missing $baseline");
+my $ceiling_identity;
+sub ceiling_identity {
+  -f $ceiling[1] && !-l $ceiling[1]
+      or fail('ceiling must be a regular non-symlink baseline table');
+  abs_path($ceiling[1]) ne abs_path($baseline)
+      or fail('ceiling must retain the separate pre-edit table');
+  open my $prior, '<', $ceiling[1] or fail('cannot retain ceiling identity');
+  local $/;
+  my $bytes = <$prior> // '';
+  close $prior or fail('cannot close ceiling table');
+  return sha256_hex($bytes);
+}
+$ceiling_identity = ceiling_identity() if @ceiling;
 
 open my $project, '-|', 'perl', "$root/tools/internal/measure/project",
-    $root, $profile, @packets
+    @ceiling, $root, $profile, @packets
     or fail('cannot start canonical baseline projection');
 my $candidate;
 {
@@ -47,6 +65,11 @@ eval { $schema = RundMeasureSchema::load($root, 1); 1 }
     or fail($@ =~ s/\n\z//r);
 RundMeasureSchema::select_profile($schema) eq $profile
     or fail("canonical baseline selected a foreign profile: $profile");
+if (@ceiling) {
+  ceiling_identity() eq $ceiling_identity
+      or fail('ceiling changed during projection');
+  print "baseline-ceiling\tsha256\t$ceiling_identity\n";
+}
 for my $route (RundMeasureSchema::routes()) {
   my $count = RundMeasureSchema::route($route)->{metrics};
   print "baseline-cut\t$route\tpackets=3\tmetrics=$count\tstatus=passed\n";

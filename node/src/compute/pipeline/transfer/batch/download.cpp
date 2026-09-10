@@ -1,6 +1,7 @@
 #include "../batch.hpp"
 
 #include "../../../../hash/fnv.hpp"
+#include "../../../backend.hpp"
 #include "../../claim.hpp"
 #include "../../residency/authority.hpp"
 #include "../../transfer.hpp"

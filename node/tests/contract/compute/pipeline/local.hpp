@@ -63,6 +63,7 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 [[nodiscard]] int CheckHostFeedback(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckSealedRepetitions(rund::compute::Device &, Backend,
                                          rund::compute::graph::Fingerprint &);
+[[nodiscard]] int CheckPipelineGenerationSeeding();
 [[nodiscard]] int CheckSurface(rund::compute::Device &);
 [[nodiscard]] int CheckWideFixed(rund::compute::Device &, Backend,
                                  rund::compute::graph::Fingerprint &,
@@ -74,7 +75,9 @@ TimingUnavailable(const rund::compute::StepTiming &) noexcept;
 [[nodiscard]] int CheckDevicePipelineMemoryAdmission();
 [[nodiscard]] int CheckMetalGuardTransform();
 [[nodiscard]] int CheckMetalResidencyAdmission();
+[[nodiscard]] int CheckMetalResidencySlidingGate();
 [[nodiscard]] int CheckVulkanTransferAdmission();
+[[nodiscard]] int CheckVulkanResidencySlidingGate();
 [[nodiscard]] int CheckViews(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckViewArena(rund::compute::Device &, Backend);
 [[nodiscard]] int CheckSealedPipelineBindings(rund::compute::Device &);

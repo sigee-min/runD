@@ -61,24 +61,4 @@ MetalNumericMemory(const std::shared_ptr<void> &prepared, std::uint64_t budget);
     const std::shared_ptr<void> &prepared,
     MetalPipelineStatusBindings &bindings) noexcept;
 
-[[nodiscard]] rund::AccelCheck ExecuteMetalTransform(
-    const rund::AccelDevice &pick, const rund::kernel::TransformDesc &desc,
-    const rund::kernel::TransformPlan &plan, const TransformBinds &bindings);
-
-[[nodiscard]] rund::AccelCheck ExecuteMetalMatrix(
-    const rund::AccelDevice &pick, const rund::kernel::MatrixDesc &desc,
-    const rund::kernel::MatrixPlan &plan, const MatrixBinds &bindings);
-
-[[nodiscard]] rund::AccelCheck ExecuteMetalFactor(
-    const rund::AccelDevice &pick, const rund::kernel::FactorDesc &desc,
-    const rund::kernel::FactorPlan &plan, const FactorBinds &bindings);
-
-[[nodiscard]] rund::AccelCheck ExecuteMetalSolve(
-    const rund::AccelDevice &pick, const rund::kernel::SolveDesc &desc,
-    const rund::kernel::SolvePlan &plan, const SolveBinds &bindings);
-
-[[nodiscard]] rund::AccelCheck ExecuteMetalSpectrum(
-    const rund::AccelDevice &pick, const rund::kernel::SpectrumDesc &desc,
-    const rund::kernel::SpectrumPlan &plan, const SpectrumBinds &bindings);
-
 } // namespace rund::node::accel::detail

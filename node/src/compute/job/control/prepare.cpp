@@ -1,3 +1,4 @@
+#include "../../../../include/rund/compute/abi/device.hpp"
 #include "model.hpp"
 
 #include "../../backend.hpp"

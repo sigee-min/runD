@@ -3,6 +3,19 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../../../kernel/backend/run.hpp"
+#include "../../../../kernel/preparation.hpp"
+#include "../../../../reduce/vulkan.hpp"
+#include "../../../../scatter.hpp"
+#include "../../../../segmented/reduce/vulkan.hpp"
+#include "../../../../stencil.hpp"
+#include "../../../../window.hpp"
+
+#include <memory>
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+namespace rund::node::accel::detail {
+
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanReduceStep(const rund::AccelDevice &pick, const BoundStep &step,
                         const KernelPreparationMode mode,
@@ -65,4 +78,6 @@ PrepareVulkanWindowStep(const rund::AccelDevice &pick, const BoundStep &step,
                                    &step.control, mode);
 }
 
-#include "numeric.hpp"
+} // namespace rund::node::accel::detail
+
+#endif

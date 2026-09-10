@@ -22,6 +22,7 @@ contracts without defining another product authority.
 | `tools/check/leaks` | Run the native lifetime leak owners. |
 | `tools/measure/scheduler/run` | Measure installed scheduler latency, scaling, and memory. |
 | `tools/measure/compute/run` | Measure installed public Flow/Pipeline Product chains: cold first result and warm Window/Pool/rolling crossover evidence. |
+| `tools/measure/compute/run --virtual-route-matrix <metal\|vulkan> [--profile core\|full]` | Capture the natural current-source Virtual route matrix; retain failure rows and publish only three-packet, proof-authenticated timing consensus. |
 | `tools/measure/compute/run --resident <cpu\|metal\|vulkan>` | Isolate current-source resident creation and transfer setup cost. |
 | `tools/measure/compute/run --collective <cpu\|metal\|vulkan>` | Isolate current-source Release collective execution with the CPU oracle retained for native accelerators. |
 | `tools/measure/compute/run --sort <cpu\|metal\|vulkan>` | Isolate current-source Release dense and bounded sparse map/sort execution with the CPU oracle retained for native accelerators. |
@@ -48,6 +49,13 @@ platform, cache, lock, or build work. Invalid syntax exits 2 with the same
 canonical usage. The table above is the complete public command set.
 
 ## Development Loop
+
+`tools/test/run --fresh tools.native-headers` checks the scoped Node private
+native headers using configured compiler contexts: SDK-on/off standalone
+includes, multi-translation-unit linking, and negative checker fixtures.
+It is a CTest route, not a separate public command or product source registry.
+The native typed Metal ABI check belongs to `accel.kernel-core`; see
+[Native ABI Boundaries](../node/docs/contracts/accel/abi.md).
 
 The default and `--match` routes reuse `.cache/dev`. Exact Node cases reuse
 `.cache/focus/<profile>`. A sealed catalog accelerates lookup, but cannot admit
@@ -86,8 +94,12 @@ warnings; those flags never propagate through the installed SDK target.
 Each mutable build identity has one route lock and one nested build-state lock.
 The route lock owns configure, build, and observation. The state lock owns one
 CMake or Ninja mutation. Accelerator execution uses the separate repository
-device lock. Lock capabilities are bounded, descriptor-backed, and fail closed
-when ownership cannot be proven.
+device lock. Lock capabilities are bounded and fail closed when ownership
+cannot be proven. Ordinary nested locks use inherited unlinked descriptor
+tokens. Same-identity flat build-tool reentry uses an inherited random
+capability whose SHA-256 alone is recorded beside the held OS lock; this
+crosses configure-time tools that close extra descriptors without depending
+on process-table inspection.
 
 All command caches, build trees, logs, packets, and temporary artifacts live
 under `.cache/`. They are disposable accelerators, never source authority.
@@ -111,14 +123,28 @@ Scenario implementations live in the nearest semantic folder and share one
 local model; one suite runner owns output order, and the target's explicit
 CMake source list is the executable closure. A scenario-only edit dirties one
 object plus the link; the CLI and output schema each retain one authority.
+The window-repeat scenario follows that same boundary physically under
+`measure/compute/pipeline/nested/`: preparation, contract validation, execution,
+paired sampling, observation/reporting, and the CSV schema are separate owners,
+while `entry.cpp` alone coordinates the public scenario call.
+
+The shared Compute suite keeps its cross-scenario boundary explicit:
+`measure/compute/suite/output.cpp` owns CSV/environment projection,
+`reference.cpp` owns the process-wide hash ledger, and the small
+`capture.hpp`/`bench.hpp` headers contain only the generic resident-job
+templates. `suite/core.hpp` remains a declarations/value seam; the explicit
+Compute CMake targets register the compiled owners directly.
 
 The focused `tools/measure/compute/run --resident`, `--collective`, `--sort`,
 `--bulk`, `--batch`, `--pipeline`, `--checkpoint`, `--pipeline-profile`,
 `--recurrence`, `--window-repeat`, `--plan-memory`, `--prepare-memory`, and
-`--metal-icb-boundary`
+`--metal-icb-boundary`, and `--virtual-route-matrix`
 modes are the deliberate exceptions to the installed-SDK route: they share one
 incremental current-source Release build in `.cache/measure/compute/focus` for
-the edit/measure loop and are not baseline evidence. This tree is disjoint from
+the edit/measure loop and are not baseline evidence. The route matrix's
+natural-admission three-packet scope and Metal-native / MoltenVK-portability-only
+labels are defined by [Virtual Performance](../docs/reference/performance/virtual/method.md).
+This tree is disjoint from
 the Debug exact-case tree in `.cache/focus/compute`; switching between a
 semantic contract and a measurement therefore cannot invalidate the other
 configuration's objects. Bulk uses one CPU oracle sample and fifteen native

@@ -1,465 +1,100 @@
 #include "../backend.hpp"
 #include "accel/local.hpp"
+#include "accel/pipeline.hpp"
+#include "accel/program.hpp"
+#include "accel/transfer.hpp"
 
-#include "../../accel/context/internal/support.hpp"
-#include "../../accel/context/local.hpp"
-#include "../../accel/context/transfer.hpp"
-#include "../../accel/graph/token.hpp"
-#include "../../accel/graph/token/local.hpp"
-#include "../../accel/range_aggregate/model.hpp"
 #include "../job/state.hpp"
-#include "../pipeline/state.hpp"
-#include "../program/range.hpp"
-#include "../program/state.hpp"
-#include "../stats.hpp"
-#include "../status.hpp"
-
-#include <accel/context/buffer.hpp>
-#include <accel/kernel/evidence.hpp>
-#include <accel/kernel/run.hpp>
-#include <rund/counter.hpp>
-
-#include <algorithm>
-#include <array>
-#include <optional>
-#include <utility>
+#include "../virtual/run/device_vsm.hpp"
+#include "../virtual/run/device_vsm/operations.hpp"
+#include "../virtual/run/sliding.hpp"
 
 namespace rund::compute::detail {
 namespace {
 
-constexpr std::size_t TransferCapacity = PipelineTransferCapacity;
-
-RangeSnapshot program_ranges(const AccelProgram &program,
-                             const std::span<RangeInfo> rows) noexcept {
-  RangeSnapshot snapshot{};
-  const auto token = node::accel::detail::LookupKernelToken(
-      program.kernel.owner, program.kernel.kernel_id);
-  if (token == nullptr) {
-    return snapshot;
-  }
-  for (std::size_t index = 0u; index < token->steps.size(); ++index) {
-    const auto *const range =
-        node::accel::detail::RangePlanFor(token->steps[index].operation);
-    if (range != nullptr) {
-      append_program_range(*range, static_cast<std::uint32_t>(index), rows,
-                           snapshot);
-    }
-  }
-  return snapshot;
-}
-
-UploadResult upload_batch(DeviceState &device,
-                          std::span<const UploadRequest> requests,
-                          node::accel::detail::TransferCompletion completion,
-                          node::accel::detail::TransferAuthority authority);
-
-UploadResult upload(DeviceState &device, BufferState &buffer,
-                    const void *const data, const std::size_t bytes) {
-  const UploadRequest request{.buffer = &buffer, .data = data, .bytes = bytes};
-  return upload_batch(device, std::span<const UploadRequest>{&request, 1u},
-                      node::accel::detail::TransferCompletion::Queued,
-                      node::accel::detail::TransferAuthority::Shared);
-}
-
-Status resolve_buffer(const DeviceState &device, const BufferState &buffer,
-                      std::shared_ptr<void> &handle) {
-  const AccelDeviceState *const accel = accel_device(device);
-  const AccelBufferState *const storage = accel_buffer(buffer);
-  if (accel == nullptr || storage == nullptr) {
-    handle.reset();
-    return Status::fail(Reason::BindingDeviceMismatch);
-  }
-  const node::accel::detail::ContextAdmission admission =
-      node::accel::detail::AdmitContextForSupport(accel->context);
-  const rund::AccelCheck check =
-      admission.check.ok ? node::accel::detail::ValidateAccelBufferForSupport(
-                               admission, storage->buffer, handle)
-                         : admission.check;
-  if (!check.ok) {
-    handle.reset();
-    return Status::fail(Reason::BindingDeviceMismatch);
-  }
-  return Status::success();
-}
-
-UploadResult
-upload_batch(DeviceState &device, const std::span<const UploadRequest> requests,
-             const node::accel::detail::TransferCompletion completion,
-             const node::accel::detail::TransferAuthority authority) {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr || requests.empty()) {
-    return UploadResult{.status = Status::fail(Reason::TransferInvalid)};
-  }
-  if (requests.size() > TransferCapacity) {
-    return UploadResult{.status = Status::fail(Reason::PipelineCapacity)};
-  }
-  std::array<node::accel::detail::UploadEntry, TransferCapacity> transfers{};
-  std::array<node::accel::detail::UploadRoute, TransferCapacity> routes{};
-  for (std::size_t index = 0u; index < requests.size(); ++index) {
-    const UploadRequest request = requests[index];
-    AccelBufferState *const target =
-        request.buffer == nullptr ? nullptr : accel_buffer(*request.buffer);
-    if (target == nullptr || (request.bytes != 0u && request.data == nullptr)) {
-      return UploadResult{.status = Status::fail(Reason::TransferInvalid)};
-    }
-    transfers[index] = node::accel::detail::UploadEntry{
-        .buffer = &target->buffer,
-        .data = request.data,
-        .bytes = request.bytes,
-        .offset = request.offset,
-    };
-  }
-  const node::accel::detail::AccelTransfer transfer =
-      node::accel::detail::UploadAccelBuffers(
-          accel->context,
-          std::span<const node::accel::detail::UploadEntry>{transfers.data(),
-                                                            requests.size()},
-          std::span<node::accel::detail::UploadRoute>{routes.data(),
-                                                      requests.size()},
-          completion, authority);
-  return UploadResult{
-      .status = transfer.check.ok
-                    ? Status::success()
-                    : Status::fail(project_reason(transfer.check.reason,
-                                                  Reason::TransferInvalid)),
-      .staging_bytes = transfer.staging_bytes,
-      .staging_peak_bytes = transfer.staging_peak_bytes,
-      .staging_reused_bytes = transfer.staging_reused_bytes,
-      .staging_budget = transfer.staging_budget,
-      .buffer_allocations = transfer.buffer_allocations,
-      .buffer_reuses = transfer.buffer_reuses,
-      .command_submits = transfer.command_submits,
-  };
-}
-
-DownloadResult download(DeviceState &device, const BufferState &buffer,
-                        void *const data, const std::size_t bytes) {
-  const AccelDeviceState *const accel = accel_device(device);
-  const AccelBufferState *const resident = accel_buffer(buffer);
-  if (accel == nullptr || resident == nullptr) {
-    return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
-  }
-  const node::accel::detail::AccelTransfer transfer =
-      node::accel::detail::DownloadAccelBufferMeasured(
-          accel->context, resident->buffer, data, bytes, 0u, true);
-  return DownloadResult{
-      .status = transfer.check.ok
-                    ? Status::success()
-                    : Status::fail(project_reason(transfer.check.reason,
-                                                  Reason::TransferInvalid)),
-      .payload_hash = transfer.payload_hash,
-      .staging_bytes = transfer.staging_bytes,
-      .staging_peak_bytes = transfer.staging_peak_bytes,
-      .staging_reused_bytes = transfer.staging_reused_bytes,
-      .staging_budget = transfer.staging_budget,
-      .buffer_allocations = transfer.buffer_allocations,
-      .buffer_reuses = transfer.buffer_reuses,
-      .command_submits = transfer.command_submits,
-      .readback_ns = transfer.readback_ns,
-      .staging_reused = transfer.staging_reused,
-      .payload_hash_valid = transfer.check.ok && transfer.payload_hash_valid,
-  };
-}
-
-DownloadResult
-download_batch(DeviceState &device,
-               const std::span<const DownloadRequest> requests,
-               const node::accel::detail::TransferAuthority authority) {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr || requests.empty()) {
-    return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
-  }
-  if (requests.size() > TransferCapacity) {
-    return DownloadResult{.status = Status::fail(Reason::PipelineCapacity)};
-  }
-  std::array<node::accel::detail::DownloadEntry, TransferCapacity> transfers{};
-  std::array<node::accel::detail::DownloadRoute, TransferCapacity> routes{};
-  for (std::size_t index = 0u; index < requests.size(); ++index) {
-    const DownloadRequest request = requests[index];
-    const AccelBufferState *const source =
-        request.buffer == nullptr ? nullptr : accel_buffer(*request.buffer);
-    if (source == nullptr || request.payload_hash == nullptr ||
-        (request.bytes != 0u && request.data == nullptr)) {
-      return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
-    }
-    transfers[index] = node::accel::detail::DownloadEntry{
-        .buffer = &source->buffer,
-        .data = request.data,
-        .bytes = request.bytes,
-        .offset = request.offset,
-        .payload_hash = request.payload_hash,
-    };
-  }
-  const node::accel::detail::AccelTransfer transfer =
-      node::accel::detail::DownloadAccelBuffersMeasured(
-          accel->context,
-          std::span<const node::accel::detail::DownloadEntry>{transfers.data(),
-                                                              requests.size()},
-          std::span<node::accel::detail::DownloadRoute>{routes.data(),
-                                                        requests.size()},
-          authority);
-  return DownloadResult{
-      .status = transfer.check.ok
-                    ? Status::success()
-                    : Status::fail(project_reason(transfer.check.reason,
-                                                  Reason::TransferInvalid)),
-      .staging_bytes = transfer.staging_bytes,
-      .staging_peak_bytes = transfer.staging_peak_bytes,
-      .staging_reused_bytes = transfer.staging_reused_bytes,
-      .staging_budget = transfer.staging_budget,
-      .buffer_allocations = transfer.buffer_allocations,
-      .buffer_reuses = transfer.buffer_reuses,
-      .command_submits = transfer.command_submits,
-      .readback_ns = transfer.readback_ns,
-      .staging_reused = transfer.staging_reused,
-      .payload_hash_valid = transfer.check.ok && transfer.payload_hash_valid,
-  };
-}
-
-CopyResult copy_batch(DeviceState &device,
-                      const std::span<const CopyRequest> requests,
-                      const node::accel::detail::TransferAuthority authority) {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr || requests.empty()) {
-    return CopyResult{.status = Status::fail(Reason::TransferInvalid)};
-  }
-  if (requests.size() > TransferCapacity) {
-    return CopyResult{.status = Status::fail(Reason::PipelineCapacity)};
-  }
-  std::array<node::accel::detail::CopyEntry, TransferCapacity> transfers{};
-  std::array<node::accel::detail::CopyRoute, TransferCapacity> routes{};
-  for (std::size_t index = 0u; index < requests.size(); ++index) {
-    const CopyRequest request = requests[index];
-    const AccelBufferState *const source =
-        request.source == nullptr ? nullptr : accel_buffer(*request.source);
-    AccelBufferState *const target =
-        request.target == nullptr ? nullptr : accel_buffer(*request.target);
-    if (source == nullptr || target == nullptr) {
-      return CopyResult{.status = Status::fail(Reason::TransferInvalid)};
-    }
-    transfers[index] = node::accel::detail::CopyEntry{
-        .source = &source->buffer,
-        .target = &target->buffer,
-        .bytes = request.bytes,
-        .source_offset = request.source_offset,
-        .target_offset = request.target_offset,
-    };
-  }
-  const node::accel::detail::AccelCopy copied =
-      node::accel::detail::CopyAccelBuffers(
-          accel->context,
-          std::span<const node::accel::detail::CopyEntry>{transfers.data(),
-                                                          requests.size()},
-          std::span<node::accel::detail::CopyRoute>{routes.data(),
-                                                    requests.size()},
-          authority);
-  return CopyResult{
-      .status = copied.check.ok
-                    ? Status::success()
-                    : Status::fail(project_reason(copied.check.reason,
-                                                  Reason::TransferInvalid)),
-      .command_submits = copied.command_submits,
-  };
-}
-
-Status compile(DeviceState &device, AccelProgram &program,
-               const rund::AccelGraph &graph) {
-  AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr) {
-    return Status::fail(Reason::AccelProgramInvalid);
-  }
-  program.kernel = node::accel::CompileAccelKernel(accel->context, graph);
-  if (!program.kernel.check.ok) {
-    return Status::fail(
-        project_reason(program.kernel.check.reason, Reason::LoweringInvalid));
-  }
-  const std::optional<std::uint64_t> token_memory =
-      node::accel::detail::MeasureKernelTokenRetainedMemory(program.kernel);
-  if (!token_memory.has_value()) {
-    return Status::fail(Reason::AccelProgramInvalid);
-  }
-  program.kernel_token_host_bytes = *token_memory;
-  return Status::success();
-}
-
-node::accel::detail::KernelScratchPlan
-plan_scratch(const DeviceState &device, const rund::AccelKernel &kernel,
-             const std::uint64_t alignment, const std::uint64_t page_bytes) {
-  const AccelDeviceState *const accel = accel_device(device);
-  return accel == nullptr ? node::accel::detail::KernelScratchPlan{}
-                          : node::accel::detail::PlanKernelScratch(
-                                accel->context, kernel, alignment, page_bytes);
-}
-
-MemoryCounter device_staging(const DeviceState &device) noexcept {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr) {
-    return {};
-  }
-  const node::accel::AccelMemoryCounter memory =
-      node::accel::ReadAccelMemoryStats(accel->pick).staging;
-  return MemoryCounter{.current = memory.current,
-                       .peak = memory.peak,
-                       .cumulative = memory.cumulative,
-                       .reused = memory.reused,
-                       .budget = memory.budget};
-}
-
-MemoryCounter job_staging(const JobState &job) noexcept {
-  node::accel::detail::PreparedMemory memory =
-      node::accel::detail::ReadPreparedKernelMemory(job.prepared);
-  const node::accel::detail::PreparedMemory pending =
-      node::accel::detail::ReadPreparedKernelMemory(job.write_prepared);
-  node::accel::detail::accumulate_serial_memory(memory, pending);
-  return MemoryCounter{.current = memory.current,
-                       .peak = memory.peak,
-                       .cumulative = memory.cumulative,
-                       .reused = memory.reused,
-                       .budget = memory.budget};
-}
-
-node::accel::detail::PreparedPipelineMemory
-pipeline_memory(const PipelineState &pipeline) noexcept {
-  node::accel::detail::PreparedPipelineMemory memory =
-      node::accel::detail::ReadPreparedKernelPipelineMemory(pipeline.prepared);
-  const node::accel::detail::PreparedPipelineMemory alternate =
-      node::accel::detail::ReadPreparedKernelPipelineMemory(
-          pipeline.alternate_prepared);
-  node::accel::detail::accumulate_serial_memory(memory.host, alternate.host);
-  node::accel::detail::accumulate_serial_memory(memory.device,
-                                                alternate.device);
-  node::accel::detail::accumulate_serial_memory(memory.staging,
-                                                alternate.staging);
-  // Primary and transactional alternate share one immutable template
-  // registry. Report that owner once after combining the two stream-local
-  // pipelines so retained host memory is neither omitted nor doubled.
-  node::accel::detail::accumulate_serial_memory(
-      memory.host,
-      node::accel::detail::ReadPreparedKernelTemplateRegistryMemory(
-          pipeline.accel_templates));
-  return memory;
-}
-
-node::accel::detail::PreparedKernelPipelineReservation
-plan_pipeline_preparation(
-    const DeviceState &device,
-    const std::span<const node::accel::detail::PreparedKernelProgramRoute>
-        routes,
-    const node::accel::detail::PreparedKernelPipelineShape shape,
-    node::accel::detail::PreparedKernelTemplateRegistry &templates) noexcept {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr) {
-    return {};
-  }
-  return node::accel::detail::PlanPreparedKernelPipelineLimit(
-      accel->context, routes, shape, templates);
-}
-
-node::accel::detail::PreparedPipelineEvidence
-run_pipeline(const DeviceState &device,
-             const node::accel::detail::PreparedKernelPipeline &pipeline,
-             const node::accel::detail::PipelineSubmitMode mode) {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr) {
-    return node::accel::detail::PreparedPipelineEvidence{
-        .check = {false, "accel_device_invalid"}};
-  }
-  return node::accel::detail::RunPreparedKernelPipeline(accel->context,
-                                                        pipeline, mode);
-}
-
-Status virtual_pipeline_capability(const DeviceState &device) noexcept {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr) {
-    return Status::fail(Reason::BackendUnsupported);
-  }
-  const node::accel::detail::ContextAdmission admission =
-      node::accel::detail::AdmitContextForSupport(accel->context);
-  if (!admission.check.ok || admission.pick == nullptr ||
-      admission.pick->ops == nullptr ||
-      admission.pick->ops->virtual_pipeline_capability == nullptr) {
-    return Status::fail(Reason::BackendUnsupported);
-  }
-  const rund::AccelCheck capability =
-      admission.pick->ops->virtual_pipeline_capability(admission.pick->raw);
-  return capability.ok ? Status::success()
-                       : Status::fail(project_reason(
-                             capability.reason, Reason::BackendUnsupported));
-}
-
-node::accel::detail::PreparedKernelPipeline prepare_pipeline(
-    const DeviceState &device,
-    const std::span<const node::accel::detail::PreparedKernelRun *const>
-        prepared,
-    const std::span<const std::uint8_t> barriers,
-    const std::span<const std::uint32_t> declared_steps,
-    const std::span<const node::accel::detail::BackendRecurrence> recurrences,
-    const std::span<const node::accel::detail::BackendPublish> publications,
-    const std::uint32_t declared_step_count,
-    const std::uint32_t generation_stride, const bool profile_steps,
-    node::accel::detail::PreparedKernelTemplateRegistry *const templates) {
-  const AccelDeviceState *const accel = accel_device(device);
-  if (accel == nullptr) {
-    return {};
-  }
-  return node::accel::detail::PrepareKernelPipeline(
-      accel->context, prepared, barriers, declared_steps, recurrences,
-      publications, declared_step_count, generation_stride, profile_steps,
-      templates);
-}
-
-rund::AccelCheck submit_pipeline(
-    const DeviceState &device,
-    const node::accel::detail::PreparedKernelPipeline &pipeline,
-    std::shared_ptr<void> lifetime,
-    const node::accel::detail::PreparedPipelineCompletion completion,
-    void *const user, const node::accel::detail::KernelTiming timing,
-    const node::accel::detail::PipelineSubmitMode mode) noexcept {
-  const AccelDeviceState *const accel = accel_device(device);
-  return accel == nullptr ? rund::AccelCheck{false, "accel_device_invalid"}
-                          : node::accel::detail::SubmitPreparedKernelPipeline(
-                                accel->context, pipeline, std::move(lifetime),
-                                completion, user, timing, mode);
-}
-
-rund::AccelCheck seed_pipeline_generation(
-    const node::accel::detail::PreparedKernelPipeline &pipeline,
-    const std::uint32_t generation) noexcept {
-  return node::accel::detail::SeedPreparedKernelPipelineGeneration(pipeline,
-                                                                   generation);
-}
-
 const DeviceOps Operations{
     .allocate = accel_backend::allocate_buffer,
+    .project_buffer_view = accel_backend::project_buffer_view,
     .buffer_storage_bytes = accel_backend::buffer_storage_bytes,
     .pipeline_transfer_storage_bytes =
         accel_backend::pipeline_transfer_storage_bytes,
-    .upload = upload,
-    .upload_batch = upload_batch,
-    .download = download,
-    .download_batch = download_batch,
-    .copy_batch = copy_batch,
-    .compile = compile,
-    .program_ranges = program_ranges,
-    .plan_scratch = plan_scratch,
-    .resolve_buffer = resolve_buffer,
+    .upload = accel_backend::upload,
+    .upload_batch = accel_backend::upload_batch,
+    .download = accel_backend::download,
+    .download_batch = accel_backend::download_batch,
+    .download_prefix_capacity = accel_backend::transfer_prefix_capacity,
+    .copy_batch = accel_backend::copy_batch,
+    .host_read = accel_backend::host_read,
+    .host_write = accel_backend::host_write,
+    .compile = accel_backend::compile,
+    .program_ranges = accel_backend::program_ranges,
+    .plan_scratch = accel_backend::plan_scratch,
+    .resolve_buffer = accel_backend::resolve_buffer,
     .prepare_job = prepare_job_accel,
     .run_job = run_job_accel,
     .submit_job = submit_job_accel,
     .finish_job = finish_job_accel,
-    .plan_pipeline_preparation = plan_pipeline_preparation,
-    .prepare_pipeline = prepare_pipeline,
-    .run_pipeline = run_pipeline,
-    .submit_pipeline = submit_pipeline,
-    .seed_pipeline_generation = seed_pipeline_generation,
-    .prepare_pipeline_transfer = accel_backend::prepare_pipeline_transfer,
-    .prepare_pipeline_residency = accel_backend::prepare_pipeline_residency,
+    .plan_pipeline_preparation = accel_backend::plan_pipeline_preparation,
+    .prepare_pipeline = accel_backend::prepare_pipeline,
+    .run_pipeline = accel_backend::run_pipeline,
+    .submit_pipeline = accel_backend::submit_pipeline,
+    .seed_pipeline_generation = accel_backend::seed_pipeline_generation,
     .upload_pipeline_transfer = accel_backend::upload_pipeline_transfer,
     .download_pipeline_transfer = accel_backend::download_pipeline_transfer,
-    .device_staging = device_staging,
-    .job_staging = job_staging,
-    .pipeline_memory = pipeline_memory,
-    .virtual_pipeline_capability = virtual_pipeline_capability,
+    .device_staging = accel_backend::device_staging,
+    .job_staging = accel_backend::job_staging,
+    .pipeline_memory = accel_backend::pipeline_memory,
+    .residency =
+        {
+            .submit_residency_pipeline =
+                accel_backend::submit_residency_pipeline,
+            .submit_residency_window = accel_backend::submit_residency_window,
+            .submit_residency_stream_window =
+                accel_backend::submit_residency_stream_window,
+            .claim_residency_stream = accel_backend::claim_residency_stream,
+            .release_residency_stream = accel_backend::release_residency_stream,
+            .quarantine_residency_stream =
+                accel_backend::quarantine_residency_stream,
+            .residency_window_capability =
+                accel_backend::residency_window_capability,
+            .signal_residency_window = accel_backend::signal_residency_window,
+            .abort_residency_window = accel_backend::abort_residency_window,
+            .prepare_residency_schedule =
+                accel_backend::prepare_residency_schedule,
+            .submit_residency_schedule =
+                accel_backend::submit_residency_schedule,
+            .signal_residency_schedule =
+                accel_backend::signal_residency_schedule,
+            .abort_residency_schedule = accel_backend::abort_residency_schedule,
+            .prepare_residency_sliding =
+                accel_backend::prepare_residency_sliding,
+            .submit_residency_sliding = accel_backend::submit_residency_sliding,
+            .wake_residency_sliding = accel_backend::wake_residency_sliding,
+            .prepare_pipeline_residency =
+                accel_backend::prepare_pipeline_residency,
+            .prepare_residency_selection =
+                accel_backend::prepare_residency_selection,
+            .prepare_residency_execution =
+                accel_backend::prepare_residency_execution,
+        },
+    .virtual_execution =
+        {
+            .prepare_virtual_sliding_product =
+                prepare_accel_virtual_execution_sliding_locked,
+            .execute_virtual_sliding_product =
+                execute_accel_virtual_execution_sliding,
+            .prepare_virtual_device_vsm_product =
+                prepare_accel_virtual_execution_device_vsm,
+            .execute_virtual_device_vsm_product =
+                execute_accel_virtual_execution_device_vsm,
+            .run_service_free_direct_product =
+                accel_backend::run_service_free_direct_product,
+            .virtual_pipeline_capability =
+                accel_backend::virtual_pipeline_capability,
+            .admit_virtual_device_vsm =
+                device_vsm_product_detail::admit_virtual_device_vsm,
+            .vsm_async = &accel_virtual_vsm_async_ops(),
+        },
 };
 
 } // namespace

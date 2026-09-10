@@ -85,6 +85,22 @@ Up to four final steps and eight run bindings stay inline. Crossing either
 bound is transactional: overflow storage is published only after allocation
 succeeds, so cleanup never observes a partially constructed range.
 
+Reset contract ownership is split under
+`node/tests/contract/accel/kernel/reset/`: `model.cpp` owns range width,
+layout, and invalid-range proofs; `execution.cpp` owns Vulkan reset command
+shape; `projection.cpp` owns transfer lookup and source-partition projection;
+`overlap.cpp` owns lifetime compatibility; `sealing.cpp` owns bound reset-plan
+identity and rejection; and `support.cpp` owns only the shared range-validity
+predicates. `dispatcher.cpp` remains the sole `ResetModelContract` authority
+and preserves the original short-circuit order.
+
+The authority phase proof is likewise split by contract boundary:
+`authority/phase.cpp` owns the nested-coordinate codec, recurrence identity,
+and prepared-control checks, while `authority/phase/source.cpp` owns generated
+Metal/Vulkan source consumption and hash/ordering evidence. Both leaves consume
+the same backend phase definitions; neither recreates a phase table or source
+recipe.
+
 ## Ordering and Numeric Meaning
 
 Map windows preserve exact sequence identity. Scan and reduction consume the
@@ -151,6 +167,12 @@ through its narrow compiled interface. The closed
 level, pool flags, begin flags, inheritance, fence presence, and initial fence
 state. Batch keeps immutable secondary execution, Pipeline keeps one reusable
 primary, and the adapter ring keeps independent one-shot primary slots.
+Reusable primaries freeze `VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT`:
+temporal window/stream submission may place the same retained bank command in
+multiple pending submit records. Timeline dependencies still order execution;
+the recording flag admits repeated pending instances, not unsynchronized
+resource access. The backend runtime command-plan test checks this exact flag,
+alongside unchanged one-shot and immutable-secondary flags.
 Timestamp query pools remain diagnostic slot or Pipeline-profile resources;
 they are not command-lifetime state. Immutable Kernel and Pipeline recording
 share the compiled cold begin/end transition. The ring retains its
@@ -169,6 +191,15 @@ helpers change representation only. `accel.kernel-numeric` must prove the
 fixed source/dispatch topology and bit-for-bit CPU parity for every available
 backend rather than accepting batch parallelism or a threadgroup-size setting
 alone as evidence.
+
+The Metal numeric Solve recipe is physically split by shader role under
+`node/src/accel/metal/numeric/source/program/solve/`: `factor.hpp` owns the
+LU, Cholesky, and QR factor-input substitutions; `direct.hpp` owns direct
+matrix-input LU and Cholesky; and `kernel.hpp` owns the one ordered dispatch
+entry and status publication. The adjacent `solve.hpp` is an include-only
+ordered facade that appends those three unchanged fragments. It carries no
+second recipe or solve-state authority, so the program's Factor → Solve →
+Spectrum order and source bytes remain fixed.
 
 GPU map windows are byte-budgeted rather than fixed at a small tile count. The
 kernel chooses the largest window admitted by device, caller, phase, and
@@ -249,6 +280,10 @@ a duplicate marker, and a fused-away external binding.
 `compute.flow` covers the fused source-interval projection with two partial
 `u64` scatter resets and exact cold/warm CPU, Metal, and Vulkan output.
 `accel.kernel-numeric` covers Transform, Matrix, Factor, Solve, and Spectrum.
+Its Spectrum runner keeps the ordered dense, values-only, and full-vector
+execution evidence in `tests/contract/accel/kernel/spectrum.cpp`; the
+invalid-shape admission and native-backend availability checks are owned by
+`spectrum/validation.cpp` and retain the same numeric case and call order.
 Backend-specific fixed and runtime evidence is owned by
 `accel.backend-fixed` and `accel.backend-runtime`.
 
@@ -258,3 +293,22 @@ comparison fixture; `raw.cpp` owns direct matrix-input Solve and `reuse.cpp`
 owns Factor-to-Solve reuse. The three translation units retain the existing
 CPU, Metal, Vulkan, 32-bit, 64-bit, factor, status, dense, and exact-output
 order without registering another case.
+
+The Factor contract is physically split under
+`tests/contract/accel/kernel/factor/`:
+`rejection.cpp` owns the cross-primitive oversize-shape rejection,
+The backend-neutral run model is physically split under `kernel/backend/run/`:
+`bound.hpp` owns sealed reset and step bindings, `model.hpp` owns template
+demand and the execution route, `window.hpp` owns recurrence/window/publication
+state, `batch.hpp` owns native batch entries, and `binding.hpp` owns rebinding
+and bound-run construction declarations. `backend/run.hpp` is an ordered
+implementation-free compatibility umbrella and owns no parallel model. Its
+implementation follows the same boundary: `backend/run.cpp` owns only ordered
+bound-run assembly, while `backend/run/bindings.cpp`, `map.cpp`, and `state.cpp`
+respectively own primitive/control binding, Map dispatch-window projection,
+and `BoundRun` move/bind state. Their `internal.hpp` contains only private
+declarations.
+`execution.cpp` owns the ordered small-matrix and native-backend runner, and
+`dense.cpp` owns the batched typed reference/output comparison. These leaves
+retain the existing CPU, Metal, Vulkan, 32-bit, 64-bit, operation, status, and
+dense-case order; `internal.hpp` carries only the dense-case declarations.

@@ -58,6 +58,44 @@ namespace rund_node_test_pipeline {
       sealed->fingerprint() == canonical->fingerprint() ||
       equivalent->fingerprint() != sealed->fingerprint() ||
       sealed_two->fingerprint() == sealed_four->fingerprint()) {
+    const auto report = [](const char *name, const auto &result) {
+      std::fprintf(stderr, "pipeline sealed prepare %s ok=%u reason=%u", name,
+                   static_cast<unsigned>(static_cast<bool>(result)),
+                   static_cast<unsigned>(result.reason()));
+      if (result) {
+        const auto fingerprint = result->fingerprint();
+        std::fprintf(stderr, " fingerprint=%016llx/%016llx",
+                     static_cast<unsigned long long>(fingerprint.hi),
+                     static_cast<unsigned long long>(fingerprint.lo));
+      }
+      std::fputc('\n', stderr);
+    };
+    report("canonical", canonical);
+    report("unit", unit_sealed);
+    report("sealed", sealed);
+    report("equivalent", equivalent);
+    report("two", sealed_two);
+    report("four", sealed_four);
+    if (canonical && unit_sealed) {
+      std::fprintf(stderr, "pipeline sealed predicate unit_eq_canonical=%u\n",
+                   static_cast<unsigned>(unit_sealed->fingerprint() ==
+                                         canonical->fingerprint()));
+    }
+    if (canonical && sealed) {
+      std::fprintf(stderr, "pipeline sealed predicate sealed_ne_canonical=%u\n",
+                   static_cast<unsigned>(sealed->fingerprint() !=
+                                         canonical->fingerprint()));
+    }
+    if (sealed && equivalent) {
+      std::fprintf(stderr, "pipeline sealed predicate equivalent_eq_sealed=%u\n",
+                   static_cast<unsigned>(equivalent->fingerprint() ==
+                                         sealed->fingerprint()));
+    }
+    if (sealed_two && sealed_four) {
+      std::fprintf(stderr, "pipeline sealed predicate two_ne_four=%u\n",
+                   static_cast<unsigned>(sealed_two->fingerprint() !=
+                                         sealed_four->fingerprint()));
+    }
     return 2;
   }
   if (canonical_fingerprint) {
@@ -256,18 +294,89 @@ namespace rund_node_test_pipeline {
           .prepare();
   std::array<std::int32_t, values.size()> ordinary_transaction_values{};
   std::array<std::int32_t, values.size()> unit_transaction_values{};
-  if (!ordinary_transaction || !unit_transaction ||
-      ordinary_transaction->fingerprint() != unit_transaction->fingerprint() ||
-      !ordinary_transaction->run() || !unit_transaction->run() ||
-      ordinary_transaction->generation() != 1u ||
-      unit_transaction->generation() != 1u ||
-      unit_transaction->stats().pipeline.sealed_repetition_count != 1u ||
-      unit_transaction->stats().pipeline.coalesced_repetition_count != 0u ||
-      !ReadExact(*ordinary_transaction, *ordinary_pending,
-                 ordinary_transaction_values) ||
-      !ReadExact(*unit_transaction, *unit_pending, unit_transaction_values) ||
-      ordinary_transaction_values != expected ||
-      unit_transaction_values != ordinary_transaction_values) {
+  const bool ordinary_ready = static_cast<bool>(ordinary_transaction);
+  const bool unit_ready = static_cast<bool>(unit_transaction);
+  const bool transaction_fingerprint_equal =
+      ordinary_ready && unit_ready &&
+      ordinary_transaction->fingerprint() == unit_transaction->fingerprint();
+  Status ordinary_run = Status::success();
+  Status unit_run = Status::success();
+  bool ordinary_values_read = false;
+  bool unit_values_read = false;
+  if (ordinary_ready && unit_ready) {
+    ordinary_run = ordinary_transaction->run();
+    unit_run = unit_transaction->run();
+    if (ordinary_run && unit_run) {
+      ordinary_values_read = ReadExact(*ordinary_transaction, *ordinary_pending,
+                                       ordinary_transaction_values);
+      unit_values_read =
+          ReadExact(*unit_transaction, *unit_pending, unit_transaction_values);
+    }
+  }
+  const bool ordinary_values_exact = ordinary_values_read &&
+                                     ordinary_transaction_values == expected;
+  const bool unit_values_equal = unit_values_read &&
+                                 unit_transaction_values ==
+                                     ordinary_transaction_values;
+  const bool transaction_generation_exact =
+      ordinary_ready && unit_ready && ordinary_transaction->generation() == 1u &&
+      unit_transaction->generation() == 1u;
+  const bool transaction_stats_exact =
+      unit_ready && unit_transaction->stats().pipeline.sealed_repetition_count ==
+                        1u &&
+      unit_transaction->stats().pipeline.coalesced_repetition_count == 0u;
+  if (!ordinary_ready || !unit_ready || !transaction_fingerprint_equal ||
+      !ordinary_run || !unit_run || !transaction_generation_exact ||
+      !transaction_stats_exact || !ordinary_values_exact || !unit_values_equal) {
+    std::fprintf(
+        stderr,
+        "pipeline sealed transaction backend=%u prepare=%u/%u "
+        "prepare_reason=%u/%u "
+        "fingerprint_equal=%u ordinary_run=%u/%u unit_run=%u/%u "
+        "generation=%llu/%llu stats=%llu/%llu read=%u/%u values=%u/%u\n",
+        static_cast<unsigned>(backend), static_cast<unsigned>(ordinary_ready),
+        static_cast<unsigned>(unit_ready),
+        static_cast<unsigned>(ordinary_transaction.reason()),
+        static_cast<unsigned>(unit_transaction.reason()),
+        static_cast<unsigned>(transaction_fingerprint_equal),
+        static_cast<unsigned>(static_cast<bool>(ordinary_run)),
+        static_cast<unsigned>(ordinary_run.reason()),
+        static_cast<unsigned>(static_cast<bool>(unit_run)),
+        static_cast<unsigned>(unit_run.reason()),
+        static_cast<unsigned long long>(ordinary_ready
+                                            ? ordinary_transaction->generation()
+                                            : 0u),
+        static_cast<unsigned long long>(unit_ready
+                                            ? unit_transaction->generation()
+                                            : 0u),
+        static_cast<unsigned long long>(unit_ready
+                                            ? unit_transaction->stats()
+                                                  .pipeline.sealed_repetition_count
+                                            : 0u),
+        static_cast<unsigned long long>(unit_ready
+                                            ? unit_transaction->stats()
+                                                  .pipeline.coalesced_repetition_count
+                                            : 0u),
+        static_cast<unsigned>(ordinary_values_read),
+        static_cast<unsigned>(unit_values_read),
+        static_cast<unsigned>(ordinary_values_exact),
+        static_cast<unsigned>(unit_values_equal));
+    const auto report_location = [](const char *name, const auto &result) {
+      const Location location = result.location();
+      std::fprintf(stderr,
+                   "pipeline sealed transaction %s reason=%u location="
+                   "%u/%u/%u template=%u occurrence=%u node=%u key=%s\n",
+                   name, static_cast<unsigned>(result.reason()), location.step,
+                   location.iteration,
+                   static_cast<unsigned>(location.nested_phase),
+                   location.template_index, location.occurrence_index,
+                   location.node,
+                   location.native_reason_key == nullptr
+                       ? "-"
+                       : location.native_reason_key);
+    };
+    report_location("ordinary", ordinary_transaction);
+    report_location("unit", unit_transaction);
     return 23;
   }
 

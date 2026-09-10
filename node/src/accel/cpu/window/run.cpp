@@ -2,6 +2,7 @@
 #include <accel/device.hpp>
 
 #include "../../kernel/backend/run.hpp"
+#include "../../range_aggregate/execution/run.hpp"
 #include "../../window/shape.hpp"
 #include "../buffer/batch.hpp"
 #include <kernel/program/compute/window/reference.hpp>

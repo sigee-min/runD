@@ -2,7 +2,7 @@
 
 #include <kernel/program/compute/transform/stage.hpp>
 
-#include "../../kernel/backend/source_recipe.hpp"
+#include "../../kernel/backend/source/sink.hpp"
 #include <string_view>
 
 namespace rund::node::accel::detail {

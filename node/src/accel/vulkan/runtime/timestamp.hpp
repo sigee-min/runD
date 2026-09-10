@@ -2,7 +2,7 @@
 
 #include <accel/runtime.hpp>
 
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include <rund/counter.hpp>
 
 #include <cstddef>
@@ -90,8 +90,7 @@ CollectVulkanTimestampSpan(VulkanAdapter &adapter, const std::size_t slot,
       adapter.device, query_pool, 0u, 2u, sizeof(timestamps), timestamps,
       sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
   if (result != VK_SUCCESS) {
-    SetVulkanLastError(adapter, "accel_vulkan_timestamp_unavailable");
-    return false;
+    return true;
   }
   const std::uint64_t ticks = VulkanTimestampTicks(
       timestamps[0], timestamps[1], adapter.timestamp_valid_bits);

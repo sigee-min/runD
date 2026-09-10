@@ -33,23 +33,23 @@ using namespace rund::node::accel::detail;
       direct | RangeSupportBit(RangeSupport::PrefixDifference);
   constexpr std::uint8_t direct_block =
       direct | RangeSupportBit(RangeSupport::BlockPrefixSuffix);
-  const RangePlan direct_clip = PlanRange(
+  const RangePlan direct_clip = ContractPlanRange(
       AffineShape(RangeOp::Sum, RangeBoundary::Clip, 3u, 2u, 5u, 5u, 4u),
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct));
-  const RangePlan direct_clamp = PlanRange(
+  const RangePlan direct_clamp = ContractPlanRange(
       AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 3u, 2u, 5u, 5u, 4u),
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct));
-  const RangePlan prefix_clip = PlanRange(
+  const RangePlan prefix_clip = ContractPlanRange(
       AffineShape(RangeOp::Sum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u),
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_prefix));
-  const RangePlan block_clip =
-      PlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 101u, 7u,
-                            50u, 3u, 10u, 4u, ComputeDomain::I32),
-                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
-                    std::numeric_limits<u32>::max(), direct_block));
+  const RangePlan block_clip = ContractPlanRange(
+      AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 101u, 7u, 50u, 3u, 10u,
+                  4u, ComputeDomain::I32),
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+          std::numeric_limits<u32>::max(), direct_block));
   const std::optional<RangeTraits> saturating =
       RangeTraits::sum_saturating(ComputeDomain::Fixed);
   const std::optional<RangeShape> saturating_shape =
@@ -59,9 +59,9 @@ using namespace rund::node::accel::detail;
           : std::nullopt;
   const RangePlan saturating_direct =
       saturating_shape.has_value()
-          ? PlanRange(*saturating_shape,
-                      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
-                          std::numeric_limits<u32>::max(), direct))
+          ? ContractPlanRange(*saturating_shape,
+                              Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u,
+                                  0u, std::numeric_limits<u32>::max(), direct))
           : RangePlan::rejected("compute_range_aggregate_shape_invalid");
   const auto direct_exec = RangeExec::from(direct_clip);
   const auto direct_clamp_exec = RangeExec::from(direct_clamp);
@@ -91,10 +91,10 @@ using namespace rund::node::accel::detail;
       prefix_source.find("const ulong anchor = i * params.stride;") ==
           std::string::npos ||
       prefix_source.find("left_missing") != std::string::npos ||
-      block_source.find("const ulong window = params.window_size;") ==
+      block_source.find(
+          "const ulong block = ulong(group) * params.window_size;") ==
           std::string::npos ||
-      block_source.find("const ulong left = i * params.stride;") ==
-          std::string::npos ||
+      block_source.find("result * params.stride == at") == std::string::npos ||
       block_source.find("2147483647") == std::string::npos ||
       saturating_source.find("device const int* input") == std::string::npos ||
       saturating_source.find("rund_range_add_sat(value, sample)") ==
@@ -104,13 +104,13 @@ using namespace rund::node::accel::detail;
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  const RangePlan vulkan_direct = PlanRange(
+  const RangePlan vulkan_direct = ContractPlanRange(
       direct_clip.shape(), Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u,
                                0u, std::numeric_limits<u32>::max(), direct));
   const RangePlan vulkan_block =
-      PlanRange(block_clip.shape(),
-                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
-                    std::numeric_limits<u32>::max(), direct_block));
+      ContractPlanRange(block_clip.shape(),
+                        Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                            std::numeric_limits<u32>::max(), direct_block));
   const auto vulkan_direct_exec = RangeExec::from(vulkan_direct);
   const auto vulkan_exec = RangeExec::from(vulkan_block);
   if (!vulkan_direct_exec.has_value() || !vulkan_exec.has_value()) {
@@ -147,17 +147,20 @@ using namespace rund::node::accel::detail;
     std::uint64_t vulkan_hash;
   };
   constexpr std::array cases{
+      SourceCase{RangeOp::Sum, ComputeDomain::U32, RangePath::TiledDifference,
+                 0u, 11155u, 14512967291352134956ull, 2928u,
+                 11722945978922466309ull},
       SourceCase{RangeOp::Sum, ComputeDomain::U32, RangePath::Direct, 0u, 5782u,
                  5241732093872250891ull, 1860u, 15946521728726338142ull},
       SourceCase{RangeOp::Minimum, ComputeDomain::I32, RangePath::SharedHalo,
                  64u, 11048u, 13934788009075350063ull, 3193u,
                  5710807108626550770ull},
       SourceCase{RangeOp::Sum, ComputeDomain::U32, RangePath::PrefixDifference,
-                 0u, 11880u, 16150613125859792719ull, 3739u,
-                 12968811649224947642ull},
+                 0u, 13697u, 8273787381315139882ull, 4077u,
+                 2198433437453094463ull},
       SourceCase{RangeOp::Maximum, ComputeDomain::I64,
-                 RangePath::BlockPrefixSuffix, 0u, 7504u,
-                 4882305884707311087ull, 2493u, 14217763674358663737ull},
+                 RangePath::BlockPrefixSuffix, 0u, 12623u,
+                 10439653134107119742ull, 2493u, 14217763674358663737ull},
   };
   for (const SourceCase &entry : cases) {
     const RangePlan metal_plan = range::PlanSourceVariant(
@@ -255,17 +258,22 @@ using namespace rund::node::accel::detail;
           std::string::npos ||
       metal_prefix_source.find("threadgroup uint scan[64];") ==
           std::string::npos ||
-      metal_prefix_source.find("scratch0[i] = scan[tid] + value;") ==
+      metal_prefix_source.find(
+          "scratch0[i] = scan[simd_group] + local_prefix;") ==
           std::string::npos ||
       metal_prefix_source.find("value -= scratch0[left - 1ul];") ==
           std::string::npos ||
       metal_block_source.find("device int* forward_values [[buffer(3)]],") ==
           std::string::npos ||
-      metal_block_source.find("const ulong window = params.window_size;") ==
+      metal_block_source.find(
+          "const ulong block = ulong(group) * params.window_size;") ==
           std::string::npos ||
-      metal_block_source.find("backward_values[index]") == std::string::npos ||
-      metal_block_source.find("output[i] = min(backward_values[left], "
-                              "forward_values[right]);") == std::string::npos) {
+      metal_block_source.find("backward_values") != std::string::npos ||
+      metal_block_source.find("at / params.stride") != std::string::npos ||
+      metal_block_source.find(
+          "output[result] = min(min(value, carry), "
+          "forward_values[at + params.window_size - 1ul]);") ==
+          std::string::npos) {
     return false;
   }
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)

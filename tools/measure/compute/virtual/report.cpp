@@ -1,5 +1,7 @@
 #include "report.hpp"
 
+#include "product_route/report.hpp"
+
 #include <rund/compute/stats.hpp>
 
 #include <cstdio>
@@ -38,14 +40,49 @@ void PrintCounter(const ::rund::compute::MemoryCounter &counter) {
 void PrintColumns() {
   std::fputs(
       "virtual_residency_columns,evidence_scope,phase,backend,status,"
+      "route_status,route_expected_runs,route_production_slots,"
+      "route_prepare_attempts,route_prepared_runs,route_executed_runs,"
+      "route_successful_finals,route_cold_owner_runs,route_warm_reused_runs,"
+      "route_max_warm_rearm_count,route_whole_run_preencoded_runs,"
+      "route_device_generated_recurrence_runs,"
+      "route_fixed_native_storage_runs,route_fixed_common_storage_runs,"
+      "route_gpu_addressable_backing_runs,"
+      "route_public_gpu_addressable_backing_runs,"
+      "route_whole_run_staging_runs,"
+      "route_bounded_external_page_service_runs,"
+      "route_one_native_submit_runs,"
+      "route_host_service_turns_zero_runs,"
+      "route_host_epoch_callbacks_zero_runs,"
+      "route_aggregate_terminal_once_runs,route_bounded_page_io_runs,"
+      "route_coordinates,"
+      "route_accepted_coordinates,"
+      "route_gpu_completed_coordinates,route_completed_prefix,"
+      "route_forecasted_pages,route_promoted_pages,route_drained_pages,"
+      "route_persisted_pages,route_overlap_reused_bytes,"
+      "route_gpu_backing_read_bytes,route_gpu_backing_write_bytes,"
+      "route_native_submits,route_epoch_native_submits,"
+      "route_payload_dispatches,route_host_service_turns,"
+      "route_backend_epoch_callbacks,route_host_epoch_callbacks,"
+      "route_backing_waits,route_backing_signals,route_backing_acks,"
+      "route_final_callbacks,route_queue_calls,route_public_handoffs,"
+      "route_authority_accepts,route_pipeline_terminals,"
+      "route_backing_publications,route_hash_observations_first,"
+      "route_hash_observations_last,route_hash_reuses_first,"
+      "route_hash_reuses_last,route_completed_ns,"
+      "route_retained_bytes,route_transient_bytes,"
       "logical_elements,active_count,frame_elements,n_over_c,plan_page_count,"
       "plan_frame_capacity,plan_logical_bytes,plan_page_bytes,"
       "plan_resident_bytes,plan_capacity_epochs,epochs,dispatches,"
-      "compute_submissions,h2d_submissions,"
+      "fusions,fusion_rejections,"
+      "compute_submissions,window_handoffs,window_batches,window_queue_calls,"
+      "h2d_submissions,"
       "d2h_submissions,d2d_submissions,uploaded_bytes,downloaded_bytes,"
       "internal_roundtrip_bytes,external_roundtrip_bytes,download_events,"
       "submit_wait_ns,readback_ns,kernel_ns,kernel_samples,backing_io_ns,"
-      "loads,writebacks,"
+      "overlap_ns,h2d_overlap_ns,d2h_overlap_ns,controller_stall_ns,"
+      "ready_edge_stall_status,ready_edge_stall_ns,loads,writebacks,"
+      "cache_hits,evictions,"
+      "prefetch_pages,late_pages,page_in_bytes,page_out_bytes,"
       "sampled_runs,rund_allocation_free_runs,rund_allocation_scope,"
       "process_global_allocation_status,prepare_evidence_status,"
       "prepare_pipeline_compiles,"
@@ -82,46 +119,70 @@ void PrintEvidence(const char *const phase, const Backend backend,
                    const ::rund::compute::telemetry::Profile &profile,
                    const ::rund::compute::PipelinePlan &plan,
                    const ::rund::compute::telemetry::Profile &preparation,
-                   const ObservationEvidence &observation) {
+                   const ObservationEvidence &observation,
+                   const ProductRouteEvidence &route,
+                   const char *const route_status,
+                   const std::uint64_t expected_runs) {
   const ::rund::compute::Stats &stats = profile.execution();
   const ::rund::compute::MemoryStats &memory = profile.memory();
   const ::rund::compute::Stats &preparation_stats = preparation.execution();
   const auto &residency = stats.pipeline.residency;
+  std::printf("virtual_residency,current_source_diagnostic,%s,%s,ok,%s", phase,
+              Name(backend), route_status);
+  PrintProductRouteEvidence(route, expected_runs);
+  std::printf(",%zu,%zu,"
+              "%zu,%.9f,%llu,%llu,%llu,%llu,%llu,%llu",
+              LogicalElements, active_count, FrameElements,
+              static_cast<double>(active_count) /
+                  static_cast<double>(FrameElements),
+              static_cast<unsigned long long>(plan.residency.page_count),
+              static_cast<unsigned long long>(plan.residency.frame_capacity),
+              static_cast<unsigned long long>(plan.residency.logical_bytes),
+              static_cast<unsigned long long>(plan.residency.page_bytes),
+              static_cast<unsigned long long>(plan.residency.resident_bytes),
+              static_cast<unsigned long long>(plan.residency.epoch_count));
   std::printf(
-      "virtual_residency,current_source_diagnostic,%s,%s,ok,%zu,%zu,"
-      "%zu,%.9f,%llu,%llu,%llu,%llu,%llu,%llu",
-      phase, Name(backend), LogicalElements, active_count, FrameElements,
-      static_cast<double>(active_count) / static_cast<double>(FrameElements),
-      static_cast<unsigned long long>(plan.residency.page_count),
-      static_cast<unsigned long long>(plan.residency.frame_capacity),
-      static_cast<unsigned long long>(plan.residency.logical_bytes),
-      static_cast<unsigned long long>(plan.residency.page_bytes),
-      static_cast<unsigned long long>(plan.residency.resident_bytes),
-      static_cast<unsigned long long>(plan.residency.epoch_count));
-  std::printf(",%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
-              "%llu,%llu,%llu,%llu",
-              static_cast<unsigned long long>(residency.epoch_count),
-              static_cast<unsigned long long>(stats.dispatches),
-              static_cast<unsigned long long>(stats.command_submits),
-              static_cast<unsigned long long>(
-                  stats.transfer_submissions.host_to_device),
-              static_cast<unsigned long long>(
-                  stats.transfer_submissions.device_to_host),
-              static_cast<unsigned long long>(
-                  stats.transfer_submissions.device_to_device),
-              static_cast<unsigned long long>(stats.uploaded_bytes),
-              static_cast<unsigned long long>(stats.downloaded_bytes),
-              static_cast<unsigned long long>(stats.internal_roundtrip_bytes),
-              static_cast<unsigned long long>(stats.external_roundtrip_bytes),
-              static_cast<unsigned long long>(stats.download_events),
-              static_cast<unsigned long long>(stats.submit_wait_ns),
-              static_cast<unsigned long long>(stats.readback_ns),
-              static_cast<unsigned long long>(stats.kernel_ns),
-              static_cast<unsigned long long>(stats.kernel_samples),
-              static_cast<unsigned long long>(residency.backing_io_ns));
-  std::printf(",%llu,%llu,%u,%u,rund_owned,%s,%s",
+      ",%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
+      "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu",
+      static_cast<unsigned long long>(residency.epoch_count),
+      static_cast<unsigned long long>(stats.dispatches),
+      static_cast<unsigned long long>(stats.fusions),
+      static_cast<unsigned long long>(stats.fusion_rejections),
+      static_cast<unsigned long long>(stats.command_submits),
+      static_cast<unsigned long long>(residency.window_handoff_count),
+      static_cast<unsigned long long>(residency.window_batch_count),
+      static_cast<unsigned long long>(residency.window_queue_call_count),
+      static_cast<unsigned long long>(
+          stats.transfer_submissions.host_to_device),
+      static_cast<unsigned long long>(
+          stats.transfer_submissions.device_to_host),
+      static_cast<unsigned long long>(
+          stats.transfer_submissions.device_to_device),
+      static_cast<unsigned long long>(stats.uploaded_bytes),
+      static_cast<unsigned long long>(stats.downloaded_bytes),
+      static_cast<unsigned long long>(stats.internal_roundtrip_bytes),
+      static_cast<unsigned long long>(stats.external_roundtrip_bytes),
+      static_cast<unsigned long long>(stats.download_events),
+      static_cast<unsigned long long>(stats.submit_wait_ns),
+      static_cast<unsigned long long>(stats.readback_ns),
+      static_cast<unsigned long long>(stats.kernel_ns),
+      static_cast<unsigned long long>(stats.kernel_samples),
+      static_cast<unsigned long long>(residency.backing_io_ns));
+  std::printf(",%llu,%llu,%llu,%llu,unavailable_no_exact_producer,0,%llu,%llu,"
+              "%llu,%llu,%llu,%llu,%llu,%llu,%u,%u,"
+              "rund_owned,%s,%s",
+              static_cast<unsigned long long>(residency.overlap_ns),
+              static_cast<unsigned long long>(residency.h2d_overlap_ns),
+              static_cast<unsigned long long>(residency.d2h_overlap_ns),
+              static_cast<unsigned long long>(residency.stall_ns),
               static_cast<unsigned long long>(residency.page_in_count),
               static_cast<unsigned long long>(residency.page_out_count),
+              static_cast<unsigned long long>(residency.cache_hit_count),
+              static_cast<unsigned long long>(residency.eviction_count),
+              static_cast<unsigned long long>(residency.prefetch_count),
+              static_cast<unsigned long long>(residency.late_page_count),
+              static_cast<unsigned long long>(residency.page_in_bytes),
+              static_cast<unsigned long long>(residency.page_out_bytes),
               residency.sampled_runs, residency.allocation_free_runs,
               ProcessGlobalAllocationStatus(),
               PreparationEvidenceStatus(

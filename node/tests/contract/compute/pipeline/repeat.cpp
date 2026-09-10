@@ -1,8 +1,7 @@
-#include "local.hpp"
+#include "repeat/local.hpp"
 
 #include <node/runtime/compute/access.hpp>
 
-#include "src/compute/cpu/state.hpp"
 #include "src/compute/job/local.hpp"
 #include "src/compute/pipeline/state.hpp"
 
@@ -12,9 +11,10 @@
 #include <utility>
 
 namespace rund_node_test_pipeline {
+namespace {
 
-[[nodiscard]] int CheckRepeat(rund::compute::Device &device,
-                              const Backend backend) {
+[[nodiscard]] int CheckFixedRepeat(rund::compute::Device &device,
+                                   const Backend backend) {
   using namespace rund::compute;
   constexpr std::array<std::int32_t, 4u> seed{1, 3, 5, 7};
   auto input = device.upload<std::int32_t>(std::span<const std::int32_t>{seed});
@@ -204,286 +204,20 @@ namespace rund_node_test_pipeline {
     return 5;
   }
 
-  constexpr std::array<std::uint32_t, 1u> active_count{4u};
-  auto count = device.upload<std::uint32_t>(active_count);
-  auto active_values = device.upload<std::int32_t>(seed);
-  auto remaining_values = device.buffer<std::int32_t>(seed.size());
-  auto remaining_count = device.buffer<std::uint32_t>(1u);
-  auto reference_count = device.upload<std::uint32_t>(active_count);
-  auto reference_values = device.upload<std::int32_t>(seed);
-  auto reference_remaining = device.buffer<std::int32_t>(seed.size());
-  auto reference_remaining_count = device.buffer<std::uint32_t>(1u);
-  auto active_body =
-      on(device)
-          .input<Bounded<std::int32_t>>(seed.size())
-          .map("repeat-decay", [](auto value) { return value - 1; })
-          .filter([](auto value) { return value > 0; })
-          .compile();
-  if (!count || !active_values || !remaining_values || !remaining_count ||
-      !reference_count || !reference_values || !reference_remaining ||
-      !reference_remaining_count || !active_body) {
-    return 7;
-  }
-  auto active_loop =
-      pipeline(device)
-          .profile(PipelineProfile::Steps)
-          .repeat<6u>(*active_body, read(*active_values, *count),
-                      write_final(*remaining_values, *remaining_count))
-          .prepare();
-  auto reference_builder = pipeline(device).profile(PipelineProfile::Steps);
-  reference_builder
-      .then(*active_body, read(*reference_values, *reference_count),
-            write(*reference_remaining, *reference_remaining_count))
-      .then(*active_body,
-            read(*reference_remaining, *reference_remaining_count),
-            write(*reference_values, *reference_count))
-      .then(*active_body, read(*reference_values, *reference_count),
-            write(*reference_remaining, *reference_remaining_count))
-      .then(*active_body,
-            read(*reference_remaining, *reference_remaining_count),
-            write(*reference_values, *reference_count))
-      .then(*active_body, read(*reference_values, *reference_count),
-            write(*reference_remaining, *reference_remaining_count))
-      .then(*active_body,
-            read(*reference_remaining, *reference_remaining_count),
-            write(*reference_values, *reference_count));
-  auto reference_loop = std::move(reference_builder).prepare();
-  std::array<std::int32_t, 4u> remaining{};
-  std::array<std::uint32_t, 1u> remaining_size{};
-  std::array<std::int32_t, 4u> reference_output{};
-  std::array<std::uint32_t, 1u> reference_size{};
-  const Status active_status =
-      active_loop ? active_loop->run() : Status::fail(active_loop.reason());
-  const Status reference_status = reference_loop
-                                      ? reference_loop->run()
-                                      : Status::fail(reference_loop.reason());
-  if (!active_loop || !reference_loop || !active_status || !reference_status ||
-      !ReadExact(*active_loop, *remaining_values, remaining) ||
-      !ReadExact(*active_loop, *remaining_count, remaining_size) ||
-      !ReadExact(*reference_loop, *reference_values, reference_output) ||
-      !ReadExact(*reference_loop, *reference_count, reference_size) ||
-      remaining_size[0] != 1u || remaining[0] != 1 ||
-      remaining_size != reference_size || remaining[0] != reference_output[0] ||
-      active_loop->stats().pipeline.step_count != 1u ||
-      active_loop->stats().pipeline.control_command_count !=
-          reference_loop->stats().pipeline.control_command_count ||
-      !SameControlStats(active_loop->stats().control,
-                        reference_loop->stats().control)) {
-    const Stats active_stats = active_loop ? active_loop->stats() : Stats{};
-    const Stats reference_stats =
-        reference_loop ? reference_loop->stats() : Stats{};
-    std::fprintf(stderr,
-                 "repeat bounded active=%u reference=%u active_prepare=%u "
-                 "reference_prepare=%u active_count=%u reference_count=%u "
-                 "active_commands=%llu reference_commands=%llu "
-                 "active_generated=%llu reference_generated=%llu\n",
-                 static_cast<unsigned>(active_status.reason()),
-                 static_cast<unsigned>(reference_status.reason()),
-                 static_cast<unsigned>(active_loop.reason()),
-                 static_cast<unsigned>(reference_loop.reason()),
-                 remaining_size[0u], reference_size[0u],
-                 static_cast<unsigned long long>(
-                     active_stats.pipeline.control_command_count),
-                 static_cast<unsigned long long>(
-                     reference_stats.pipeline.control_command_count),
-                 static_cast<unsigned long long>(
-                     active_stats.control.generated_item_count),
-                 static_cast<unsigned long long>(
-                     reference_stats.control.generated_item_count));
-    return 8;
-  }
-  std::array<PipelineStepProfile, 6u> active_rows{};
-  std::array<PipelineStepProfile, 6u> reference_rows{};
-  const auto active_profile = active_loop->profile(active_rows);
-  const auto reference_profile = reference_loop->profile(reference_rows);
-  if (!active_profile || !reference_profile ||
-      active_profile->written != active_rows.size() ||
-      reference_profile->written != reference_rows.size()) {
-    std::fprintf(stderr, "repeat bounded profile unavailable\n");
-    return 8;
-  }
-  for (std::size_t iteration = 0u; iteration < active_rows.size();
-       ++iteration) {
-    if (!SameControlStats(active_rows[iteration].execution.control,
-                          reference_rows[iteration].execution.control)) {
-      std::fprintf(stderr, "repeat bounded profile mismatch iteration=%zu\n",
-                   iteration);
-      return 8;
-    }
-  }
-  if (!active_loop->run()) {
-    std::fprintf(stderr, "repeat bounded warm run failed\n");
-    return 8;
-  }
-  const ControlStats stable_control = active_loop->stats().control;
-  const std::uint64_t stable_control_commands =
-      active_loop->stats().pipeline.control_command_count;
-  const auto stable_profile = active_loop->profile(active_rows);
-  const std::array<PipelineStepProfile, 6u> stable_rows = active_rows;
-  if (!stable_profile || stable_profile->written != active_rows.size() ||
-      !active_loop->run()) {
-    std::fprintf(stderr, "repeat bounded stable profile failed\n");
-    return 8;
-  }
-  const auto warm_profile = active_loop->profile(active_rows);
-  if (!warm_profile || warm_profile->written != active_rows.size() ||
-      active_loop->stats().pipeline.control_command_count !=
-          stable_control_commands ||
-      !SameControlStats(stable_control, active_loop->stats().control)) {
-    const ControlStats current = active_loop->stats().control;
-    std::fprintf(
-        stderr,
-        "repeat bounded warm control mismatch generated=%llu/%llu "
-        "capacity=%llu/%llu dispatch=%llu/%llu work=%llu/%llu "
-        "iterations=%llu/%llu skipped=%llu/%llu conflict=%llu/%llu "
-        "overflow=%llu/%llu\n",
-        static_cast<unsigned long long>(stable_control.generated_item_count),
-        static_cast<unsigned long long>(current.generated_item_count),
-        static_cast<unsigned long long>(stable_control.generated_capacity),
-        static_cast<unsigned long long>(current.generated_capacity),
-        static_cast<unsigned long long>(stable_control.indirect_dispatch_count),
-        static_cast<unsigned long long>(current.indirect_dispatch_count),
-        static_cast<unsigned long long>(
-            stable_control.indirect_work_item_count),
-        static_cast<unsigned long long>(current.indirect_work_item_count),
-        static_cast<unsigned long long>(stable_control.iteration_count),
-        static_cast<unsigned long long>(current.iteration_count),
-        static_cast<unsigned long long>(stable_control.skipped_iteration_count),
-        static_cast<unsigned long long>(current.skipped_iteration_count),
-        static_cast<unsigned long long>(stable_control.conflict_count),
-        static_cast<unsigned long long>(current.conflict_count),
-        static_cast<unsigned long long>(stable_control.overflow_ordinal),
-        static_cast<unsigned long long>(current.overflow_ordinal));
-    return 8;
-  }
-  for (std::size_t iteration = 0u; iteration < active_rows.size();
-       ++iteration) {
-    if (!SameControlStats(stable_rows[iteration].execution.control,
-                          active_rows[iteration].execution.control)) {
-      std::fprintf(stderr,
-                   "repeat bounded warm profile mismatch iteration=%zu\n",
-                   iteration);
-      return 8;
-    }
-  }
-
-  // The second logical invocation reaches an empty workset after one body and
-  // skips the next controlled body. It reuses the first invocation's external
-  // output owners, so the empty result proves that earlier active bytes cannot
-  // survive a skipped warm-history path.
-  auto controlled =
-      on(device)
-          .input<std::int32_t>(seed.size())
-          .branch([](auto values) {
-            auto active = values.filter(
-                [](auto value) { return value > std::int32_t{0}; });
-            return active.template unroll<2u>(
-                [](auto work) {
-                  return work.map("repeat-reset-step", [](auto value) {
-                    return value - std::int32_t{1};
-                  });
-                },
-                [](auto value) { return value <= std::int32_t{0}; });
-          })
-          .compile();
-  constexpr std::array<std::int32_t, 4u> live_input{4, 3, 0, 0};
-  constexpr std::array<std::int32_t, 4u> empty_input{1, 0, 0, 0};
-  constexpr std::array<std::int32_t, 4u> poisoned_values{91, 92, 93, 94};
-  constexpr std::array<std::uint32_t, 1u> poisoned_count{95u};
-  auto live_source = device.upload<std::int32_t>(live_input);
-  auto empty_source = device.upload<std::int32_t>(empty_input);
-  auto controlled_values = device.upload<std::int32_t>(poisoned_values);
-  auto controlled_count = device.upload<std::uint32_t>(poisoned_count);
-  if (!controlled || !live_source || !empty_source || !controlled_values ||
-      !controlled_count) {
-    return 8;
-  }
-  auto live = pipeline(device)
-                  .then(*controlled, read(*live_source),
-                        write(*controlled_values, *controlled_count))
-                  .prepare();
-  const auto controlled_state = detail::ProgramAccess::state(*controlled);
-  if (controlled_state == nullptr ||
-      controlled_state->graph_info.memory.reset_count != 2u ||
-      controlled_state->graph_info.memory.reset_bytes !=
-          2u * seed.size() * sizeof(std::int32_t)) {
-    return 8;
-  }
-  std::array<std::size_t, 2u> reset_resources{};
-  std::size_t reset_count = 0u;
-  for (std::size_t index = 0u;
-       index < controlled_state->graph_info.resources.size(); ++index) {
-    if (!controlled_state->graph_info.resources[index].requires_reset()) {
-      continue;
-    }
-    if (reset_count >= reset_resources.size()) {
-      return 8;
-    }
-    reset_resources[reset_count++] = index;
-  }
-  if (reset_count != reset_resources.size()) {
-    return 8;
-  }
-  const graph::Resource first_reset =
-      controlled_state->graph_info.resources[reset_resources[0u]];
-  const graph::Resource second_reset =
-      controlled_state->graph_info.resources[reset_resources[1u]];
-  const detail::GraphValueRoute first_route =
-      controlled_state->graph_value_routes[reset_resources[0u]];
-  const detail::GraphValueRoute second_route =
-      controlled_state->graph_value_routes[reset_resources[1u]];
-  if (first_route.source != detail::GraphBindSource::Internal ||
-      second_route.source != detail::GraphBindSource::Internal ||
-      first_route.index != second_route.index ||
-      first_route.offset_bytes != second_route.offset_bytes ||
-      first_reset.last_use >= second_reset.reset_node) {
-    return 8;
-  }
-  std::array<std::int32_t, 4u> controlled_output{};
-  std::array<std::uint32_t, 1u> controlled_size{};
-  if (!live || !live->run() ||
-      !ReadExact(*live, *controlled_values, controlled_output) ||
-      !ReadExact(*live, *controlled_count, controlled_size) ||
-      controlled_size[0u] != 2u ||
-      controlled_output != std::array<std::int32_t, 4u>{2, 1, 0, 0}) {
-    std::fprintf(
-        stderr,
-        "repeat live backend=%u prepare=%u count=%u values=%d,%d,%d,%d\n",
-        static_cast<unsigned>(backend), static_cast<unsigned>(live.reason()),
-        controlled_size[0u], controlled_output[0u], controlled_output[1u],
-        controlled_output[2u], controlled_output[3u]);
-    return 8;
-  }
-  auto empty = pipeline(device)
-                   .then(*controlled, read(*empty_source),
-                         write(*controlled_values, *controlled_count))
-                   .prepare();
-  if (!empty || !empty->run() ||
-      !ReadExact(*empty, *controlled_values, controlled_output) ||
-      !ReadExact(*empty, *controlled_count, controlled_size) ||
-      controlled_size[0u] != 0u ||
-      controlled_output != std::array<std::int32_t, 4u>{0, 0, 0, 0} ||
-      empty->stats().control.iteration_count != 1u ||
-      empty->stats().control.skipped_iteration_count != 1u ||
-      empty->stats().reset_bytes == 0u || empty->stats().reset_commands == 0u) {
-    std::fprintf(
-        stderr,
-        "repeat reset backend=%u prepare=%u count=%u values=%d,%d,%d,%d "
-        "iterations=%llu skipped=%llu reset_bytes=%llu reset_commands=%llu\n",
-        static_cast<unsigned>(backend), static_cast<unsigned>(empty.reason()),
-        controlled_size[0u], controlled_output[0u], controlled_output[1u],
-        controlled_output[2u], controlled_output[3u],
-        static_cast<unsigned long long>(
-            empty ? empty->stats().control.iteration_count : 0u),
-        static_cast<unsigned long long>(
-            empty ? empty->stats().control.skipped_iteration_count : 0u),
-        static_cast<unsigned long long>(empty ? empty->stats().reset_bytes
-                                              : 0u),
-        static_cast<unsigned long long>(empty ? empty->stats().reset_commands
-                                              : 0u));
-    return 8;
-  }
   return 0;
+}
+
+} // namespace
+
+[[nodiscard]] int CheckRepeat(rund::compute::Device &device,
+                              const Backend backend) {
+  if (const int fixed = CheckFixedRepeat(device, backend); fixed != 0) {
+    return fixed;
+  }
+  if (const int bounded = CheckBoundedRepeat(device); bounded != 0) {
+    return bounded;
+  }
+  return CheckResetRepeat(device, backend);
 }
 
 } // namespace rund_node_test_pipeline

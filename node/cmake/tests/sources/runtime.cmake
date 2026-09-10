@@ -15,6 +15,9 @@ set(NODE_TEST_RUNTIME_CORE_SOURCES
 set(NODE_TEST_RUNTIME_COMPUTE_SOURCES
   tests/contract/compute/allocation.cpp
   tests/contract/runtime/product/compute/host.cpp
+  tests/contract/runtime/product/compute/host/ready.cpp
+  tests/contract/runtime/product/compute/host/parity.cpp
+  tests/contract/runtime/product/compute/host/replay.cpp
   tests/contract/runtime/product/compute/scope.cpp
   tests/contract/runtime/product/compute/terminal.cpp
   tests/contract/runtime/product/compute/capacity.cpp
@@ -41,6 +44,9 @@ set(NODE_TEST_RUNTIME_COMPUTE_SOURCES
 set(NODE_TEST_RUNTIME_TELEMETRY_SOURCES
   tests/contract/compute/allocation.cpp
   tests/contract/runtime/product/compute/telemetry.cpp
+  tests/contract/runtime/product/compute/telemetry/basic.cpp
+  tests/contract/runtime/product/compute/telemetry/findings.cpp
+  tests/contract/runtime/product/compute/telemetry/trace.cpp
   tests/contract/runtime/product/support.cpp
 )
 
@@ -51,6 +57,8 @@ set(NODE_TEST_RUNTIME_ACCEL_SOURCES
   tests/contract/runtime/product/compute/accel/scan.cpp
   tests/contract/runtime/product/compute/accel/lifetime.cpp
   tests/contract/runtime/product/compute/accel/pipeline.cpp
+  tests/contract/runtime/product/compute/accel/pipeline/control.cpp
+  tests/contract/runtime/product/compute/accel/pipeline/recurrence.cpp
   tests/contract/runtime/product/support.cpp
   tests/contract/runtime/stress/mixed.cpp
 )

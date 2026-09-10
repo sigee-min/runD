@@ -1,3 +1,7 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
@@ -119,28 +123,6 @@ rund::AccelCheck EncodeVulkanScatter(VulkanAdapter &adapter,
   (void)resources;
   (void)command_buffer_raw;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
-#endif
-}
-
-rund::AccelCheck ExecuteVulkanScatter(const rund::AccelDevice &pick,
-                                      const rund::kernel::ScatterDesc &desc,
-                                      const rund::kernel::ScatterPlan &plan,
-                                      const ScatterBinds &bindings) {
-#if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return ExecuteVulkanCollective(pick, desc, plan, bindings,
-                                 [](const rund::AccelDevice &device,
-                                    const rund::kernel::ScatterDesc &operation,
-                                    const rund::kernel::ScatterPlan &prepared,
-                                    const ScatterBinds &resident,
-                                    std::shared_ptr<void> &resources) {
-                                   return PrepareVulkanScatter(
-                                       device, operation, prepared, resident,
-                                       resources, nullptr);
-                                 },
-                                 EncodeVulkanScatter,
-                                 FinishVulkanScatter);
-#else
-  return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);
 #endif
 }
 

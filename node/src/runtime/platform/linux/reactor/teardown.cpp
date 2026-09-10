@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "../../../reactor/platform/lifecycle.hpp"
 #include "../../../reactor/diagnostics.hpp"
 
 #if defined(__linux__)

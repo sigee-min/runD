@@ -4,7 +4,7 @@
 #include "../../partition/model.hpp"
 #include "../../primitive/block.hpp"
 #include "../../scan/vulkan.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../barrier.hpp"
 #include "../collective/pipeline.hpp"
 #include "../command.hpp"

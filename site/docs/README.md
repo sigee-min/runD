@@ -104,6 +104,10 @@ whether it is a complete checked source or a contextual fragment.
 
 ## Versioning and Discoverability
 
+- `../scripts/public-release.mjs` is the sole site authority for the currently
+  hosted version, release URL, artifact filenames, and support label. The
+  checked-in CMake package identity may be ahead while it remains a candidate;
+  public pages do not turn that candidate into a download claim.
 - Navigation and the sitemap expose every public teaching, integration,
   reference, error, and troubleshooting route.
 - The version badge defaults to the currently published site version and never

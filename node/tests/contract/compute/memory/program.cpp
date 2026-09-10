@@ -1,3 +1,4 @@
+#include "../../../../src/compute/cpu/state/program.hpp"
 #include "model.hpp"
 
 #include "../../../../src/compute/cpu/graph.hpp"
@@ -83,7 +84,12 @@ int CheckCpuProgramOwnerDeltas() {
   if (simple_map == nullptr || name_map == nullptr || plan_map == nullptr ||
       binding_map == nullptr || topology_state == nullptr ||
       topology_state->cpu_graph == nullptr ||
-      topology_state->cpu_graph->runtime == nullptr) {
+      topology_state->cpu_graph->runtime == nullptr ||
+      simple_state->canonical_graph == nullptr ||
+      name_state->canonical_graph == nullptr ||
+      plan_state->canonical_graph == nullptr ||
+      binding_state->canonical_graph == nullptr ||
+      topology_state->canonical_graph == nullptr) {
     return 3;
   }
 
@@ -154,10 +160,13 @@ int CheckCpuProgramOwnerDeltas() {
     return 6;
   }
 
-  // Diagnostic map labels do not affect graph identity or retained bytes.
+  // Diagnostic labels do not affect graph identity or prepared execution, but
+  // the immutable canonical Graph is now an actual Program owner. Its external
+  // string allocation must therefore appear in the existing host projection.
   const auto &simple_prepared = simple_map->dispatch.prepared;
   const auto &name_prepared = name_map->dispatch.prepared;
-  if (!SameCounter(simple_memory.host, name_memory.host) ||
+  if (name_memory.host.current <= simple_memory.host.current ||
+      name_memory.host.current - simple_memory.host.current < 64u ||
       !SameCounter(simple_memory.tile, name_memory.tile) ||
       simple_state->graph_info.fingerprint !=
           name_state->graph_info.fingerprint ||
@@ -172,9 +181,9 @@ int CheckCpuProgramOwnerDeltas() {
     return 7;
   }
 
-  // The topology and binding counts remain equal here; only the expression IR
-  // grows. Its retained delta belongs to the prepared instruction owner; source
-  // formats are packed into each PreparedInstruction.
+  // The topology and binding counts remain equal here; only expression IR
+  // grows. Both the prepared instruction owner and the immutable canonical
+  // expression owner contribute their actual retained allocations.
   const auto &plan_prepared = plan_map->dispatch.prepared;
   if (simple_state->graph_info.nodes.size() !=
           plan_state->graph_info.nodes.size() ||

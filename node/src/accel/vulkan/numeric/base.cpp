@@ -1,4 +1,4 @@
-#include "../../kernel/backend/source_recipe.hpp"
+#include "../../kernel/backend/source/storage.hpp"
 #include "source.hpp"
 
 #include <kernel/program/compute/lowering/vulkan/fixed.hpp>
@@ -272,19 +272,6 @@ bool EmitNumericBaseSource(backend_source_recipe::CountSink &sink,
 bool EmitNumericBaseSource(backend_source_recipe::StringSink &sink,
                            const bool wide) {
   return EmitNumericBase(sink, wide);
-}
-
-bool NumericBaseSourceBytes(const bool wide, std::uint64_t &bytes) noexcept {
-  return backend_source_recipe::bytes(
-      [wide](backend_source_recipe::CountSink &sink) noexcept {
-        return EmitNumericBaseSource(sink, wide);
-      },
-      bytes);
-}
-
-std::string NumericBaseSource() {
-  return backend_source_recipe::materialize(
-      [](auto &sink) { return EmitNumericBaseSource(sink, false); });
 }
 
 std::string NumericBaseSource64() {

@@ -2,7 +2,7 @@
 
 #include <accel/check.hpp>
 
-#include "../adapter/api.hpp"
+#include "../adapter/error.hpp"
 #include "../status.hpp"
 #include <rund/counter.hpp>
 

@@ -10,6 +10,8 @@ namespace node_accel_contract::histogram {
 
 [[nodiscard]] bool MatchesU32(const rund::AccelDevice &pick);
 [[nodiscard]] bool MatchesParallelU32(const rund::AccelDevice &pick);
+[[nodiscard]] bool MatchesContentionAndTail(const rund::AccelDevice &pick);
+[[nodiscard]] bool RejectsPartialCohort(const rund::AccelDevice &pick);
 [[nodiscard]] bool RejectsOutOfRangeBin(const rund::AccelDevice &pick);
 
 } // namespace node_accel_contract::histogram

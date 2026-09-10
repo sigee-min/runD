@@ -8,7 +8,7 @@
 
 #include <kernel/program/compute/matrix/tile.hpp>
 #include <kernel/program/compute/transform/stage.hpp>
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
 
 #include <string_view>
 
@@ -34,7 +34,7 @@ template <typename Sink>
          out.append(source::program::Matrix) &&
          out.append(source::program::Transform) &&
          out.append(source::program::Factor) &&
-         out.append(source::program::Solve) &&
+         source::program::AppendSolveSource(out) &&
          out.append(source::program::Spectrum) && out.valid();
 }
 

@@ -1,3 +1,5 @@
+#include "../../buffer/access.hpp"
+
 #include "../local/api.hpp"
 
 namespace rund::node::accel::detail {

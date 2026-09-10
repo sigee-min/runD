@@ -1,5 +1,5 @@
 RUND_NODE_TEST_CASE("compute.sdk", RunComputeSdkContract, "tests/contract/compute/device.cpp", compute)
-RUND_NODE_TEST_CASE("compute.vulkan-cache", RunComputeVulkanCacheContract, "tests/contract/compute/vulkan/cache.cpp", compute)
+RUND_NODE_TEST_CASE("compute.vulkan-cache", RunComputeVulkanCacheContract, "tests/contract/compute/vulkan/cache/dispatcher.cpp", compute)
 RUND_NODE_TEST_CASE("compute.map", RunComputeMapContract, "tests/contract/compute/map.cpp", compute)
 RUND_NODE_TEST_CASE("compute.fixed-declared-multiply", RunComputeFixedDeclaredMultiplyContract, "tests/contract/compute/fixed/multiply/declared.cpp", compute)
 RUND_NODE_TEST_CASE("compute.fixed-wide-predicate", RunComputeFixedWidePredicateContract, "tests/contract/compute/fixed/predicate/wide.cpp", compute)

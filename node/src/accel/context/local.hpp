@@ -19,10 +19,19 @@ namespace rund::node::accel::detail {
                                              const rund::Buffer &buffer,
                                              const char *reason);
 
+[[nodiscard]] rund::AccelBuffer CreateAccelBufferWithInitialization(
+    const rund::AccelContext &context, rund::AccelBufferDesc desc,
+    BackendBufferInitialization initialization,
+    BackendBufferMemory memory = BackendBufferMemory::DeviceLocal,
+    std::uint64_t exact_storage_bytes = 0u);
+
+// Authenticates one existing AccelBuffer capability and mints a semantic
+// typed view over the same backend allocation. Width/count may be retyped
+// together, but the descriptor must cover the source's exact admitted extent;
+// its requested role must remain compatible with canonical backend usage.
 [[nodiscard]] rund::AccelBuffer
-CreateAccelBufferWithInitialization(const rund::AccelContext &context,
-                                    rund::AccelBufferDesc desc,
-                                    BackendBufferInitialization initialization,
-                                    std::uint64_t exact_storage_bytes = 0u);
+ProjectAccelBufferView(const rund::AccelContext &context,
+                       const rund::AccelBuffer &buffer,
+                       rund::AccelBufferDesc desc);
 
 } // namespace rund::node::accel::detail

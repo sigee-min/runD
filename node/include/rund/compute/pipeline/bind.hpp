@@ -1,5 +1,7 @@
 #pragma once
 
+#include <rund/compute/abi/schema.hpp>
+
 #include <rund/compute/buffer.hpp>
 #include <rund/compute/fixed.hpp>
 

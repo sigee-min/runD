@@ -2,6 +2,7 @@
 
 #include "src/compute/backend.hpp"
 #include "src/compute/pipeline/transfer/batch.hpp"
+#include "src/compute/virtual/resident_backing/internal.hpp"
 
 #include <array>
 #include <cstddef>
@@ -32,6 +33,28 @@ struct TransferProbe final {
 };
 
 extern TransferProbe *active_probe;
+
+struct ResidentBatchSpy final {
+  std::array<std::byte, 64u> source{};
+  std::array<rund::node::accel::detail::DownloadRangeOutcome, 64u> outcomes{};
+  std::uint64_t batch_calls{};
+  std::uint64_t scalar_calls{};
+  std::size_t batch_routes{};
+  std::size_t scalar_routes{};
+  rund::node::accel::detail::TransferAuthority authority{
+      rund::node::accel::detail::TransferAuthority::Shared};
+  bool late_failure{};
+};
+
+struct ResidentBatchFixture final {
+  std::shared_ptr<ResidentBatchSpy> spy;
+  std::shared_ptr<rund::compute::detail::DeviceState> device;
+  std::shared_ptr<rund::compute::detail::BufferState> buffer;
+  std::shared_ptr<rund::compute::VirtualBacking> backing;
+};
+
+[[nodiscard]] ResidentBatchFixture make_resident_batch_spy();
+[[nodiscard]] ResidentBatchFixture make_resident_scalar_spy();
 
 [[nodiscard]] NativeBuffer *native(BufferState &buffer) noexcept;
 [[nodiscard]] const NativeBuffer *native(const BufferState &buffer) noexcept;

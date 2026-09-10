@@ -73,35 +73,6 @@ void Scheduler::RecordYieldBatch(const std::uint64_t task_id) noexcept {
   batch.logical_count += 2u;
 }
 
-void Scheduler::RecordJoinBatch(const std::uint64_t target_task_id,
-                                const ReasonCode code) noexcept {
-  state_->RequireSequencer();
-  FlushRootSingleJoinEpoch(ReasonCode::Ok);
-  FlushTaskSpawnBatch(ReasonCode::Ok);
-  FlushYieldBatch(ReasonCode::Ok);
-  FlushPendingRootSubmit();
-  constexpr std::uint64_t logical_count = 2u;
-  const std::uint64_t task_id = CurrentTaskId();
-  const std::uint64_t order_hash = JoinBatchOrderHash(
-      state_->plan.task(task_id), state_->plan.task(target_task_id), code,
-      logical_count);
-  ++::rund::detail::task::Stat(
-      state_->evidence.metrics,
-      ::rund::detail::task::StatSlot::JoinBatchPackets);
-  ::rund::detail::task::Stat(
-      state_->evidence.metrics,
-      ::rund::detail::task::StatSlot::JoinBatchLogicalEvents) += logical_count;
-  ++::rund::detail::task::Stat(
-      state_->evidence.metrics,
-      ::rund::detail::task::StatSlot::JoinBatchOrderHashFastPaths);
-  RecordPhysical(
-      ::rund::detail::task::OperationKind::JoinBatch, code, task_id,
-      target_task_id, 0u, 0u, -1, 0, 0, 0, target_task_id, 0u, 0u,
-      static_cast<std::uint64_t>(::rund::detail::task::OperationKind::JoinPark),
-      static_cast<std::uint64_t>(::rund::detail::task::OperationKind::JoinWake),
-      0u, 0u, logical_count, order_hash, ReasonCode::Ok);
-}
-
 void Scheduler::RecordJoinRetireBatch(
     const std::uint64_t first_task_id, const std::uint64_t last_task_id,
     const ReasonCode code, const std::uint64_t logical_tasks) noexcept {

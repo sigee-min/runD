@@ -37,13 +37,13 @@ using namespace rund::node::accel::detail;
   const RangeShape prefix_shape =
       AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 4097u, 4097u, 8195u, 1u,
                   4097u, 4u, ComputeDomain::U32, RangeCount::U32);
-  const RangePlan prefix = PlanRange(
+  const RangePlan prefix = ContractPlanRange(
       prefix_shape, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u, 32768u,
                         std::numeric_limits<u32>::max(), direct_prefix));
-  const RangePlan metal_prefix = PlanRange(
+  const RangePlan metal_prefix = ContractPlanRange(
       prefix_shape, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
                         std::numeric_limits<u32>::max(), direct_prefix));
-  const RangePlan block = PlanRange(
+  const RangePlan block = ContractPlanRange(
       AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 4097u, 4097u, 8195u,
                   1u, 4097u, 8u, ComputeDomain::I64, RangeCount::U64),
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
@@ -61,6 +61,24 @@ using namespace rund::node::accel::detail;
       empty_indirect->groups_y != 0u || empty_indirect->groups_z != 0u ||
       empty_indirect->work_items_lo != 0u ||
       empty_indirect->work_items_hi != 0u) {
+    return false;
+  }
+  const auto wide_block =
+      ContractPlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clamp, 65u,
+                                    65u, 4294967297ull, 1u, 2147483648ull, 4u,
+                                    ComputeDomain::U32, RangeCount::U64),
+                        Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                            std::numeric_limits<u32>::max(), direct_block));
+  if (!wide_block.ok() ||
+      wide_block.candidate().disposition() != RangePath::BlockPrefixSuffix ||
+      wide_block.stage(0u).groups != 2u || wide_block.stage(1u).groups != 1u) {
+    return false;
+  }
+  const auto wide_source = MetalRangeControlSource(wide_block);
+  if (wide_source.find("auxiliary = 1ul + (elements - 1ul) / 4294967297ul;") ==
+          std::string::npos ||
+      wide_source.find("groups = (count - 1ul) / 4294967297ul + 1ul;") ==
+          std::string::npos) {
     return false;
   }
   const std::string metal_source = MetalRangeControlSource(metal_prefix);
@@ -146,9 +164,9 @@ using namespace rund::node::accel::detail;
   constexpr std::uint8_t support =
       RangeSupportBit(RangeSupport::Direct) |
       RangeSupportBit(RangeSupport::PrefixDifference);
-  const RangePlan range =
-      PlanRange(*shape, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u,
-                            32768u, std::numeric_limits<u32>::max(), support));
+  const RangePlan range = ContractPlanRange(
+      *shape, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u, 32768u,
+                  std::numeric_limits<u32>::max(), support));
   if (!range.ok() ||
       range.candidate().disposition() != RangePath::PrefixDifference ||
       range.stage_count() < 2u) {

@@ -36,6 +36,14 @@ Scheduler semantics remain in [`scheduler/README.md`](./scheduler/README.md),
 host semantics in [`host.md`](./host.md), and Compute execution in
 [`accel.md`](./accel.md).
 
+The runtime Compute host contract is compiled along the same product seams.
+`runtime/product/compute/host.cpp` owns the ordered public submission,
+telemetry, recovery, cancellation, and trace assertions; `host/ready.cpp` owns
+ready-queue commit order and warm allocation evidence; `host/parity.cpp` owns
+blocking-versus-submitted CPU step parity; and `host/replay.cpp` owns Session
+device replay. Their `local.hpp` contains only the shared result shape and
+declarations, so no task, replay, or completion state is mirrored.
+
 ## Product Surface
 
 `SessionConfig` directly owns:
@@ -275,17 +283,24 @@ result-owned canonical trace.
 
 ## Compute Node Host
 
-The only Node-native Compute entry is
-`Session::compute(rund::compute::Job<R>&).submit()`. Session accepts one mutable,
-compiled, resident Job; it does not accept a Flow, Program, graph, temporary
-Job, buffer list, or per-submit backend override.
+The Node-native Compute entries are
+`Session::compute(rund::compute::Job<R>&).submit()` and the additive
+`Session::compute(rund::compute::VirtualPipeline<R(A)>&).submit()` bridge.
+Session accepts one mutable, compiled, resident owner; it does not accept a
+Flow, Program, graph, temporary Job, buffer list, or per-submit backend
+override.
 
 The compiled bridge has one physical authority per responsibility:
 
 - `entry.cpp` owns Session-bound Device binding and the public
   Session-to-Runtime handoff;
-- `operation.cpp` owns the immutable Job/Pipeline operation tables and their
-  common completion publication;
+- `operation/scheduler.cpp` owns scheduler context/control, spawn-reason
+  mapping, callback wakeups, and common completion publication;
+- `operation/job.cpp`, `operation/pipeline.cpp`, and `operation/virtual.cpp`
+  own the direct backend, worker, reservation, run, terminal, and profile
+  behavior for their respective operation states;
+- `operation/factory.cpp` owns the three immutable operation tables and the
+  operation constructors/owner release;
 - `execution.cpp` owns backend coordination, slot claim, join, release,
   host-wide retirement, and cancellation;
 - `request.cpp` owns Request admission and Submission observation/control;
@@ -313,6 +328,25 @@ Direct coroutine await returns the same `compute::Completion` publication.
 The coroutine bridge is the nested `compute::Request::Awaiter`; it does not
 create another root product type or result family.
 
+`Session::compute(VirtualPipeline&)` uses the same Request/Submission/Poll/
+Completion vocabulary and strong-owns the prepared VirtualPipeline state until
+worker completion. For an eligible strict DeviceVSM route, `submit()` crosses
+the native-queue boundary and may return `Pending`/`BackendSubmitted` while the
+backend callback owns only terminal classification and evidence validation. It
+quarantines and poisons before waking the coordinator; the retained worker
+continuation then resumes and performs the single common Final, Stats, and
+publication transition. The request therefore has a real callback/resume
+boundary without a second terminal owner. Ordinary routes remain the queued
+worker-blocking compatibility path. General nonresident Forecast/Promote/
+Drain/Persist recurrence, Host epoch-zero service, GPU-driven execution, and
+the 100x latency target are not implemented by this Session surface. Any
+test-only callback barrier is private evidence instrumentation, never product
+control. Its
+terminal phase adds `Running`; cancellation can win only while the request is
+`Open`. Once a virtual worker has claimed `Running`, a late cancel is
+`AlreadyCompleted`; the resumed worker publishes the normal virtual result
+exactly once.
+
 Submission uses the Session Scheduler and one bounded Compute task slot.
 `poll()` observes admission, backend submission, and terminal publication
 without changing them. `wait()` and coroutine await join the same completion;
@@ -337,7 +371,11 @@ payload only of `Failed`; there is no parallel success, completion, or backend
 submission boolean with which it can disagree. A backend-submission outcome is
 an edge produced only after that submit boundary succeeds. The coordinator
 latches the first such edge into the task's atomic `backend_submitted`
-observation and emits its trace once. `Complete` cannot also be pending, and a
+observation and emits its trace once. For an eligible strict DeviceVSM virtual
+operation, the initial `backend_submitted` observation is latched only from the
+`BackendSubmitted` dispatch edge after private native submit succeeds. Copied
+terminal Stats `command_submits` remains final physical evidence and is not the
+source of the pending edge. `Complete` cannot also be pending, and a
 failed outcome cannot publish a backend-submission observation.
 `AcceptedNoBackend` and `Pending` mean only that this transition did not accept
 physical backend work; an empty Job or Pipeline step may already have published
@@ -551,6 +589,12 @@ Telemetry level selection and event behavior are owned by
 [Telemetry](./telemetry.md). Scheduler, task, host, network, and Compute reasons
 are owned by their nearest contract pages. Adding or changing a Runtime reason
 requires source, docs, and the nearest focused contract in one change.
+
+The accelerator Pipeline Session contract keeps trace admission, warm trace,
+and terminal device-loss ordering in `runtime/product/compute/accel/pipeline.cpp`.
+Its `pipeline/control.cpp` owns bounded observation/window execution and
+`pipeline/recurrence.cpp` owns fixed-point recurrence parity; their
+`local.hpp` is declarations-only.
 
 ## Verification
 

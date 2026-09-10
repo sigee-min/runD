@@ -18,6 +18,8 @@ ArtifactVariantName(const LoweringArtifactVariant variant) noexcept {
     return "recurrence";
   case LoweringArtifactVariant::HistoryRecurrence:
     return "history_recurrence";
+  case LoweringArtifactVariant::DeviceVsm:
+    return "device_vsm";
   }
   return "invalid";
 }

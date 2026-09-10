@@ -1,10 +1,14 @@
 #pragma once
 
-#include "../../accel/kernel/prepared.hpp"
+#include "../../accel/kernel/prepared/run.hpp"
+#include "../../accel/kernel/callback.hpp"
+#include <accel/kernel/evidence.hpp>
 #include "../../accel/kernel/scratch.hpp"
 #include "../../accel/kernel/view.hpp"
 #include "../../array.hpp"
+#include "../cpu/state/run.hpp"
 #include "../program/state.hpp"
+#include "../buffer/state.hpp"
 #include "../run/state.hpp"
 #include "../type.hpp"
 #include "binding.hpp"

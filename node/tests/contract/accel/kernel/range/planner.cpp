@@ -29,24 +29,58 @@ using namespace rund::node::accel::detail;
 
 [[nodiscard]] constexpr bool BasicSelectionContract() {
   const RangeCaps full = Gpu(RangeSource::Metal);
-  const RangePlan small_sum = PlanRange(Shape(RangeOp::Sum, 515u, 1u), full);
-  const RangePlan large_sum = PlanRange(Shape(RangeOp::Sum, 515u, 515u), full);
+  const RangePlan small_sum =
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 1u), full);
+  const RangePlan large_sum =
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 515u), full);
   const RangePlan small_min =
-      PlanRange(Shape(RangeOp::Minimum, 515u, 1u), full);
+      ContractPlanRange(Shape(RangeOp::Minimum, 515u, 1u), full);
   const RangePlan large_max =
-      PlanRange(Shape(RangeOp::Maximum, 515u, 515u), full);
-  const RangePlan cpu =
-      PlanRange(Shape(RangeOp::Sum, 17u, 3u), RangeCaps::cpu_reference());
+      ContractPlanRange(Shape(RangeOp::Maximum, 515u, 515u), full);
+  const RangePlan cpu = ContractPlanRange(Shape(RangeOp::Sum, 17u, 3u),
+                                          RangeCaps::cpu_reference());
   return small_sum.ok() &&
          small_sum.candidate().disposition() == RangePath::SharedHalo &&
          small_sum.candidate().width() == 256u && large_sum.ok() &&
-         large_sum.candidate().disposition() == RangePath::PrefixDifference &&
+         large_sum.candidate().disposition() == RangePath::TiledDifference &&
          small_min.ok() &&
          small_min.candidate().disposition() == RangePath::SharedHalo &&
          large_max.ok() &&
          large_max.candidate().disposition() == RangePath::BlockPrefixSuffix &&
-         cpu.ok() && cpu.candidate() == RangeCandidate::direct_cpu() &&
+         large_max.candidate().width() == 64u &&
+         large_max.cost().workgroup_count == 3u && cpu.ok() &&
+         cpu.candidate() == RangeCandidate::direct_cpu() &&
          cpu.stage_count() == 1u && cpu.temporary_count() == 0u;
+}
+
+// A VSM page is 4,096 logical elements.  The default GPU width therefore
+// partitions it into exactly sixteen coalesced workgroups.  Every crossover
+// radius fits the same one-stage SharedHalo family, owns no global temporary,
+// and freezes one width-capacity tile.  This is the page/tile alignment
+// contract consumed by the Virtual Window workload; it is not a throughput
+// estimate.
+[[nodiscard]] constexpr bool VsmPageAlignmentContract() {
+  constexpr u64 page_elements = 4'096u;
+  constexpr u32 width = 256u;
+  constexpr u64 groups = page_elements / width;
+  constexpr u64 shared_bytes = (width + 2u * width) * sizeof(std::uint32_t);
+  for (const RangeSource source :
+       std::array{RangeSource::Metal, RangeSource::Vulkan}) {
+    const RangeCaps capabilities = Gpu(source);
+    for (const u64 radius : std::array<u64, 4u>{1u, 8u, 32u, 128u}) {
+      const RangePlan plan = ContractPlanRange(
+          Shape(RangeOp::Sum, page_elements, radius), capabilities);
+      if (!plan.ok() ||
+          plan.candidate() != *RangeCandidate::shared_halo(width, width) ||
+          plan.stage_count() != 1u || plan.temporary_count() != 0u ||
+          plan.stage(0u).groups != groups ||
+          plan.cost().shared_bytes != shared_bytes ||
+          plan.cost().scratch_bytes != 0u) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] constexpr bool WidthAndCapacityContract() {
@@ -67,15 +101,15 @@ using namespace rund::node::accel::detail;
         const RangeShape shape = Shape(
             RangeOp::Sum, width + 1u, capacity, element_bytes,
             element_bytes == 4u ? ComputeDomain::U32 : ComputeDomain::U64);
-        const RangePlan below = PlanRange(
+        const RangePlan below = ContractPlanRange(
             shape, Gpu(RangeSource::Metal, width_bits[width_index], width, 4u,
                        exact_limit - 1u, std::numeric_limits<u32>::max(),
                        direct_shared));
-        const RangePlan exact = PlanRange(
+        const RangePlan exact = ContractPlanRange(
             shape,
             Gpu(RangeSource::Metal, width_bits[width_index], width, 4u,
                 exact_limit, std::numeric_limits<u32>::max(), direct_shared));
-        const RangePlan above = PlanRange(
+        const RangePlan above = ContractPlanRange(
             shape, Gpu(RangeSource::Metal, width_bits[width_index], width, 4u,
                        exact_limit + 1u, std::numeric_limits<u32>::max(),
                        direct_shared));
@@ -108,19 +142,37 @@ using namespace rund::node::accel::detail;
   const RangeCaps block =
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct_block);
-  const RangePlan sum = PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), prefix);
+  const RangePlan sum =
+      ContractPlanRange(Shape(RangeOp::Sum, 4097u, 4097u), prefix);
   const RangePlan minimum_on_prefix =
-      PlanRange(Shape(RangeOp::Minimum, 4097u, 4097u), prefix);
+      ContractPlanRange(Shape(RangeOp::Minimum, 4097u, 4097u), prefix);
   const RangePlan maximum =
-      PlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), block);
+      ContractPlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), block);
+  // N=4097, K=8195 gives a conceptual span of 12291 and exactly two
+  // preparation workgroups; the output stage needs 65 groups at width 64.
+  // Use stride 128 to make preparation, rather than output, hit the limit:
+  // span=(65-1)*128+129=8321, requiring 65 conceptual blocks.
+  const auto limited_shape = AffineShape(RangeOp::Minimum, RangeBoundary::Clip,
+                                         8193u, 65u, 129u, 128u, 64u);
+  const auto below_block_limit =
+      ContractPlanRange(limited_shape, Gpu(RangeSource::Metal, kRangeWidth64Bit,
+                                           64u, 4u, 32768u, 64u, direct_block));
+  const auto exact_block_limit =
+      ContractPlanRange(limited_shape, Gpu(RangeSource::Metal, kRangeWidth64Bit,
+                                           64u, 4u, 32768u, 65u, direct_block));
+  if (!below_block_limit.ok() || !exact_block_limit.ok() ||
+      below_block_limit.legal_candidate_count() != 1u ||
+      exact_block_limit.legal_candidate_count() != 2u) {
+    return false;
+  }
   const RangePlan sum_on_block =
-      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), block);
+      ContractPlanRange(Shape(RangeOp::Sum, 4097u, 4097u), block);
   const RangeTraits saturating =
       *RangeTraits::sum_saturating(ComputeDomain::Fixed);
   const RangePlan saturating_sum =
-      PlanRange(*RangeShape::affine(saturating, RangeBoundary::Clamp, 4097u,
-                                    4097u, 8195u, 1u, 4097u, 4u),
-                prefix);
+      ContractPlanRange(*RangeShape::affine(saturating, RangeBoundary::Clamp,
+                                            4097u, 4097u, 8195u, 1u, 4097u, 4u),
+                        prefix);
   return sum.ok() &&
          sum.candidate().disposition() == RangePath::PrefixDifference &&
          minimum_on_prefix.ok() &&
@@ -166,16 +218,28 @@ using namespace rund::node::accel::detail;
         const std::array<u64, 3u> radii{1u, count < 9u ? count : 9u, count};
         for (const u64 radius : radii) {
           for (const RangeOp operation : operations) {
-            const RangePlan plan =
-                PlanRange(Shape(operation, count, radius, domain_width.bytes,
-                                domain_width.domain),
-                          capabilities);
+            const RangePlan plan = ContractPlanRange(
+                Shape(operation, count, radius, domain_width.bytes,
+                      domain_width.domain),
+                capabilities);
             const RangePath expected = radius <= width ? RangePath::SharedHalo
                                        : operation == RangeOp::Sum
-                                           ? RangePath::PrefixDifference
+                                           ? RangePath::TiledDifference
                                            : RangePath::BlockPrefixSuffix;
-            const std::uint8_t expected_legal = radius <= width ? 3u : 2u;
-            if (!plan.ok() || plan.candidate().disposition() != expected ||
+            // Metal preparation launches one workgroup per conceptual block.
+            const u64 span = count + 2u * radius;
+            const u64 window = 2u * radius + 1u;
+            const u64 blocks = span / window + (span % window != 0u);
+            const std::uint8_t expected_legal =
+                (radius <= width ? 3u : 2u) +
+                (operation == RangeOp::Sum ? 1u : 0u) -
+                (operation != RangeOp::Sum && blocks > groups ? 1u : 0u);
+            u64 scheduled = 0u;
+            for (std::size_t stage = 0u; stage < plan.stage_count(); ++stage) {
+              scheduled += plan.stage(stage).groups;
+            }
+            if (!plan.ok() || plan.cost().workgroup_count != scheduled ||
+                plan.candidate().disposition() != expected ||
                 plan.candidate().width() != width ||
                 (expected == RangePath::SharedHalo &&
                  plan.candidate().radius_capacity() != width) ||
@@ -199,11 +263,11 @@ using namespace rund::node::accel::detail;
       RangeSupportBit(RangeSupport::SharedHalo);
   constexpr u64 exact_limit = (64u + 2u * 9u) * 4u * 4u;
   const RangeShape shape = Shape(RangeOp::Sum, 65u, 9u);
-  const RangePlan below =
-      PlanRange(shape, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u,
-                           exact_limit - 1u, std::numeric_limits<u32>::max(),
-                           direct_shared));
-  const RangePlan exact = PlanRange(
+  const RangePlan below = ContractPlanRange(
+      shape,
+      Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u, exact_limit - 1u,
+          std::numeric_limits<u32>::max(), direct_shared));
+  const RangePlan exact = ContractPlanRange(
       shape, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u, exact_limit,
                  std::numeric_limits<u32>::max(), direct_shared));
   const RangeCaps direct_only =
@@ -216,13 +280,13 @@ using namespace rund::node::accel::detail;
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u, 3u,
           RangeSupportBit(RangeSupport::Direct));
   const RangePlan dispatch_below =
-      PlanRange(Shape(RangeOp::Sum, 128u, 1u), one_group);
+      ContractPlanRange(Shape(RangeOp::Sum, 128u, 1u), one_group);
   const RangePlan dispatch_exact =
-      PlanRange(Shape(RangeOp::Sum, 128u, 1u), direct_only);
+      ContractPlanRange(Shape(RangeOp::Sum, 128u, 1u), direct_only);
   const RangePlan dispatch_above =
-      PlanRange(Shape(RangeOp::Sum, 128u, 1u), three_groups);
+      ContractPlanRange(Shape(RangeOp::Sum, 128u, 1u), three_groups);
   const RangePlan dispatch_over =
-      PlanRange(Shape(RangeOp::Sum, 129u, 1u), direct_only);
+      ContractPlanRange(Shape(RangeOp::Sum, 129u, 1u), direct_only);
   return below.ok() && below.candidate().disposition() == RangePath::Direct &&
          exact.ok() &&
          exact.candidate() == *RangeCandidate::shared_halo(64u, 9u) &&
@@ -246,12 +310,14 @@ using namespace rund::node::accel::detail;
   const RangeCaps block =
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct_block);
-  const RangePlan sum_before = PlanRange(Shape(RangeOp::Sum, 515u, 1u), prefix);
-  const RangePlan sum_after = PlanRange(Shape(RangeOp::Sum, 515u, 2u), prefix);
+  const RangePlan sum_before =
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 1u), prefix);
+  const RangePlan sum_after =
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 2u), prefix);
   const RangePlan minimum_before =
-      PlanRange(Shape(RangeOp::Minimum, 515u, 1u), block);
+      ContractPlanRange(Shape(RangeOp::Minimum, 515u, 1u), block);
   const RangePlan minimum_after =
-      PlanRange(Shape(RangeOp::Minimum, 515u, 2u), block);
+      ContractPlanRange(Shape(RangeOp::Minimum, 515u, 2u), block);
   return sum_before.ok() && sum_after.ok() && minimum_before.ok() &&
          minimum_after.ok() &&
          sum_before.candidate().disposition() == RangePath::Direct &&
@@ -275,14 +341,14 @@ using namespace rund::node::accel::detail;
   const RangeCaps block_capabilities =
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct_block);
-  const RangePlan prefix_half =
-      PlanRange(Shape(RangeOp::Sum, count, count / 2u), prefix_capabilities);
+  const RangePlan prefix_half = ContractPlanRange(
+      Shape(RangeOp::Sum, count, count / 2u), prefix_capabilities);
   const RangePlan prefix_full =
-      PlanRange(Shape(RangeOp::Sum, count, count), prefix_capabilities);
-  const RangePlan block_half =
-      PlanRange(Shape(RangeOp::Minimum, count, count / 2u), block_capabilities);
-  const RangePlan block_full =
-      PlanRange(Shape(RangeOp::Minimum, count, count), block_capabilities);
+      ContractPlanRange(Shape(RangeOp::Sum, count, count), prefix_capabilities);
+  const RangePlan block_half = ContractPlanRange(
+      Shape(RangeOp::Minimum, count, count / 2u), block_capabilities);
+  const RangePlan block_full = ContractPlanRange(
+      Shape(RangeOp::Minimum, count, count), block_capabilities);
   return prefix_half.ok() && prefix_full.ok() && block_half.ok() &&
          block_full.ok() &&
          prefix_half.candidate().disposition() == RangePath::PrefixDifference &&
@@ -301,12 +367,12 @@ using namespace rund::node::accel::detail;
 }
 
 [[nodiscard]] constexpr bool CpuCandidateContract() {
-  const RangePlan reference_sum =
-      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), RangeCaps::cpu_reference());
+  const RangePlan reference_sum = ContractPlanRange(
+      Shape(RangeOp::Sum, 4097u, 4097u), RangeCaps::cpu_reference());
   const RangePlan prefix =
-      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), RangeCaps::cpu());
-  const RangePlan block =
-      PlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), RangeCaps::cpu());
+      ContractPlanRange(Shape(RangeOp::Sum, 4097u, 4097u), RangeCaps::cpu());
+  const RangePlan block = ContractPlanRange(
+      Shape(RangeOp::Maximum, 4097u, 4097u), RangeCaps::cpu());
   return reference_sum.ok() &&
          reference_sum.candidate() == RangeCandidate::direct_cpu() &&
          prefix.ok() &&
@@ -339,6 +405,7 @@ using namespace rund::node::accel::detail;
 }
 
 static_assert(BasicSelectionContract());
+static_assert(VsmPageAlignmentContract());
 static_assert(WidthAndCapacityContract());
 static_assert(CandidateFamilyLegalityContract());
 static_assert(CapabilityBoundaryContract());
@@ -349,10 +416,11 @@ static_assert(CpuCandidateContract());
 } // namespace
 
 bool PlannerContract() {
-  return BasicSelectionContract() && WidthAndCapacityContract() &&
-         CandidateFamilyLegalityContract() && ExhaustivePlannerContract() &&
-         CapabilityBoundaryContract() && CostCrossoverContract() &&
-         LinearWorkContract() && CpuCandidateContract();
+  return BasicSelectionContract() && VsmPageAlignmentContract() &&
+         WidthAndCapacityContract() && CandidateFamilyLegalityContract() &&
+         ExhaustivePlannerContract() && CapabilityBoundaryContract() &&
+         CostCrossoverContract() && LinearWorkContract() &&
+         CpuCandidateContract();
 }
 
 } // namespace node_accel_contract::range

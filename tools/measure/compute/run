@@ -18,6 +18,12 @@ usage() {
     "       tools/measure/compute/run --plan-memory <cpu|metal|vulkan>" \
     "       tools/measure/compute/run --prepare-memory <cpu|metal|vulkan>" \
     "       tools/measure/compute/run --virtual-residency <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --virtual-residency-resident <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --virtual-graph-residency <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --virtual-graph-pointwise <cpu|metal|vulkan>" \
+    "       tools/measure/compute/run --virtual-route-matrix <metal|vulkan> [--profile <core|full>]" \
+    "       tools/measure/compute/run --virtual-crossover" \
+    "       tools/measure/compute/run --virtual-window" \
     "       tools/measure/compute/run --metal-icb-boundary" \
     "       -h, --help  Show this help."
 }
@@ -28,8 +34,47 @@ if [ "$#" -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
 fi
 mode=full
 backend=
-if [ "$#" -eq 1 ] && [ "$1" = "--metal-icb-boundary" ]; then
+route_matrix_profile=full
+if [ "$#" -eq 2 ] && [ "$1" = "--virtual-route-matrix" ]; then
+  case "$2" in
+    metal|vulkan)
+      mode=virtual-route-matrix
+      backend=$2
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+elif [ "$#" -eq 4 ] && [ "$1" = "--virtual-route-matrix" ] &&
+  [ "$3" = "--profile" ]; then
+  case "$2" in
+    metal|vulkan)
+      case "$4" in
+        core|full)
+          mode=virtual-route-matrix
+          backend=$2
+          route_matrix_profile=$4
+          ;;
+        *)
+          usage >&2
+          exit 2
+          ;;
+      esac
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+elif [ "$#" -eq 1 ] && [ "$1" = "--metal-icb-boundary" ]; then
   mode=metal-icb-boundary
+  backend=metal
+elif [ "$#" -eq 1 ] && [ "$1" = "--virtual-crossover" ]; then
+  mode=virtual-crossover
+  backend=metal
+elif [ "$#" -eq 1 ] && [ "$1" = "--virtual-window" ]; then
+  mode=virtual-window
   backend=metal
 elif [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--collective" ] ||
@@ -42,7 +87,10 @@ elif [ "$#" -eq 2 ] && { [ "$1" = "--resident" ] ||
   [ "$1" = "--window-repeat" ] ||
   [ "$1" = "--plan-memory" ] ||
   [ "$1" = "--prepare-memory" ] ||
-  [ "$1" = "--virtual-residency" ]; }; then
+  [ "$1" = "--virtual-residency" ] ||
+  [ "$1" = "--virtual-residency-resident" ] ||
+  [ "$1" = "--virtual-graph-residency" ] ||
+  [ "$1" = "--virtual-graph-pointwise" ]; }; then
   case "$2" in
     cpu|metal|vulkan)
       mode=${1#--}
@@ -74,9 +122,27 @@ if [ "$mode" != full ]; then
     exec sh "$root/tools/internal/state/lock" "$root" "$focus" \
       "$0" "$@"
   fi
-  if [ "$mode" = metal-icb-boundary ] && [ "$(uname -s)" != Darwin ]; then
-    printf '%s\n' "--metal-icb-boundary requires native Apple Metal." >&2
+  if { [ "$mode" = metal-icb-boundary ] ||
+    [ "$mode" = virtual-crossover ] ||
+    [ "$mode" = virtual-window ]; } && [ "$(uname -s)" != Darwin ]; then
+    printf '%s\n' "--$mode requires native Apple Metal." >&2
     exit 1
+  fi
+  if [ "$mode" = virtual-route-matrix ]; then
+    sh "$root/tools/internal/configure/contracts" \
+      "$root" "$focus" local Release compute.pipeline \
+      -DRUND_NODE_TEST_TAG:STRING= \
+      -DRUND_NODE_FOCUSED_BACKEND:STRING="$backend" >&2
+    sh "$root/tools/internal/state/ninja" -C "$focus" \
+      runD-compute-route-matrix >&2
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/measure/packets" \
+      --aggregate "$focus/tools/measure/compute/runD-compute-route-matrix" \
+      --aggregate \
+      sh "$root/tools/internal/process/run" 900 \
+      compute.virtual-route-matrix \
+      "$focus/tools/measure/compute/runD-compute-route-matrix" \
+      "$backend" "$route_matrix_profile"
   fi
   sh "$root/tools/internal/configure/contracts" \
     "$root" "$focus" local Release compute.pipeline \
@@ -92,18 +158,67 @@ if [ "$mode" != full ]; then
   fi
   sh "$root/tools/internal/state/ninja" -C "$focus" \
     runD-compute-focus
-  if [ "$mode" = virtual-residency ]; then
+  if [ "$mode" = virtual-graph-residency ]; then
+    if [ "$backend" = cpu ]; then
+      exec sh "$root/tools/internal/measure/packets" \
+        sh "$root/tools/internal/process/run" 900 \
+        compute.virtual-graph-residency \
+        "$focus/tools/measure/compute/runD-compute-focus" \
+        --virtual-graph-residency "$backend"
+    fi
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/measure/packets" \
+      sh "$root/tools/internal/process/run" 900 \
+      compute.virtual-graph-residency \
+      "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-graph-residency "$backend"
+  fi
+  if [ "$mode" = virtual-graph-pointwise ]; then
+    if [ "$backend" = cpu ]; then
+      exec sh "$root/tools/internal/measure/packets" \
+        sh "$root/tools/internal/process/run" 900 \
+        compute.virtual-graph-pointwise \
+        "$focus/tools/measure/compute/runD-compute-focus" \
+        --virtual-graph-pointwise "$backend"
+    fi
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/measure/packets" \
+      sh "$root/tools/internal/process/run" 900 \
+      compute.virtual-graph-pointwise \
+      "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-graph-pointwise "$backend"
+  fi
+  if { [ "$mode" = virtual-residency ] ||
+    [ "$mode" = virtual-residency-resident ]; }; then
     if [ "$backend" = cpu ]; then
       exec sh "$root/tools/internal/measure/packets" \
         sh "$root/tools/internal/process/run" 900 compute.virtual-residency \
         "$focus/tools/measure/compute/runD-compute-focus" \
-        --virtual-residency "$backend"
+        --"$mode" "$backend"
     fi
     exec sh "$root/tools/internal/lock/accel" \
       sh "$root/tools/internal/measure/packets" \
       sh "$root/tools/internal/process/run" 900 compute.virtual-residency \
       "$focus/tools/measure/compute/runD-compute-focus" \
-      --virtual-residency "$backend"
+      --"$mode" "$backend"
+  fi
+  if [ "$mode" = virtual-crossover ]; then
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/measure/packets" \
+      --aggregate "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-crossover-aggregate \
+      sh "$root/tools/internal/process/run" 900 compute.virtual-crossover \
+      "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-crossover
+  fi
+  if [ "$mode" = virtual-window ]; then
+    exec sh "$root/tools/internal/lock/accel" \
+      sh "$root/tools/internal/measure/packets" \
+      --aggregate "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-window-aggregate \
+      sh "$root/tools/internal/process/run" 900 compute.virtual-window \
+      "$focus/tools/measure/compute/runD-compute-focus" \
+      --virtual-window
   fi
   if [ "$backend" = cpu ]; then
     exec sh "$root/tools/internal/process/run" 900 \

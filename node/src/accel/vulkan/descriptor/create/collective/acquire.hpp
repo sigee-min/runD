@@ -1,4 +1,6 @@
 #pragma once
+#include "../../../adapter/error.hpp"
+
 #include "../../../collective/pipeline.hpp"
 #include "grow.hpp"
 namespace rund::node::accel::detail {

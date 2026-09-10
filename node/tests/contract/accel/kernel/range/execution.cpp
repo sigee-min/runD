@@ -35,11 +35,11 @@ using namespace rund::node::accel::detail;
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_prefix);
   const RangePlan plan =
-      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), capabilities);
+      ContractPlanRange(Shape(RangeOp::Sum, 4097u, 4097u), capabilities);
   constexpr std::array expected{
       RangeStageKind::PrefixBlock,   RangeStageKind::PrefixSummary,
       RangeStageKind::PrefixSummary, RangeStageKind::PrefixFixup,
-      RangeStageKind::PrefixFixup,   RangeStageKind::PrefixWindow,
+      RangeStageKind::PrefixWindow,
   };
   if (!plan.ok() ||
       plan.candidate().disposition() != RangePath::PrefixDifference ||
@@ -55,7 +55,7 @@ using namespace rund::node::accel::detail;
   }
   return plan.temporary(0u).role == RangeTempRole::PrefixValues &&
          plan.temporary(0u).first_stage == 0u &&
-         plan.temporary(0u).last_stage == 5u &&
+         plan.temporary(0u).last_stage == 4u &&
          plan.temporary(1u).role == RangeTempRole::BlockSummaries &&
          plan.temporary(1u).bytes == 65u * 4u &&
          plan.temporary(1u).last_stage == 4u &&
@@ -118,13 +118,13 @@ using namespace rund::node::accel::detail;
   const RangeShape resident_min =
       AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 4097u, 4097u, 8195u,
                   1u, 4097u, 4u, ComputeDomain::I32, RangeCount::U64);
-  const RangePlan prefix = PlanRange(
+  const RangePlan prefix = ContractPlanRange(
       resident_sum, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
                         std::numeric_limits<u32>::max(), direct_prefix));
-  const RangePlan block = PlanRange(
+  const RangePlan block = ContractPlanRange(
       resident_min, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
                         std::numeric_limits<u32>::max(), direct_block));
-  if (!prefix.ok() || !block.ok() || prefix.stage_count() != 6u ||
+  if (!prefix.ok() || !block.ok() || prefix.stage_count() != 5u ||
       block.stage_count() != 2u || RangeRun::make(prefix, 4098u).has_value()) {
     return false;
   }
@@ -137,7 +137,7 @@ using namespace rund::node::accel::detail;
       !block_middle.has_value()) {
     return false;
   }
-  constexpr std::array<u64, 6u> middle_groups{2u, 1u, 0u, 0u, 2u, 2u};
+  constexpr std::array<u64, 5u> middle_groups{2u, 1u, 0u, 0u, 2u};
   for (std::size_t index = 0u; index < prefix.stage_count(); ++index) {
     const auto empty_stage = empty->stage(index);
     const auto one_stage = one->stage(index);
@@ -151,7 +151,7 @@ using namespace rund::node::accel::detail;
     }
   }
   if (one->stage(0u)->groups() != 1u || one->stage(1u)->groups() != 0u ||
-      one->stage(4u)->groups() != 0u || one->stage(5u)->groups() != 1u) {
+      one->stage(3u)->groups() != 0u || one->stage(4u)->groups() != 1u) {
     return false;
   }
   const auto prepare = block_middle->stage(0u);
@@ -170,7 +170,7 @@ using namespace rund::node::accel::detail;
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct_block);
   const RangePlan plan =
-      PlanRange(Shape(RangeOp::Minimum, 4097u, 4097u), capabilities);
+      ContractPlanRange(Shape(RangeOp::Minimum, 4097u, 4097u), capabilities);
   return plan.ok() &&
          plan.candidate().disposition() == RangePath::BlockPrefixSuffix &&
          plan.stage_count() == 2u && plan.temporary_count() == 2u &&
@@ -183,6 +183,47 @@ using namespace rund::node::accel::detail;
          plan.stage(1u).disposition == RangeStageKind::BlockWindow &&
          plan.stage(1u).groups == 65u && plan.cost().scratch_bytes == 98328u &&
          plan.cost().dispatch_count == 2u;
+}
+
+[[nodiscard]] constexpr bool MetalBlockGeometryContract() {
+  constexpr auto support = RangeSupportBit(RangeSupport::Direct) |
+                           RangeSupportBit(RangeSupport::BlockPrefixSuffix);
+  const auto shape =
+      AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 4097u, 4097u, 8195u,
+                  1u, 4097u, 4u, ComputeDomain::I32, RangeCount::U64);
+  const auto caps = Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
+                        std::numeric_limits<u32>::max(), support);
+  const auto plan = ContractPlanRange(shape, caps);
+  if (!plan.ok() ||
+      plan.candidate().disposition() != RangePath::BlockPrefixSuffix ||
+      plan.stage(0u).groups != 2u || plan.stage(1u).groups != 1u ||
+      plan.temporary_count() != 1u ||
+      plan.cost().scratch_bytes != 12291u * 4u ||
+      plan.cost().shared_bytes != 0u) {
+    return false;
+  }
+  for (const u64 count : {0u, 1u, 65u, 4097u}) {
+    const auto run = RangeRun::make(plan, count);
+    if (!run.has_value()) {
+      return false;
+    }
+    const auto query = run->stage(1u);
+    if (!query || query->groups() != (count == 0u ? 0u : 1u)) {
+      return false;
+    }
+    const auto stage = run->stage(0u);
+    const u64 span = count == 0u ? 0u : count - 1u + 8195u;
+    const u64 expected = span / 8195u + (span % 8195u != 0u);
+    if (!stage.has_value() || stage->groups() != expected ||
+        stage->params().stage_aux_count() != expected) {
+      return false;
+    }
+  }
+  const auto without_shared = Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u,
+                                  0u, std::numeric_limits<u32>::max(), support);
+  const auto direct = ContractPlanRange(shape, without_shared);
+  return direct.ok() &&
+         direct.candidate().disposition() == RangePath::BlockPrefixSuffix;
 }
 
 [[nodiscard]] bool ExecutionProjectionContract() {
@@ -203,16 +244,16 @@ using namespace rund::node::accel::detail;
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_prefix);
   const RangeCaps block_caps =
-      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_block);
   const RangePlan shared =
-      PlanRange(Shape(RangeOp::Sum, 129u, 9u), shared_caps);
+      ContractPlanRange(Shape(RangeOp::Sum, 129u, 9u), shared_caps);
   const RangePlan prefix =
-      PlanRange(Shape(RangeOp::Sum, 4097u, 4097u), prefix_caps);
+      ContractPlanRange(Shape(RangeOp::Sum, 4097u, 4097u), prefix_caps);
   const RangePlan block =
-      PlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), block_caps);
-  const RangePlan cpu =
-      PlanRange(Shape(RangeOp::Sum, 17u, 3u), RangeCaps::cpu_reference());
+      ContractPlanRange(Shape(RangeOp::Maximum, 4097u, 4097u), block_caps);
+  const RangePlan cpu = ContractPlanRange(Shape(RangeOp::Sum, 17u, 3u),
+                                          RangeCaps::cpu_reference());
   const auto shared_exec = RangeExec::from(shared);
   const auto prefix_exec = RangeExec::from(prefix);
   const auto block_exec = RangeExec::from(block);
@@ -243,7 +284,7 @@ using namespace rund::node::accel::detail;
          prefix_scratch->first().role() == RangeTempRole::PrefixValues &&
          block_scratch.has_value() && block_scratch->uses_global_scratch() &&
          block_scratch->first().role() == RangeTempRole::ForwardValues &&
-         block_scratch->second().role() == RangeTempRole::BackwardValues &&
+         block_scratch->second().role() == RangeTempRole::ForwardValues &&
          shared_exec->source_identity() == shared.source_identity() &&
          prefix_exec->execution_identity() == prefix.execution_identity();
 }
@@ -263,11 +304,11 @@ using namespace rund::node::accel::detail;
       AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 5u, 3u, 3u, 2u, 1u);
   const RangeShape clip =
       AffineShape(RangeOp::Sum, RangeBoundary::Clip, 5u, 3u, 3u, 2u, 1u);
-  const RangePlan clamp_direct = PlanRange(clamp, direct_caps);
-  const RangePlan clip_direct = PlanRange(clip, direct_caps);
+  const RangePlan clamp_direct = ContractPlanRange(clamp, direct_caps);
+  const RangePlan clip_direct = ContractPlanRange(clip, direct_caps);
   const RangeShape prefix_shape =
       AffineShape(RangeOp::Sum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u);
-  const RangePlan prefix = PlanRange(
+  const RangePlan prefix = ContractPlanRange(
       prefix_shape, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
                         std::numeric_limits<u32>::max(), direct_prefix));
   const RangeShape block_shape = AffineShape(
@@ -275,14 +316,15 @@ using namespace rund::node::accel::detail;
   const RangeCaps block_caps =
       Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
           std::numeric_limits<u32>::max(), direct_block);
-  const RangePlan block = PlanRange(block_shape, block_caps);
+  const RangePlan block = ContractPlanRange(block_shape, block_caps);
   const RangeShape block_clamp_shape = AffineShape(
       RangeOp::Minimum, RangeBoundary::Clamp, 257u, 65u, 129u, 2u, 64u);
   const RangeShape block_clip_shape = AffineShape(
       RangeOp::Minimum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u);
-  const RangePlan block_clamp = PlanRange(block_clamp_shape, block_caps);
-  const RangePlan block_clip = PlanRange(block_clip_shape, block_caps);
-  const RangePlan shared_for_affine = PlanRange(
+  const RangePlan block_clamp =
+      ContractPlanRange(block_clamp_shape, block_caps);
+  const RangePlan block_clip = ContractPlanRange(block_clip_shape, block_caps);
+  const RangePlan shared_for_affine = ContractPlanRange(
       AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 65u, 32u, 3u, 2u, 1u),
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_shared));
@@ -319,12 +361,12 @@ using namespace rund::node::accel::detail;
       AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 3u, 2u, 5u, 5u, 4u);
   const RangeShape clip =
       AffineShape(RangeOp::Sum, RangeBoundary::Clip, 3u, 2u, 5u, 5u, 4u);
-  const RangePlan clamp_plan =
-      PlanRange(clamp, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
-                           std::numeric_limits<u32>::max(), direct));
-  const RangePlan clip_plan =
-      PlanRange(clip, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
-                          std::numeric_limits<u32>::max(), direct));
+  const RangePlan clamp_plan = ContractPlanRange(
+      clamp, Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                 std::numeric_limits<u32>::max(), direct));
+  const RangePlan clip_plan = ContractPlanRange(
+      clip, Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                std::numeric_limits<u32>::max(), direct));
   constexpr std::array<u32, 3u> input{2u, 5u, 7u};
   constexpr std::array<u32, 2u> clamp_expected{10u, 33u};
   constexpr std::array<u32, 2u> clip_expected{2u, 12u};
@@ -378,10 +420,140 @@ using namespace rund::node::accel::detail;
          clamp_actual == clamp_expected && clip_actual == clip_expected;
 }
 
+[[nodiscard]] bool PrefixQueryCostContract() {
+  for (auto n : {1u, 63u, 64u, 65u, 257u, 4097u})
+    for (auto p : {0u, 1u, 64u, 128u})
+      for (auto stride : {1u, 3u, 67u})
+        for (auto boundary : {RangeBoundary::Clip, RangeBoundary::Clamp}) {
+          const unsigned k = 2 * n + p + 513, q = (n + p - 1) / stride + 1;
+          auto shape = AffineShape(RangeOp::Sum, boundary, n, q, k, stride, p);
+          auto caps = Gpu(RangeSource::Metal, kRangeWidth64Bit, 64, 4, 32768,
+                          UINT32_MAX,
+                          RangeSupportBit(RangeSupport::PrefixDifference) |
+                              RangeSupportBit(RangeSupport::Direct));
+          bool overflow = false;
+          auto evaluated = range_plan_detail::BuildPrefixDifference(
+              shape, caps, *RangeCandidate::prefix_difference(64), overflow);
+          if (!evaluated || overflow)
+            return false;
+          const auto &plan = *evaluated;
+          unsigned long long reads = 0, writes = 0, combine = 0, inverse = 0;
+          for (size_t s = 0; s + 1 < plan.stage_count; ++s) {
+            auto stage = plan.stages[s];
+            if (stage.disposition == RangeStageKind::PrefixFixup) {
+              auto adjusted = stage.element_count -
+                              std::min<uint64_t>(stage.element_count, 64);
+              reads += 2 * adjusted;
+              writes += adjusted;
+              combine += adjusted;
+            } else {
+              reads += stage.element_count;
+              writes += stage.element_count;
+              if (stage.groups > 1)
+                writes += stage.groups;
+              combine += stage.groups * 126;
+            }
+          }
+          for (unsigned j = 0; j < q; ++j) {
+            auto anchor = uint64_t(j) * stride;
+            auto left = anchor < p ? 0 : anchor - p;
+            auto right = std::min<uint64_t>(n - 1, anchor + k - p - 1);
+            reads++;
+            writes++;
+            if (right / 64) {
+              reads++;
+              combine++;
+            }
+            if (left) {
+              reads++;
+              inverse++;
+              if ((left - 1) / 64) {
+                reads++;
+                inverse++;
+              }
+            }
+            if (boundary == RangeBoundary::Clamp) {
+              if (anchor < p) {
+                reads++;
+                combine++;
+              }
+              if (anchor + k - p > n) {
+                reads++;
+                combine++;
+              }
+            }
+          }
+          if (plan.cost.global_read_bytes != reads * 4 ||
+              plan.cost.global_write_bytes != writes * 4 ||
+              plan.cost.combine_ops != combine ||
+              plan.cost.inverse_ops != inverse) {
+            return false;
+          }
+        }
+  return true;
+}
+
+[[nodiscard]] bool TiledDifferenceContract() {
+  for (const auto source : {RangeSource::Metal, RangeSource::Vulkan}) {
+    const auto caps = Gpu(source);
+    const auto small =
+        ContractPlanRange(Shape(RangeOp::Sum, 262144u, 4u), caps);
+    const auto large =
+        ContractPlanRange(Shape(RangeOp::Sum, 262144u, 1024u), caps);
+    const auto huge =
+        ContractPlanRange(Shape(RangeOp::Sum, 262144u, 262144u), caps);
+    if (!small.ok() || !large.ok() || !huge.ok() ||
+        small.candidate().disposition() != RangePath::SharedHalo ||
+        large.candidate().disposition() != RangePath::TiledDifference ||
+        huge.candidate().disposition() != RangePath::PrefixDifference ||
+        large.stage_count() != 1u || large.temporary_count() != 0u ||
+        large.cost().scratch_bytes != 0u) {
+      return false;
+    }
+    const auto resident = ContractPlanRange(
+        AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 262144u, 262144u, 2049u,
+                    1u, 1024u, 4u, ComputeDomain::U32, RangeCount::U32),
+        caps);
+    const auto exec = RangeExec::from(resident);
+    if (!exec || exec->uses_global_scratch() ||
+        exec->descriptor_count() != 3u ||
+        exec->stage_scratch(0u)->uses_global_scratch()) {
+      return false;
+    }
+    for (const u64 active : {0u, 1u, 4095u, 4096u, 4097u, 262144u}) {
+      const auto run = RangeRun::make(resident, active);
+      const auto stage = run ? run->stage(0u) : std::nullopt;
+      const u64 tile = exec->width() * kRangeTileOutputsPerLane;
+      if (!stage || stage->groups() != active / tile + (active % tile != 0u)) {
+        return false;
+      }
+    }
+    if (RangeRun::make(resident, 262145u)) {
+      return false;
+    }
+    // Count actual indexed reads for every tile's anchor and recurrence.
+    u64 reads = 0u, groups = 0u;
+    const u64 tile = large.candidate().width() * kRangeTileOutputsPerLane;
+    for (u64 base = 0u; base < 262144u; base += tile) {
+      ++groups;
+      const u64 left = base < 1024u ? 0u : base - 1024u;
+      const u64 right = std::min<u64>(262143u, base + 1024u);
+      reads += right - left + 1u + (base < 1024u) + (base + 1024u >= 262144u);
+    }
+    reads += 2u * (262144u - groups);
+    if (large.cost().global_read_bytes != reads * 4u ||
+        large.cost().global_write_bytes != 262144u * 4u) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static_assert(PrefixHierarchyContract());
 static_assert(PrefixStageSubstrateContract());
 static_assert(ResidentRunContract());
 static_assert(BlockPrefixSuffixContract());
+static_assert(MetalBlockGeometryContract());
 static_assert(AffineCostAndTopologyContract());
 static_assert(AffinePaddedDirectContract());
 
@@ -390,8 +562,9 @@ static_assert(AffinePaddedDirectContract());
 bool ExecutionContract() {
   return PrefixHierarchyContract() && PrefixStageSubstrateContract() &&
          ResidentRunContract() && BlockPrefixSuffixContract() &&
-         ExecutionProjectionContract() && AffineCostAndTopologyContract() &&
-         AffinePaddedDirectContract();
+         MetalBlockGeometryContract() && ExecutionProjectionContract() &&
+         AffineCostAndTopologyContract() && AffinePaddedDirectContract() &&
+         PrefixQueryCostContract() && TiledDifferenceContract();
 }
 
 } // namespace node_accel_contract::range

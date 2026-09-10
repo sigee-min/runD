@@ -98,14 +98,21 @@ struct ResidencyStats final {
   std::uint64_t frame_capacity{};
   std::uint64_t resident_frames_peak{};
   std::uint64_t epoch_count{};
+  // Exact recurrent-controller receipt. These remain zero for CPU, Q=1,
+  // rolling, and pre-native fallback. One accepted controller Final is the
+  // producer; native batches and queue calls remain backend-owned facts.
+  std::uint64_t window_handoff_count{};
+  std::uint64_t window_batch_count{};
+  std::uint64_t window_queue_call_count{};
   std::uint64_t page_in_count{};
   std::uint64_t page_out_count{};
   std::uint64_t backing_read_bytes{};
   std::uint64_t backing_write_bytes{};
   std::uint64_t backing_io_ns{};
   // Cache and supply evidence is emitted by the same residency authority as
-  // page movement. A cache hit never increments page-in bytes; a late page is
-  // a demanded page whose fetch was not completed before its execution epoch.
+  // page movement. Accelerator page-in bytes are Host-to-Device promotions;
+  // they may therefore be nonzero for a reusable Host-tier cache hit. A late
+  // page is a demanded backing miss not completed before its execution epoch.
   std::uint64_t cache_hit_count{};
   std::uint64_t eviction_count{};
   std::uint64_t prefetch_count{};
@@ -113,12 +120,26 @@ struct ResidencyStats final {
   std::uint64_t page_in_bytes{};
   std::uint64_t page_out_bytes{};
   std::uint64_t stall_ns{};
+  // Directional intersections are recorded from actual transfer receipts and
+  // compute execution receipts. overlap_ns is their checked aggregate, never
+  // an inference from traffic bytes or submission counts.
   std::uint64_t overlap_ns{};
+  std::uint64_t h2d_overlap_ns{};
+  std::uint64_t d2h_overlap_ns{};
   std::uint32_t sampled_runs{};
   std::uint32_t allocation_free_runs{};
   std::uint64_t plan_identity_hi{};
   std::uint64_t plan_identity_lo{};
   std::uint64_t failed_page{no_failed_page};
+
+  [[nodiscard]] constexpr bool directional_overlap_exact() const noexcept {
+    const std::uint64_t directional =
+        h2d_overlap_ns >
+                std::numeric_limits<std::uint64_t>::max() - d2h_overlap_ns
+            ? std::numeric_limits<std::uint64_t>::max()
+            : h2d_overlap_ns + d2h_overlap_ns;
+    return overlap_ns == directional;
+  }
 
   [[nodiscard]] constexpr bool
   samples_allocation_free(const std::uint64_t expected) const noexcept {

@@ -1,4 +1,4 @@
-#include "local.hpp"
+#include "adapter/error.hpp"
 
 namespace rund::node::accel::detail {
 

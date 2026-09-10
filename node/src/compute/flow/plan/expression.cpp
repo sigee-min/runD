@@ -11,7 +11,7 @@ namespace rund::compute::detail {
 
 [[nodiscard]] bool
 project_expressions(const std::span<const ExprRef> expressions,
-                    const MapLivePlan &map_plan,
+                    const StepLivePlan &map_plan,
                     const std::span<const ExpressionGroupPlan> plans,
                     const std::span<const std::uint32_t> input_map,
                     std::vector<ExprRef> &projected) {

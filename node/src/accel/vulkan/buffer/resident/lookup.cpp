@@ -1,7 +1,8 @@
 #include <accel/device.hpp>
 
-#include "../../adapter/api.hpp"
+#include "../../adapter/access.hpp"
 #include "../../resident/access.hpp"
+#include "lookup.hpp"
 #include "find.hpp"
 
 #include <mutex>

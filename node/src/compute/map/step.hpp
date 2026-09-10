@@ -1,6 +1,7 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/expression/model.hpp>
+#include <rund/compute/abi/flow/model.hpp>
 
 #include "../value/arena.hpp"
 

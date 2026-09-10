@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../buffer/state.hpp"
+
 #include "../../accel/kernel/memory.hpp"
 #include "../../array.hpp"
 #include "../device/state.hpp"

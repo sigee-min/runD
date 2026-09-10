@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../buffer/access.hpp"
+#include "../../buffer/create.hpp"
+
 #include "../local.hpp"
 
 namespace rund::node::accel::detail {

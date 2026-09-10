@@ -11,8 +11,8 @@
 namespace rund_node_test_pipeline {
 namespace {
 
-constexpr std::size_t Capacity = 257u;
-constexpr std::size_t Radius = 128u;
+constexpr std::size_t Capacity = 1025u;
+constexpr std::size_t Radius = 1024u;
 
 [[nodiscard]] constexpr std::uint32_t
 Mapped(const std::uint32_t value) noexcept {
@@ -51,6 +51,102 @@ void Fill(std::vector<std::uint32_t> &values,
     }
   }
   return static_cast<std::uint32_t>(total);
+}
+
+// Freeze a large tiled plan, then exercise small device-resident active counts.
+[[nodiscard]] int CheckTiledResident(rund::compute::Device &device,
+                                     const Backend backend) {
+  using namespace rund::compute;
+  constexpr std::size_t capacity = 65537u, radius = 1024u;
+  constexpr std::array<std::size_t, 9u> counts{
+      0u, 1u, 31u, 4095u, 4096u, 4097u, capacity, 1u, 0u};
+  auto program = on(device)
+                     .input<Bounded<std::uint32_t>>(capacity)
+                     .window({.op = Window::Sum, .radius = radius})
+                     .reduce(Reduce::Sum)
+                     .compile();
+  std::vector<std::uint32_t> values(capacity, UINT32_MAX);
+  const std::array<std::uint32_t, 1u> zero{0u};
+  auto input = device.upload<std::uint32_t>(std::span{values});
+  auto count = device.upload<std::uint32_t>(std::span{zero});
+  auto output = device.buffer<std::uint32_t>(1u);
+  if (!program || !input || !count || !output) {
+    return 10;
+  }
+  std::array<RangeInfo, 1u> ranges{};
+  if (program->ranges(ranges).written != 1u ||
+      (backend != Backend::Cpu &&
+       (ranges[0].kind != RangeKind::Tiled || ranges[0].stages != 1u ||
+        ranges[0].scratch_bytes != 0u))) {
+    return 11;
+  }
+  auto prepared = pipeline(device)
+                      .then(*program, read(*input, *count), write(*output))
+                      .prepare();
+  if (!prepared || !prepared->run()) {
+    return 12;
+  }
+  std::uint64_t expected = 0u;
+  const Status result = host_feedback(
+      *prepared, counts.size(),
+      [&](HostIteration &iteration) noexcept -> Status {
+        const Stats stats = iteration.stats();
+        std::array<std::uint32_t, 1u> actual{};
+        if (stats.pipeline_compiles != 0u || stats.buffer_allocations != 0u ||
+            stats.descriptor_pool_creations != 0u ||
+            stats.descriptor_set_allocations != 0u ||
+            stats.uploaded_bytes != 0u || stats.download_events != 0u ||
+            stats.downloaded_bytes != 0u ||
+            stats.command_submits != (backend == Backend::Cpu ? 0u : 1u) ||
+            !iteration.read(*output, std::span{actual}) ||
+            actual[0] != expected) {
+          return Status::fail(Reason::CompletionInvalid);
+        }
+        if (!iteration.has_next()) {
+          return Status::success();
+        }
+        const std::size_t active = counts[iteration.completed()];
+        std::vector<std::uint64_t> prefix(active + 1u, 0u);
+        for (std::size_t i = 0u; i < capacity; ++i) {
+          values[i] = i < active
+                          ? static_cast<std::uint32_t>((i * 7u) % 4u + 1u)
+                          : UINT32_MAX;
+          if (i < active) {
+            prefix[i + 1u] = prefix[i] + values[i];
+          }
+        }
+        expected = 0u;
+        for (std::size_t i = 0u; i < active; ++i) {
+          const std::size_t left = i < radius ? 0u : i - radius;
+          const std::size_t right = std::min(i + radius + 1u, active);
+          expected += prefix[right] - prefix[left];
+          if (i < radius) {
+            expected += (radius - i) * values[0];
+          }
+          if (i + radius >= active) {
+            expected += (i + radius - active + 1u) * values[active - 1u];
+          }
+        }
+        Status status = iteration.write(*input, std::span{values});
+        if (!status) {
+          return status;
+        }
+        const std::array<std::uint32_t, 1u> next{
+            static_cast<std::uint32_t>(active)};
+        return iteration.write(*count, std::span{next});
+      });
+  if (!result) {
+    return 13;
+  }
+  const Status rejected = host_feedback(
+      *prepared, 2u, [&](HostIteration &iteration) noexcept -> Status {
+        if (!iteration.has_next()) {
+          return Status::success();
+        }
+        const std::array<std::uint32_t, 1u> invalid{capacity + 1u};
+        return iteration.write(*count, std::span{invalid});
+      });
+  return !rejected && rejected.reason() == Reason::WorksetOverflow ? 0 : 14;
 }
 
 } // namespace
@@ -140,7 +236,7 @@ void Fill(std::vector<std::uint32_t> &values,
   return snapshot.written == 1u && snapshot.total == 1u &&
                  !snapshot.truncated() && ranges[0u].execution &&
                  ranges[0u].source
-             ? 0
+             ? CheckTiledResident(device, backend)
              : 9;
 }
 

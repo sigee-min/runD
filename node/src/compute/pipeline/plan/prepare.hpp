@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../state/assembly.hpp"
+
 #include "../output.hpp"
 #include "contract.hpp"
 

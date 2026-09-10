@@ -98,7 +98,10 @@ struct MetalCommand final {
   bool barrier = false;
   bool control = false;
   bool trace = false;
-  std::uint32_t owner{std::numeric_limits<std::uint32_t>::max()};
+  // Cold-captured physical Pipeline step. Residency selection consumes this
+  // coordinate to project an Authority-issued local directly to retained ICB
+  // commands; it is execution identity, not a second scheduling policy.
+  std::uint32_t declared_step{std::numeric_limits<std::uint32_t>::max()};
 };
 
 struct MetalCapture final {
@@ -120,6 +123,7 @@ struct MetalCapture final {
   std::size_t parameter_capacity{};
   NSUInteger producer_binding_slot_upper{};
   std::uint32_t owner{std::numeric_limits<std::uint32_t>::max()};
+  std::uint32_t declared_step{std::numeric_limits<std::uint32_t>::max()};
   std::uint32_t guard_state_count{};
   bool unguarded = false;
   bool capacity_failed = false;

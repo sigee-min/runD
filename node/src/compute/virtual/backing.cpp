@@ -19,6 +19,13 @@ VirtualBacking::VirtualBacking()
 
 VirtualBacking::~VirtualBacking() = default;
 
+void VirtualBacking::publish_transaction_version() noexcept {
+  ++state_->version;
+  if (state_->version == 0u) {
+    state_->version = 1u;
+  }
+}
+
 Status VirtualBacking::invalidate() noexcept {
   if (state_ == nullptr) {
     return Status::fail(Reason::PipelineInvalid);

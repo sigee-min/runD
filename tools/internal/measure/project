@@ -10,8 +10,13 @@ sub fail {
   exit 1;
 }
 
+my $ceiling_path;
+if (@ARGV == 19 && $ARGV[0] eq '--ceiling') {
+  shift @ARGV;
+  $ceiling_path = shift @ARGV;
+}
 @ARGV == 17
-    or die "usage: tools/internal/measure/project <root> <profile> " .
+    or die "usage: tools/internal/measure/project [--ceiling prior-table] <root> <profile> " .
            "<scheduler1> <scheduler2> <scheduler3> " .
            "<compute1> <compute2> <compute3> " .
            "<flow1> <flow2> <flow3> <graph1> <graph2> <graph3> " .
@@ -28,6 +33,21 @@ eval { $selected_profile = RundMeasureSchema::select_profile($schema); 1 }
     or fail($@ =~ s/\n\z//r);
 $selected_profile eq $requested_profile
     or fail("current host selected $selected_profile, requested $requested_profile");
+my %ceiling;
+if (defined $ceiling_path) {
+  -f $ceiling_path && !-l $ceiling_path
+      or fail('ceiling must be a regular non-symlink baseline table');
+  my $prior;
+  eval { $prior = RundMeasureSchema::load($root, 0, $ceiling_path); 1 }
+      or fail($@ =~ s/\n\z//r);
+  RundMeasureSchema::select_profile($prior) eq $requested_profile
+      or fail('ceiling selected a foreign profile');
+  for my $rule (@{$prior->{rules}}) {
+    next unless $rule->{profile} eq $requested_profile &&
+                $rule->{policy} eq 'upper';
+    $ceiling{join("\t", $rule->{route}, $rule->{metric})} = $rule;
+  }
+}
 
 sub projection {
   my ($route, $packet) = @_;
@@ -41,7 +61,7 @@ sub projection {
       $profile eq $requested_profile
       or fail("invalid canonical profile projection for $route");
   my @metadata_order = qw(path manifest identity revision dirty generator
-                           compiler compiler:sha256 artifact artifact:sha256
+                           compiler compiler:sha256 compiler:version:sha256 artifact artifact:sha256
                            log:sha256);
   my %metadata;
   for my $expected (@metadata_order) {
@@ -142,7 +162,7 @@ for my $route (@routes) {
         or fail('calibration raw-log identities are not globally unique');
     my $identity = join("\t", @{$metadata}{qw(manifest identity revision dirty
                                                 generator compiler
-                                                compiler:sha256)});
+                                                compiler:sha256 compiler:version:sha256)});
     if (defined $global) {
       $identity eq $global
           or fail("calibration source or toolchain identity differs: $metadata->{path}");
@@ -226,6 +246,19 @@ for my $route (@routes) {
     my $base = Math::BigFloat->new($b);
     my $envelope = admission_envelope(
         $route, $metric, $third->{metric}{$metric}{unit}, $base);
+    if (defined $ceiling_path) {
+      my $key = join("\t", $route, $metric);
+      my $prior = delete $ceiling{$key}
+          // fail("ceiling is missing upper metric: $key");
+      $prior->{unit} eq $third->{metric}{$metric}{unit}
+          or fail("ceiling unit changed: $key");
+      my $limit = Math::BigFloat->new($prior->{value});
+      $limit->badd(Math::BigFloat->new($prior->{envelope}));
+      my $remaining = $limit->copy()->bsub($base);
+      !$remaining->is_neg()
+          or fail("ceiling exceeded: $key observed=$b limit=" . $limit->bstr());
+      $envelope = $remaining if $remaining->bcmp($envelope) < 0;
+    }
     push @output, join("\t", $requested_profile, $route, $metric, 'upper',
                        $b, $envelope->bstr(),
                        $third->{metric}{$metric}{unit});
@@ -233,6 +266,7 @@ for my $route (@routes) {
 }
 
 my $rows = RundMeasureSchema::data_rows($environment->{system}{value});
+!keys(%ceiling) or fail('ceiling contains unobserved upper metrics');
 @output == $rows + 1
     or fail("candidate baseline does not contain exactly $rows data rows");
 print "$_\n" for @output;

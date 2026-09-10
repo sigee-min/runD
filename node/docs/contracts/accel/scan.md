@@ -121,8 +121,10 @@ proof for every 32- and 64-bit domain. One workgroup materializes each logical
 block, one workgroup prefixes block totals, and `offset` runs blocks in
 parallel. Values combine modulo `2^W`, so reassociation changes only the work
 partition. A one-block scan checks each canonical `(previous, value, next)` in
-`block`. A multi-block scan gives neither `block` nor `prefix` overflow
-authority; `offset` is the only canonical checker. Only block zero contributes
+`block`. For signed or exclusive multi-block scans, `offset` remains the
+canonical transition checker. Unsigned inclusive scans combine local-wrap
+evidence from `block` with offset-wrap evidence as proved below. `prefix`
+never owns overflow status. Only block zero contributes
 an invalid logical-count bit. There is no element-count or device-selected
 width, serial lane-zero domain branch, status binding in `prefix`, retry, or
 fallback.
@@ -145,13 +147,40 @@ shared because the exact source text is unchanged; the manifest's pipeline
 stage count and native-object reservation follow the selected tuple rather
 than the portable Kernel pass encoding.
 
-The 32-bit block and block-total prefix use a two-bank Kogge-Stone tree. For a
-product power-of-two width `W`, it has fixed depth `log2(W)`, exactly
-`W log2(W) - W + 1` modulo additions, and `1 + log2(W)` threadgroup barriers.
-Every stage reads one frozen bank and writes the other, so workgroup scheduling
-cannot expose a partially updated level. The extra bank is `4W` bytes. The
-64-bit path uses its fixed Blelloch tree. Comparative latency belongs to the
-installed Release measurement route, not to source topology.
+Metal block and block-total prefix use SIMD local prefixes followed by one
+ordered prefix of subgroup totals. Both stored widths cross exactly two
+threadgroup barriers, independent of the number of lanes. All workgroup lanes
+participate, including empty chunks. Logical chunk indices use actual SIMD group attributes and the active-lane
+rank `simd_prefix_exclusive_sum(1u)`. The last participating physical lane is
+selected by `simd_max(physical_lane)`, including partial subgroups; no device-name or assumed
+32-lane branch selects execution. The 32-bit recipe retains two `W`-word
+arrays; the 64-bit recipe uses `W+1` words, including a separate total slot.
+The common `metal/simd/source.hpp` wide arithmetic recipe is proved in the
+[Range contract](./range/aggregate.md): low-word carries and high-word prefixes
+produce exact modulo-64 values through 32-bit SIMD operations. Canonical
+signed/unsigned overflow checks remain in their original block/offset owners.
+Comparative latency belongs to measured Release executions, not barrier counts.
+
+Unsigned inclusive Metal Scan uses a narrower carry proof to omit the offset
+stage's original-input read. `block` checks every local unsigned transition
+from zero and ORs any wrap into the existing status word, including on a
+multi-block run. If all local blocks fit, their inclusive local prefixes
+`L(i)` are nondecreasing and represent exact unsigned sums. The first global
+wrap is therefore detected by
+
+```text
+(offset[b] + L(i)) mod 2^W < offset[b]
+```
+
+in its owning block. A local wrap is already a valid global-overflow witness
+because unsigned inputs cannot cancel it. Conversely, a non-overflowing global
+sum has neither kind of witness. The OR of local-wrap and offset-wrap evidence
+is exactly the original canonical overflow Boolean, even when later modular
+block totals hide an earlier wrap. No extra status buffer, dispatch, reset,
+source binding, or host scan is added. Signed Scan keeps canonical transitions;
+unsigned exclusive Scan keeps its input read to reconstruct every preceding
+prefix, including the final-total overflow contract. These branches depend on
+numeric semantics, never size or device identity.
 
 For a multi-block Metal scan, `block` materializes local-inclusive values
 `L(i)`, including for a requested exclusive result. `offset` reads the original
@@ -176,22 +205,28 @@ Let `A` be the active element count, `B` the block count, and `E` the stored
 element width in bytes. Counts below are logical shader loads and stores, not
 claims about cache-line transactions.
 
-For a multi-block Metal or Vulkan scan of either stored width, the dominant
-main-array traffic is
+For a multi-block scan of either stored width, source-level main-array loads
+and stores are:
 
 ```text
-block:  input read A E + local-output write A E
-offset: local-output read A E + input read A E + final-output write A E
-total:  5 A E
+Metal block:  input read 2 A E + local-output write A E
+Vulkan block: input read A E + local-output write A E
+Metal unsigned inclusive offset: local-output read A E + final-output write A E
+other offset: local-output read A E + input read A E + final-output write A E
+Metal unsigned inclusive total: 5 A E
+other Metal total: 6 A E; Vulkan total: 5 A E
 ```
 
-At `A = 262144` and `E = 4`, this bound is 5 MiB. One-block execution skips
-prefix and offset and uses `2 A E`. Scratch, parameters, and block-total traffic
-add `O(B E)` bytes; the single status word adds `O(1)` bytes. These terms are
-stated separately rather than hidden in the dominant term. Reducing the main
-array term would require carrying canonical values across stages without a
-portable global barrier or fusing the scan consumer; it is not obtained merely
-by replacing the input read with schedule-sensitive adjacent-output reads.
+Metal first reads each lane's chunk to form its total, then reads it again to
+emit prefixes. These are source-level loads; the compiler or cache may reuse
+them, so they do not establish DRAM traffic. At `A = 262144` and `E = 4`,
+Metal uses 5 MiB for unsigned inclusive mode and 6 MiB otherwise; Vulkan uses
+5 MiB. One-block execution skips
+prefix and offset, leaving `3 A E` for Metal and `2 A E` for Vulkan. Scratch,
+parameters, and block totals add `O(B E)` bytes; the single status word adds
+`O(1)` bytes. SIMD reduces local synchronization. The unsigned-inclusive carry proof
+separately eliminates one `A E` input read; it uses no schedule-sensitive
+adjacent-output reads.
 
 Vulkan's block-total prefix reads and writes each of its `B` totals once while
 forming chunk-local prefixes, then reads and writes them once while adding the
@@ -245,6 +280,27 @@ a frozen base-block push constant. `ScanPrefixDispatches` makes Generic Scan's
 physical count exactly `C` for one stage and `2C + 1` for three stages. Vulkan
 runtime telemetry records that physical count; the device-neutral kernel stage
 count remains portable planning evidence.
+
+## Metal source ownership
+
+`metal/scan/source.cpp` owns the ordered seven-kernel library assembly.
+`source/block.hpp`, `source/prefix.hpp`, and `source/offset.hpp` each own one
+stage recipe for both stored widths. A compile-time width parameter selects
+value spelling and the genuinely different SIMD array/helper operations;
+logical-count bounds, partitioning, overflow policy, bindings, and output
+transitions have one body per stage. Flag Scan remains its distinct
+`source/flag.hpp` owner. Width directories and forwarding `program.hpp`
+aggregates are removed; no compatibility includes or second recipe remain.
+
+Each stage uses the shared failure-latching `SourceBuilder`. CountSink and
+StringSink execute the same recipe, preserving exact planned source size and
+one final allocation. There is no runtime text substitution or external code
+generator. Stage consolidation preserves the complete emitted MSL bytes,
+entry order, cache identity, bindings, dispatch geometry and scratch lifetime.
+The canonical Scan source contract freezes that artifact's size and hash;
+exact-size authority tests and runtime numeric/parity tests remain separate
+proofs of reservation and semantic behavior. Ownership consolidation alone is
+not a throughput claim.
 
 ## Authority and verification
 

@@ -1,6 +1,6 @@
 #include "module.hpp"
 
-#include "../adapter/api.hpp"
+#include "../adapter/error.hpp"
 #include "../adapter/state.hpp"
 
 #include <rund/counter.hpp>

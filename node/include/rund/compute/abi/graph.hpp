@@ -1,6 +1,14 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/ids.hpp>
+#include <rund/compute/abi/expression/model.hpp>
+#include <rund/compute/abi/primitive.hpp>
+#include <rund/compute/abi/graph/model.hpp>
+#include <rund/compute/abi/flow/model.hpp>
+#include <rund/compute/fixed.hpp>
+#include <rund/compute/status.hpp>
+#include <rund/compute/ops.hpp>
 #include <span>
 #include <string_view>
 namespace rund::compute::detail {

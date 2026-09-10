@@ -33,8 +33,9 @@ owner is `runtime/reactor/`: `readiness/state.hpp` defines the width-safe
 `ReactorHandle`, `ReactorInterest`, and `ReactorEvent` state;
 `readiness/mask.hpp` owns logical bit composition, encoding, decoding, and
 matching; `readiness/handle.hpp` owns checked public/native handle conversion;
-`platform.hpp` owns the complete backend state, operation, registration,
-probe, and normalized-result contract; `diagnostics.hpp` owns observation-only
+`platform/{state,result,lifecycle,registration,poll,handle}.hpp` own the
+backend state, normalized results, lifecycle, registration, probes, and
+retained-handle contract respectively; `diagnostics.hpp` owns observation-only
 backend and scheduler-policy counters. None contains POSIX readiness masks,
 `kevent`, `epoll_event`, IOCP records, or another platform SDK type. Public
 admitted `io::Fd` carriers and public evidence bits are converted only at
@@ -176,7 +177,7 @@ result wrapper mirrors batch metadata.
 Portable host and scheduler sources depend only on
 `runtime/platform/io.hpp`, `runtime/platform/net.hpp`, and the narrow
 `runtime/reactor/readiness/{state,mask,handle}.hpp` or
-`runtime/reactor/platform.hpp` contract they consume. There is no readiness
+`runtime/reactor/platform/` contract facet they consume. There is no readiness
 aggregate; a state-only consumer cannot acquire mask or conversion algorithms
 transitively. `OpenOptions::mode` is a fixed-width
 `uint32_t`; `mode_t` is confined to the POSIX implementation. Network address

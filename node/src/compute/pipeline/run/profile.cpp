@@ -1,9 +1,10 @@
+#include "../../cpu/state/program.hpp"
 #include "clock.hpp"
 
 #include "../local.hpp"
 #include "../state.hpp"
 
-#include "../../../accel/kernel/prepared.hpp"
+#include "../../../accel/kernel/prepared/interface/api.hpp"
 #include "../../cpu/graph.hpp"
 #include "../../job/local.hpp"
 
@@ -137,7 +138,7 @@ void capture_cpu_pipeline_step(PipelineState &state, const std::size_t index,
   const PipelineStep &step = state.steps[index];
   if (step.program != nullptr && !step.program->empty()) {
     const std::shared_ptr<JobState> &job =
-        state.transactional && state.attempt_parity != 0u ? step.alternate_job
+        state.transactional && state.attempt.parity != 0u ? step.alternate_job
                                                           : step.job;
     if (job == nullptr || job->cpu == nullptr || job->cpu->graph == nullptr) {
       return;
@@ -162,20 +163,20 @@ void capture_cpu_pipeline_step(PipelineState &state, const std::size_t index,
   accumulate(state.profile->steps[index].execution, stats);
 }
 
-void capture_accel_pipeline_profile(
+bool capture_accel_pipeline_profile(
     PipelineState &state,
     const node::accel::detail::PreparedPipelineEvidence &evidence,
     const bool row_identity_valid) noexcept {
   if (state.profile == nullptr) {
-    return;
+    return true;
   }
   PipelineProfileState &profile = *state.profile;
   profile.instrumentation_command_count =
       evidence.profile.instrumentation_command_count;
   profile.instrumentation_byte_count =
       evidence.profile.instrumentation_byte_count;
-  if (!row_identity_valid) {
-    return;
+  if (!row_identity_valid || profile.steps.size() != state.steps.size()) {
+    return false;
   }
   if (state.active_step_count == 0u && evidence.check.ok &&
       !evidence.submitted) {
@@ -187,18 +188,21 @@ void capture_accel_pipeline_profile(
                                                                            : 0u,
       };
     }
-    return;
+    return true;
   }
   if (evidence.active_step_count != state.active_step_count ||
       !evidence.profile.observed ||
       evidence.profile.steps.size() != state.steps.size()) {
-    return;
+    return false;
   }
+  bool complete = true;
   for (std::size_t index = 0u; index < state.steps.size(); ++index) {
     const node::accel::detail::PreparedPipelineStepEvidence &source =
         evidence.profile.steps[index];
     PipelineStepProfile &target = profile.steps[index];
-    if (source.work_sample_count != 0u) {
+    if (source.work_sample_count == 0u) {
+      complete = false;
+    } else {
       target.execution = PipelineStepStats{
           .sample_count = source.work_sample_count,
           .original_dispatches = source.original_dispatch_count,
@@ -223,6 +227,7 @@ void capture_accel_pipeline_profile(
                                  .relation = StepTimingRelation::NonAdditive};
     }
   }
+  return complete;
 }
 
 } // namespace rund::compute::detail

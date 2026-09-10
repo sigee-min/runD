@@ -1,4 +1,4 @@
-#include "model.hpp"
+#include "local.hpp"
 
 #include <kernel/program/compute/lowering/resource.hpp>
 

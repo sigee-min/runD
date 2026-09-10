@@ -1,6 +1,6 @@
 #include "../../../context/internal/support.hpp"
 #include "../../../kernel/backend/execute.hpp"
-#include "../../../kernel/backend/template_plan.hpp"
+#include "../../../kernel/backend/template/arithmetic.hpp"
 #include "../../../kernel/status.hpp"
 
 #include "../../../sort/block/metal.hpp"
@@ -13,10 +13,10 @@
 #include "../../numeric/state.hpp"
 #include "../../partition/local.hpp"
 #include "../../pipeline/guard.hpp"
-#include "../../pipeline/source_recipe.hpp"
+#include "../../pipeline/source/recipe.hpp"
 #include "../../range/local.hpp"
 #include "../../reduce/local.hpp"
-#include "../../runtime/map/source_upper.hpp"
+#include "../../runtime/map/source/upper.hpp"
 #include "../../scan/local.hpp"
 #include "../../scan/source.hpp"
 #include "../../scatter/local.hpp"
@@ -27,7 +27,7 @@
 #include "../manifest.hpp"
 #include "../ops/prepare.hpp"
 #include "../pipeline/build.hpp"
-#include "../pipeline/identity_index.hpp"
+#include "../pipeline/identity/index.hpp"
 #include "parameter.hpp"
 
 namespace rund::node::accel::detail {
@@ -93,7 +93,12 @@ rund::AccelCheck PlanMetalPipelineStructureForCalibration(
   std::uint64_t bytes = 0u;
   MetalCaptureRowCapacity command_rows{};
   MetalCaptureRowCapacity binding_rows{};
-  if (!add(host, icb_plan.retained_chunk_bytes) ||
+  // Every admitted spatial local contributes physical execution steps. This
+  // existing occurrence bound covers its cold-sized proof rows without
+  // retaining the global step capacity in every ordinary sequence.
+  if (!product(reservation.backend_step_occurrence_count,
+               sizeof(MetalSpatialWindowLocalProof), bytes) ||
+      !add(host, bytes) || !add(host, icb_plan.retained_chunk_bytes) ||
       !product(commands, captured_binding_slots, bindings) ||
       !(command_rows = PlanMetalCaptureRowCapacity(commands)).ok ||
       !(binding_rows = PlanMetalCaptureRowCapacity(bindings)).ok ||

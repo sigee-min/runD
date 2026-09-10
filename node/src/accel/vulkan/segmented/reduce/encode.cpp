@@ -2,6 +2,7 @@
 
 #include "../../../segmented/reduce/vulkan.hpp"
 
+#include "../../command/dispatch.hpp"
 #include "../../barrier.hpp"
 #include "../../collective/finish.hpp"
 

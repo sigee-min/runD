@@ -1,6 +1,9 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/ids.hpp>
+#include <rund/compute/abi/primitive.hpp>
+#include <rund/compute/ops.hpp>
 #include <rund/compute/stats.hpp>
 
 #include <array>

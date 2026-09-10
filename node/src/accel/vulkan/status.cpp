@@ -1,6 +1,8 @@
 #include "status.hpp"
 
-#include "adapter/api.hpp"
+#include "adapter/error.hpp"
+#include "buffer/create.hpp"
+#include "buffer/access.hpp"
 #include "barrier.hpp"
 #include "descriptor/binding.hpp"
 

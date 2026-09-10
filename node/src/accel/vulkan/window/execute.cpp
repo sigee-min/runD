@@ -1,3 +1,6 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
@@ -81,29 +84,6 @@ rund::AccelCheck EncodeVulkanWindow(VulkanAdapter &adapter,
   (void)resources;
   (void)command_buffer_raw;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
-#endif
-}
-
-rund::AccelCheck ExecuteVulkanWindow(const rund::AccelDevice &pick,
-                                     const rund::kernel::WindowDesc &desc,
-                                     const rund::kernel::WindowPlan &plan,
-                                     const RangeBinds &bindings,
-                                     const RangePlan &range) {
-#if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return ExecuteVulkanDomainCollective(
-      pick, desc, plan, plan.domain, bindings,
-      [&range](const rund::AccelDevice &device,
-               const rund::kernel::WindowDesc &operation,
-               const rund::kernel::WindowPlan &prepared,
-               const rund::kernel::ComputeDomain, const RangeBinds &resident,
-               std::shared_ptr<void> &resources) {
-        return PrepareVulkanWindow(device, operation, prepared, resident, range,
-                                   resources, nullptr);
-      },
-      EncodeVulkanWindow, FinishVulkanWindow);
-#else
-  (void)range;
-  return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);
 #endif
 }
 

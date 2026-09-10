@@ -83,9 +83,11 @@ void CommitMetalPipelineResidency(const std::shared_ptr<void> &prepared,
 [[nodiscard]] rund::AccelCheck
 QueryMetalPipelineResidency(const std::shared_ptr<void> &prepared,
                             bool &supported) noexcept;
-[[nodiscard]] rund::AccelCheck SubmitPreparedMetalPipeline(
-    const std::shared_ptr<void> &prepared, KernelCompletion completion,
-    void *user, KernelTiming timing, PipelineSubmitMode mode) noexcept;
+[[nodiscard]] rund::AccelCheck
+SubmitPreparedMetalPipeline(const std::shared_ptr<void> &prepared,
+                            KernelCompletion completion, void *user,
+                            KernelTiming timing, PipelineSubmitMode mode,
+                            std::span<const std::uint32_t> locals) noexcept;
 [[nodiscard]] rund::AccelCheck SubmitPreparedMetalKernel(
     const BackendRun &run, const std::shared_ptr<void> &prepared,
     KernelCompletion completion, void *user, PreparedMemoryMeter *memory,
@@ -133,9 +135,17 @@ RunPreparedVulkanBatch(std::span<const BackendBatchEntry> entries,
     std::shared_ptr<void> &prepared, PreparedPipelineMemory &memory,
     PreparedPipelineMemoryMeter *memory_meter, rund::AccelRunFacts &preparation,
     PreparedPipelineFailure &failure);
-[[nodiscard]] rund::AccelCheck SubmitPreparedVulkanPipeline(
-    const std::shared_ptr<void> &prepared, KernelCompletion completion,
-    void *user, KernelTiming timing, PipelineSubmitMode mode) noexcept;
+[[nodiscard]] rund::AccelCheck
+StageVulkanPipelineResidency(const std::shared_ptr<void> &prepared,
+                             std::shared_ptr<void> &candidate,
+                             std::uint64_t &retained_bytes) noexcept;
+void CommitVulkanPipelineResidency(const std::shared_ptr<void> &prepared,
+                                   std::shared_ptr<void> candidate) noexcept;
+[[nodiscard]] rund::AccelCheck
+SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
+                             KernelCompletion completion, void *user,
+                             KernelTiming timing, PipelineSubmitMode mode,
+                             std::span<const std::uint32_t> locals) noexcept;
 [[nodiscard]] rund::AccelCheck SubmitPreparedVulkanKernel(
     const BackendRun &run, const std::shared_ptr<void> &prepared,
     KernelCompletion completion, void *user, PreparedMemoryMeter *memory,

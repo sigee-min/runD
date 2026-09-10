@@ -55,18 +55,6 @@ struct PreparedKernelPublicationViewIdentity final {
   std::uint32_t usage{};
 };
 
-[[nodiscard]] inline constexpr bool SamePreparedKernelPublicationViewIdentity(
-    const PreparedKernelPublicationViewIdentity &left,
-    const PreparedKernelPublicationViewIdentity &right) noexcept {
-  return left.resident_id == right.resident_id &&
-         left.backing_bytes == right.backing_bytes &&
-         left.offset_bytes == right.offset_bytes && left.count == right.count &&
-         left.stride_bytes == right.stride_bytes &&
-         left.element_bytes == right.element_bytes &&
-         left.resource_ordinal == right.resource_ordinal &&
-         left.usage == right.usage;
-}
-
 struct PreparedKernelPublicationIdentity final {
   PreparedKernelPublicationViewIdentity sources[3]{};
   PreparedKernelPublicationViewIdentity count{};

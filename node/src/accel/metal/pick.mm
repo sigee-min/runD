@@ -108,6 +108,15 @@ rund::AccelDevice PickMetal() {
       std::shared_ptr<MetalAdapter> adapter = std::make_shared<MetalAdapter>();
       adapter->device = RetainMetalObject((__bridge void *)device);
       adapter->queue = RetainMetalObject((__bridge void *)queue);
+#if defined(__MAC_26_0) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) &&          \
+    __MAC_OS_X_VERSION_MAX_ALLOWED >= __MAC_26_0
+      if (@available(macOS 26.0, iOS 26.0, *)) {
+        id<MTL4CommandQueue> const residency_queue =
+            [device newMTL4CommandQueue];
+        adapter->residency_queue =
+            RetainMetalObject((__bridge void *)residency_queue);
+      }
+#endif
       adapter->pipeline_icb_calibration = pipeline_icb_calibration;
       const std::uint64_t working_set =
           static_cast<std::uint64_t>(device.recommendedMaxWorkingSetSize);

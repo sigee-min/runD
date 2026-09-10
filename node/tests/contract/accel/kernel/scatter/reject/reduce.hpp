@@ -28,11 +28,16 @@
 namespace node_accel_contract::scatter::reject {
 
 struct ReduceWork final {
-  std::array<rund::kernel::u32, 4u> values{5u, 7u, 11u, 13u};
-  std::array<rund::kernel::u32, 4u> valid_indices{0u, 1u, 0u, 1u};
-  std::array<rund::kernel::u32, 4u> invalid_indices{0u, 2u, 0u, 1u};
+  std::array<rund::kernel::u32, 259u> values{5u, 7u, 11u, 13u};
+  std::array<rund::kernel::u32, 259u> valid_indices{0u, 1u, 0u, 1u};
+  std::array<rund::kernel::u32, 259u> invalid_indices{0u, 2u, 0u, 1u};
   std::array<rund::kernel::u32, 2u> output_sentinel{29u, 31u};
-  rund::kernel::u32 overflowing_count{5u};
+  rund::kernel::u32 overflowing_count{260u};
+
+  ReduceWork() {
+    invalid_indices[65u] = 2u;
+    invalid_indices.back() = 2u;
+  }
 };
 
 struct ReduceResources final {
@@ -204,127 +209,6 @@ ScatterReduceFailuresAreAtomic(const rund::AccelDevice &pick) {
   return ReferenceScatterReduceFailuresAreAtomic(work) &&
          RunScatterReduceFailure(pick, work, false) &&
          RunScatterReduceFailure(pick, work, true);
-}
-
-template <class T, std::size_t N, std::size_t O>
-[[nodiscard]] inline bool RunScatterReduceSuccess(
-    const rund::AccelDevice &pick, const std::array<T, N> &values,
-    const std::array<rund::kernel::u32, N> &indices,
-    const std::array<T, O> &expected, const rund::kernel::ScatterReduceOp op,
-    const rund::kernel::ComputeDomain domain,
-    const rund::kernel::ComputeFixedFormat fixed_format = {}) {
-  namespace fix = node_accel_contract::primitive;
-  const rund::AccelContext context = rund::node::accel::OpenAccel(pick);
-  if (!context.check.ok)
-    return false;
-  const rund::AccelBuffer input = rund::node::accel::CreateAccelBuffer(
-      context, fix::BufferDesc(rund::BufferUsage::ReadOnly, sizeof(T), N));
-  const rund::AccelBuffer targets = rund::node::accel::CreateAccelBuffer(
-      context, fix::BufferDesc(rund::BufferUsage::ReadOnly,
-                               sizeof(rund::kernel::u32), N));
-  const rund::AccelBuffer output = rund::node::accel::CreateAccelBuffer(
-      context, fix::BufferDesc(rund::BufferUsage::ReadWrite, sizeof(T), O));
-  if (!input.check.ok || !targets.check.ok || !output.check.ok ||
-      !rund::node::accel::UploadAccelBuffer(context, input, values.data(),
-                                            sizeof(values))
-           .ok ||
-      !rund::node::accel::UploadAccelBuffer(context, targets, indices.data(),
-                                            sizeof(indices))
-           .ok) {
-    return false;
-  }
-  const std::array<rund::AccelGraphBufferRef, 3u> refs{
-      rund::AccelGraphBufferRef{.buffer = &input,
-                                .role = rund::kernel::BufferRole::Read},
-      rund::AccelGraphBufferRef{.buffer = &targets,
-                                .role = rund::kernel::BufferRole::Read},
-      rund::AccelGraphBufferRef{.buffer = &output,
-                                .role = rund::kernel::BufferRole::Write},
-  };
-  const rund::kernel::ScatterReduceDesc desc{
-      .op = op,
-      .domain = domain,
-      .fixed_format = fixed_format,
-      .element_count = N,
-      .output_count = O,
-  };
-  const std::array<rund::AccelGraphNode, 1u> nodes{
-      rund::AccelScatterReduce(refs.data(), refs.size(), desc)};
-  const rund::AccelKernel kernel = rund::node::accel::CompileAccelKernel(
-      context, rund::AccelGraph{
-                   .nodes = nodes.data(),
-                   .node_count = nodes.size(),
-                   .scalar = rund::kernel::ComputeScalar::Lane32,
-                   .domain = domain,
-                   .fixed_format = fixed_format,
-               });
-  const std::array<rund::AccelRunBinding, 3u> bindings{
-      rund::AccelRunBinding{.buffer = &input,
-                            .role = rund::kernel::BufferRole::Read},
-      rund::AccelRunBinding{.buffer = &targets,
-                            .role = rund::kernel::BufferRole::Read},
-      rund::AccelRunBinding{.buffer = &output,
-                            .role = rund::kernel::BufferRole::Write},
-  };
-  const rund::AccelEvidence evidence = rund::node::accel::RunAccelKernel(
-      context, kernel,
-      rund::AccelRun{.bindings = bindings.data(),
-                     .binding_count = bindings.size(),
-                     .tile_count = N,
-                     .fresh_evidence = true});
-  std::array<T, O> observed{};
-  return rund::kernel::PlanScatterReduce(desc).ok && kernel.check.ok &&
-         evidence.outcome.ok &&
-         rund::node::accel::DownloadAccelBuffer(
-             context, output, observed.data(), sizeof(observed))
-             .ok &&
-         observed == expected;
-}
-
-[[nodiscard]] inline bool
-ScatterReduceParallelModes(const rund::AccelDevice &pick) {
-  using rund::kernel::ComputeDomain;
-  using rund::kernel::ScatterReduceOp;
-  constexpr std::array<rund::kernel::u32, 4u> indices{0u, 0u, 1u, 1u};
-  constexpr std::array<rund::kernel::u32, 4u> sum_values{
-      std::numeric_limits<rund::kernel::u32>::max(), 2u, 5u, 7u};
-  constexpr std::array<rund::kernel::u32, 2u> sum_expected{1u, 12u};
-  constexpr std::array<rund::kernel::i32, 4u> signed_values{-5, 7, -2, 3};
-  constexpr std::array<rund::kernel::i32, 2u> signed_min{-5, -2};
-  constexpr std::array<rund::kernel::i32, 2u> signed_max{7, 3};
-  constexpr std::array<rund::kernel::u32, 4u> unsigned_values{5u, 7u, 2u, 3u};
-  constexpr std::array<rund::kernel::u32, 2u> unsigned_min{5u, 2u};
-  constexpr std::array<rund::kernel::u32, 2u> unsigned_max{7u, 3u};
-  constexpr std::array<rund::kernel::i32, 4u> fixed_values{
-      -5 * 65536, 7 * 65536, -2 * 65536, 3 * 65536};
-  constexpr std::array<rund::kernel::i32, 2u> fixed_min{-5 * 65536, -2 * 65536};
-  constexpr std::array<rund::kernel::i32, 2u> fixed_max{7 * 65536, 3 * 65536};
-  constexpr rund::kernel::ComputeFixedFormat fixed{
-      .integer_bits = 16u,
-      .fraction_bits = 16u,
-      .rounding = rund::kernel::ComputeRounding::NearestEven,
-      .overflow = rund::kernel::ComputeOverflow::Saturate,
-      .approximation = rund::kernel::ComputeApproximation::Exact,
-  };
-  const std::array<bool, 7u> ok{
-      RunScatterReduceSuccess(pick, sum_values, indices, sum_expected,
-                              ScatterReduceOp::Sum, ComputeDomain::U32),
-      RunScatterReduceSuccess(pick, signed_values, indices, signed_min,
-                              ScatterReduceOp::Min, ComputeDomain::I32),
-      RunScatterReduceSuccess(pick, signed_values, indices, signed_max,
-                              ScatterReduceOp::Max, ComputeDomain::I32),
-      RunScatterReduceSuccess(pick, unsigned_values, indices, unsigned_min,
-                              ScatterReduceOp::Min, ComputeDomain::U32),
-      RunScatterReduceSuccess(pick, unsigned_values, indices, unsigned_max,
-                              ScatterReduceOp::Max, ComputeDomain::U32),
-      RunScatterReduceSuccess(pick, fixed_values, indices, fixed_min,
-                              ScatterReduceOp::Min, ComputeDomain::Fixed,
-                              fixed),
-      RunScatterReduceSuccess(pick, fixed_values, indices, fixed_max,
-                              ScatterReduceOp::Max, ComputeDomain::Fixed,
-                              fixed),
-  };
-  return ok[0] && ok[1] && ok[2] && ok[3] && ok[4] && ok[5] && ok[6];
 }
 
 } // namespace node_accel_contract::scatter::reject

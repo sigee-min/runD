@@ -1,3 +1,8 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+#include "../buffer/create.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 

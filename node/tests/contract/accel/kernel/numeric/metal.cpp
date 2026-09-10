@@ -1,3 +1,4 @@
+#include "src/accel/kernel/backend/source/storage.hpp"
 #include "src/accel/metal/numeric.hpp"
 #include "src/accel/metal/numeric/source.hpp"
 #include "src/accel/metal/numeric/source/program.hpp"

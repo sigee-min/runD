@@ -1,7 +1,8 @@
 #pragma once
 
 #include "../kernel/scratch.hpp"
-#include "adapter/api.hpp"
+#include "adapter/buffer.hpp"
+#include "adapter/state.hpp"
 
 #include <cstddef>
 #include <cstdint>

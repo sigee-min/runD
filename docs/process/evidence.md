@@ -62,6 +62,13 @@ the SHA-256 of the packet's `source-manifest.tsv`, and
 hashes the live product source tree, so a post-verification edit or commit
 cannot be represented as part of the completed verification.
 
+These local hash seals detect inconsistent or changed payloads; they are not
+signatures or attestations against someone who can rewrite an entire packet
+and its hashes. Retained compiler-version bytes describe the recorder's
+observation. Status validates their integrity without executing a path supplied
+by packet metadata. Published artifact compatibility remains governed by the
+sealed SDK producer tuple and external-consumer contracts.
+
 `package/cmake/identity.cmake` is the single structured owner for source
 manifest and source identity sealing, the source-identity row schema,
 canonical atomic writing, and validated reading.
@@ -75,7 +82,12 @@ product-source manifest, selects the local host's required Debug, sanitizer,
 platform, Release, artifact, leak, and measurement routes, and validates the
 newest immutable packet for each route. A route is closed only when its newest
 packet passed, its copied manifest and identity still match the hashes in
-`run.tsv`, and its manifest equals the current manifest. Measurement admission
+`run.tsv`, and its manifest equals the current manifest. All configured routes
+also require a matching local host, the recorded compiler executable hash,
+and an intact sealed compiler-version observation, as defined by
+[Verification](../architecture/verification.md). Historical packets without
+these fields remain invalid and must be regenerated; they are not upgraded
+from the current environment. Measurement admission
 packets also require the current host, sealed canonical candidate and result
 hashes, and a byte-identical fresh replay against the checked-in baseline.
 Their proof names every sealed raw input packet; each input remains

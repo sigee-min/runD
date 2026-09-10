@@ -18,6 +18,10 @@ configure_file("${ROOT}/tools/internal/measure/schema.pm"
 
 execute_process(COMMAND uname -a OUTPUT_VARIABLE current_host
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
+file(SHA256 "${CMAKE_COMMAND}" compiler_sha256)
+execute_process(COMMAND "${CMAKE_COMMAND}" --version
+                OUTPUT_VARIABLE compiler_version COMMAND_ERROR_IS_FATAL ANY)
+string(SHA256 compiler_version_sha256 "${compiler_version}")
 set(project "${fixture}/project.pl")
 file(WRITE "${project}" [=[
 use strict;
@@ -116,6 +120,7 @@ function(write_packet route run_id status manifest_text corrupt)
   file(MAKE_DIRECTORY "${packet}")
   file(WRITE "${packet}/source-manifest.tsv" "${manifest_text}")
   file(WRITE "${packet}/source-identity.tsv" "fixture\t${route}\n")
+  file(WRITE "${packet}/compiler-version.txt" "${compiler_version}")
   file(SHA256 "${packet}/source-manifest.tsv" manifest_sha256)
   file(SHA256 "${packet}/source-identity.tsv" identity_sha256)
   if(corrupt)
@@ -125,6 +130,11 @@ function(write_packet route run_id status manifest_text corrupt)
   file(WRITE "${packet}/run.tsv"
     "route\t${route}\n"
     "status\t${status}\n"
+    "generator\tNinja\n"
+    "compiler\t${CMAKE_COMMAND}\n"
+    "compiler_sha256\t${compiler_sha256}\n"
+    "compiler_version_sha256\t${compiler_version_sha256}\n"
+    "host\t${current_host}\n"
     "source_manifest_sha256\t${manifest_sha256}\n"
     "source_identity_sha256\t${identity_sha256}\n")
 endfunction()
@@ -143,8 +153,11 @@ function(write_measure_packet route run_id packet_host log_name log_text
   file(WRITE "${packet}/baseline.log"
     "baseline\t${route}\tprofile=fixture\tmetrics=${metrics}\tstatus=passed\n")
   file(SHA256 "${packet}/baseline.log" result_sha256)
+  file(READ "${packet}/run.tsv" run_text)
+  string(REPLACE "host\t${current_host}\n" "host\t${packet_host}\n"
+                 run_text "${run_text}")
+  file(WRITE "${packet}/run.tsv" "${run_text}")
   file(APPEND "${packet}/run.tsv"
-    "host\t${packet_host}\n"
     "proof:kind\tperformance\n"
     "proof:route\t${route}\n"
     "proof:status\tpassed\n"
@@ -271,4 +284,94 @@ if(NOT pass_result EQUAL 0 OR
     "complete evidence matrix did not pass\n${pass_output}\n${pass_error}")
 endif()
 
+# Ordinary verification must use the configured compiler, even when the shell
+# environment points at a different compiler, and retain its version bytes.
+file(MAKE_DIRECTORY "${fixture_root}/tools/internal/toolchain"
+                    "${fixture_root}/tools/internal/source/manifest"
+                    "${fixture_root}/package/cmake" "${fixture}/build")
+foreach(owner IN ITEMS tools/internal/toolchain/compiler
+                       tools/internal/source/manifest/adopt.cmake
+                       package/cmake/identity.cmake)
+  configure_file("${ROOT}/${owner}" "${fixture_root}/${owner}" COPYONLY)
+endforeach()
+file(WRITE "${fixture}/build/CMakeCache.txt"
+  "CMAKE_GENERATOR:INTERNAL=Ninja\n"
+  "CMAKE_CXX_COMPILER:FILEPATH=${CMAKE_COMMAND}\n")
+include("${ROOT}/package/cmake/identity.cmake")
+rund_write_sealed_file("${fixture}/current.tsv")
+rund_write_source_identity("${fixture}/current.tsv"
+  "${fixture}/current.tsv.identity.tsv"
+  "0000000000000000000000000000000000000000" true fixture)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env "CXX=/unconfigured/compiler"
+    "${CMAKE_COMMAND}" -D "ROOT=${fixture_root}" -D "BUILD=${fixture}/build"
+    -D ROUTE=recorded -D STATUS=passed
+    -D "SOURCE_MANIFEST=${fixture}/current.tsv"
+    -P "${ROOT}/tools/internal/record.cmake"
+  RESULT_VARIABLE record_result OUTPUT_VARIABLE record_output
+  ERROR_VARIABLE record_error)
+if(NOT record_result EQUAL 0)
+  message(FATAL_ERROR "ordinary compiler recording failed: ${record_error}")
+endif()
+execute_process(
+  COMMAND sh "${ROOT}/tools/internal/evidence/status/run"
+    "${fixture_root}" "${current_sha256}" recorded
+  RESULT_VARIABLE recorded_result OUTPUT_VARIABLE recorded_output)
+if(NOT recorded_result EQUAL 0 OR NOT recorded_output MATCHES "recorded\tpassed\t")
+  message(FATAL_ERROR "ordinary compiler evidence did not pass: ${recorded_output}")
+endif()
+file(GLOB recorded_runs "${evidence}/recorded/*/run.tsv")
+list(LENGTH recorded_runs recorded_count)
+if(NOT recorded_count EQUAL 1)
+  message(FATAL_ERROR "ordinary compiler evidence has ambiguous packets")
+endif()
+list(GET recorded_runs 0 recorded_run)
+file(READ "${recorded_run}" recorded_text)
+get_filename_component(recorded_packet "${recorded_run}" DIRECTORY)
+file(READ "${recorded_packet}/compiler-version.txt" recorded_version)
+if(NOT recorded_version STREQUAL compiler_version OR
+   NOT recorded_text MATCHES "compiler_sha256\t${compiler_sha256}\n")
+  message(FATAL_ERROR "ordinary evidence lost configured compiler identity")
+endif()
+
+foreach(mutation IN ITEMS missing unknown duplicate digest version host)
+  set(mutated "${recorded_text}")
+  if(mutation STREQUAL missing)
+    string(REPLACE "compiler_sha256\t${compiler_sha256}\n" "" mutated "${mutated}")
+  elseif(mutation STREQUAL unknown)
+    string(REPLACE "compiler\t${CMAKE_COMMAND}\n" "compiler\tunknown\n"
+                   mutated "${mutated}")
+  elseif(mutation STREQUAL duplicate)
+    string(APPEND mutated "compiler\t${CMAKE_COMMAND}\n")
+  elseif(mutation STREQUAL digest)
+    string(REPLACE "compiler_sha256\t${compiler_sha256}\n"
+      "compiler_sha256\t0000000000000000000000000000000000000000000000000000000000000000\n"
+      mutated "${mutated}")
+  elseif(mutation STREQUAL version)
+    file(APPEND "${recorded_packet}/compiler-version.txt" "changed\n")
+  elseif(mutation STREQUAL host)
+    string(REPLACE "host\t${current_host}\n" "host\tforeign\n" mutated "${mutated}")
+  endif()
+  file(WRITE "${recorded_run}" "${mutated}")
+  execute_process(
+    COMMAND sh "${ROOT}/tools/internal/evidence/status/run"
+      "${fixture_root}" "${current_sha256}" recorded
+    RESULT_VARIABLE mutation_result OUTPUT_VARIABLE mutation_output)
+  if(mutation_result EQUAL 0 OR NOT mutation_output MATCHES "recorded\tinvalid\t")
+    message(FATAL_ERROR "compiler evidence accepted ${mutation}: ${mutation_output}")
+  endif()
+  file(WRITE "${recorded_packet}/compiler-version.txt" "${recorded_version}")
+endforeach()
+
+file(WRITE "${fixture}/build/CMakeCache.txt" "CMAKE_GENERATOR:INTERNAL=Ninja\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -D "ROOT=${fixture_root}"
+    -D "BUILD=${fixture}/build" -D ROUTE=missing -D STATUS=passed
+    -D "SOURCE_MANIFEST=${fixture}/current.tsv"
+    -P "${ROOT}/tools/internal/record.cmake"
+  RESULT_VARIABLE missing_compiler_result ERROR_VARIABLE missing_compiler_error)
+if(missing_compiler_result EQUAL 0 OR
+   NOT missing_compiler_error MATCHES "compiler identity is unavailable")
+  message(FATAL_ERROR "recording accepted an unconfigured compiler")
+endif()
 file(REMOVE_RECURSE "${fixture}")

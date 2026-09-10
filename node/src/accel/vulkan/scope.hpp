@@ -1,6 +1,7 @@
 #pragma once
 
-#include "adapter/api.hpp"
+#include "adapter/state.hpp"
+#include "buffer/access.hpp"
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)

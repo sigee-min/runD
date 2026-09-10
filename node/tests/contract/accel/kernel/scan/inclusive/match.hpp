@@ -22,7 +22,8 @@ template <typename T, std::size_t N>
 [[nodiscard]] bool InclusiveScanMatchesReference(
     const rund::AccelDevice &pick, const rund::kernel::ComputeScalar scalar,
     const rund::kernel::ScanElement element, const std::array<T, N> &input,
-    InclusiveScanRunCounters *const counters = nullptr) {
+    InclusiveScanRunCounters *const counters = nullptr,
+    const rund::kernel::u64 block_size = 4u) {
   namespace p = node_accel_contract::primitive;
   namespace scan = node_accel_contract::scan_inclusive;
   if (!pick.check.ok) {
@@ -30,7 +31,8 @@ template <typename T, std::size_t N>
   }
   const scan::Reference<T, N> ref = scan::BuildReference(element, input);
   scan::Resources<T> resources =
-      scan::BuildResources(pick, scalar, element, input);
+      scan::BuildResources(pick, scalar, element, input.data(), input.size(),
+                           block_size);
   if (!ref.ok || !resources.kernel.check.ok) {
     std::fprintf(stderr, "inclusive scan compile: ref=%d kernel=%d reason=%s\n",
                  ref.ok, resources.kernel.check.ok,

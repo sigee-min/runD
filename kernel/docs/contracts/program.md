@@ -115,7 +115,9 @@ is observed only after program activity or a recorded execution reason.
 Focused contracts live under:
 
 - `/kernel/tests/contract/program/`
-- `/kernel/tests/contract/program/compute/tile.cpp`
+- `/kernel/tests/contract/program/compute/tile/`; its compiled owners separate
+  dispatch geometry, explicit backend selection, run-state lifecycle, borrowed
+  storage, bounded binding, retained-memory accounting, and ordered dispatch.
 - `/kernel/tests/contract/workspace/`
 - `/kernel/tests/contract/dispatch/`
 

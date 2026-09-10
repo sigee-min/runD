@@ -7,6 +7,10 @@
 #include <cstdint>
 #include <memory>
 
+namespace rund::compute::detail {
+struct VirtualPipelineState;
+} // namespace rund::compute::detail
+
 namespace rund::node::compute_detail {
 
 struct TaskState;
@@ -122,6 +126,7 @@ struct OperationTable final {
   compute::detail::TerminalObservation (*result_cpu)(
       const Operation &, TaskState &) noexcept = nullptr;
   Dispatch (*submit_accel)(const Operation &, TaskState &) noexcept = nullptr;
+  Advance (*resume_accel)(const Operation &, TaskState &) noexcept = nullptr;
   compute::detail::TerminalObservation (*result_accel)(
       const Operation &, TaskState &) noexcept = nullptr;
   compute::detail::TerminalObservation (*fail)(
@@ -146,6 +151,8 @@ struct Operation final {
 make_job(std::shared_ptr<compute::detail::JobState> state) noexcept;
 [[nodiscard]] Operation
 make_pipeline(std::shared_ptr<compute::detail::PipelineState> state) noexcept;
+[[nodiscard]] Operation make_virtual_pipeline(
+    std::shared_ptr<compute::detail::VirtualPipelineState> state) noexcept;
 [[nodiscard]] Operation make_operation(std::shared_ptr<void> owner,
                                        const void *table) noexcept;
 

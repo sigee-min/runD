@@ -1,4 +1,7 @@
 #include "core.hpp"
+#include "reference.hpp"
+
+#include <cstdio>
 
 namespace rund::measure::compute {
 
@@ -92,6 +95,5 @@ bool ResidentSetup(const Backend backend, const std::size_t count,
               static_cast<unsigned long long>(evidence.output));
   return valid;
 }
-
 
 } // namespace rund::measure::compute

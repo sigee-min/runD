@@ -1,10 +1,12 @@
 #pragma once
 
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
 #include "block.hpp"
 #include "direct.hpp"
 #include "prefix.hpp"
 #include "shared.hpp"
+#include "tiled.hpp"
+#include "../../simd/source.hpp"
 
 #include <string_view>
 
@@ -35,10 +37,22 @@ struct RangeParams {
 };
 
 )MSL";
+  if (candidate == RangePath::TiledDifference ||
+      candidate == RangePath::PrefixDifference) {
+    source += MetalWideSimdPrefixSource;
+  }
   if (execution.saturating_sum()) {
     AppendMetalRangeSaturatingAlgebra(source);
   }
-  if (candidate == RangePath::PrefixDifference) {
+  if (candidate == RangePath::TiledDifference) {
+    if (op != RangeOp::Sum) {
+      return false;
+    }
+    AppendMetalTiledDifferenceKernel(source, shape, "uint", "u32");
+    AppendMetalTiledDifferenceKernel(source, shape, "ulong", "u64");
+    AppendMetalTiledDifferenceKernel(source, shape, "uint", "i32");
+    AppendMetalTiledDifferenceKernel(source, shape, "ulong", "i64");
+  } else if (candidate == RangePath::PrefixDifference) {
     if (op != RangeOp::Sum) {
       return false;
     }

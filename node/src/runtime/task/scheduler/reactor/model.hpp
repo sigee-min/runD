@@ -8,7 +8,10 @@
 #include <limits>
 #include <vector>
 
-#include "../../../reactor/platform.hpp"
+#include "../../../reactor/platform/handle.hpp"
+#include "../../../reactor/platform/poll.hpp"
+#include "../../../reactor/platform/registration.hpp"
+#include "../../../reactor/platform/state.hpp"
 
 namespace rund::node {
 

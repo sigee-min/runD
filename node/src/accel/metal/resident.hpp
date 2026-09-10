@@ -42,6 +42,22 @@ DownloadMetalResidentBuffers(const rund::AccelDevice &pick,
                              std::span<const DownloadRoute> requests,
                              TransferAuthority authority);
 
+// Authenticates the Pipeline-private resident capability and projects the
+// Shared MTLBuffer contents as a stable read-only Host view. The caller owns
+// the exact native-terminal ordering; this function performs no wait or copy.
+[[nodiscard]] BackendHostView
+ReadMetalResidentBuffer(const rund::AccelDevice &pick,
+                        const rund::kernel::ResidentBufferRef &ref,
+                        const std::shared_ptr<void> &handle) noexcept;
+
+// Authenticates the Pipeline-private resident capability and projects the
+// Shared MTLBuffer contents as a stable writable Host view. The caller owns
+// the exact mutation range and execution ordering.
+[[nodiscard]] BackendHostWriteView
+WriteMetalResidentBuffer(const rund::AccelDevice &pick,
+                         const rund::kernel::ResidentBufferRef &ref,
+                         const std::shared_ptr<void> &handle) noexcept;
+
 [[nodiscard]] BackendCopy
 CopyMetalResidentBuffers(const rund::AccelDevice &pick,
                          std::span<const CopyRoute> requests,

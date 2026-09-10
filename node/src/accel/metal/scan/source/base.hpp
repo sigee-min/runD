@@ -1,7 +1,9 @@
 #pragma once
 
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
 #include "../../../scan/prefix.hpp"
+
+#include "../../simd/source.hpp"
 
 #include <string_view>
 
@@ -17,85 +19,52 @@ template <typename Sink>
 using namespace metal;
 
 constant uint kScanWidth = )MSL") &&
-         source.decimal(kScanPrefixWorkgroupWidth) && source.append(R"MSL(u;
-inline uint rund_scan_exclusive_uint(threadgroup uint* values, uint tid,
-                                     uint block_size) {
-  threadgroup_barrier(mem_flags::mem_threadgroup);
-  if ((block_size & (block_size - 1u)) == 0u) {
-    for (uint stride = 1u; stride < block_size; stride <<= 1u) {
-      const uint pos = (tid + 1u) * stride * 2u - 1u;
-      if (pos < block_size) { values[pos] += values[pos - stride]; }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    const uint total = values[block_size - 1u];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid == 0u) { values[block_size - 1u] = 0u; }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = block_size >> 1u; stride > 0u; stride >>= 1u) {
-      const uint pos = (tid + 1u) * stride * 2u - 1u;
-      if (pos < block_size) {
-        const uint left = values[pos - stride];
-        values[pos - stride] = values[pos];
-        values[pos] += left;
-      }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    return total;
-  }
-  for (uint offset = 1u; offset < block_size; offset <<= 1u) {
-    const uint add = tid >= offset ? values[tid - offset] : 0u;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    values[tid] += add;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-  }
-  const uint total = values[block_size - 1u];
-  const uint exclusive = tid == 0u ? 0u : values[tid - 1u];
-  threadgroup_barrier(mem_flags::mem_threadgroup);
-  values[tid] = exclusive;
-  threadgroup_barrier(mem_flags::mem_threadgroup);
-  return total;
-}
+         source.decimal(kScanPrefixWorkgroupWidth) && source.append("u;\n") &&
+         source.append(MetalWideSimdPrefixSource) && source.append(R"MSL(
 inline void rund_scan_exclusive_uint_pair(
     threadgroup uint* first, threadgroup uint* second, uint tid,
-    uint block_size, thread uint& exclusive, thread uint& total) {
+    uint block_size, uint simd_width, thread uint& exclusive,
+    thread uint& total) {
+  const uint value = first[tid];
+  const uint local = simd_prefix_exclusive_sum(value);
+  const uint local_total = simd_sum(value);
+  const uint group = tid / simd_width;
+  if (tid % simd_width == 0u) { second[group] = local_total; }
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  uint bank = 0u;
-  for (uint step = 1u; step < block_size; step <<= 1u) {
-    const uint next_bank = bank ^ 1u;
-    threadgroup uint* source = bank == 0u ? first : second;
-    threadgroup uint* target = next_bank == 0u ? first : second;
-    const uint addend = tid >= step ? source[tid - step] : 0u;
-    target[tid] = source[tid] + addend;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    bank = next_bank;
+  if (tid == 0u) {
+    uint accumulated = 0u;
+    for (uint i = 0u; i < (block_size + simd_width - 1u) / simd_width; ++i) {
+      const uint subtotal = second[i];
+      second[i] = accumulated;
+      accumulated += subtotal;
+    }
+    first[0] = accumulated;
   }
-  threadgroup uint* result = bank == 0u ? first : second;
-  total = result[block_size - 1u];
-  exclusive = tid == 0u ? 0u : result[tid - 1u];
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  exclusive = second[group] + local;
+  total = first[0];
 }
-inline ulong rund_scan_exclusive_ulong(threadgroup ulong* values, uint tid, uint block_size) {
+inline ulong rund_scan_exclusive_ulong(
+    threadgroup ulong* groups, ulong value, uint tid, uint width,
+    uint simd_width, uint physical_lane, thread ulong& exclusive) {
+  const uint group = tid / simd_width;
+  const uint last = simd_max(physical_lane);
+  const ulong inclusive = rund_simd_prefix_u64(value);
+  const ulong subtotal = rund_simd_last_u64(inclusive, last);
+  if (tid % simd_width == 0u) { groups[group] = subtotal; }
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  if ((block_size & (block_size - 1u)) == 0u) {
-    for (uint stride = 1u; stride < block_size; stride <<= 1u) {
-      const uint pos = (tid + 1u) * stride * 2u - 1u; if (pos < block_size) { values[pos] += values[pos - stride]; }
-      threadgroup_barrier(mem_flags::mem_threadgroup); }
-    const ulong total = values[block_size - 1u]; threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid == 0u) { values[block_size - 1u] = 0ul; }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = block_size >> 1u; stride > 0u; stride >>= 1u) {
-      const uint pos = (tid + 1u) * stride * 2u - 1u; if (pos < block_size) {
-        const ulong left = values[pos - stride]; values[pos - stride] = values[pos]; values[pos] += left; }
-      threadgroup_barrier(mem_flags::mem_threadgroup); }
-    return total;
+  if (tid == 0u) {
+    ulong accumulated = 0ul;
+    for (uint i = 0u; i < (width + simd_width - 1u) / simd_width; ++i) {
+      const ulong next = groups[i];
+      groups[i] = accumulated;
+      accumulated += next;
+    }
+    groups[width] = accumulated;
   }
-  for (uint offset = 1u; offset < block_size; offset <<= 1u) {
-    const ulong add = tid >= offset ? values[tid - offset] : 0ul;
-    threadgroup_barrier(mem_flags::mem_threadgroup); values[tid] += add; threadgroup_barrier(mem_flags::mem_threadgroup);
-  }
-  const ulong total = values[block_size - 1u];
-  const ulong exclusive = tid == 0u ? 0ul : values[tid - 1u];
-  threadgroup_barrier(mem_flags::mem_threadgroup); values[tid] = exclusive; threadgroup_barrier(mem_flags::mem_threadgroup);
-  return total;
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  exclusive = groups[group] + inclusive - value;
+  return groups[width];
 }
 inline bool rund_scan_overflow_uint(uint previous, uint value, uint next,
                                     uint signed_domain) {

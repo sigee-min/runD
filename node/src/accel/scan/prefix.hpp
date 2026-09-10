@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/prefix.hpp"
 
 #include <kernel/core/checked.hpp>
 #include <kernel/program/compute/scan/model.hpp>

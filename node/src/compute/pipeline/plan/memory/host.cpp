@@ -1,3 +1,4 @@
+#include "../../state/assembly.hpp"
 #include "local.hpp"
 
 #include "../arena.hpp"
@@ -73,7 +74,7 @@ plan_pipeline_host_preparation(const PipelineBuildState &build,
   const bool transactional = !build.state_pairs.empty();
   std::uint64_t host = sizeof(PipelineState) + sizeof(PipelinePublicationState);
   if (!add_extent(host, step_count, sizeof(PipelineStep)) ||
-      !add_extent(host, build.logical_step_count, sizeof(PipelineWindow)) ||
+      !add_extent(host, build.logical_step_count, PipelineWindows::entry_bytes()) ||
       !add_extent(host, resource_count, sizeof(PipelineResource)) ||
       !add_extent(host, plan.view_chunks.size() + plan.scratch.size(),
                   sizeof(std::shared_ptr<BufferState>)) ||
@@ -88,6 +89,14 @@ plan_pipeline_host_preparation(const PipelineBuildState &build,
       !add_extent(host, plan.hazards.dependencies.size(),
                   sizeof(PipelineDependency)) ||
       !add_extent(host, step_count, sizeof(std::uint8_t))) {
+    return Status::fail(Reason::PipelineCapacity);
+  }
+  std::size_t job_count = 0u;
+  for (std::size_t index = 0u; index < plan.job_owners.size(); ++index) {
+    job_count += plan.job_owners[index] == index ? 1u : 0u;
+  }
+  if (!add_extent(host, job_count,
+                  sizeof(PipelineMemoryOwner) * (transactional ? 2u : 1u))) {
     return Status::fail(Reason::PipelineCapacity);
   }
   const bool has_windows = !plan.window_controls.empty();

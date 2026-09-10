@@ -1,4 +1,4 @@
-#include "src/accel/kernel/prepared.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
 #include "src/accel/kernel/prepared/model.hpp"
 
 #include <array>

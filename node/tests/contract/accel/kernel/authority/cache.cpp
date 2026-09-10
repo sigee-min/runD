@@ -1,10 +1,10 @@
 #include "src/accel/backend/ops/table.hpp"
 #include "src/accel/context/internal/execution.hpp"
 #include "src/accel/kernel/memory.hpp"
-#include "src/accel/kernel/prepared.hpp"
-#include "src/accel/kernel/prepared/template_registry.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
+#include "src/accel/kernel/prepared/template/registry.hpp"
 
-#include "src/accel/metal/kernel/pipeline/identity_index.hpp"
+#include "src/accel/metal/kernel/pipeline/identity/index.hpp"
 
 #include <cstdint>
 #include <limits>

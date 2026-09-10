@@ -1,8 +1,10 @@
 #include "source.hpp"
 
-#include "../../kernel/backend/source_recipe.hpp"
-#include "source/32/program.hpp"
-#include "source/64/program.hpp"
+#include "../../kernel/backend/source/storage.hpp"
+#include "source/block.hpp"
+#include "source/flag.hpp"
+#include "source/offset.hpp"
+#include "source/prefix.hpp"
 #include "source/base.hpp"
 
 namespace rund::node::accel::detail {
@@ -10,13 +12,13 @@ namespace rund::node::accel::detail {
 namespace {
 template <typename Sink> [[nodiscard]] bool EmitMetalScanSource(Sink &sink) {
   return AppendMetalScanBaseSource(sink) &&
-         sink.append(MetalScanBlockU32Source()) &&
+         AppendMetalScanBlockSource<false>(sink) &&
          sink.append(MetalScanBlockFlagU32Source()) &&
-         sink.append(MetalScanPrefixU32Source()) &&
-         sink.append(MetalScanOffsetU32Source()) &&
-         sink.append(MetalScanBlockU64Source()) &&
-         sink.append(MetalScanPrefixU64Source()) &&
-         sink.append(MetalScanOffsetU64Source());
+         AppendMetalScanPrefixSource<false>(sink) &&
+         AppendMetalScanOffsetSource<false>(sink) &&
+         AppendMetalScanBlockSource<true>(sink) &&
+         AppendMetalScanPrefixSource<true>(sink) &&
+         AppendMetalScanOffsetSource<true>(sink);
 }
 } // namespace
 

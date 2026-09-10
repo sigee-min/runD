@@ -114,7 +114,7 @@ read_bytes(const RunState &run, const std::shared_ptr<BufferState> &buffer,
       return Status::fail(Reason::TransferInvalid);
     }
     const DownloadResult transfer = run.program->device->ops->download(
-        *run.program->device, *buffer, data, bytes);
+        *run.program->device, *buffer, data, bytes, 0u);
     if (staging_bytes != nullptr) {
       *staging_bytes = transfer.staging_bytes;
     }

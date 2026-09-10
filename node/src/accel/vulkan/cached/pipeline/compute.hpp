@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+
 #include "../pipeline.hpp"
 
 #include <kernel/program/compute/lowering/vulkan/shape.hpp>

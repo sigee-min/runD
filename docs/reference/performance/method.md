@@ -88,6 +88,16 @@ the seams own only their named model, oracle, reporting, exact-shape, and
 bounded-shape work. Together these six owners form the complete installed
 Product measurement implementation.
 
+The cross-scenario measurement seam is deliberately narrower than the
+Product scenarios: `suite/output.cpp` owns CSV escaping, environment, and
+workload-column emission; `suite/reference.cpp` owns the shared CPU-reference
+ledger; `suite/capture.hpp` and `suite/bench.hpp` contain only the generic
+resident-job templates that must be instantiated at their call sites;
+`suite/warm.hpp` owns the warm-counter arithmetic contract; and
+`suite/core.hpp` is a declarations/value boundary rather than an executable
+header. The explicit Compute target registers those owners once for each
+measurement closure.
+
 For a new Release source, `tools/measure/admit/run` creates an independent
 three-packet set for each route. Every input must have a passed workload, the
 same source/toolchain identity, the same executable identity within its route,
@@ -217,6 +227,12 @@ count are common; shader structure, workgroup geometry, prefix hierarchy,
 scratch shape, and dispatch count are backend-owned. No backend is slowed to
 match another backend's portability constraints.
 
+The admitted Range candidate names are `direct`, `shared`, `tiled`, `prefix`,
+and `block`. Candidate, stage count, source/execution identities, dispatches,
+and memory ownership remain exact semantic fields. Adding a supported lowering
+updates the parser's named-candidate contract and requires a reviewed baseline
+projection; it does not remove structural fields or relax timing limits.
+
 The Compute raw log's `environment` record is the physical-path identity for
 interpreting a backend row. In particular, a Vulkan record whose `driver` is
 `MoltenVK` executes the Vulkan API, generated SPIR-V, descriptors, command
@@ -241,8 +257,12 @@ a new environment, not a performance regression sample.
 The optional current-source `--resident`, `--collective`, `--sort`, `--bulk`,
 `--batch`, `--pipeline`, `--checkpoint`, `--pipeline-profile`, `--recurrence`,
 `--window-repeat`, `--plan-memory`, `--prepare-memory`, and
-`--virtual-residency` diagnostics are
-intentionally outside the installed-Release baseline route. `--resident`
+`--virtual-residency` and `--virtual-route-matrix` diagnostics, plus the paired
+`--virtual-crossover` and `--virtual-window` diagnostics, are
+intentionally outside the installed-Release baseline route. The route
+matrix's natural-admission three-packet scope and Metal-native /
+MoltenVK-portability-only labels are owned by [Virtual Performance](./virtual/method.md).
+`--resident`
 isolates resident creation at 1,024 and 1,048,576 elements, validates the first
 execution and output, and reports CPU plus one selected backend without
 changing the canonical algorithm or memory placement. `--bulk` compiles one canonical
@@ -254,94 +274,12 @@ allocations, uploads, and downloads. It never selects an algorithm from the
 workload size: the same transform schedule owns every admitted power-of-two
 count.
 
-`tools/measure/compute/run --virtual-residency <cpu|metal|vulkan>` is a separate
-current-source product diagnostic over the public opt-in
-`<rund/compute/virtual.hpp>` surface. Each of three sequential process packets
-opens an executable selected backend and measures one real Device-global
-fixed-frame workload with `L = 65,537` logical `I32` elements, a 4,096-element
-page, and three physical frame pairs, so `C = 12,288` elements and `L > C`.
-The tail makes 17 logical pages and the fixed capacity makes six epochs per
-run. Packet markers delimit
-the three complete CSV streams; they are diagnostic packet boundaries, not
-Release evidence packets and are never inputs to baseline admission.
-Cold backing traffic is the exact 262,148-byte logical extent per direction.
-Physical frame traffic covers 17 active frames, or 278,528 bytes per
-direction; inactive terminal frames are not transferred. The CSV keeps
-logical backing and physical frame facts in separate Profile-owned columns.
-
-The cold interval starts at public graph authoring, then includes compile,
-VirtualBacking and VirtualBuffer construction, VirtualPipeline preparation,
-input-backing seed, one run, and one full terminal output-backing read. The
-tool owns only these steady-clock wall boundaries. The machine-readable cold
-row contains their author, compile, prepare, seed, run and read partition; it
-does not require cold compilation to be zero. It validates every output
-element and independently checks the content hash, but serializes the plan and
-result identities from the terminal Profile's Stats authority.
-
-VirtualPipeline seals preparation evidence before its first run starts a new
-terminal execution epoch. The route therefore takes one public `Profile`
-immediately after preparation and serializes its compile, cache, buffer,
-descriptor and compile-time fields under `prepare_*`; the same snapshot binds
-the memory owner for that epoch. It separately labels the terminal Profile
-execution fields `terminal_*`. Both are direct snapshots; the benchmark
-computes no counter delta and never treats a zeroed terminal epoch as proof
-that cold preparation did no work.
-
-`prepare_evidence_status` is a direct serialization of
-`PipelineStats::preparation_evidence`, not a backend switch. Metal reports
-`owner_local_compile_cache`: the physical status or nested-aggregate
-preparation operation writes the same compile/cache/time fact into the
-prepared owner's existing `AccelRunFacts` handoff. CPU reports
-`unavailable_no_native_producer` because it has no native Pipeline compiler or
-cache producer. Vulkan reports `unavailable_backend_global` until its
-descriptor and pipeline producers have an owner-local preparation handoff.
-Their structural zero fields are not interpreted as measured zero. The wall
-columns `author_us`, `compile_us`, and `prepare_us` continue to measure the
-public phase boundaries and are never converted into backend counters.
-Consumers must gate every `prepare_*` numeric field on
-`prepare_evidence_status=owner_local_compile_cache`; either unavailable status
-makes those numeric placeholders inadmissible as compile/cache evidence. The
-fixture enforces that unavailable rows contain only zero placeholders, so a
-partial adapter-global snapshot cannot accidentally acquire authority through
-the CSV.
-
-The same prepared VirtualPipeline then opens one sample epoch and runs exactly
-60 times. There is no Profile projection or caller observation between warm
-runs. After the sample epoch closes, the route performs one full backing read
-and one Profile projection. It reports nearest-rank warm p95, the ordinary
-even-sample median p50, logical elements per second from p50, per-run epochs,
-compute/H2D/D2H submissions, backing and physical transfer bytes, `L/C`, plan
-identity, graph/result hashes, raw compile/buffer/descriptor allocation
-counters, and Profile MemoryStats. `ResidencyStats` must report 60 sampled,
-allocation-free terminals, and the public per-run compile, buffer-allocation,
-descriptor-pool creation, and descriptor-set allocation facts must remain
-zero. The tool does not add a second heap or memory counter beside Profile.
-Any failed run, missing terminal, counter mismatch, output mismatch, nonzero
-runD-owned/Profile warm-allocation evidence, or hash mismatch fails the
-packet; no retry or synthetic row is emitted.
-
-CPU and Metal are executable measurement targets. On the Apple release host,
-Vulkan exposes `VK_KHR_portability_subset`; public preparation returns exact
-`BackendUnsupported` before backing callbacks or physical materialization, and
-the diagnostic reports that target as blocked without emitting a timing row.
-Native Vulkan retains the same diagnostic implementation, but its product
-measurement remains unverified until a native device supplies evidence.
-
-Every row is labeled `current_source_diagnostic`. It copies cache hit/eviction,
-download-event and readback, kernel and backing-I/O time, plan peak/committed
-and scratch bytes, and the Host, Device, Resident, Staging and Transfer
-current/peak/cumulative counters directly from the terminal `Profile` and
-frozen `PipelinePlan`. Page count, selected slot capacity, logical/page/working
-set bytes and capacity epoch count are the plan's values rather than fixture
-constants. `terminal_reads=1` and `profile_projections=1` describe
-the harness observation boundary; they are not backend counters. The warm
-allocation columns are explicitly named `rund_allocation_free_runs` and
-`rund_allocation_scope=rund_owned`. The route does not measure process-global
-allocation; the backend product contract owns that assertion. Executable rows
-record `process_global_allocation_status=not_measured`. A blocked portability
-adapter has no row and therefore cannot be relabeled as performance evidence.
-These rows remain outside the installed Release baseline and cannot enter
-admission.
+VirtualPipeline residency packets, paired crossover and bounded-window
+sampling, counter admission, classification, and measured comparisons are owned by
+[Virtual Performance](./virtual/README.md). They remain current-source
+diagnostics outside the installed Release baseline; the generic manifest,
+semantic admission, comparison, and publication rules on this page still
+apply.
 
 The installed-Release measurement executable includes only the installed
 public SDK. Internal matrix-tile and transform-stage cost contracts are visible
@@ -407,6 +345,15 @@ rows remain separately named telemetry. An unavailable
 backend is reported as unavailable, while any other rejection is admissible
 only with the public Capacity code or a known stable native preparation
 location.
+
+The preparation-memory report has one thin public façade at
+`tools/measure/compute/pipeline/prepare/report.cpp`. The frozen CSV schema is
+owned by `report/columns.cpp`; row sequencing is owned by `report/row.cpp`,
+which delegates plan, memory, backend-reservation, and failure-location field
+groups to their respective leaves. `report/format.cpp` is the sole numeric,
+decimal, CSV, and memory-label formatting owner. These files are registered
+once in the focused Compute target, so the measurement has no second schema or
+formatting authority.
 
 `tools/measure/compute/run --sort <backend>` uses the same dense and bounded
 sparse Sort workloads, result-hash parity, resident preparation, and zero-warm
@@ -854,7 +801,8 @@ profile, compared metric count, and comparison result live under the
 successful workload into a failed workload or erase its exit status.
 
 The packet also seals the selected environment profile, measured executable
-name and SHA-256, configured generator, compiler path and compiler SHA-256,
+name and SHA-256, configured generator, compiler path, compiler SHA-256,
+and hashed compiler-version output,
 source identity, revision, and dirty state. Its `run.tsv` field order and set
 are exact. The retained source manifest, source identity, raw log, and
 comparison result are regular non-symlink files whose recorded SHA-256 values
@@ -865,8 +813,8 @@ independently selected packet profile remains exact.
 
 The configured CMake cache is the single compiler authority. Flow frontend
 measurement and packet publication both resolve that same executable through
-`tools/internal/measure/compiler`; changing `${CXX}` after configuration
-cannot measure one compiler while sealing another.
+`tools/internal/toolchain/compiler`, shared with ordinary verification;
+changing `${CXX}` after configuration cannot measure one compiler while sealing another.
 
 Evidence status accepts a raw diagnostic packet only when all fields are
 unique, the host is current, both files and hashes match, and a fresh parser
@@ -913,10 +861,31 @@ Release is then rebuilt at `M1`, and `tools/measure/admit/run` records a new
 independent three-packet set for every route against the new table. Its one
 aggregate packet is the ordinary same-`M1` admission evidence.
 
+A structural recalibration should preserve existing absolute performance
+limits. Both `project` and `cut` accept a leading `--ceiling PRIOR_TABLE`
+operand naming the retained pre-edit baseline. That table passes the same
+schema and current-host checks as the live table. Its numeric metric set,
+policies, and units must match the observation; new semantic identities still
+come exclusively from the fifteen sealed packets. For each upper metric the
+projector retains the actual three-packet median `B_new` and computes
+
+```text
+L_old = B_old + A_old
+A_new = min(A_cost_class(B_new), L_old - B_new).
+```
+
+If `B_new > L_old`, projection fails and no table is emitted. No timing or
+memory upper limit can increase through this mode. A changed exact semantic
+still requires the component/ownership review described above; a ceiling is
+not permission to accept different outputs or workloads. `cut` replays the
+same operand and prints the prior table SHA-256 with its proof. Retain the
+prior table and both packet sets with the review evidence. Ordinary Release
+admission needs only the resulting checked-in table and fresh packets.
+
 The stdout-only candidate projector is:
 
 ```text
-tools/internal/measure/project ROOT PROFILE \
+tools/internal/measure/project [--ceiling PRIOR_TABLE] ROOT PROFILE \
   scheduler1 scheduler2 scheduler3 \
   compute1 compute2 compute3 \
   flow1 flow2 flow3 \
@@ -943,7 +912,7 @@ After review, apply that complete output as the explicit `baseline.tsv` edit.
 The cut validator is:
 
 ```text
-tools/internal/measure/cut ROOT PROFILE \
+tools/internal/measure/cut [--ceiling PRIOR_TABLE] ROOT PROFILE \
   scheduler1 scheduler2 scheduler3 \
   compute1 compute2 compute3 \
   flow1 flow2 flow3 \

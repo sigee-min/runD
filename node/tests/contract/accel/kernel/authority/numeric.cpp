@@ -39,7 +39,10 @@ namespace node_accel_contract {
       !MetalCompactSourceUpperBytes(bytes) ||
       !exact(MetalCompactSource(), bytes) ||
       !exact(MetalGatherSource(), MetalGatherSourceUpperBytes()) ||
-      !exact(MetalHistogramSource(), MetalHistogramSourceUpperBytes()) ||
+      !exact(MetalHistogramSource(256u),
+             MetalHistogramSourceUpperBytes(256u)) ||
+      !exact(MetalHistogramSource(257u),
+             MetalHistogramSourceUpperBytes(257u)) ||
       !MetalPartitionSourceUpperBytes(bytes) ||
       !exact(MetalPartitionSource(), bytes) ||
       !exact(MetalScatterSource(), MetalScatterSourceUpperBytes()) ||

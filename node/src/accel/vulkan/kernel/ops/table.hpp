@@ -2,12 +2,13 @@
 
 #include "prepare.hpp"
 
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+#include "table/numeric.hpp"
+#endif
+
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-
-#include "table/numeric.hpp"
-
 [[nodiscard]] bool
 ObserveVulkanMapFailure(const std::shared_ptr<void> &resources,
                         std::uint64_t &ordinal) noexcept;

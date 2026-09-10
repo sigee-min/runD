@@ -6,6 +6,7 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 void RunVulkanCompletion(VulkanAdapter *adapter) noexcept;
+void RunVulkanResidencyCompletion(VulkanAdapter *adapter) noexcept;
 #endif
 
 } // namespace rund::node::accel::detail

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../clock.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../runtime/counter.hpp"
 
 #include <cstdint>

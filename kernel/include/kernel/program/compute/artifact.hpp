@@ -21,6 +21,7 @@ enum class LoweringArtifactVariant : u8 {
   Controlled = 1u,
   Recurrence = 2u,
   HistoryRecurrence = 3u,
+  DeviceVsm = 4u,
 };
 
 struct ArtifactKey {

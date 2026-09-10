@@ -1,3 +1,7 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
@@ -124,30 +128,6 @@ rund::AccelCheck PrepareVulkanSegmentedScan(
   (void)resources;
   (void)pipelines;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
-#endif
-}
-
-rund::AccelCheck
-ExecuteVulkanSegmentedScan(const rund::AccelDevice &pick,
-                           const rund::kernel::SegmentedScanDesc &desc,
-                           const rund::kernel::SegmentedScanPlan &plan,
-                           const rund::kernel::ComputeDomain domain,
-                           const SegmentedScanBinds &bindings) {
-#if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return ExecuteVulkanCollective(
-      pick, desc, plan, bindings,
-      [domain](const rund::AccelDevice &device,
-               const rund::kernel::SegmentedScanDesc &scan,
-               const rund::kernel::SegmentedScanPlan &prepared,
-               const SegmentedScanBinds &resident,
-               std::shared_ptr<void> &resources) {
-        return PrepareVulkanSegmentedScan(device, scan, prepared, domain,
-                                          resident, resources);
-      },
-      EncodeVulkanSegmentedScan, FinishVulkanSegmentedScan);
-#else
-  (void)domain;
-  return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);
 #endif
 }
 

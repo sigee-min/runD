@@ -1,8 +1,8 @@
-#include "src/accel/kernel/backend/pipeline_failure.hpp"
-#include "src/accel/kernel/prepared.hpp"
+#include "src/accel/kernel/backend/pipeline/failure.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
 
 #include "src/accel/metal/kernel/pipeline/icb.hpp"
-#include "src/accel/metal/kernel/pipeline/identity_index.hpp"
+#include "src/accel/metal/kernel/pipeline/identity/index.hpp"
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #include "src/accel/metal/kernel/pipeline/aggregate/source.hpp"

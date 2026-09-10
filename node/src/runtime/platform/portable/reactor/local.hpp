@@ -4,7 +4,9 @@
 #define _XOPEN_SOURCE 700
 #endif
 
-#include "../../../reactor/platform.hpp"
+#include "../../../reactor/platform/poll.hpp"
+#include "../../../reactor/platform/registration.hpp"
+#include "../../../reactor/platform/state.hpp"
 #include "../../io.hpp"
 #include "../../posix/probe.hpp"
 

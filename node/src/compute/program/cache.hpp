@@ -1,69 +1,36 @@
 #pragma once
 
 #include <rund/compute/cache.hpp>
-#include <rund/compute/graph/info.hpp>
 
-#include <condition_variable>
-#include <cstdint>
-#include <functional>
-#include <map>
 #include <memory>
-#include <mutex>
-#include <variant>
+#include <type_traits>
 
+namespace rund::compute::graph {
+struct Fingerprint;
+}
 namespace rund::compute::detail {
-
-struct DeviceState;
+struct ProgramCacheState;
 struct ProgramState;
-
-struct FingerprintLess {
-  [[nodiscard]] bool
-  operator()(const graph::Fingerprint &left,
-             const graph::Fingerprint &right) const noexcept {
-    if (left.hi != right.hi) {
-      return left.hi < right.hi;
-    }
-    return left.lo < right.lo;
-  }
+// Borrowed only for the duration of cached_program; never stored in an entry.
+struct ProgramBuilder final {
+  void *context;
+  Result<std::shared_ptr<ProgramState>> (*invoke)(void *);
 };
-
-struct ProgramCachePending final {};
-using ProgramCacheOutcome =
-    std::variant<ProgramCachePending, std::shared_ptr<ProgramState>, Status>;
-
-struct ProgramCacheEntry;
-using ProgramCacheEntries =
-    std::map<graph::Fingerprint, std::shared_ptr<ProgramCacheEntry>,
-             FingerprintLess>;
-
-struct ProgramCacheEntry final {
-  std::condition_variable ready;
-  ProgramCacheOutcome outcome{ProgramCachePending{}};
-  ProgramCacheEntries::iterator slot{};
-  ProgramCacheEntry *older{};
-  ProgramCacheEntry *newer{};
-};
-
-struct ProgramCacheState final {
-  std::shared_ptr<DeviceState> device;
-  std::size_t capacity{};
-  mutable std::mutex mutex;
-  ProgramCacheEntries entries;
-  ProgramCacheEntry *oldest{};
-  ProgramCacheEntry *newest{};
-  std::size_t ready_count{};
-  std::uint64_t hits{};
-  std::uint64_t misses{};
-  std::uint64_t waits{};
-  std::uint64_t evictions{};
-
-  void clear_ready() noexcept;
-};
-
-using ProgramBuilder = std::function<Result<std::shared_ptr<ProgramState>>()>;
-
 [[nodiscard]] Result<std::shared_ptr<ProgramState>>
 cached_program(const std::shared_ptr<ProgramCacheState> &cache,
-               graph::Fingerprint fingerprint, ProgramBuilder builder);
+               const graph::Fingerprint &fingerprint, ProgramBuilder builder);
 
+// Bind without copying or moving the callable, including temporary and
+// move-only captures. The compiled overload finishes before this scope exits.
+template <class Builder>
+[[nodiscard]] Result<std::shared_ptr<ProgramState>>
+cached_program(const std::shared_ptr<ProgramCacheState> &cache,
+               const graph::Fingerprint &fingerprint, Builder &&builder) {
+  using Callable = std::remove_reference_t<Builder>;
+  return cached_program(
+      cache, fingerprint,
+      ProgramBuilder{
+          const_cast<void *>(static_cast<const void *>(std::addressof(builder))),
+          [](void *context) { return (*static_cast<Callable *>(context))(); }});
+}
 } // namespace rund::compute::detail

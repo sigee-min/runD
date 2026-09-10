@@ -1,5 +1,14 @@
 #pragma once
 
+#include "../model.hpp"
+#include "../prepare/numeric.hpp"
+#include "../../../numeric.hpp"
+
+#include <memory>
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+namespace rund::node::accel::detail {
+
 [[nodiscard]] rund::AccelCheck DescribeVulkanNumericPipelineStatus(
     const std::shared_ptr<void> &, VulkanPipelineStatusSource &);
 
@@ -68,3 +77,7 @@ VulkanNumericOpsFor(const rund::kernel::NodeKind kind) noexcept {
     };
   }
 }
+
+} // namespace rund::node::accel::detail
+
+#endif

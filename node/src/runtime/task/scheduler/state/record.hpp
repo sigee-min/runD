@@ -31,16 +31,6 @@ void RecordSpawnBatch(std::uint64_t task_id, std::uint64_t parent_task_id,
                       std::uint64_t scope_id, std::uint64_t name_hash) noexcept;
 void FlushTaskSpawnBatch(ReasonCode side_exit_code = ReasonCode::Ok) noexcept;
 void FlushYieldBatch(ReasonCode side_exit_code = ReasonCode::Ok) noexcept;
-void RecordLaneLocalYieldBatch(std::uint64_t task_id,
-                               std::uint64_t logical_yields,
-                               std::uint64_t logical_ticket) noexcept;
-void RecordLaneLocalYieldEpochBatch(std::uint64_t first_task_id,
-                                    std::uint64_t last_task_id,
-                                    std::uint64_t first_ticket,
-                                    std::uint64_t last_ticket,
-                                    std::uint64_t logical_tasks,
-                                    std::uint64_t logical_yields,
-                                    std::uint64_t participant_hash) noexcept;
 void RecordTerminalBatch(::rund::detail::task::OperationKind terminal_kind,
                          ReasonCode code, std::uint64_t task_id) noexcept;
 void RecordTerminalRangeBatch(::rund::detail::task::OperationKind terminal_kind,
@@ -52,7 +42,6 @@ void RecordTerminalRangeBatch(::rund::detail::task::OperationKind terminal_kind,
                               std::uint64_t order_hash,
                               bool includes_root_submit) noexcept;
 void RecordYieldBatch(std::uint64_t task_id) noexcept;
-void RecordJoinBatch(std::uint64_t target_task_id, ReasonCode code) noexcept;
 void RecordJoinRetireBatch(std::uint64_t first_task_id,
                            std::uint64_t last_task_id, ReasonCode code,
                            std::uint64_t logical_tasks) noexcept;

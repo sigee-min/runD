@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../adapter/error.hpp"
+
 #include "../../../../clock.hpp"
 #include "../../../descriptor.hpp"
 #include "../../../runtime/counter.hpp"

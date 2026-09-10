@@ -3,7 +3,7 @@
 #include "../../scan/prefix.hpp"
 #include "../../scan/shape.hpp"
 #include "../../scan/vulkan.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../barrier.hpp"
 #include "../collective/chunk.hpp"
 #include "../command.hpp"

@@ -4,6 +4,7 @@
 #include <kernel/program/compute/scatter/plan.hpp>
 
 #include "scatter/local.hpp"
+#include "scatter/match/reduce.hpp"
 #include "scatter/match/run.hpp"
 #include "scatter/reject/reduce.hpp"
 #include "scatter/reject/run.hpp"
@@ -43,7 +44,7 @@ bool ScatterReduceFailuresAreAtomic(const rund::AccelDevice &pick) {
 }
 
 bool ScatterReduceParallelModes(const rund::AccelDevice &pick) {
-  return reject::ScatterReduceParallelModes(pick);
+  return match::ScatterReduceParallelModes(pick);
 }
 
 } // namespace scatter
@@ -52,7 +53,8 @@ bool BackendRunsScatter(const rund::AccelDevice &pick) {
   return ScatterEncodingBoundary() && scatter::MatchesU32(pick) &&
          scatter::MatchesU64(pick) && scatter::RejectsDuplicateIndex(pick) &&
          scatter::ScatterReduceFailuresAreAtomic(pick) &&
-         scatter::ScatterReduceParallelModes(pick);
+         scatter::ScatterReduceParallelModes(pick) &&
+         scatter::match::ScatterReduceCohorts(pick);
 }
 
 bool RequiredMetalRunsScatter() {

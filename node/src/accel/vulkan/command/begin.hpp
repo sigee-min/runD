@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../command.hpp"
+#include "../adapter/error.hpp"
 
 #include <rund/counter.hpp>
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+
 #include <accel/check.hpp>
 
 #include "local.hpp"

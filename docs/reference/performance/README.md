@@ -11,7 +11,13 @@ live compiler graph through its separate boundary.
 | Path | Owns |
 | --- | --- |
 | [GPU Workload Sizing](./gpu.md) | Arithmetic intensity, offload break-even, execution-shape guidance, and the interpretation of admitted GPU evidence. |
+| [Metal Scatter Reduce](./metal-scatter-reduce.md) | Current-source warm indexed fold contention comparison and shared-memory bounds. |
+| [Metal Histogram](./metal-histogram.md) | Current-source warm Histogram contention/locality comparison and claim limits. |
+| [Metal SIMD-group Min/Max](./metal-extrema.md) | Current-source warm GPU extrema comparison, exact SIMD packing and claim limits. |
+| [CPU Affine Maps](./cpu-affine.md) | Current-source warm integer Map comparison, method and claim limits. |
+| [Memory Observation](./memory.md) | Focused current-source memory observer allocation, stack, and serial cost evidence. |
 | [Method](./method.md) | Workload schemas, sampling, semantic admission, comparison, evidence packets, and baseline update rules. |
+| [Virtual Performance](./virtual/README.md) | Current-source VirtualPipeline measurement method and bounded observed results. |
 | [`baseline.tsv`](./baseline.tsv) | Checked host profiles, semantic digests, units, exact values, and one-sided regression limits. |
 | `/tools/measure` | Installed-SDK workload executables and public measurement commands. |
 
@@ -33,8 +39,9 @@ whose profile, identity, metric, or unit disagrees.
 These argument-free measurement commands consume the installed Release SDK and
 never edit the baseline. Compute options such as `--resident`, `--sort`,
 `--bulk`, `--pipeline`, and `--virtual-residency` build current-source
-diagnostics and cannot publish Release baseline evidence. The virtual-residency
-route runs three independent diagnostic packets; it does not add a Product row
-or change the installed Compute route's 82-metric cardinality. A passing upper
+diagnostics and cannot publish Release baseline evidence. Virtual diagnostic
+procedure and results are routed through
+[Virtual Performance](./virtual/README.md); they add no Product row and do not
+change the installed Compute route's 82-metric cardinality. A passing upper
 bound is regression evidence, not a speedup claim. See [Method](./method.md) for
-the complete acceptance and publication contract.
+the generic acceptance and publication contract.

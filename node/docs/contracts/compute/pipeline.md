@@ -5,13 +5,75 @@ prepares one frozen declaration-ordered sequence of compiled Programs over
 caller-owned resident Buffers, then reuses that prepared sequence without
 rebuilding its cross-Program plan.
 
-The opt-in [virtual residency contract](./residency.md) consumes the same
-Pipeline planning, placement, admission, execution, and memory owners. A
-Device-global page-cache Pool owns one canonical input/output frame pair, one
-disposable execution input/output pair, and the host prefetch/writeback image;
-individual Pipelines retain that admitted owner instead of constructing page
-Buffers or another allocator. Each epoch executes through the same
-ordinary-buffer backend owner.
+The opt-in [virtual residency contract](./residency/README.md) consumes the
+same Pipeline planning, placement, admission, execution, and memory owners. It
+retains one cold-prepared Pipeline per canonical bank instead of creating a
+parallel execution mechanism. The Device residency Authority selects exact
+physical locals; Pipeline execution validates the lease and submits only those
+locals. A scalar count, full prepared command stream, or Buffer generation is
+not a substitute for that lease.
+
+The Q=1 run-owned residency path uses `pipeline/execution` as the sole terminal
+projection. It calls the existing `start_pipeline(PrivateResidency)`, validates
+the backend's prepared control/evidence with the same finish logic used by the
+selected epoch path, and calls the same `publish_pipeline_terminal`. Only that
+post-publication result may become `execution::NativeEvidence`. DeviceOps owns
+the raw selected-local submit and a Plan-free retained-owner alias; it owns no
+second Pipeline success, generation, poison, or whole-execution submit path.
+The compiled boundary is split without duplicating that authority:
+`pipeline/execution/submit.cpp` owns selection, admission, and native handoff;
+`submit/completion.cpp` owns callback/control teardown and NativeEvidence
+projection; and `submit/outcome.cpp` alone validates and publishes the Pipeline
+terminal. Their private `local.hpp` carries declarations only.
+
+Virtual product scope and active-prefix behavior belong to
+[Product](./residency/product.md); immutable demand to
+[Plan](./residency/plan.md); mutable transitions to
+[State](./residency/state.md); physical ownership and lending to
+[Pool](./residency/pool.md); recurrent stages to
+[Graph](./residency/graph.md); and backend terminals to
+[Backend](./residency/backend/README.md). This Pipeline page does not own another
+residency policy, cache, allocator, or state machine.
+
+## Plan Admission Ownership
+
+Before hazard analysis, the schedule planner checks that resource accesses are
+in nondecreasing node order. Already ordered accesses require no sorting buffer;
+out-of-order publication accesses still use stable sorting. Both paths preserve
+the original order within each node, so canonical dependency witnesses and
+barriers remain unchanged.
+
+`node/src/compute/pipeline/plan/admit.cpp` is the admission orchestration
+boundary. It builds one private `AdmissionDraft`, invokes the initial,
+step/window, publication, and state-pair admission phases, and publishes
+`PipelinePrepare::state`, hash, and counters only after every phase succeeds.
+The draft is the only mutable admission workspace; its sealed plan and frozen
+snapshot are references, not parallel policy records.
+The coordinator seeds the canonical hash with sealed repetition count and
+declared step count, in that order, before phase owners append their fields.
+These prefix fields are emitted exactly once: repetition 1 preserves ordinary
+identity, while distinct non-unit repetition counts remain distinguishable.
+
+The phase owners are `plan/admit/initial.cpp` for the physical state,
+residency, and resource table; `plan/admit/steps.cpp` for ordered step,
+window, profile, view, alias, and step-fingerprint admission;
+`plan/admit/publications.cpp` for output/publication identity and accounting;
+and `plan/admit/state_pairs.cpp` for transactional parity/state-pair proof.
+Shared resolved-view and alias proof helpers live in `plan/admit/model.cpp`;
+they do not retain a second mutable authority. Any phase failure discards the
+draft-owned state before the caller's preparation fields are changed.
+
+Backend preparation follows the same single-owner split. `plan/backend.cpp`
+owns only public reason projection and primary/alternate orchestration;
+`plan/backend/stream.cpp` owns the fixed-capacity native step, recurrence,
+window, and publication projection. `pipeline/generation.cpp` owns native
+generation seeding for initial preparation, run rebasing, and snapshot restore;
+preparation retains the producer's native reason key through that same owner.
+Their private `plan/backend/local.hpp` is a declarations-only seam and retains
+no parallel pipeline state.
+The `compute.pipeline` generation contract injects the native seed callback to
+prove initial wrap seeds, bank parity, primary-failure short circuit, alternate
+failure, unchanged committed generation on failure, and native-key retention.
 
 ## Scope
 
@@ -37,11 +99,46 @@ The current authorities remain:
 - the caller owns simulation state meaning, checkpoints, restore, and replay
   policy.
 
+The `compute.flow` expression contract follows the same ownership split.
+`flow/contract/expression.cpp` owns the ordered lane-width, signed/unsigned,
+and cross-backend hash parity orchestration. The compiled owners under
+`flow/contract/expression/` separately prove composite/statistical, hash/noise,
+extended algebra/geometry, and functional/predicate expression families.
+Their `local.hpp` is declarations-only; graph and output hashes remain owned by
+the jobs and the one dispatcher comparison, not by per-family mirrors.
+
+The public math-stage surface is an include-only umbrella at
+`include/rund/compute/flow/math.hpp`. Its
+`math/{complex,factor,solve,spectrum}.hpp` leaves each own exactly one typed
+stage specialization; none is a second Flow state, compilation, or execution
+authority.
+
+The Flow record contract keeps its public `CheckRecords` coordinator in
+`flow/contract/record/dispatcher.cpp`. Its `fields.cpp`, `runtime.cpp`, and
+`schema.cpp` leaves own typed field arithmetic, record execution/retention, and
+field-selection/bounded-schema evidence in that order; none duplicates the
+Flow model or a result-hash authority.
+
+The selected-backend Flow contract uses `flow/contract/backend.cpp` only for
+the stable cross-backend sequence. `backend/indexed.cpp`, `alias.cpp`,
+`fusion.cpp`, and `reset.cpp` independently own gather/capacity, aliasing,
+fusion-boundary, and reset-projection evidence; each consumes the shared Flow
+model instead of mirroring it.
+
 Pipeline is an execution plan over compiled Programs. It is not a new Compute
 IR, a second graph compiler, a scheduler, a fusion pass, or a native-handle
 escape.
 
 ## Product Surface
+
+The pipeline surface contract is verified by focused owners under
+`node/tests/contract/compute/pipeline/surface/`: `lifecycle.cpp` owns binding,
+value-category, capacity, and ownership assertions; `then.cpp` owns ordinary
+`then`, repeat, and window constraints; `tile.cpp` owns tile-repeat,
+tile-window, and host-feedback constraints; and `record.cpp`, `bounded.cpp`,
+`alias.cpp`, and `shared_count.cpp` own the runtime records, bounded outputs,
+alias rejection, and shared-count storage cases. `dispatcher.cpp` alone owns
+the public `CheckSurface` order and result codes 1–15.
 
 The product surface has one durable owner type. `read(...)`, `write(...)`,
 `write_final(...)`, `write_window(...)`, and `write_each(...)` are transient
@@ -300,10 +397,13 @@ fails closed rather than silently recording the slower recurrence.
 The recurrence transform is one ordered edit recipe over the canonical source.
 Its allocation-free counting sink and one-reserve materialization sink consume
 the same fragments and branches; a separate source-size formula is not an
-authority. `node/src/accel/kernel/backend/source_recipe.hpp` is the sole
-source-recipe implementation owner, including the failure-latching
-`SourceBuilder` used by backend-authored sources; a backend-local text builder
-or forwarding recipe header is not an authority. The frozen recurrence upper
+authority. The generic edit recipe, counting/emission sinks, and checked string
+storage are solely owned by
+`node/src/accel/kernel/backend/source/{edit,sink,storage}.hpp`. The
+failure-latching `SourceBuilder` belongs to `sink.hpp`; the recurrence-specific
+recipe is solely owned by `node/src/accel/kernel/recurrence/source/emit.hpp`.
+A backend-local text builder or forwarding recipe header is not an authority.
+The frozen recurrence upper
 is the recipe's exact emitted byte count plus the canonical artifact's
 already-proved constant-literal growth
 envelope, with checked addition. Only the final source, non-canonical variant
@@ -318,11 +418,58 @@ source is charged once to template storage and never duplicated as source
 transient memory. Backend planning and cache manifests consume those separate
 frozen bounds, while complete `ArtifactKey` and full source equality remain the
 final cache admission authority.
+The shared allocation-free source-fragment and safe-identifier consumers are
+owned by `node/src/accel/kernel/backend/source/marker.hpp`; Map stride and
+recurrence keep their API-specific marker grammars but do not duplicate those
+lexical primitives.
+Vulkan Pipeline Window GLSL has one source owner: `node/src/accel/vulkan/kernel/window/source.cpp`,
+with its narrow public surface in `node/src/accel/vulkan/kernel/window/source.hpp`.
+`window/entry.cpp` owns public resource-preparation orchestration;
+`window/resources.cpp` owns route validation, resident resource resolution,
+and buffer/capture setup; `window/descriptors.cpp` owns pipeline/descriptor
+admission and state-sharing checks; `window/encode.cpp` owns gate/dispatch
+recording and barriers; and `window/lifecycle.cpp` owns destruction, freezing,
+and host-byte accounting. These leaves do not own shader text or artifact
+construction. The source owner preserves the exact phase-contract insertion order and
+the existing Window entry (256 lanes, eight storage bindings, 80-byte push
+layout), gate entry (one lane, three storage bindings, 12-byte push layout),
+and `backend_source_recipe` counting/materialization path.
+The Vulkan graph-admission contract keeps its ordered pipeline admission and
+candidate evidence in `pipeline/vulkan/graph_admission.cpp`; the recorded
+graph reuse/reprepare rejection proof is owned by
+`pipeline/vulkan/graph_admission/rejection.cpp`. The latter borrows the same
+prepared residency state and does not create a second admission or generation
+authority.
+Vulkan backend manifest planning has one public authority in
+`vulkan/kernel/run/manifest/step.cpp`, which only dispatches by NodeKind and
+performs the final capture/completion composition. `manifest/map.cpp` owns
+Map control/check source dependencies; `scan.cpp` owns Scan, SegmentedScan,
+and Partition prefix recipes; `reduction.cpp` owns SegmentedReduce, Reduce,
+and ScatterReduce; `sort.cpp` owns Sort; `collective.cpp` owns Compact,
+Gather, and Histogram; `scatter.cpp`, `range.cpp`, and `numeric.cpp` own
+their corresponding primitive families. `manifest/capture.cpp` remains the
+sole physical
+dispatch/status/telemetry cardinality owner. These leaves mutate only the
+single invocation `PreparedBackendManifest` and preserve the existing source
+recipe and checked-capacity policy.
 The compiled recurrence owner is physically separated into `match`, `source`,
-and `build`: semantic and resident-view equivalence is proved once, exact
-source transformation consumes that proof, and final assembly alone publishes
-the immutable recurrence. None of those leaves owns another eligibility path.
-The backend template registry is shared by primary and transactional-alternate
+and `build`. Within `source/`, `parse.cpp` coordinates artifact admission and
+publishes the validated event plan; `parse/search.cpp`, `bindings.cpp`, and
+`events.cpp` respectively own structured marker search, metadata-to-source
+binding, and ordered event discovery. Their `local.hpp` is declarations-only.
+`emit.hpp` is the sole shared emission recipe for counting and materialization,
+`capacity.cpp` owns checked storage bounds and public planning, and
+`materialize.cpp` owns re-authentication and final publication. Semantic and
+resident-view equivalence is proved once, exact source transformation consumes
+that proof, and final assembly alone publishes the immutable recurrence. None
+of those leaves owns another eligibility path.
+The backend template registry declaration is physically split under
+`prepared/template/registry/`: `shape.hpp` owns Pipeline shape, Program binding,
+and recurrence identity; `reservation.hpp` owns route/Pipeline/recurrence
+capacity records; and `api.hpp` owns the registry state and lookup/publication
+entry points. `prepared/template/registry.hpp` is an ordered,
+implementation-free compatibility umbrella and owns no parallel identity or
+capacity state. The backend template registry is shared by primary and transactional-alternate
 streams. A collision-safe semantic match reuses one immutable recurrence
 template for every equal group. Let `W(r)` be the ordered Metal
 `Bytewise`/`Word32` class vector of all Map inputs and outputs in route `r`, and
@@ -604,6 +751,14 @@ body has the same output-prefix recurrence law as `repeat<N>`, followed by two
 runtime-owned U32 inputs: the resident count and the increasing window
 ordinal. The count is bound once through `window(count)`; it is not repeated
 in the user read pack.
+
+The Compute-side recurrent Window implementation is partitioned under
+`pipeline/execution/window/`: `submission.cpp` owns bounded request projection
+and native acceptance, `signal.cpp` owns epoch gate handoff, abort, and rearm,
+`callback.cpp` owns raw-native-to-Compute terminal callbacks, and
+`evidence.cpp` owns the fixed release journal and Final evidence projection.
+The local `internal.hpp` declares only the two callback entry points; it owns no
+inline transition or duplicate Window state.
 
 ```cpp fragment
 auto prepared =
@@ -1359,6 +1514,11 @@ exists:
   on all three banks; and
 - declared-step and optional profile projection are exact.
 
+The Seed base consumes the common `MulWrapU32Immediate` Map meaning. The
+aggregate proof requires its immediate to equal the window's tile width and
+proves the ordinal-to-base-to-items binding lineage. Map classification owns
+the arithmetic meaning once; the window proof owns its contextual role.
+
 On that path cold common preparation retains only the
 `K + min(N, 2) + 3` compact templates and one fixed-width proof object. It does
 not allocate the
@@ -1751,6 +1911,14 @@ time, and authoritative input hashes remain caller or Replay evidence.
     seed to both parity Buffers;
 12. publish the ready Pipeline only after every step succeeds.
 
+The schedule implementation follows that authority order physically:
+`plan/schedule.cpp` owns resource resolution and the frozen hazard/barrier
+plan, `plan/schedule/repetition.cpp` owns only cross-invocation temporal-carry
+proof, and `plan/schedule/materialize.cpp` binds the frozen rows into prepared
+claims, output lookup, residency, and fingerprint state. The private
+`schedule/internal.hpp` boundary declares the repetition proof only; no second
+schedule or barrier reconstruction path exists.
+
 Phase 1 records each canonical resource's first input step and first complete
 output step while it already visits the binding. Transactional admission then
 proves the pending-overwrite-before-read law and freezes both resource-partner
@@ -1767,6 +1935,11 @@ consumes each row once, sets the later boundary bit, and stores only its compact
 dependency description. Planning is `Theta(D)` after exact intersection for
 `D` dependencies, uses no pair lookup table, and retains no full overlap
 footprints in a ready Pipeline.
+Its contract evidence mirrors that authority without an omnibus test source:
+`graph/services/resource.cpp` owns public plan/admission cases,
+`resource/oracle.cpp` owns deterministic brute-force equivalence, and
+`resource/complexity.cpp` owns logarithmic-work bounds for disjoint and dense
+frontiers. Their `local.hpp` is declarations-only.
 
 The public Context capability is admitted once for the complete prepared
 Pipeline. Each private prepared Program already owns its immutable admitted
@@ -1907,6 +2080,14 @@ CPU Job can produce: dispatch, internal-transfer, graph-read, worker/tile/SIMD,
 six dynamic-control counters, conflict count, and overflow ordinal. It no
 longer probes the other 35 accelerator, cache, timing, transfer, and publication
 fields that are structurally zero or Pipeline-owned.
+CPU tile execution is split by transition under `compute/job/cpu/tile/`:
+`selection.cpp` owns active executor and tile-size lookup, `primitive.cpp` owns
+the one-partition primitive handoff, `collective.cpp` owns erased collective
+callbacks and tile evidence, `run.cpp` owns synchronous execution,
+`finish.cpp` owns pass advancement and aggregation, and `trace.cpp` owns only
+dispatch timing. The adjacent `tile.cpp` is the asynchronous submit
+coordinator, while the declarations-only `local.hpp` stores no pass or result
+authority.
 
 ### Metal
 
@@ -2586,6 +2767,13 @@ a competing failure projection. Resource-local boundaries remain only when a
 `noexcept` callback must return a boolean or when descriptor failure has a
 different semantic reason.
 
+The Vulkan kernel resource boundary is split by lifecycle:
+`vulkan/kernel/prepared.cpp` owns cold validation, reset/descriptor/resource
+materialization, command capture, and retained-memory evidence, while
+`vulkan/kernel/prepared/runtime.cpp` owns warm synchronous execution,
+asynchronous submission/completion, dispatch tracing, and traffic observation.
+Neither side reconstructs the other's state or failure policy.
+
 On GPU, later commands may have physically executed after the first semantic
 failure. Their outputs remain poisoned and are never described as published.
 `verified prefix` is therefore the evidence name; `completed steps` is not.
@@ -2830,7 +3018,7 @@ the Pipeline tick's one-submit result.
 The private Session Compute payload is one type-erased Compute operation value
 containing a retained owner and a static
 operation table for reserve, submit, advance, cancel, result, evidence, and
-release. Job and Pipeline both enter that owner; public Request, Submission,
+release. Job, Pipeline, and VirtualPipeline all enter that owner; public Request, Submission,
 Poll, Completion, and `Session::compute(...)` vocabulary remains singular.
 
 Type erasure occurs once at the Session boundary. No indirect call is added to
@@ -2847,6 +3035,16 @@ Reason; an admitted nonterminal Poll has `Reason::Ok`.
 non-owning `Poll`; timeout does not cancel, detach, or release native work.
 `wait()` owns the one terminal Completion, and `cancel()` requests cancellation
 through that same operation owner.
+
+`Session::compute(VirtualPipeline&)` is an additive queued synchronous
+compatibility bridge. It strong-owns the prepared `VirtualPipelineState`, runs
+the existing synchronous virtual terminal on the Session worker, and projects
+its single Stats/phase/Final authority into the same Completion. The worker may
+block on the selected backend's existing wait path; this bridge is not a
+nonblocking or GPU-driven Session implementation. Cancellation is pre-start
+only: an `Open -> Cancelled` claim prevents the virtual run and publication,
+while a worker that has claimed `Running` completes through the normal terminal
+path and a late cancel reports `AlreadyCompleted`.
 
 Claims are acquired all-or-none at submit and remain held through terminal
 publication. Pre-backend cancel or close releases them and returns the Pipeline
@@ -3397,6 +3595,12 @@ when it has a dense View transfer. Non-null CPU workspace objects and their
 buffer/offset arrays live inside the one sealed arena; accelerator workspace
 owners retain the heap formula above.
 
+The CPU Job View path has one owner per phase: `job/control/view.cpp` projects
+graph reachability into dense transfer requirements; `view/layout.cpp` freezes
+the checked strided-transfer layout; `view/materialize.cpp` allocates and
+replaces dense staging bindings; and `view/runtime.cpp` performs gather/publish
+and round-trip accounting. `view/local.hpp` contains declarations only.
+
 Materialization is a one-way handoff from the cold record to a workspace
 pointer. A present owner must materialize, and a present borrower must observe
 that non-null self-owner. Pipeline Job preparation may validate this sealed
@@ -3421,6 +3625,12 @@ the Program compiler seals one immutable chunk permutation ordered by
 descending U32 count and then local ordinal. Pipeline planning and workspace
 materialization consume that same permutation for every occurrence and backend;
 neither pass allocates or sorts a second chunk order.
+
+The cold planner keeps the two allocation domains physically separate:
+`plan/arena.cpp` owns accelerator View-slot discovery and placement, while
+`plan/arena/chunks.cpp` owns Program chunk packing, peak selection, and reuse
+accounting. They publish into the same `PipelineMemoryPlan`; neither rebuilds
+the other's ordering or capacity decision.
 
 The Pipeline planner visits steps by descending total chunk words, with logical
 step, iteration, and physical step index as the canonical tie-break. Within a
@@ -3597,21 +3807,315 @@ workload-dependent execution branch.
 ## Physical Ownership Map
 
 The implementation follows repository naming rules and keeps one-word leaves.
+Graph description node construction is partitioned under
+`compute/graph/describe/node/`: `map.cpp`, `scan.cpp`, and `primitive.cpp`
+own their distinct canonical node projections, while `access.cpp` is the one
+compiled access-row append primitive. The retained `describe/node.cpp` only
+orders variant dispatch and publication into the one `Draft`; `model.hpp`
+contains declarations and transient value storage, not executable authority.
+Pipeline construction is split by semantic operation family: `build.cpp` owns
+pipeline creation, ordinary linear append, state/profile/seed configuration,
+and commit/seal lifecycle; `assembly/recurrence.cpp` owns fixed-count recurrence
+and resident-window recurrence append; and `assembly/window.cpp` coordinates the
+nested spatial-window transaction. Its `window/validation.cpp` leaf owns the
+ordered program/shape/binding proof, `window/resources.cpp` owns transient
+internal-resource and route materialization, `window/steps.cpp` owns exact
+Seed/Action/Fold step emission, `window/publication.cpp` owns publication and
+counter sealing, and `window/mutation.cpp` owns the one rollback boundary.
+These leaves share only the binding/alias routing and build-invalidation
+primitives in `assembly/internal.cpp`; no phase retains a second build-state
+authority.
+Cold plan binding is also split at its semantic boundary:
+`pipeline/plan/bind.cpp` owns resource materialization, primary/alternate Job
+construction, transient build-state retirement, and backend preparation;
+`pipeline/plan/bind/publication.cpp` owns the post-bind proof that count,
+terminal, and nested-window publication Views match those immutable Jobs. The
+declarations-only plan seam exposes that proof without retaining another
+binding table or publication authority.
+Accelerator preparation follows the same rule under
+`pipeline/plan/memory/accel/`: `occurrence.cpp` owns recurrence/window
+occurrence evidence, `route.cpp` owns Program binding identity and native
+route projection, and `final.cpp` owns publication-command accounting plus
+the single backend reservation commit. `memory/accel.cpp` performs admission
+and orders these phases; their transient draft is discarded after the one
+`PipelineMemoryPlan::accel_preparation` authority is published.
+The public focused Pipeline entry is a stable facade split by declaration
+authority: `pipeline/access.hpp` owns the narrow Device/Program state access
+shared by Pipeline construction and the opt-in Virtual extension;
+`pipeline/snapshot.hpp` owns `StateSnapshot`, `LatestDeviceState`,
+`SnapshotStorage`, and their snapshot/latest/storage detail declarations;
+`pipeline/runtime.hpp` owns `Pipeline`, `HostIteration`, and runtime
+observation/run detail declarations; and `pipeline/builder.hpp` owns the
+`PipelineBuilder` declaration, the `pipeline(...)` factory, and
+`host_feedback(...)` glue. Its `pipeline/builder/configuration.hpp` and
+`windows.hpp` facets own only the fluent template definitions;
+`src/compute/pipeline/builder/configuration.cpp` owns the non-template profile,
+budget, and plan operations, while `builder/lifecycle.cpp` owns restore,
+commit, and terminal preparation. `pipeline/builder/base.hpp` separately owns
+binding-contract templates and compiled build-seam declarations.
+`pipeline.hpp` composes these leaves in
+snapshot → runtime → builder order and owns no public definitions.
+The public grouped-flow template surface is also physically split:
+`flow/group/values.hpp` owns grouped value transforms, `groups.hpp` owns
+group-key/count observations, and `group_by.hpp` owns Stage grouping and
+ordering construction. The stable `flow/group.hpp` include composes those
+templates without defining a second operation path.
+Pipeline execution is likewise split by semantic path: `run/cpu.cpp` owns
+ordered CPU orchestration and final publication completion;
+`run/cpu/publication.cpp` owns CPU publication-view resolution and resident
+sealing; `run/cpu/window.cpp` owns window control, reset, and preflight;
+`run/cpu/stats.cpp` owns step statistics and consumption;
+`run/cpu/status.cpp` owns CPU status-entry sizing; and
+`run/cpu/step.cpp`, `run/cpu/ordinary.cpp`, and `run/cpu/nested.cpp` own
+common step execution plus ordinary/nested traversal. `run/accel.cpp` owns the
+ordinary accelerator executor. Residency execution has no omnibus source:
+`run/residency/locals.cpp` owns lease-to-local projection,
+`run/residency/publication.cpp` owns terminal publication,
+`run/residency/submission.cpp` owns accelerator submission/completion, and
+`run/residency/cpu.cpp` owns the residency-selected CPU step loop and lease
+entry.
+`run/internal.hpp` carries only their private cross-TU declarations;
+`run.cpp` retains public lifecycle, top-level orchestration, the submit entry,
+and observations.
+Pipeline memory observation follows the same boundary: `run/memory.cpp` owns
+gate-scoped coordinator assembly and public summary entry points;
+`run/memory/primitives.cpp` owns counter conversion, remaining-counter math,
+and Pool alias classification; `run/memory/shared.cpp` owns shared state,
+prepared/workspace/arena/scratch accounting; `run/memory/jobs.cpp` owns
+per-Job binding/view attribution and Profile rows; and
+`run/memory/snapshot.cpp` owns bounded snapshot row publication. These owners
+produce transient values over the single PipelineState memory authority.
+Asynchronous Pipeline entry points are split by operation without introducing
+another state or terminal authority: `async/step.cpp` retains only the public
+begin/complete façade; `async/step/window.cpp` owns window and selected-job
+projection, `failure.cpp` owns failure coordinates, `complete.cpp` owns the
+ordinary/nested transition, and `schedule.cpp` owns CPU schedule traversal.
+Their `local.hpp` is declarations-only. `async/terminal.cpp` owns
+cancel/fail/completion/finish observation and terminal entry points, and
+`async/submission.cpp` owns queue, accelerator submission, read-only accessors,
+and frame accounting. All mutating entry points retain `PipelineState::gate`;
+terminal leaves call the sole `claim.cpp::publish_pipeline_terminal`, and
+accelerator submission preserves the unlock around `DeviceOps::submit_pipeline`.
+Pipeline state records are split by semantic lifetime: `state/base.hpp` owns
+the shared publication-ordinal, phase/access, binding, and internal vocabulary;
+`state/plan.hpp` owns resolved view/resource, residency, and memory plans;
+`state/assembly.hpp` owns authored build and frozen assembly records; and
+`state/publication.hpp` owns publication plans plus retained state-pair,
+snapshot, storage, and publication records. `state.hpp` retains only runtime
+profile/resource/output/step/window/dependency and aggregate Pipeline state;
+the leaf headers are the sole definition owners and do not include the
+aggregate header.
+Virtual run projection follows the same boundary:
+`virtual/run/projection/dispatch.cpp` owns route-to-projection dispatch;
+`virtual/run/projection/{multi,ordinary,validate}.cpp` own multi-input and
+ordinary validation/projection; `virtual/run/projection/{frames,transfer}.cpp`
+own frame address/transfer binding; `virtual/run/projection/identity.cpp`
+owns materialization hashing and typed input/output/transient identities;
+`virtual/run/projection/graph/{validate,regions}.cpp` own Graph resource/region
+validation, `graph/{banks,materialize}.cpp` own physical-owner binding and
+materialization, and `graph/coordinator.cpp` owns Graph projection
+coordination; `virtual/run/projection/pages.cpp` owns page/epoch and cache-key
+projection.
+The identity and Graph owners do not duplicate the page/epoch/cache authority.
+Common prepared-Pipeline ownership is split by lifecycle. `pipeline/structure.hpp`
+defines the private structure seam. Its compiled owners are
+`pipeline/structure/identity.cpp` for publication/route fingerprints, runtime
+shape, and view identity; `structure/recurrence_routes.cpp` for recurrence
+shape and route-demand projection; `structure/recurrence_templates.cpp` for
+program-authority recurrence equivalence and template capacities;
+`structure/counts.cpp` for common occurrence/window/group geometry; and
+`structure/projection.cpp` for checked backend cardinality projection and its
+contract hook. `pipeline/backend.hpp` defines the private backend-planning seam
+while
+`pipeline/backend.cpp` is the sole owner of runtime backend structure planning
+and finalization. `pipeline/registry.hpp` defines the private registry/budget
+seam. The compiled registry owners are `pipeline/registry/state.cpp` for the
+single opaque state, binding, and retained capacity footprint,
+`registry/cache.cpp` for collision-safe lookup/publication,
+`registry/transaction.cpp` for rollback-safe lock/lifetime transactions,
+`registry/budget.cpp` for one ordered budget/admission algorithm, and
+`registry/memory.cpp` for deduplicated owner observation. These leaves share
+only the declarations/data model in `registry/internal.hpp`; no leaf duplicates
+registry state or template identity. `pipeline/limit.cpp` is the sole
+public-plan coordinator for `PlanPreparedKernelPipelineLimit`: it validates the
+aggregate request, freezes the header fingerprint, and publishes the result
+once. Its `limit/route.cpp` leaf owns per-route backend/template and recurrence
+reservation accounting, while `limit/finalize.cpp` owns the checked aggregate
+structure and byte-capacity close. `limit/internal.hpp` carries only their one
+transient planning state and declarations; no leaf publishes a competing plan.
+`pipeline/runtime_plan.cpp` is the sole prepared-route authority for
+`PlanPreparedKernelPipeline`, validating retained runs and runtime
+recurrence/backend reservations. Both call the shared structure, recurrence,
+reservation, and registry owners directly; neither is a forwarding facade or a
+second terminal/preparation owner;
+the shared prepared declaration surface is split under
+`prepared/interface/`: `base.hpp` owns common run/pipeline/evidence values,
+`residency.hpp` owns window/schedule/sliding requests and retained controls,
+and `api.hpp` owns the callable preparation/submission/query declarations.
+`prepared.hpp` is only their stable include surface and contains no model or
+runtime implementation authority;
+`pipeline/demand.cpp` is the sole owner of exact template-route demand
+freezing;
+`pipeline/expand.hpp` owns the private expanded-pipeline model while
+`pipeline/expand.cpp` is the sole owner of canonical template-to-occurrence
+expansion behavior;
+the common recurrence declaration model is split under `recurrence/model/`:
+`map.hpp` owns Map/history/source-plan values, `nested_geometry.hpp` owns the
+single template-shape proof and identity projection, and `aggregate.hpp` owns
+aggregate evidence plus builder declarations. `recurrence.hpp` is only their
+stable include surface. Vulkan's
+`pipeline/recurrence/{validation,template,prepare}.cpp`
+leaves own Map-recurrence proof, collision-safe template acquisition, route
+resource preparation, and generic projection;
+`pipeline/reservation.hpp`/`pipeline/reservation.cpp` are the sole checked
+fieldwise reservation arithmetic and frozen-limit comparison owners;
+`pipeline/materialize.cpp` owns the ordered `PrepareKernelPipeline` coordinator;
+`pipeline/materialize/validation.cpp` owns request and publication-shape
+validation, `materialize/reservation.cpp` owns common reservation, route-demand,
+registry binding, and budget admission, `materialize/state.cpp` owns the
+backend-preparation cursor and private route materialization, and
+`materialize/finalize.cpp` owns expansion, evidence accounting, backend
+preparation, status validation, memory publication, and the final budget commit;
+`pipeline/runtime.cpp` owns warm backend forwarding, residency readiness,
+transfer, and observations. These leaves do not restate one another's
+admission decisions.
+The accelerator adapter follows the same ownership split: `backend/accel.cpp`
+retains only the immutable `DeviceOps` composition table and
+`AccelDeviceOps()`; `backend/accel/transfer.cpp` owns download/upload/copy,
+host views, and buffer resolution; `backend/accel/program.cpp` owns compile,
+range projection, and scratch planning; and the `backend/accel/pipeline/`
+compiled leaves own the prepared Pipeline bridge by lifecycle: `memory.cpp`
+owns memory observations, `preparation.cpp` owns planning, preparation, and
+generation seeding, `submission.cpp` owns ordinary and residency submission,
+`window.cpp` owns residency-window and stream lifecycle operations,
+`execution/schedule.cpp` is the stable schedule API façade, and its leaves own
+one lifecycle each: `schedule/model.cpp` owns checked control-generation
+projection, `schedule/prepare.cpp` owns cold role projection and backend
+lowering admission, `schedule/submit.cpp` owns native schedule handoff,
+`schedule/signal.cpp` owns per-epoch attempt/signalling, `schedule/abort.cpp`
+owns abort projection, and `schedule/callback.cpp` owns native completion
+projection and control teardown. `sliding.cpp` owns persistent-sliding
+preparation/submission/wake operations.
+The stable `pipeline.hpp` facade exposes only those leaf seams, so status
+projection, transfer authority/completion, counters, and function-pointer
+ordering remain in their original owners.
+Checkpoint ownership is split by lifecycle: `snapshot/hash.cpp` owns the
+canonical snapshot hash and immutable-layout proof; `snapshot/metadata.cpp`
+owns schema shape and bounded metadata preparation; `snapshot/payload.cpp`
+owns CPU/backend payload capture and transfer accounting;
+`snapshot/restore.cpp` owns restore preflight, transfer, and publication
+commit; `snapshot/storage.cpp` owns reusable storage construction and its
+O(1) observers; and `snapshot/coordinator.cpp` is the public capture/restore
+and bank-publication coordinator. No phase publishes a partial capture;
+storage flips its inactive bank only after payload sealing. These leaves retain
+host snapshot/storage capture and restore plus snapshot/storage observers;
+`snapshot/publication.cpp` owns `LatestDeviceState` acquisition, publication
+state copy/rebase restore, and latest-publication observers; and
+`generation.cpp` is the sole native generation seed and failed-submit rebase
+owner. Their lock ordering, parity/generation seeds, copy counters,
+`payload_epoch`, and poisoning transitions remain unchanged.
+DeviceVSM projection is split by phase and route authority. The public
+`device_vsm/projection.cpp` owns only the `ProjectPreparedKernelPipelineDeviceVsm`
+orchestration. `projection/candidate.cpp` owns bounded request and route
+selection, while `projection/pipeline.cpp` owns exact pointwise/graph-map
+pipeline matching. `projection/validate.cpp` owns per-route geometry, topology,
+and peer checks; `projection/artifact.cpp` owns route artifact construction,
+strong owner retention, and final `DeviceVsmProof` sealing. The existing
+`projection/window.hpp`, the thin Window capability façade, its
+`projection/window/` map, exact-step, identity-match, and Pipeline owners,
+plus `reduce.{hpp,cpp}` and `scan.{hpp,cpp}` remain the direct authorities for
+their respective route proofs. The Window local seam is declarations-only and
+does not retain a second fusion or binding authority. The private
+`projection/internal.hpp` carries only bounded per-call candidate declarations;
+no candidate state is retained as a second runtime authority. This host-only
+relocation does not alter shader/source bytes, descriptor bindings, push
+constants, or prepared ABI layout.
+DeviceVSM validation is split by proof authority:
+`device_vsm/validation/window.cpp` owns Window fusion/ring/geometry proof,
+`collective.cpp` owns Scan and Reduce proof, `topology.cpp` owns the exclusive
+topology selection and Graph-specific invariants, and `proof.cpp` owns resident
+binding plus final aggregate `DeviceVsmProof` authentication.
+`device_vsm/validation/request.cpp` separately owns capability, request-token,
+and final-evidence admission. The aggregate `validation.hpp` and adjacent
+`proof.hpp` contain declarations/includes only. `terminal.cpp` remains the sole
+native counter-to-final producer; proof and final validators remain fail-closed
+consumers of the exact artifact identity and ring/wavefront evidence.
+The actual DeviceVSM backend contract keeps only public case ordering and the
+fixed retained-byte comparison in `device_vsm/actual.cpp`.
+`actual/authority.cpp` owns canonical proof construction and Authority close,
+while `actual/run.cpp` owns native submission, observation, and evidence for
+one page count; its `internal.hpp` is declarations-only. `actual_binary.cpp` is
+only the Q=5/9/257 coordinator for the binary proof. Its
+`actual_binary/{artifact,prepare,
+execution,evidence,terminal}.cpp` leaves separately own canonical binary source
+and proof construction, resource/lease preparation, submit/wait execution,
+output/counter evidence, and Authority publication close. The binary contract
+retains one artifact/proof owner and one terminal publication path across Metal
+and Vulkan.
+GraphResident proof validation follows the same compiled boundary:
+`device_vsm/graph_resident.hpp` is data/declarations-only;
+`graph_resident/type.cpp`, `identity.cpp`, and `digest.cpp` own type, owner
+identity, and digest facts; `root.cpp`, `owners.cpp`, `resources.cpp`,
+`stages.cpp`, `lifetime.cpp`, and `tails.cpp` own decomposed proof invariants;
+and `graph_resident/validation.cpp` is the ordered public validator
+coordinator. The validation context is bounded invocation scratch only.
+Pipeline claim publication follows one lock-ordered compiled boundary as well:
+`claim/buffer.cpp` owns raw Buffer claim mutation, `resource.cpp` owns Pipeline
+resource admission, `observation.cpp` owns observation-epoch invalidation,
+`terminal.cpp` owns the sole terminal state transition, `deferred.cpp` owns
+deferred generation validation and advancement, and `transaction.cpp` owns
+address-ordered multi-Pipeline publication. `claim/internal.hpp` exposes only
+the private-terminal preflight shared by terminal and transaction owners; it
+does not carry implementation bodies.
 The active ownership map is:
 
 ```text
 node/include/rund/compute/pipeline.hpp
 node/include/rund/compute/pipeline/bind.hpp
+node/include/rund/compute/pipeline/access.hpp
+node/include/rund/compute/pipeline/snapshot.hpp
+node/include/rund/compute/pipeline/runtime.hpp
+node/include/rund/compute/pipeline/builder.hpp
 node/include/rund/compute/pipeline/profile.hpp
 
 node/src/compute/pipeline/state.hpp
+node/src/compute/pipeline/state/base.hpp
+node/src/compute/pipeline/state/plan.hpp
+node/src/compute/pipeline/state/assembly.hpp
+node/src/compute/pipeline/state/publication.hpp
 node/src/compute/pipeline/build.cpp
+node/src/compute/pipeline/assembly/internal.hpp
+node/src/compute/pipeline/assembly/internal.cpp
+node/src/compute/pipeline/assembly/recurrence.cpp
+node/src/compute/pipeline/assembly/window.cpp
+node/src/compute/pipeline/assembly/window/internal.hpp
+node/src/compute/pipeline/assembly/window/{mutation,validation,resources,steps,publication}.cpp
 node/src/compute/pipeline/plan.cpp
-node/src/compute/pipeline/claim.cpp
+node/src/compute/pipeline/plan/admit.cpp
+node/src/compute/pipeline/plan/admit/model.hpp
+node/src/compute/pipeline/plan/admit/{model,initial,steps,publications,state_pairs}.cpp
+node/src/compute/pipeline/claim.hpp
+node/src/compute/pipeline/claim/internal.hpp
+node/src/compute/pipeline/claim/{buffer,resource,observation,terminal,deferred,transaction}.cpp
 node/src/compute/pipeline/run.cpp
+node/src/compute/pipeline/snapshot/{hash,metadata,payload,restore,storage,coordinator}.cpp
+node/src/compute/pipeline/snapshot/publication.cpp
+node/src/compute/pipeline/generation.cpp
+node/src/compute/pipeline/run/internal.hpp
+node/src/compute/pipeline/run/cpu.cpp
+node/src/compute/pipeline/run/cpu/internal.hpp
+node/src/compute/pipeline/run/cpu/{publication,window,stats,status,step,ordinary,nested}.cpp
+node/src/compute/pipeline/run/accel.cpp
+node/src/compute/pipeline/run/residency/{locals,publication,submission,cpu}.cpp
+node/src/compute/pipeline/run/memory.cpp
+node/src/compute/pipeline/run/memory/{primitives,shared,jobs,snapshot}.cpp
 node/src/compute/pipeline/read.cpp
 node/src/compute/pipeline/write.cpp
-node/src/compute/pipeline/async.cpp
+node/src/compute/pipeline/async/step.cpp
+node/src/compute/pipeline/async/step/{window,failure,complete,schedule}.cpp
+node/src/compute/pipeline/async/step/local.hpp
+node/src/compute/pipeline/async/terminal.cpp
+node/src/compute/pipeline/async/submission.cpp
 node/src/compute/pipeline/profile.cpp
 node/src/compute/pipeline/sample.hpp
 node/src/compute/pipeline/transfer.hpp
@@ -3619,16 +4123,59 @@ node/src/compute/pipeline/transfer/batch.hpp
 node/src/compute/pipeline/transfer/batch/{model,publication,upload,download}.cpp
 node/src/compute/pipeline/run/memory.hpp
 
+node/src/compute/backend.hpp
+node/src/compute/backend/accel.cpp
+node/src/compute/backend/accel/transfer.{hpp,cpp}
+node/src/compute/backend/accel/program.{hpp,cpp}
+node/src/compute/backend/accel/pipeline.hpp
+node/src/compute/backend/accel/pipeline/{memory,preparation,submission,window,schedule,sliding}.cpp
+
 node/src/accel/kernel/status.hpp
-node/src/accel/kernel/prepared.hpp
+node/src/accel/kernel/prepared/interface/api.hpp
 node/src/accel/kernel/prepared/model.hpp
 node/src/accel/kernel/prepared/run.cpp
 node/src/accel/kernel/prepared/batch.cpp
-node/src/accel/kernel/prepared/pipeline.cpp
+node/src/accel/kernel/prepared/pipeline/limit.cpp
+node/src/accel/kernel/prepared/pipeline/runtime_plan.cpp
+node/src/accel/kernel/prepared/pipeline/backend.hpp
+node/src/accel/kernel/prepared/pipeline/backend.cpp
+node/src/accel/kernel/prepared/pipeline/demand.hpp
+node/src/accel/kernel/prepared/pipeline/demand.cpp
+node/src/accel/kernel/prepared/pipeline/expand.hpp
+node/src/accel/kernel/prepared/pipeline/expand.cpp
+node/src/accel/kernel/prepared/pipeline/materialize.cpp
+node/src/accel/kernel/prepared/pipeline/materialize/{validation,reservation,
+state,finalize}.cpp
+node/src/accel/kernel/prepared/pipeline/materialize/internal.hpp
+node/src/accel/kernel/prepared/pipeline/recurrence.hpp
+node/src/accel/kernel/prepared/pipeline/recurrence.cpp
+node/src/accel/kernel/prepared/pipeline/registry.hpp
+node/src/accel/kernel/prepared/pipeline/registry/internal.hpp
+node/src/accel/kernel/prepared/pipeline/registry/{state,cache,transaction,budget,memory}.cpp
+node/src/accel/kernel/prepared/pipeline/reservation.hpp
+node/src/accel/kernel/prepared/pipeline/reservation.cpp
+node/src/accel/kernel/prepared/pipeline/runtime.cpp
+node/src/accel/kernel/prepared/pipeline/structure.hpp
+node/src/accel/kernel/prepared/pipeline/structure/{identity,recurrence_routes,recurrence_templates,counts,projection}.cpp
 node/src/accel/kernel/prepared/completion.cpp
+node/src/accel/kernel/prepared/completion/residency/{control,stream,stream_lifecycle,terminal,validation,window}.cpp
 node/src/accel/kernel/prepared/evidence.cpp
 node/src/accel/kernel/recurrence.hpp
 node/src/accel/kernel/recurrence/
+node/src/accel/kernel/residency/device_vsm/projection.cpp
+node/src/accel/kernel/residency/device_vsm/projection/internal.hpp
+node/src/accel/kernel/residency/device_vsm/projection/candidate.cpp
+node/src/accel/kernel/residency/device_vsm/projection/pipeline.cpp
+node/src/accel/kernel/residency/device_vsm/projection/validate.cpp
+node/src/accel/kernel/residency/device_vsm/projection/artifact.cpp
+node/src/accel/kernel/residency/device_vsm/projection/window.hpp/.cpp
+node/src/accel/kernel/residency/device_vsm/projection/reduce.hpp/.cpp
+node/src/accel/kernel/residency/device_vsm/projection/scan.hpp/.cpp
+node/src/accel/kernel/residency/device_vsm/validation.hpp
+node/src/accel/kernel/residency/device_vsm/validation/proof.hpp
+node/src/accel/kernel/residency/device_vsm/validation/proof.cpp
+node/src/accel/kernel/residency/device_vsm/validation/request.hpp
+node/src/accel/kernel/residency/device_vsm/validation/request.cpp
 node/src/accel/metal/kernel/pipeline/
 node/src/accel/metal/kernel/pipeline/source/status/
 node/src/accel/vulkan/kernel/pipeline/
@@ -3651,11 +4198,13 @@ leaf translation units: `local.hpp` owns the shared fixture values and
 declarations, `fixture.cpp` freezes their shape invariants,
 `program.cpp` owns Program factories, `plan.cpp` owns route and prepared-shape
 assertions, and `identity.cpp` owns retained binding extraction. Its adjacent
-`execution.cpp`, `failure.cpp`, `evidence.cpp`, `control.cpp`, and `oracle.cpp`
-owners retain those independent contract boundaries. `identity.hpp` contains
+`aggregate.cpp`, `execution.cpp`, `failure.cpp`, `maximum.cpp`, `oracle.cpp`,
+`retained.cpp`, and `control/{capacity,dormant}.cpp` owners retain those
+independent contract boundaries; `control.cpp` remains the repeatable
+Seed-failure owner. `identity.hpp` contains
 the identity declarations and shared value types. The output entry
 likewise links `ordinary.cpp` and `subview.cpp` alias routing independently
-from `publication_mutation.cpp`; `model.cpp`, `publication.cpp`, `control.cpp`,
+from `publication/mutation.cpp`; `model.cpp`, `publication/contract.cpp`, `control.cpp`,
 `execution.cpp`, and `failure.cpp` remain their named leaf owners. CMake lists
 every leaf directly under `compute.window`; neither entry textually includes an
 implementation owner or routes through an umbrella compatibility seam.
@@ -3665,10 +4214,110 @@ execution rather than mirrored below Metal and Vulkan. Pipeline may not call
 the public Batch executor, use the Program convenience cache, or retain adapter
 mirrors.
 
+The `compute.pipeline` Metal residency admission case remains one public
+`CheckMetalResidencyAdmission` dispatch. Its semantic leaves are
+`pipeline/metal/residency/{transactional,execution,staged,terminal,schedule,dispatcher}.cpp`;
+`support.cpp` is the shared Fixture/callback/plan owner and is also linked by
+the Metal sliding-gate case for `AdmissionBacking`. The
+dispatcher preserves the original return-ID routing and CPU/Vulkan
+unavailable-backend stub.
+
+The `compute.pipeline-vulkan-persistent-sliding` case keeps its public runner
+in `pipeline/vulkan/persistent_sliding/dispatcher.cpp`. The shared
+`support.cpp` owner contains `PersistentBacking`, waits/callbacks, backend
+queue/probe helpers, and common storage comparisons; `generated.cpp`,
+`recurrence.cpp`, and `history.cpp` own the generated-map, direct-recurrence,
+and direct-history contracts; `persistent.cpp` is the generic persistent-stream
+coordinator.
+Within the persistent-stream owner, `prepare.cpp` owns program/backing/lowering
+and capability construction, `preflight.cpp` owns replay and pre-submit
+inspection, `submit.cpp` owns the single native submit/commit, and `terminal.cpp`
+owns Known/Unknown/DeviceLost terminal evidence.
+The dispatcher retains the original DeviceVSM → product → history → recurrence
+→ generated-map → persistent scenario order and CPU/Metal unavailable-backend
+stub.
+
+The `compute.pipeline-vulkan-transfer` case keeps its public runner in
+`pipeline/vulkan/contract.cpp`; its semantic owners are
+`pipeline/vulkan/transfer/{selection,execution,probe}.cpp`, while
+`support.cpp` owns the shared `VulkanTransferBacking`, waits/callbacks,
+execution-plan construction, queue/download/rejection helpers, and memory
+comparisons. `dispatcher.cpp` preserves the original selection → execution →
+probe → budget-rollback order, return-code routing, and CPU/Metal unavailable-
+backend stub.
+
+The Vulkan native-residency leaf of `compute.pipeline-residency` keeps its
+public `CheckVulkanResidencyWindow` entry in
+`pipeline/residency/contract.cpp`. Its `pipeline/vulkan/residency/support.cpp`
+owner retains the one Window/Schedule wait fixture, callback evidence, native
+DeviceLocal capability proof, and lifetime-bound prepared resources;
+`window.cpp`, `schedule.cpp`, `warm.cpp`, and `abort.cpp` own the bounded W4,
+Q=17 Schedule, warm reuse/product, and abort-as-drain contracts. The
+`dispatcher.cpp` owner preserves the original W4 → Schedule → warm/product →
+abort order, return IDs, and CPU/Metal/no-SDK unavailable-backend stub.
+
+The `compute.pipeline-residency` Window leaf keeps its public `CheckWindow`
+entry in `pipeline/residency/contract.cpp`; `residency/window/{stream,schedule}.cpp`
+own the independent Stream and Schedule model/failure contracts, and
+`support.cpp` owns only the shared plan, frame registration, release, pipeline,
+and chunk value builders. `dispatcher.cpp` preserves the original Stream →
+Schedule → bounded Window, shifted evidence, warm reuse, bootstrap rollback,
+integrity, Known failure, and Unknown-prefix order with the established return
+IDs.
+
+The native sliding residency contract keeps its public `CheckNativeSliding`
+entry in `pipeline/residency/native_sliding/dispatcher.cpp`. Its single fake
+backend and callback/fixture protocol lives in `native_sliding/support.cpp`;
+`admission.cpp`, `terminal.cpp`, `concurrency.cpp`, and `reentrant.cpp` own
+the admission/projection, terminal/failure, scheduling/generation, and
+reentrant contracts. The dispatcher preserves the existing 25-case order and
+failure routing. The Release-handoff case accepts both initial slots before
+starting its fake completion workers, so its deliberately blocked Release
+callback cannot run inside the test thread's initial Submit. Inline and
+cross-thread early completion remain separate explicit contracts.
+
+The `compute.pipeline` View contract keeps its public `CheckViews` entry in
+`pipeline/view/dispatcher.cpp`. `support.cpp` owns only CPU View transfer
+inspection; `basic.cpp`, `reduce.cpp`, `sort.cpp`, `reset.cpp`, and
+`primitives.cpp` own nested/strided admission, dense reduce and arena
+accounting, sort, pool/reset/scatter, and scan/matrix behavior respectively.
+The dispatcher preserves the original 1–28 and `30 + CheckViewArena` return
+routing and invokes the existing arena owner at its original position.
+
+The `compute.pipeline-metal-persistent-sliding` case keeps its public runner
+in `pipeline/metal/persistent_sliding/dispatcher.cpp`. The shared
+`support.cpp` owner contains `PersistentBacking`, waits/callbacks, backend
+queue/probe helpers, and common storage comparisons; `window.cpp` owns the
+public spatial N48 and natural fallback N53 contracts, while `recurrence.cpp`,
+`history.cpp`, and `persistent.cpp` own the direct-recurrence, direct-history,
+and generic persistent-stream contracts. The dispatcher retains the original
+DeviceVSM → product → history → recurrence → persistent Q cases → public
+window/fallback → unknown-failure order and CPU/Vulkan unavailable-backend
+stub.
+
+Vulkan Map control is split by semantic phase. `map/source/control.cpp` owns
+the check, direct-control, generated-control, and controlled-artifact recipes,
+their identity hashes, and exact/upper source-byte construction; its static
+GLSL fragments remain in `map/source/upper.hpp`. `map/admission.cpp` owns
+resident control/check bindings, status buffers, descriptor admission, and
+generated-map gate/summary binding. `map/encode/control.cpp` owns push-ABI
+packing, generated-control barriers, and command recording. The
+`map/control.hpp` header retains only the shared push-layout types. The
+`map/finish/template.cpp` owner matches immutable template identity and builds
+the cached template; `map/finish/route.cpp` owns route validation, descriptor
+demand, and encode-resource materialization; `map/finish/encode.cpp` owns map
+command recording; `map/finish/observation.cpp` owns finish/status/failure and
+telemetry/capture projections; and `map/finish/lifecycle.cpp` owns the single
+encode-resource deleter. These owners share declarations only and do not
+introduce a second generated-map or status authority.
+
 Metal's generated Pipeline status program is assembled by
 `source/status/source.cpp` from the ordered `abi`, `reset`, `publish`,
 `advance`, and `reduce` owners in that directory; `pipeline/source.cpp` appends
-the adjacent `status/telemetry.cpp` owner to form the final MSL program.
+the adjacent `status/telemetry.cpp` owner to form the final MSL program. Within
+that owner, `telemetry_step_control` is the sole per-kind (1–5) projection;
+both the unprofiled and profiled accumulation kernels merge its result, with
+the profiled kernel additionally publishing the same result to its step row.
 `accel.kernel-core` freezes the exact status, telemetry, and combined source
 byte counts and FNV-1a identities, so an ownership-only split cannot silently
 change the compiled MSL program or cache identity.
@@ -3950,6 +4599,25 @@ can claim the Pipeline contract:
     zero generation, poisoned `W` and Pipeline, and exact outer/phase/inner
     coordinates. Same-Buffer window destinations and overlap with
     resident/input/final ownership prove the fail-closed alias law.
+    The focused nested control evidence is compiled by concern:
+    `window/nested/control.cpp` owns repeatable Seed-failure state,
+    `window/nested/control/dormant.cpp` owns dormant aggregate routing, and
+    `window/nested/control/capacity.cpp` owns the independent
+    observation-capacity/workspace cardinality proof. Their shared `local.hpp`
+    remains declarations and canonical fixture constants only.
+    Nested identity evidence is compiled by owner as well: `nested/identity.cpp`
+    captures frozen Pipeline/Job binding identity, `identity/runtime.cpp` owns
+    runtime telemetry shape, and `identity/transactional.cpp` owns warm
+    transactional bank stability.
+    Window publication evidence follows the same compiled split:
+    `output/publication/arity.cpp`, `fingerprint.cpp`, and `source.cpp` own
+    arity, public fingerprint, and source-coordinate laws respectively;
+    `contract.cpp` owns only the shared warm-setup predicate,
+    `mutation.cpp` owns sealed publication/control mutation rejection,
+    `mutation/job.cpp` owns frozen Job-binding/coordinate mutation rejection,
+    and
+    `rollback.cpp` owns allocation-failure transaction rollback. No source is
+    included as an implementation fragment.
 35. reusable checkpoint acceptance covers one, multiple, and zero-byte state
     fields; generation zero, one, 65 alternating commits, the native U32
     generation ceiling, and the non-wrapping payload-epoch ceiling. Exact and
@@ -3966,9 +4634,32 @@ can claim the Pipeline contract:
     counters, and process-wide allocation count/byte evidence with
     driver-owned Vulkan submission allocation reported separately.
 
+The reusable-checkpoint contract has the same physical ownership boundaries as
+the product path it verifies. `pipeline/checkpoint/setup.cpp` owns the canonical
+fixture and shared-stat comparison; `initial.cpp` owns snapshot initialization
+and parity hand-off; `copy.cpp` owns busy-publication and disjoint-device copy;
+`alias.cpp` owns duplicate/partial/reversed alias rejection; `storage.cpp` owns
+byte/field capacity atomicity; `portability.cpp` owns same- and cross-backend
+restore; and `boundary.cpp` owns non-state, generation, payload-epoch, and
+repeated-commit ceilings. `dispatcher.cpp` alone preserves the public check's
+failure order and result codes.
+
 A passed requirement has executable product behavior and direct evidence from
 the requested backend. Every unrun verification is recorded explicitly rather
 than inferred from another backend or a passing build.
+
+The boundary-mode contract mirrors the semantic families it verifies:
+`boundary/modes/domain.cpp`, `bounded.cpp`, and `fixed.cpp` own domain/matrix,
+bounded/unsigned, and fixed transform/factor/solve/spectrum cases. The root
+case owns only stable result ordering, while `local.hpp` carries shared typed
+boundary values and hash comparison helpers.
+
+The repeat contract is split by independent semantic authority. The root
+`pipeline/repeat.cpp` owns fixed-capacity recurrence and preserves public
+failure ordering; `repeat/bounded.cpp` owns bounded-workset equivalence and
+warm control-profile stability; and `repeat/reset.cpp` owns skipped-iteration
+reset and stale-byte exclusion. Its private `local.hpp` contains declarations
+only, and no test source is textually included by another source.
 
 ## Primary Platform Evidence
 
@@ -3988,3 +4679,87 @@ than inferred from another backend or a passing build.
 
 Implementation may change a contract choice only by updating its invariant,
 cost model, failure law, and verification evidence together.
+
+
+### Execution attempt and terminal decision ownership
+
+`PipelineState::attempt` owns the generation/parity selected for one attempt,
+verified progress, failure-location availability, possible writes, submission
+and dispatch-timing state. Successful claim acquisition replaces that aggregate
+before entering Running. Native identity, observation identity, cumulative
+statistics and `control_poisoned` remain outside it: quarantine must survive
+attempt initialization. The Pipeline gate protects attempt mutation.
+
+`run/evidence.cpp` is the pure native evidence decision owner. Its immutable
+context supplies the prepared extent, issued extent and generation; it never
+mutates a Pipeline, publication, registry lease or device. Ordinary and Residency
+entry points share control identity validation and terminal classification,
+while retaining these distinct contracts:
+
+| Evidence | Ordinary | Residency |
+| --- | --- | --- |
+| Successful submissions | One; two for timed Metal; zero for empty work | Exactly one |
+| Verified extent | Physical Pipeline prefix, bounded by total steps | Exact issued local extent on success |
+| Control identity | Observed, valid, exact bytes, next generation | Same, plus issued extent bound |
+| Explicit UnknownMayWrite | DeviceLost decision; suppress publication and quarantine | Same |
+| Known failure | Project reason and optional failure location | Same, also check shared outcome |
+
+`PipelineOutcome` uses an optional failure coordinate and one native completion
+disposition (NotSubmitted, Known, UnknownMayWrite). CPU write evidence remains
+independent because host execution can write without a native submission.
+Completion wrappers apply statistics, profiling and generation rebasing after
+the decision. `publish_pipeline_terminal` remains the sole final publication,
+phase and claim-release authority. Submission callbacks still claim terminal
+ownership through the existing atomic phase transition, including callbacks
+inside submit and duplicate callbacks. No extra lock or allocation is introduced
+in evidence decisions; this is a structural change, not a measured speedup claim.
+
+Verification: `compute.pipeline` includes pure malformed-evidence and differing
+extent/submission-policy cases in `completion.cpp`, as well as native submission
+rejection and Residency terminal contracts. `runtime.compute` owns cancellation
+and asynchronous lifecycle contracts. Run the full Debug check after rebuilding
+all consumers of the private Pipeline state layout.
+
+
+### Window descriptor and progress ownership
+
+`state/window.hpp` owns the Window storage contract. `PipelineWindow` contains
+only preparation-time control, extent, output count and nested shape.
+`PipelineWindowProgress` contains the current bank and stopped flag. The
+non-copyable `PipelineWindows` owner returns only const descriptor references;
+only `admit_initial` and `admit_steps` can allocate or populate its private
+entries. Runtime cannot resize, replace or mutate that descriptor storage.
+Descriptor and progress objects share one vector allocation, with memory
+planning and observation both accounting for the actual entry size/capacity.
+Buffer and Job payloads retain their existing mutable owners; const descriptors
+do not imply immutable payloads.
+
+After successful CPU claim acquisition, `start_pipeline` resets all host Window
+progress before entering Running. Accelerator execution uses native control and
+does not scan host cursors. Failed admission and a busy start do not reset an
+active execution. Synchronous CPU, scheduled CPU and Residency share this
+initialization authority; schedule initialization only resets its own cursor.
+
+Window preparation and final-bank copies receive read-only resource/publication
+spans, selected parity and step count through `CpuPipelinePublicationContext`.
+Preparation additionally receives Window progress and control statistics; it
+cannot mutate Pipeline phase, claims, publication identity or unrelated stats.
+Descriptor lookup is owned by `PipelineWindows::find`, with zero/out-of-range
+one-based indices returning null. Final-bank copy uses an explicit Window index,
+not pointer subtraction. Nested validation only needs step count and descriptor.
+Nested CPU and scheduled execution pass the outer iteration as a scalar instead
+of copying a PipelineStep and its three shared ownership references per window.
+
+`compute.window` parity tests assert const descriptor access, stable descriptor
+identity/storage, and reset of stale stopped/invalid-bank progress across runs.
+Existing nested, asynchronous, cancellation, publication and memory contracts
+remain the acceptance surfaces. No elapsed-time speedup is claimed without
+measurement; removing the per-window PipelineStep copy removes that copy's
+shared ownership increments/decrements by construction.
+
+
+On the verified arm64 Debug layout, the previous mixed Window record and the
+new descriptor/progress entry are both 200 bytes; the vector owner and
+`PipelineWindows` are both 24 bytes. The new descriptor is 192 bytes and its
+progress is 8 bytes. These are platform-specific layout measurements, not ABI
+constants. The shared-memory inventory and admission use actual entry sizes.

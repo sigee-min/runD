@@ -2,7 +2,7 @@
 
 #include "../../scatter.hpp"
 #include "../../scatter/model.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../barrier.hpp"
 #include "../collective/pipeline.hpp"
 #include "../command.hpp"

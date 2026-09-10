@@ -1,6 +1,6 @@
 #include <rund/compute/batch.hpp>
 
-#include "../../accel/kernel/prepared.hpp"
+#include "../../accel/kernel/prepared/interface/api.hpp"
 #include "../device/state.hpp"
 #include "../job/local.hpp"
 #include "../job/state.hpp"

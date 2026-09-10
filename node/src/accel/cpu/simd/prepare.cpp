@@ -8,6 +8,7 @@
 #include "prepare/caps.hpp"
 #include "prepare/bindings.hpp"
 #include "prepare/plan.hpp"
+#include "prepare/affine.hpp"
 // clang-format on
 
 namespace rund::node::accel::cpu_simd_detail {
@@ -34,6 +35,7 @@ PrepareRun(const rund::kernel::ComputeIR &ir, const rund::kernel::CpuCaps &caps,
       reason != nullptr) {
     return RejectPrepared(reason);
   }
+  prepared.affine = BuildAffinePlan(prepared, ScalarBytes(ir.scalar));
   prepared.ok = true;
   prepared.reason = "ok";
   return prepared;

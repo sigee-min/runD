@@ -29,7 +29,10 @@ set(NODE_TEST_REPLAY_KERNEL_TEST_SOURCES
   tests/contract/runtime/task/replay/kernel.cpp)
 
 set(NODE_TEST_REPLAY_TELEMETRY_TEST_SOURCES
-  tests/contract/runtime/task/replay/telemetry/parity.cpp)
+  tests/contract/runtime/task/replay/telemetry/parity.cpp
+  tests/contract/runtime/task/replay/telemetry/parity/support.cpp
+  tests/contract/runtime/task/replay/telemetry/parity/parity.cpp
+  tests/contract/runtime/task/replay/telemetry/parity/failure.cpp)
 
 set(NODE_TEST_REPLAY_PAYLOAD_TEST_SOURCES
   tests/contract/runtime/task/replay/payload.cpp)

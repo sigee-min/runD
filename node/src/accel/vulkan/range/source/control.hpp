@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
 #include "../../range/local.hpp"
 
 namespace rund::node::accel::detail {
@@ -117,6 +117,14 @@ void main() {
     source += R"GLSL(u;
 )GLSL";
     switch (frozen.disposition) {
+    case RangeStageKind::TiledDifference:
+      source += R"GLSL(      elements = count;
+      groups = rund_range_groups(elements, width * )GLSL";
+      (void)source.decimal(kRangeTileOutputsPerLane);
+      source += R"GLSL(u);
+      auxiliary = groups;
+)GLSL";
+      break;
     case RangeStageKind::Direct:
     case RangeStageKind::SharedHalo:
     case RangeStageKind::PrefixWindow:

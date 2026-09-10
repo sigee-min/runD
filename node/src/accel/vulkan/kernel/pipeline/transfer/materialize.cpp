@@ -1,3 +1,8 @@
+#include "../../../adapter/error.hpp"
+#include "../../../buffer/access.hpp"
+#include "../../../buffer/create.hpp"
+#include "../../../../backend/result.hpp"
+
 #include "../transfer.hpp"
 
 #include "../../../buffer/create/telemetry.hpp"
@@ -6,6 +11,7 @@
 #include "../../../command/resources.hpp"
 #include "../../../resident/access.hpp"
 #include "../prepare/record.hpp"
+#include "../residency/local.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -15,6 +21,19 @@
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
+
+rund::AccelCheck
+QueryVulkanPipelineResidency(const std::shared_ptr<void> &prepared,
+                             bool &supported) noexcept {
+  supported = false;
+  const auto *const pipeline =
+      static_cast<const VulkanPipeline *>(prepared.get());
+  if (!ValidVulkanPipeline(pipeline)) {
+    return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
+  }
+  supported = pipeline->residency != nullptr && pipeline->residency->ready;
+  return rund::AccelCheck{true, "ok"};
+}
 namespace {
 
 struct VulkanPipelineTransferCandidate final {

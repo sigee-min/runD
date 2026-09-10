@@ -16,7 +16,7 @@ inline constexpr std::array<std::size_t, 4u> ActiveCounts{
 inline constexpr std::size_t FrameElements = PageElements * FrameCapacity;
 inline constexpr std::size_t ResidentBytes =
     FrameElements * sizeof(std::int32_t) * 4u;
-inline constexpr std::size_t HostStagingBytes =
+inline constexpr std::size_t HostResidentBytes =
     FrameElements * sizeof(std::int32_t) * 4u;
 inline constexpr std::size_t PageCount =
     LogicalElements / PageElements +

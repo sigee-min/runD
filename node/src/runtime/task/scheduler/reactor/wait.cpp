@@ -1,7 +1,6 @@
 #include <rund/counter.hpp>
 #include <rund/task/stats/slots.hpp>
 
-#include "../../../reactor/platform.hpp"
 #include "../../../reactor/readiness/handle.hpp"
 #include "../../../reactor/readiness/mask.hpp"
 #include "../state/model/task.hpp"

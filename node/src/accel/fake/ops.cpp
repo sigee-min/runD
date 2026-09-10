@@ -1,7 +1,7 @@
 #include "ops.hpp"
 #include "../backend/ops/table.hpp"
 #include "../kernel/backend/execute.hpp"
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/capability.hpp"
 
 #include <accel/buffer.hpp>
 #include <accel/device.hpp>
@@ -22,6 +22,7 @@ namespace {
 [[nodiscard]] rund::Buffer RejectBuffer(const rund::AccelDevice &,
                                         const rund::BufferDesc &,
                                         const BackendBufferInitialization,
+                                        const BackendBufferMemory,
                                         const std::uint64_t) {
   return rund::Buffer{
       .check = rund::AccelCheck{false, "accel_buffer_backend_unavailable"}};

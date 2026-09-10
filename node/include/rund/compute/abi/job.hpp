@@ -1,8 +1,13 @@
 #pragma once
 
+#include <array>
 #include <limits>
 #include <new>
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/schema.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/resource.hpp>
+#include <rund/compute/fixed.hpp>
+#include <rund/compute/status.hpp>
 #include <span>
 namespace rund::compute::detail {
 [[nodiscard]] Result<std::shared_ptr<JobState>>

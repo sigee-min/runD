@@ -1,7 +1,19 @@
 #pragma once
 
+#include "../../adapter/access.hpp"
+#include "../../command.hpp"
+#include "../pipeline.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
+
+#include <memory>
+#include <mutex>
+#include <utility>
+
+namespace rund::node::accel::detail {
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
 template <class Prepare, class... Args>
 rund::AccelCheck
@@ -42,3 +54,7 @@ rund::AccelCheck ExecuteVulkanDomainCollective(
   return ExecuteVulkanPrepared(pick, prepare, encode, finish, desc, plan,
                                domain, bindings);
 }
+
+#endif
+
+} // namespace rund::node::accel::detail

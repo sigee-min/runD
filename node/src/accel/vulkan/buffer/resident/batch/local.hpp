@@ -4,11 +4,11 @@
 
 #include "../find.hpp"
 
-#include <rund/counter.hpp>
 #include "../../../command.hpp"
 #include "../../../resident/access.hpp"
 #include "../../../scope.hpp"
 #include "../../transfer/range.hpp"
+#include <rund/counter.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -64,10 +64,11 @@ transfer_budget(const VkDeviceSize requested) noexcept {
          ~(kVulkanTransferAlignment - 1u);
 }
 
-[[nodiscard]] inline bool
-next_slice(const std::uint64_t offset, const std::uint64_t bytes,
-           const std::uint64_t consumed, const VkDeviceSize budget,
-           TransferSlice &slice) noexcept {
+[[nodiscard]] inline bool next_slice(const std::uint64_t offset,
+                                     const std::uint64_t bytes,
+                                     const std::uint64_t consumed,
+                                     const VkDeviceSize budget,
+                                     TransferSlice &slice) noexcept {
   if (budget < kVulkanTransferAlignment || consumed >= bytes ||
       offset > std::numeric_limits<std::uint64_t>::max() - bytes ||
       offset > std::numeric_limits<std::uint64_t>::max() - consumed) {
@@ -131,13 +132,15 @@ void record_staging(Transfer &result, const VkDeviceSize bytes,
 
 [[nodiscard]] std::uint64_t
 latest_sequence(const VulkanAdapter &adapter) noexcept;
-void wait_sequence(VulkanAdapter &adapter, std::unique_lock<std::mutex> &lock,
-                   std::uint64_t sequence);
+[[nodiscard]] rund::AccelCheck wait_sequence(VulkanAdapter &adapter,
+                                             std::unique_lock<std::mutex> &lock,
+                                             std::uint64_t sequence);
 [[nodiscard]] bool overlaps(std::span<const UploadPlan> plans);
 [[nodiscard]] bool encode_download(VulkanAdapter &adapter,
                                    std::span<const DownloadPlan> plans,
                                    VulkanBuffer &staging,
-                                   VkDeviceSize staging_bytes);
+                                   VkDeviceSize staging_bytes,
+                                   bool *submitted = nullptr);
 [[nodiscard]] bool encode_preserve(VulkanAdapter &adapter,
                                    std::span<const UploadPlan> plans,
                                    VulkanBuffer &staging,

@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "../../reactor/platform.hpp"
+#include "../../reactor/platform/poll.hpp"
 
 namespace rund::node {
 

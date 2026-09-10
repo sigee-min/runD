@@ -14,6 +14,7 @@ struct GraphState;
 materialize_graph(const std::shared_ptr<FlowState> &flow,
                   const std::shared_ptr<DeviceState> &device,
                   std::span<const std::size_t> order,
+                  std::span<const StepLivePlan> live,
                   std::span<const MapRecipe> maps,
                   std::span<const std::uint8_t> skipped = {});
 

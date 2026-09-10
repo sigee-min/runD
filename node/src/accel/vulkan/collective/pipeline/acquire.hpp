@@ -4,6 +4,7 @@
 #include "../../../source/hash.hpp"
 #include "../../cached/index.hpp"
 #include "../pipeline.hpp"
+#include "../../shader/api.hpp"
 #include "create.hpp"
 
 #include <new>

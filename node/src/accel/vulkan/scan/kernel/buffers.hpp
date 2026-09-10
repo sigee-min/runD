@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+#include "../../buffer/create.hpp"
+
 #include <accel/check.hpp>
 
 #include "../../../scan/prefix.hpp"

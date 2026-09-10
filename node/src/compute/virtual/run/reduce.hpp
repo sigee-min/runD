@@ -3,7 +3,7 @@
 #include "projection.hpp"
 
 #include "../../../hash/fnv.hpp"
-#include "../../device/residency.hpp"
+#include "../../device/residency/registry.hpp"
 
 #include <array>
 #include <cstddef>

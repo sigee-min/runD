@@ -1,6 +1,6 @@
 #include "model.hpp"
 
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/storage.hpp"
 #include "../../../scatter/reduce/model.hpp"
 
 #include <cstdint>
@@ -264,14 +264,16 @@ void main() {
     }
   } else {
     source += R"GLSL(  if (gl_GlobalInvocationID.x != 0u) { return; }
+  uint conflicts = 0u;
   for (uint ordinal = 0u; uint64_t(ordinal) < logical; ++ordinal) {
     const uint target = indices[params.index_base + ordinal];
-    if (counts[target] != 0u) { ++status[2]; }
+    conflicts += uint(counts[target] != 0u);
     ++counts[target];
     output_values[params.output_base + target] =
         reduce_value(output_values[params.output_base + target],
                      values[params.value_base + ordinal]);
   }
+  status[2] = conflicts;
 )GLSL";
   }
   source += "}\n";

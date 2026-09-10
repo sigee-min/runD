@@ -25,6 +25,23 @@ struct Lifetime final {
   bool first_write_domain{};
 };
 
+struct Live final {
+  std::uint64_t start{};
+  std::uint64_t stop{};
+};
+
+// One transient analysis value crosses the focused planner owners.  It is
+// discarded after plan_memory returns and is the only storage for derived
+// lifetime/use/placement work before the public MemoryPlan is published.
+struct Work final {
+  std::vector<Lifetime> lifetimes{};
+  std::vector<std::size_t> counts{};
+  std::vector<std::size_t> offsets{};
+  std::vector<std::uint32_t> uses{};
+  std::vector<Live> live{};
+  std::vector<std::uint32_t> arena{};
+};
+
 struct Layout final {
   std::uint64_t bytes{};
   std::uint64_t count{};

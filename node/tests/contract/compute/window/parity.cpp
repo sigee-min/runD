@@ -1,11 +1,20 @@
 #include "../pipeline/local.hpp"
 #include "local.hpp"
 
+#include "src/compute/pipeline/state.hpp"
 #include <cstdio>
+#include <node/runtime/compute/access.hpp>
+#include <type_traits>
 #include <utility>
 
 namespace rund::node::test_contract::window {
 namespace {
+using rund::compute::detail::PipelineWindow;
+using rund::compute::detail::PipelineWindows;
+static_assert(std::is_same_v<decltype(std::declval<PipelineWindows &>()[0u]),
+                             const PipelineWindow &>);
+static_assert(!std::is_copy_assignable_v<PipelineWindows>);
+static_assert(!std::is_move_assignable_v<PipelineWindows>);
 
 template <class T>
 [[nodiscard]] int
@@ -73,9 +82,31 @@ CheckParity(Device &device, const Backend backend, Fingerprint &body_identity,
                  static_cast<unsigned>(prepared.reason()));
     return 3;
   }
-  if (!prepared->run() || !prepared->run()) {
+  if (!prepared->run()) {
     return 4;
   }
+  const auto &state =
+      rund::compute::detail::PipelineStateAccess::state(*prepared);
+  if (state == nullptr || state->windows.empty() ||
+      state->windows.find(0u) != nullptr ||
+      state->windows.find(state->windows.size() + 1u) != nullptr) {
+    return 4;
+  }
+  const auto *const descriptor = state->windows.find(1u);
+  const auto control = descriptor->control;
+  const auto retained = state->windows.retained_bytes();
+  // A new attempt must discard every old cursor, including a stopped window
+  // and an invalid bank, while retaining its sealed descriptors and storage.
+  for (std::size_t index = 0; index < state->windows.size(); ++index) {
+    state->windows.progress(index).current = 99u;
+    state->windows.progress(index).stopped = true;
+  }
+  if (!prepared->run() || state->windows.find(1u) != descriptor ||
+      descriptor->control != control ||
+      state->windows.retained_bytes() != retained) {
+    return 4;
+  }
+
   std::array<PipelineStepProfile, windows> rows{};
   const auto profile = prepared->profile(rows);
   const std::uint64_t planned_resident = planned->state_bytes +

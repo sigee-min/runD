@@ -1,6 +1,7 @@
 #include <accel/check.hpp>
 
 #include "local.hpp"
+#include <algorithm>
 
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
 #import <Metal/Metal.h>
@@ -57,10 +58,20 @@ rund::AccelCheck EncodeMetalHistogram(MetalAdapter &adapter,
              atIndex:1u];
   [encoder setBuffer:status offset:0u atIndex:2u];
   [encoder setBytes:&params length:sizeof(params) atIndex:3u];
-  [encoder dispatchThreads:MTLSizeMake(
-                               static_cast<NSUInteger>(params.element_count),
-                               1u, 1u)
-      threadsPerThreadgroup:MTLSizeMake(kHistogramThreadgroupSize, 1u, 1u)];
+  if (MetalHistogramLocal(params.bin_count)) {
+    const auto groups = std::min<std::uint64_t>(
+        1u + (params.element_count - 1u) / kHistogramThreadgroupSize,
+        kHistogramLocalGroups);
+    [encoder
+         dispatchThreadgroups:MTLSizeMake(static_cast<NSUInteger>(groups), 1u,
+                                          1u)
+        threadsPerThreadgroup:MTLSizeMake(kHistogramThreadgroupSize, 1u, 1u)];
+  } else {
+    [encoder dispatchThreads:MTLSizeMake(
+                                 static_cast<NSUInteger>(params.element_count),
+                                 1u, 1u)
+        threadsPerThreadgroup:MTLSizeMake(kHistogramThreadgroupSize, 1u, 1u)];
+  }
   return rund::AccelCheck{true, "ok"};
 #else
   (void)adapter;

@@ -1,5 +1,6 @@
 #include "../resource.hpp"
 
+#include "../../command/dispatch.hpp"
 #include "../../barrier.hpp"
 #include "../../status.hpp"
 

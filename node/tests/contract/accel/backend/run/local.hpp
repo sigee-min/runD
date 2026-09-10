@@ -28,7 +28,7 @@ AvailableBackendsRunSameAccelGraphSort(const rund::AccelDevice &metal,
 RequiredVulkanPickIsPlatformAware(const rund::AccelDevice &pick);
 [[nodiscard]] bool VulkanPickHasDiscoveryCaps(const rund::AccelDevice &pick);
 [[nodiscard]] bool VulkanDirectBackendLastErrorIsPrecise();
-[[nodiscard]] bool VulkanRepeatedStagedRunsReportWarmRuntimeStats();
+[[nodiscard]] bool VulkanTimelineFoundationContract();
 [[nodiscard]] bool RuntimePolicyChoosesOnlyFromLocalEvidence();
 [[nodiscard]] bool PublicContextApiContract();
 [[nodiscard]] bool ContextRejectsForgedPickOwnerInSupportPaths();

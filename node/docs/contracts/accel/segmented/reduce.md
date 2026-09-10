@@ -113,6 +113,25 @@ header in the CPU execution closure: a backend implementation
 includes only its own declaration owner, while CPU consumes the kernel
 reference directly.
 
+Vulkan's four shader source stages are separate compiled source owners under
+`node/src/accel/vulkan/segmented/reduce/source/`: `classify.cpp`, `prefix.cpp`,
+`scatter.cpp`, and `reduce.cpp`. Each owner emits its complete stage recipe for
+both the counting and string sinks. The adjacent `source.cpp` only selects the
+stage and runs the selected recipe through the common count-then-materialize
+path. Consequently `VulkanSegmentedReduceSourceBytes` remains the overflow
+guard and exact-size/fail-closed authority, while stage order, GLSL bindings,
+constants, and bytes remain unchanged.
+
+Metal's five shader fragments are separate compiled source owners under
+`node/src/accel/metal/segmented/reduce/source/`: `prelude.cpp` owns the Metal
+include, model constants, and parameter ABI; `classify.cpp`, `prefix.cpp`, and
+`scatter.cpp` own the three index stages; and `reduce.cpp` owns the wide
+helpers and both typed reduction kernels. The adjacent `source.cpp` only
+composes those fragments in their established order and retains the one
+count-then-materialize, cache-key, and public-name boundary. No fragment
+re-emits another fragment's source or authority, so Metal source bytes and
+kernel semantics remain unchanged.
+
 ## Verification
 
 Accel contracts feed negative stored values through the declared Fixed domain

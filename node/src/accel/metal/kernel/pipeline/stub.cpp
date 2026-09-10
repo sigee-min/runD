@@ -47,10 +47,21 @@ rund::AccelCheck QueryMetalPipelineResidency(const std::shared_ptr<void> &,
   return rund::AccelCheck{true, "ok"};
 }
 
-rund::AccelCheck SubmitPreparedMetalPipeline(const std::shared_ptr<void> &,
-                                             KernelCompletion, void *,
-                                             KernelTiming,
-                                             PipelineSubmitMode) noexcept {
+rund::AccelCheck
+SubmitPreparedMetalPipeline(const std::shared_ptr<void> &, KernelCompletion,
+                            void *, KernelTiming, PipelineSubmitMode,
+                            std::span<const std::uint32_t>) noexcept {
+  return rund::AccelCheck{false, "accel_metal_unavailable"};
+}
+
+rund::AccelCheck SubmitMetalResidencyWindow(
+    const BackendResidencyWindowRequest &) noexcept {
+  return rund::AccelCheck{false, "accel_metal_unavailable"};
+}
+
+rund::AccelCheck SignalMetalResidencyWindow(
+    const std::shared_ptr<void> &,
+    const BackendResidencyWindowSignal &) noexcept {
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 }
 

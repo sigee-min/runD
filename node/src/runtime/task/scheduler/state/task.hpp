@@ -13,8 +13,6 @@ void RunLeafQuantum(TaskRecord &record, std::uint64_t commit_ticket,
                     bool split_primitive_packets, bool lane_owned_segment,
                     bool root_exclusive_commit,
                     LaneSegmentEffect *lane_effect = nullptr) noexcept;
-[[nodiscard]] bool TryResumeSameLane(TaskRecord &record,
-                                     SchedulerThreadContext &context) noexcept;
 [[nodiscard]] bool EnqueueExternalWake(ExternalWake wake) noexcept;
 void QueueDirect(TaskLane &lane, TaskRecord &record, std::uint64_t ticket,
                  std::uint64_t sequence) noexcept;

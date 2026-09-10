@@ -1,6 +1,13 @@
 #pragma once
 
 #include "../../kernel/callback.hpp"
+#include "../../kernel/fault/domain.hpp"
+#include "../../kernel/residency/device_vsm/preparation.hpp"
+#include "../../kernel/residency/persistent_sliding.hpp"
+#include "../../kernel/residency/schedule.hpp"
+#include "../../kernel/residency/service_free_direct.hpp"
+#include "../../kernel/residency/sliding.hpp"
+#include "../../kernel/residency/window.hpp"
 #include "../result.hpp"
 
 #include <accel/api.hpp>
@@ -46,6 +53,7 @@ struct MapRecurrencePreparationPlan;
 struct KernelExecution;
 struct KernelExecutionStep;
 struct BoundStep;
+struct PreparedResidencyPersistentSlidingRole;
 struct PreparedBackendManifest;
 class PreparedMemoryMeter;
 class PreparedPipelineMemoryMeter;
@@ -62,7 +70,7 @@ struct BackendOps final {
   bool resident = false;
   std::uint32_t nested_aggregate_command_count = 0u;
   rund::Buffer (*create)(const rund::AccelDevice &, const rund::BufferDesc &,
-                         BackendBufferInitialization,
+                         BackendBufferInitialization, BackendBufferMemory,
                          std::uint64_t exact_storage_bytes) = nullptr;
   // Exact backend allocation charge for one logical storage Buffer. This is
   // also the pre-materialization Pipeline admission projection.
@@ -94,6 +102,20 @@ struct BackendOps final {
   BackendLookup (*lookup)(const rund::AccelDevice &,
                           const rund::kernel::ResidentBufferRef &,
                           const std::shared_ptr<void> &) = nullptr;
+  // Timing-free capability projection. The pointer is read-only, remains
+  // stable while the authenticated resident handle lives, and is coherent
+  // only after an exact native command terminal. Backends that cannot prove
+  // all three properties leave this null or return an empty view.
+  BackendHostView (*host_read)(
+      const rund::AccelDevice &, const rund::kernel::ResidentBufferRef &,
+      const std::shared_ptr<void> &) noexcept = nullptr;
+  // Timing-free coherent supply capability. The pointer is writable and
+  // stable while the authenticated resident handle lives. It grants no
+  // scheduling or range authority; Compute must separately authenticate the
+  // exact private Input owner and live Authority lease.
+  BackendHostWriteView (*host_write)(
+      const rund::AccelDevice &, const rund::kernel::ResidentBufferRef &,
+      const std::shared_ptr<void> &) noexcept = nullptr;
   rund::RuntimeStats (*stats)(const rund::AccelDevice &) = nullptr;
   void (*reset)(const rund::AccelDevice &) = nullptr;
   rund::node::accel::AccelMemoryStats (*memory)(
@@ -156,6 +178,10 @@ struct BackendOps final {
       std::uint64_t) noexcept = nullptr;
   rund::AccelCheck (*query_pipeline_residency)(const std::shared_ptr<void> &,
                                                bool &) noexcept = nullptr;
+  // True only when the retained residency owner is committed and can accept
+  // an exact selected-local submission now. Timing/allocation free.
+  rund::AccelCheck (*pipeline_residency_ready)(const std::shared_ptr<void> &,
+                                               bool &) noexcept = nullptr;
   rund::AccelCheck (*stage_pipeline_residency)(
       const std::shared_ptr<void> &, std::shared_ptr<void> &,
       std::uint64_t &) noexcept = nullptr;
@@ -169,14 +195,84 @@ struct BackendOps final {
       std::uint64_t *) noexcept = nullptr;
   rund::AccelCheck (*submit_prepared_pipeline)(
       const std::shared_ptr<void> &, KernelCompletion, void *, KernelTiming,
-      PipelineSubmitMode) noexcept = nullptr;
+      PipelineSubmitMode, std::span<const std::uint32_t>) noexcept = nullptr;
+  // One fixed backend-neutral handoff for W<=4 exact selected Pipeline
+  // batches. Backends copy the fixed request and emit internal Releases plus
+  // one Final; Host-service policy and cache selection never cross this seam.
+  rund::AccelCheck (*submit_prepared_window)(
+      const BackendResidencyWindowRequest &) noexcept = nullptr;
+  // True only when every window Release/Final callback is delivered from a
+  // backend-owned cold service lane after submit returns. The recurrent
+  // arbitrary-Q controller never admits a backend that could run Host I/O on
+  // its caller thread.
+  bool residency_window_callbacks_async = false;
+  rund::AccelCheck (*signal_prepared_window)(
+      const std::shared_ptr<void> &,
+      const BackendResidencyWindowSignal &) noexcept = nullptr;
+  rund::AccelCheck (*abort_prepared_window)(
+      const std::shared_ptr<void> &,
+      const BackendResidencyWindowAbort &) noexcept = nullptr;
+  // Immutable whole-run recurrence. Prepare may materialize a cold candidate,
+  // but it reports every runD-owned retained/transient byte and returns its
+  // owner before Authority begins. Submit consumes that exact candidate,
+  // accepts all Q native batches, and Signal only opens already queued work.
+  BackendResidencySchedulePreparation (*prepare_prepared_schedule)(
+      std::span<const BackendResidencyScheduleRole>, std::uint64_t epoch_count,
+      std::size_t tail_local_count) noexcept = nullptr;
+  rund::AccelCheck (*submit_prepared_schedule)(
+      const BackendResidencyScheduleRequest &) noexcept = nullptr;
+  rund::AccelCheck (*signal_prepared_schedule)(
+      const std::shared_ptr<void> &,
+      const BackendResidencyWindowSignal &) noexcept = nullptr;
+  rund::AccelCheck (*abort_prepared_schedule)(
+      const std::shared_ptr<void> &,
+      const BackendResidencyWindowAbort &) noexcept = nullptr;
+  // Fixed-state recurrent selection capability. Submission reuses the
+  // existing prepared-Pipeline native owner after its exact prior terminal;
+  // no Q-sized descriptor or command owner is materialized here.
+  BackendResidencySlidingCapability (*prepared_sliding_capability)(
+      const std::shared_ptr<void> &, ResidencySlidingMemory) noexcept = nullptr;
+  rund::AccelCheck (*submit_prepared_sliding)(
+      const std::shared_ptr<void> &, const BackendResidencySlidingDescriptor &,
+      KernelCompletion, void *, KernelTiming, PipelineSubmitMode,
+      std::span<const std::uint32_t>) noexcept = nullptr;
+  // Whole-run product lowering. The request already contains backend-native
+  // strong owners projected from authenticated common Prepared Pipelines.
+  // Preparation encodes the complete recurrence but performs no queue submit.
+  // This pure companion is queried before any persistent Authority lease or
+  // backend owner is materialized. It must not allocate, claim, or submit.
+  PersistentResidencySlidingCapability (*query_persistent_sliding_capability)(
+      std::span<const PreparedResidencyPersistentSlidingRole>,
+      std::uint64_t, ResidencySlidingMemory,
+      PersistentResidencySlidingMode) noexcept = nullptr;
+  PersistentResidencySlidingPreparation (*prepare_persistent_sliding)(
+      const PersistentResidencySlidingRequest &) noexcept = nullptr;
+  // One aggregate page-coordinate recurrence. The backend receives an exact
+  // common proof and exposes no per-page submit or callback surface.
+  DeviceVsmPreparation (*prepare_device_vsm)(
+      const rund::AccelDevice &,
+      const std::shared_ptr<const DeviceVsmProof> &) noexcept = nullptr;
+  // Backend-native proof for one already prepared aggregate recurrence. The
+  // common prepared owner independently supplies fixed_common_storage.
+  ServiceFreeDirectCapability (*service_free_direct_capability)(
+      const std::shared_ptr<void> &,
+      const ServiceFreeDirectProof &) noexcept = nullptr;
   rund::AccelCheck (*submit_prepared)(const BackendRun &,
                                       const std::shared_ptr<void> &,
                                       KernelCompletion, void *,
                                       PreparedMemoryMeter *,
                                       const std::shared_ptr<void> &,
                                       KernelTiming) noexcept = nullptr;
-  bool (*inject_device_lost_once)(const rund::AccelDevice &) noexcept = nullptr;
+  bool (*inject_device_lost_once)(const rund::AccelDevice &,
+                                  SubmitKind) noexcept = nullptr;
+  bool (*inject_download_failure_once)(const rund::AccelDevice &) noexcept =
+      nullptr;
+  bool (*inject_host_read_unavailable_once)(
+      const rund::AccelDevice &) noexcept = nullptr;
+  bool (*inject_host_write_unavailable_once)(
+      const rund::AccelDevice &) noexcept = nullptr;
+  bool (*inject_residency_terminal_loss_once)(
+      const rund::AccelDevice &) noexcept = nullptr;
   bool (*inject_trace_unavailable_once)(const rund::AccelDevice &) noexcept =
       nullptr;
   bool (*inject_trace_resolve_device_lost_once)(

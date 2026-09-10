@@ -17,10 +17,6 @@ struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck ExecuteMetalGather(const rund::AccelDevice &pick,
-                                       const rund::kernel::GatherDesc &desc,
-                                       const rund::kernel::GatherPlan &plan,
-                                       const GatherBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalGather(const rund::AccelDevice &pick,
                                        const rund::kernel::GatherDesc &desc,
                                        const rund::kernel::GatherPlan &plan,
@@ -34,10 +30,6 @@ struct VulkanKernelImmutablePipelines;
 [[nodiscard]] rund::AccelCheck FinishMetalGather(MetalAdapter &adapter,
                                       const std::shared_ptr<void> &resources);
 
-[[nodiscard]] rund::AccelCheck ExecuteVulkanGather(const rund::AccelDevice &pick,
-                                        const rund::kernel::GatherDesc &desc,
-                                        const rund::kernel::GatherPlan &plan,
-                                        const GatherBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanGather(const rund::AccelDevice &pick,
                                         const rund::kernel::GatherDesc &desc,
                                         const rund::kernel::GatherPlan &plan,

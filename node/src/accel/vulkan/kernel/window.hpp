@@ -1,10 +1,12 @@
 #pragma once
 
 #include "../../kernel/backend/run.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../adapter/buffer.hpp"
 #include "../adapter/pipeline.hpp"
 #include "../buffer/resident/model.hpp"
+#include "../command/capture.hpp"
+#include "../command/dispatch.hpp"
 #include "../descriptor/binding.hpp"
 
 #include <array>
@@ -71,10 +73,6 @@ struct VulkanWindowResources final {
   std::uint64_t gate_capacity{};
   std::uint32_t state_count{};
 };
-
-[[nodiscard]] std::string_view VulkanWindowSourceText() noexcept;
-[[nodiscard]] bool VulkanWindowSourceBytes(std::uint64_t &bytes) noexcept;
-[[nodiscard]] std::string_view VulkanGateSourceText() noexcept;
 
 [[nodiscard]] rund::AccelCheck PrepareVulkanWindow(
     VulkanAdapter &adapter, std::span<const BackendBatchEntry> entries,

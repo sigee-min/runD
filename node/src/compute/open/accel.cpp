@@ -9,6 +9,7 @@
 #include <accel/context/value.hpp>
 #include <accel/device.hpp>
 #include <node/accel/pick.hpp>
+#include <node/accel/context.hpp>
 
 #include <memory>
 

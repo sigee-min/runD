@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+#include "../../buffer/create.hpp"
+
 #include "../local.hpp"
 
 #include <kernel/program/compute/model.hpp>

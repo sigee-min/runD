@@ -24,6 +24,10 @@ composite expression functions and matrix, transform, factor, solve, and
 spectrum Flow stages. `<rund/compute/virtual.hpp>` owns the bounded-backing
 `VirtualBuffer` and prepared `VirtualPipeline` product without adding those
 Pipeline templates to the default Compute parse boundary.
+Its declarations are physically split across the support owners under
+`rund/compute/virtual/` (backing, buffer, pipeline, and preparation); the
+stable `virtual.hpp` entry remains the include-only umbrella and those support
+paths are not additional direct SDK entries.
 `<rund/compute.hpp>` includes no extension, Pipeline, or Virtual facade, so ordinary
 `on(...).map(...).collect()` consumers parse neither standard-future
 machinery, the advanced math graph, nor Pipeline binding templates.

@@ -1,6 +1,5 @@
 #include "poll.hpp"
 
-#include "../../../reactor/platform.hpp"
 
 namespace rund::node {
 

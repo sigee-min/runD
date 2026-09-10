@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+
 #include "../local.hpp"
 
 #include <array>

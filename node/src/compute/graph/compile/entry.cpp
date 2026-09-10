@@ -24,9 +24,9 @@ compile_program(const std::shared_ptr<GraphState> &graph,
       .operations = std::move(operations),
   };
   const Status lowered = graph_compile::lower(lowering);
-  return lowered ? graph_compile::finish(std::move(lowering))
-                 : Result<std::shared_ptr<ProgramState>>::fail(
-                       lowered.reason());
+  return lowered
+             ? graph_compile::finish(std::move(lowering))
+             : Result<std::shared_ptr<ProgramState>>::fail(lowered.reason());
 }
 
 } // namespace
@@ -45,8 +45,7 @@ compile_graph(const std::shared_ptr<GraphState> &graph,
   if (graph->inputs.empty() || graph->inputs.size() != inputs.size() ||
       graph->outputs.empty() || graph->outputs.size() != outputs.size() ||
       graph->steps.empty()) {
-    return Result<std::shared_ptr<ProgramState>>::fail(
-        Reason::GraphIncomplete);
+    return Result<std::shared_ptr<ProgramState>>::fail(Reason::GraphIncomplete);
   }
   for (std::size_t index = 0u; index < inputs.size(); ++index) {
     if (graph->values[graph->inputs[index] - 1u].type != inputs[index]) {
@@ -65,17 +64,18 @@ compile_graph(const std::shared_ptr<GraphState> &graph,
     return Result<std::shared_ptr<ProgramState>>::fail(
         description.status.reason());
   }
-  if (cache != nullptr && cache->device != graph->device) {
+  if (cache != nullptr && !cache_matches_device(cache, graph->device)) {
     return Result<std::shared_ptr<ProgramState>>::fail(
         Reason::ProgramCacheDeviceMismatch);
   }
   const auto build = [&]() -> Result<std::shared_ptr<ProgramState>> {
-    auto compiled = compile_program(
-        graph, description.info, std::move(description.map_operations));
+    auto compiled = compile_program(graph, description.info,
+                                    std::move(description.map_operations));
     if (!compiled) {
       return compiled;
     }
     (*compiled)->graph_info = std::move(description.info);
+    (*compiled)->canonical_graph = graph;
     return compiled;
   };
   return cache == nullptr

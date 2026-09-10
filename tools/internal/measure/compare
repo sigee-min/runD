@@ -150,7 +150,7 @@ sub validate_compute_values {
 sub validate_product_values {
   my ($kind, $values) = @_;
   $values->{status} eq 'ok' or fail("Compute $kind status is not ok");
-  $values->{candidate} =~ /\A(?:direct|shared|prefix|block)\z/
+  $values->{candidate} =~ /\A(?:direct|shared|tiled|prefix|block)\z/
       or fail("Compute $kind candidate is invalid");
   Math::BigInt->new($values->{active_count})->bcmp(
       Math::BigInt->new($values->{capacity})) <= 0
@@ -1062,6 +1062,7 @@ if ($project) {
   print "packet\tgenerator\t$packet->{generator}\n";
   print "packet\tcompiler\t$packet->{compiler}\n";
   print "packet\tcompiler:sha256\t$packet->{compiler_sha256}\n";
+  print "packet\tcompiler:version:sha256\t$packet->{compiler_version_sha256}\n";
   print "packet\tartifact\t$packet->{artifact}\n";
   print "packet\tartifact:sha256\t$packet->{artifact_sha256}\n";
   print "packet\tlog:sha256\t$packet->{log_sha256}\n";

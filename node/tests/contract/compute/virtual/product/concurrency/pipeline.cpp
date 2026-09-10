@@ -39,7 +39,7 @@ int CheckProductPipelineConcurrency(const rund::compute::Backend backend) {
           ? virtual_pipeline(
                 *program, *input, *output,
                 ResidencyConfig{.device_resident_bytes = ElementPageBytes * 4u,
-                                .host_staging_bytes = ElementPageBytes * 4u})
+                                .host_resident_bytes = ElementPageBytes * 4u})
           : Result<VirtualMap>::fail(Reason::PipelineInvalid);
   if (!prepared) {
     return 3;

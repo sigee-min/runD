@@ -1,14 +1,19 @@
 list(APPEND NODE_SOURCES
   src/runtime/task/scheduler/core/host.cpp
   src/runtime/task/scheduler/core/identity.cpp
-  src/runtime/task/scheduler/core/replay.cpp
+  src/runtime/task/scheduler/core/replay/helpers.cpp
+  src/runtime/task/scheduler/core/replay/capture.cpp
+  src/runtime/task/scheduler/core/replay/input.cpp
   src/runtime/task/scheduler/core/record/observation.cpp
+  src/runtime/task/scheduler/core/record/observation/api.cpp
+  src/runtime/task/scheduler/core/record/observation/host.cpp
+  src/runtime/task/scheduler/core/record/observation/network.cpp
+  src/runtime/task/scheduler/core/record/observation/payload.cpp
   src/runtime/task/scheduler/core/record/physical.cpp
   src/runtime/task/scheduler/core/record/root.cpp
   src/runtime/task/scheduler/core/record/task/identity.cpp
   src/runtime/task/scheduler/core/record/task/lifecycle.cpp
   src/runtime/task/scheduler/core/record/task/wait.cpp
-  src/runtime/task/scheduler/core/record/task/resources.cpp
   src/runtime/task/scheduler/core/resource/stats.cpp
   src/runtime/task/scheduler/core/reset.cpp
   src/runtime/task/scheduler/core/reset/replay.cpp
@@ -22,7 +27,10 @@ list(APPEND NODE_SOURCES
   src/runtime/task/scheduler/core/spawn/reject.cpp
   src/runtime/task/scheduler/core/time.cpp
   src/runtime/task/scheduler/task/frame.cpp
+  src/runtime/task/scheduler/task/frame/acquire.cpp
   src/runtime/task/scheduler/task/frame/bind.cpp
+  src/runtime/task/scheduler/task/frame/observe.cpp
+  src/runtime/task/scheduler/task/frame/release.cpp
   src/runtime/task/scheduler/task/callable/pool.cpp
   src/runtime/task/scheduler/task/completion/pool.cpp
   src/runtime/task/scheduler/task/completion/result.cpp

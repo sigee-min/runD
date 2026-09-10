@@ -9,12 +9,23 @@ list(APPEND NODE_SOURCES
   src/runtime/replay/accel.cpp
   src/runtime/replay/binding.cpp
   src/runtime/replay/checkpoint.cpp
+  src/runtime/replay/checkpoint/binding.cpp
+  src/runtime/replay/checkpoint/data.cpp
+  src/runtime/replay/checkpoint/hash.cpp
+  src/runtime/replay/checkpoint/load.cpp
+  src/runtime/replay/checkpoint/persist.cpp
+  src/runtime/replay/checkpoint/state.cpp
   src/runtime/replay/code.cpp
   src/runtime/replay/codec/load.cpp
-  src/runtime/replay/codec/payload.cpp
+  src/runtime/replay/codec/payload/sequence.cpp
+  src/runtime/replay/codec/payload/write.cpp
+  src/runtime/replay/codec/payload/read.cpp
   src/runtime/replay/codec/save.cpp
   src/runtime/replay/codec/value.cpp
   src/runtime/replay/diff.cpp
+  src/runtime/replay/diff/sequence.cpp
+  src/runtime/replay/diff/support.cpp
+  src/runtime/replay/diff/window.cpp
   src/runtime/replay/hash.cpp
   src/runtime/replay/history.cpp
   src/runtime/replay/kernel.cpp
@@ -29,6 +40,8 @@ list(APPEND NODE_SOURCES
   src/runtime/replay/surface/telemetry.cpp
   src/runtime/replay/host/codec.cpp
   src/runtime/replay/host/diff.cpp
+  src/runtime/replay/host/payload/backend.cpp
+  src/runtime/replay/host/payload/backend/blob.cpp
   src/runtime/replay/host/payload/backend/memory.cpp
   src/runtime/replay/host/payload/backend/spill/generation.cpp
   src/runtime/replay/host/payload/backend/spill/segment.cpp
@@ -38,13 +51,19 @@ list(APPEND NODE_SOURCES
   src/runtime/replay/host/payload/materialize.cpp
   src/runtime/replay/host/payload/diagnostic/ring.cpp
   src/runtime/replay/host/payload/store.cpp
+  src/runtime/replay/host/payload/store/append.cpp
   src/runtime/replay/host/payload/store/archive.cpp
+  src/runtime/replay/host/payload/store/entry.cpp
   src/runtime/replay/host/payload/store/hash.cpp
+  src/runtime/replay/host/payload/store/limits.cpp
   src/runtime/replay/host/payload/store/load/chunk.cpp
   src/runtime/replay/host/payload/store/load/record.cpp
   src/runtime/replay/host/payload/store/load.cpp
   src/runtime/replay/host/payload/store/resolve.cpp
+  src/runtime/replay/host/payload/store/state.cpp
   src/runtime/replay/host/payload/validate.cpp
+  src/runtime/replay/host/payload/validate/archive.cpp
+  src/runtime/replay/host/payload/validate/bind.cpp
   src/runtime/runtime.cpp
   src/runtime/runtime/config.cpp
   src/runtime/runtime/config/validation.cpp

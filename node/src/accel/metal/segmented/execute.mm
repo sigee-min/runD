@@ -89,45 +89,4 @@ rund::AccelCheck PrepareMetalSegmentedScan(
 #endif
 }
 
-rund::AccelCheck
-ExecuteMetalSegmentedScan(const rund::AccelDevice &pick,
-                          const rund::kernel::SegmentedScanDesc &desc,
-                          const rund::kernel::SegmentedScanPlan &plan,
-                          const rund::kernel::ComputeDomain domain,
-                          const SegmentedScanBinds &bindings) {
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-  auto *const adapter = static_cast<MetalAdapter *>(pick.backend.context);
-  if (!MetalPickOwnsAdapter(pick) || adapter == nullptr ||
-      adapter->queue == nullptr) {
-    return rund::AccelCheck{false, "accel_metal_unavailable"};
-  }
-  std::shared_ptr<void> resources{};
-  const rund::AccelCheck prepare =
-      PrepareMetalSegmentedScan(pick, desc, plan, domain, bindings, resources);
-  if (!prepare.ok) {
-    return prepare;
-  }
-
-  CommandRun command{};
-  const rund::AccelCheck open = OpenCommand(*adapter, command);
-  if (!open.ok) {
-    return open;
-  }
-  const rund::AccelCheck encode = EncodeMetalSegmentedScan(
-      *adapter, resources, (__bridge void *)command.encoder);
-  const rund::AccelCheck submit = FinishCommand(*adapter, command, encode);
-  if (!submit.ok) {
-    return submit;
-  }
-  return FinishMetalSegmentedScan(*adapter, resources);
-#else
-  (void)pick;
-  (void)desc;
-  (void)plan;
-  (void)domain;
-  (void)bindings;
-  return rund::AccelCheck{false, "accel_metal_unavailable"};
-#endif
-}
-
 } // namespace rund::node::accel::detail

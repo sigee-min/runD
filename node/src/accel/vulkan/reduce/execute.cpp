@@ -1,3 +1,7 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
@@ -156,29 +160,4 @@ rund::AccelCheck EncodeVulkanReduce(VulkanAdapter &adapter,
 #endif
 }
 
-rund::AccelCheck ExecuteVulkanReduce(const rund::AccelDevice &pick,
-                                     const rund::kernel::ReduceDesc &desc,
-                                     const rund::kernel::ReducePlan &plan,
-                                     const rund::kernel::ComputeDomain domain,
-                                     const ReduceBinds &bindings) {
-#if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return ExecuteVulkanDomainCollective(pick, desc, plan, domain, bindings,
-                                       [](const rund::AccelDevice &device,
-                                          const rund::kernel::ReduceDesc &operation,
-                                          const rund::kernel::ReducePlan &prepared,
-                                          const rund::kernel::ComputeDomain active_domain,
-                                          const ReduceBinds &resident,
-                                          std::shared_ptr<void> &resources) {
-                                         return PrepareVulkanReduce(
-                                             device, operation, prepared,
-                                             active_domain, resident, resources,
-                                             nullptr);
-                                       },
-                                       EncodeVulkanReduce,
-                                       FinishVulkanReduce);
-#else
-  (void)domain;
-  return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);
-#endif
-}
 } // namespace rund::node::accel::detail

@@ -7,6 +7,11 @@ already prepared resident Jobs. It is a bounded execution terminal, not a
 second graph builder, a scheduler, or a timing-based coalescer. Flow and
 Program remain the only graph and compilation authorities.
 
+The main Batch contract owns admission, multi-job execution, failure
+aggregation, and move/busy behavior. Scatter reset isolation is independently
+compiled in `tests/contract/compute/batch/reset.cpp`, so reset-state evidence
+does not expand the Batch execution coordinator or duplicate its batch owner.
+
 ## Admission
 
 A Batch stores at most 64 Job owners in fixed inline storage. `add(job)`

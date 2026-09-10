@@ -1,3 +1,4 @@
+#include "../../../../src/compute/buffer/state.hpp"
 #include "local.hpp"
 
 #include <node/runtime/compute/access.hpp>

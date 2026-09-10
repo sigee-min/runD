@@ -1,6 +1,6 @@
 #include "src/accel/kernel/backend/execute.hpp"
-#include "src/accel/kernel/backend/pipeline_failure.hpp"
-#include "src/accel/kernel/prepared.hpp"
+#include "src/accel/kernel/backend/pipeline/failure.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
 
 #include <array>
 #include <cstddef>

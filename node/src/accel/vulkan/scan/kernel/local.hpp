@@ -2,7 +2,7 @@
 
 #include "../../../scan/shape.hpp"
 #include "../../../scan/vulkan.hpp"
-#include "../../adapter/api.hpp"
+#include "../../adapter/state.hpp"
 #include "../../buffer/resident/model.hpp"
 #include "../../status.hpp"
 

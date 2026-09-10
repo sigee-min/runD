@@ -138,6 +138,32 @@ task::Task<void> RunAccelCoordinator(compute_detail::TaskState *const task) {
     break;
   }
   co_await BackendAwaiter{task};
+  const bool virtual_resume = task->virtual_continuation != nullptr;
+  if (virtual_resume && task->operation.table->resume_accel != nullptr) {
+    task->completion_phase.store(0u, std::memory_order_release);
+    for (;;) {
+      const compute_detail::Advance progress =
+          task->operation.table->resume_accel(task->operation, *task);
+      switch (progress.disposition()) {
+      case compute_detail::AdvanceDisposition::Pending:
+        co_await BackendAwaiter{task};
+        task->completion_phase.store(0u, std::memory_order_release);
+        continue;
+      case compute_detail::AdvanceDisposition::BackendSubmitted:
+        if (!task->backend_submitted.exchange(true,
+                                              std::memory_order_acq_rel)) {
+          Signal(host, ::rund::TraceEvent::ComputeBackendSubmitted);
+        }
+        co_await BackendAwaiter{task};
+        task->completion_phase.store(0u, std::memory_order_release);
+        continue;
+      case compute_detail::AdvanceDisposition::Failed:
+      case compute_detail::AdvanceDisposition::Complete:
+        Complete(task, compute_detail::FinishAccel(*task));
+        co_return;
+      }
+    }
+  }
   Complete(task, compute_detail::FinishAccel(*task));
   co_return;
 }
@@ -158,6 +184,7 @@ void PrepareTask(compute_detail::TaskState &slot,
   slot.stats = {};
   slot.job_result.reset();
   slot.pipeline_evidence.reset();
+  slot.virtual_continuation.reset();
   slot.pipeline_schedule = {};
   slot.cancel_requested.store(false, std::memory_order_relaxed);
   slot.backend_submitted.store(false, std::memory_order_relaxed);

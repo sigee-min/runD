@@ -1,3 +1,4 @@
+#include "../../../../src/compute/buffer/state.hpp"
 #include "local.hpp"
 
 #include "../../target/selection.hpp"
@@ -89,7 +90,8 @@ namespace rund_node_test_pipeline {
     };
     rund::node::accel::detail::UploadRoute policy_route{};
     if (policy_native == nullptr ||
-        !rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+        !rund::node::accel::detail::InjectNativeTransferDeviceLostOnce(
+            native->pick)) {
       return 24;
     }
     const auto queued = rund::node::accel::detail::UploadAccelBuffers(
@@ -137,7 +139,8 @@ namespace rund_node_test_pipeline {
     const std::uint64_t retained_generation = export_storage.generation();
     const std::uint64_t retained_hash = export_storage.hash();
     const CheckpointStats retained_stats = export_pipeline->checkpoint_stats();
-    if (!rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+    if (!rund::node::accel::detail::InjectNativeTransferDeviceLostOnce(
+            native->pick)) {
       return 16;
     }
     const Status export_lost = export_pipeline->snapshot_into(export_storage);
@@ -178,7 +181,8 @@ namespace rund_node_test_pipeline {
             ? restore_pipeline->latest_device_state()
             : Result<LatestDeviceState>::fail(Reason::PipelineInvalid);
     if (!restore_pipeline || !restore_latest ||
-        !rund::node::accel::detail::InjectNativeDeviceLostOnce(native->pick)) {
+        !rund::node::accel::detail::InjectNativeTransferDeviceLostOnce(
+            native->pick)) {
       return 17;
     }
     const Status restore_lost = restore_pipeline->restore(saved);

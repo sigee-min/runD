@@ -24,13 +24,11 @@ void DestroyMetalHistogramEncodeResources(void *const raw) {
   delete resources;
 }
 
-rund::AccelCheck
-PrepareMetalHistogram(const rund::AccelDevice &pick,
-                      const rund::kernel::HistogramDesc &desc,
-                      const rund::kernel::HistogramPlan &plan,
-                      const HistogramBinds &bindings,
-                      std::shared_ptr<void> &resources,
-                      const MetalKernelImmutablePipelines *const pipelines) {
+rund::AccelCheck PrepareMetalHistogram(
+    const rund::AccelDevice &pick, const rund::kernel::HistogramDesc &desc,
+    const rund::kernel::HistogramPlan &plan, const HistogramBinds &bindings,
+    std::shared_ptr<void> &resources,
+    const MetalKernelImmutablePipelines *const pipelines) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   resources.reset();
   if (!MetalPickOwnsAdapter(pick)) {
@@ -61,11 +59,12 @@ PrepareMetalHistogram(const rund::AccelDevice &pick,
     SetMetalLastError(*adapter, reason);
     return rund::AccelCheck{false, reason};
   }
-  raw->status = AcquireMetalBuffer(*adapter, plan.status_bytes,
-                                   MetalBufferUsage::Output);
+  raw->status =
+      AcquireMetalBuffer(*adapter, plan.status_bytes, MetalBufferUsage::Output);
   bool pipeline_ready = false;
   if (pipelines == nullptr) {
-    pipeline_ready = CompileMetalHistogramPipelines(*adapter, raw->pipelines);
+    pipeline_ready = CompileMetalHistogramPipelines(*adapter, plan.bin_count,
+                                                    raw->pipelines);
   } else if (pipelines->ready(2u)) {
     raw->pipelines.clear = pipelines->stages[0u];
     raw->pipelines.count = pipelines->stages[1u];

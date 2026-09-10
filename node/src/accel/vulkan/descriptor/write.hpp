@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../adapter/error.hpp"
+
 #include "../descriptor.hpp"
 #include "storage.hpp"
 #include "update.hpp"

@@ -4,9 +4,13 @@
 #include "evidence.hpp"
 #include "golden.hpp"
 #include "model.hpp"
+#include "route.hpp"
 
 #include "../../../target/selection.hpp"
 #include "../../allocation.hpp"
+
+#include "src/compute/virtual/run/execution.hpp"
+#include "src/compute/virtual/state.hpp"
 
 #include <rund/compute.hpp>
 #include <rund/compute/virtual.hpp>
@@ -68,12 +72,28 @@ int CheckProductExecution(const rund::compute::Backend backend) {
   }
   auto input = virtual_buffer<std::int32_t>(LogicalElements, input_backing);
   auto output = virtual_buffer<std::int32_t>(LogicalElements, output_backing);
+  constexpr std::size_t PersistentBytes = FrameBytes * 2u;
+  const ResidencyConfig config =
+      backend == Backend::Cpu
+          ? ResidencyConfig{}
+          : ResidencyConfig{.device_resident_bytes = PersistentBytes,
+                            .host_resident_bytes = ResidencyPageBytes * 6u};
   auto prepared =
       input && output
-          ? virtual_pipeline(*program, *input, *output, ResidencyConfig{})
+          ? virtual_pipeline(*program, *input, *output, config)
           : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
                 Reason::PipelineInvalid);
   if (!prepared) {
+    return 4;
+  }
+  const auto state = detail::VirtualPipelineAccess::state(*prepared);
+  if (state == nullptr || state->pipeline == nullptr ||
+      state->pipeline->device == nullptr) {
+    return 4;
+  }
+  ProductRouteObservation route_observation{};
+  ProductRouteScope route_scope{*opened, route_observation};
+  if (!route_scope) {
     return 4;
   }
 
@@ -149,24 +169,31 @@ int CheckProductExecution(const rund::compute::Backend backend) {
                              input_identity == input_backing->identity() &&
                              output_identity == output_backing->identity() &&
                              same_fixed_memory(cold_memory, final_memory);
+  ResolveProductRoute(route_observation, backend, true);
   const ProductExecutionEvidence evidence{
+      .route_kind = route_observation.kind,
+      .owner_mask = route_observation.accepted_owner_mask,
+      .accepted_owner_count = route_observation.accepted_owner_count,
       .final_run = final_run,
       .input_cohort = input_backing->facts(),
       .output_cohort = output_backing->facts(),
       .warm_host_allocations = warm_allocations,
       .observed_hash = HashValues(observed),
+      .golden_matches = GoldenMatches(observed),
       .same_capacity = same_capacity,
       .tail_poisoned =
           input_backing->tail_poisoned() && output_backing->tail_poisoned(),
       .profile_matches = profile_matches,
   };
-  if (!GoldenMatches(observed) || !ProductExecutionMatches(evidence)) {
+  if (!ProductExecutionMatches(evidence)) {
     const auto &r = final_run.pipeline.residency;
     std::fprintf(
         stderr,
         "virtual product evidence backend=%u alloc=%llu hash=%llx "
-        "out=%llx pages=%llu/%llu epochs=%llu in=%llu outb=%llu "
-        "io=%llu/%llu submit=%llu transfer=%llu/%llu samples=%u/%u "
+        "out=%llx pages=%llu/%llu epochs=%llu hits=%llu evict=%llu "
+        "prefetch=%llu late=%llu in=%llu outb=%llu io-pages=%llu/%llu "
+        "io=%llu/%llu submit=%llu inflight=%llu transfer=%llu/%llu "
+        "samples=%u/%u "
         "claim=%llu/%llu reads=%llu writes=%llu observe=%llu same=%u tail=%u "
         "profile=%u resident=%llu/%llu cold=%llu/%llu\n",
         static_cast<unsigned>(backend),
@@ -176,11 +203,18 @@ int CheckProductExecution(const rund::compute::Backend backend) {
         static_cast<unsigned long long>(r.page_in_count),
         static_cast<unsigned long long>(r.page_out_count),
         static_cast<unsigned long long>(r.epoch_count),
+        static_cast<unsigned long long>(r.cache_hit_count),
+        static_cast<unsigned long long>(r.eviction_count),
+        static_cast<unsigned long long>(r.prefetch_count),
+        static_cast<unsigned long long>(r.late_page_count),
         static_cast<unsigned long long>(r.backing_read_bytes),
         static_cast<unsigned long long>(r.backing_write_bytes),
+        static_cast<unsigned long long>(r.page_in_bytes),
+        static_cast<unsigned long long>(r.page_out_bytes),
         static_cast<unsigned long long>(final_run.uploaded_bytes),
         static_cast<unsigned long long>(final_run.downloaded_bytes),
         static_cast<unsigned long long>(final_run.command_submits),
+        static_cast<unsigned long long>(final_run.command_inflight_peak),
         static_cast<unsigned long long>(
             final_run.transfer_submissions.host_to_device),
         static_cast<unsigned long long>(
@@ -201,6 +235,71 @@ int CheckProductExecution(const rund::compute::Backend backend) {
         static_cast<unsigned long long>(cold_memory.resident.current),
         static_cast<unsigned long long>(cold_memory.resident.peak));
     return 12;
+  }
+
+  if (backend != Backend::Cpu) {
+    constexpr std::uint64_t Q1Elements = FrameCapacity * PageElements;
+    constexpr std::uint64_t Q1Bytes = Q1Elements * sizeof(std::int32_t);
+    auto fault_input_backing =
+        std::make_shared<MemoryVirtualBacking>(LogicalBytes, ElementPageBytes);
+    auto fault_output_backing =
+        std::make_shared<MemoryVirtualBacking>(LogicalBytes, ElementPageBytes);
+    auto fault_input =
+        virtual_buffer<std::int32_t>(LogicalElements, fault_input_backing);
+    auto fault_output =
+        virtual_buffer<std::int32_t>(LogicalElements, fault_output_backing);
+    auto faulted =
+        fault_input && fault_output
+            ? virtual_pipeline(*program, *fault_input, *fault_output,
+                               ResidencyConfig{})
+            : Result<VirtualPipeline<std::int32_t(std::int32_t)>>::fail(
+                  Reason::PipelineInvalid);
+    if (!fault_input_backing->seed(std::as_bytes(std::span{seeded})) ||
+        !faulted) {
+      return 13;
+    }
+    const BackingFacts before_abandon = fault_output_backing->facts();
+    rund::compute::detail::inject_virtual_execution_close_failure_once();
+    const Status abandoned = faulted->run(Q1Elements);
+    const BackingFacts after_abandon = fault_output_backing->facts();
+
+    // The physical write happened before the injected close contradiction,
+    // but no backing generation may be published. A shorter retry must still
+    // observe recovery poison; only a complete Q=1 overwrite may clear it.
+    auto recovery = virtual_pipeline(*program, *fault_input, *fault_output,
+                                     ResidencyConfig{});
+    const Status incomplete = recovery ? recovery->run(PageElements)
+                                       : Status::fail(Reason::PipelineInvalid);
+    const Status retried = recovery ? recovery->run(Q1Elements)
+                                    : Status::fail(Reason::PipelineInvalid);
+    std::array<std::int32_t, LogicalElements> recovered{};
+    const bool observed_recovery = fault_output_backing->observe(
+        std::as_writable_bytes(std::span{recovered}));
+    bool exact_prefix = observed_recovery;
+    for (std::size_t index = 0u; index < Q1Elements && exact_prefix; ++index) {
+      exact_prefix = recovered[index] == (seeded[index] + 5) * 3;
+    }
+    if (abandoned.reason() != Reason::PipelineInvalid ||
+        after_abandon.write_count - before_abandon.write_count !=
+            FrameCapacity ||
+        after_abandon.write_bytes - before_abandon.write_bytes != Q1Bytes ||
+        incomplete.reason() != Reason::BufferPoisoned || !retried ||
+        !exact_prefix) {
+      std::fprintf(
+          stderr,
+          "virtual execution abandon backend=%u reason=%u writes=%llu/%llu "
+          "incomplete=%u retry=%u prefix=%u\n",
+          static_cast<unsigned>(backend),
+          static_cast<unsigned>(abandoned.reason()),
+          static_cast<unsigned long long>(after_abandon.write_count -
+                                          before_abandon.write_count),
+          static_cast<unsigned long long>(after_abandon.write_bytes -
+                                          before_abandon.write_bytes),
+          static_cast<unsigned>(incomplete.reason()),
+          static_cast<unsigned>(retried.reason()),
+          static_cast<unsigned>(exact_prefix));
+      return 14;
+    }
   }
   return 0;
 }

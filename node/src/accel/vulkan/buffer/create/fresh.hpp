@@ -1,7 +1,9 @@
 #pragma once
 
 #include "api.hpp"
+#include "../access.hpp"
 #include "memory.hpp"
+#include "../../adapter/error.hpp"
 #include <rund/counter.hpp>
 
 namespace rund::node::accel::detail {
@@ -28,7 +30,7 @@ VulkanBufferFailure(const VkResult result,
                                            const VulkanMemoryUse use,
                                            VulkanBuffer &buffer) {
   const VkBufferUsageFlags effective_usage =
-      use == VulkanMemoryUse::Resident
+      use == VulkanMemoryUse::Resident || use == VulkanMemoryUse::ResidentHost
           ? usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT
           : usage;
@@ -50,8 +52,14 @@ VulkanBufferFailure(const VkResult result,
   vkGetBufferMemoryRequirements(adapter.device, buffer.buffer, &requirements);
   std::uint32_t memory_type = 0u;
   VkMemoryPropertyFlags memory_flags = 0u;
+  const VkMemoryPropertyFlags required = VulkanMemoryRequiredFlags(use);
   if (!FindVulkanMemoryType(adapter, requirements.memoryTypeBits, use,
                             memory_type, memory_flags)) {
+    DestroyVulkanBuffer(adapter, buffer);
+    SetVulkanLastError(adapter, "accel_vulkan_memory_unavailable");
+    return false;
+  }
+  if ((memory_flags & required) != required) {
     DestroyVulkanBuffer(adapter, buffer);
     SetVulkanLastError(adapter, "accel_vulkan_memory_unavailable");
     return false;
@@ -78,12 +86,13 @@ VulkanBufferFailure(const VkResult result,
         adapter, VulkanBufferFailure(bound, "accel_vulkan_memory_unavailable"));
     return false;
   }
-  const VkResult mapped = use == VulkanMemoryUse::Staging
-                              ? vkMapMemory(adapter.device, buffer.memory, 0u,
+  // ResidentHost and Staging use the same required coherent Host class as
+  // the selector above; Device and ordinary Resident storage stay unmapped.
+  const bool map = VulkanMemoryNeedsMap(use);
+  const VkResult mapped = map ? vkMapMemory(adapter.device, buffer.memory, 0u,
                                             bytes, 0u, &buffer.mapped)
                               : VK_SUCCESS;
-  if (mapped != VK_SUCCESS ||
-      (use == VulkanMemoryUse::Staging && buffer.mapped == nullptr)) {
+  if (mapped != VK_SUCCESS || (map && buffer.mapped == nullptr)) {
     DestroyVulkanBuffer(adapter, buffer);
     SetVulkanLastError(adapter, VulkanBufferFailure(
                                     mapped, "accel_vulkan_memory_unavailable"));
@@ -91,6 +100,7 @@ VulkanBufferFailure(const VkResult result,
   }
 
   buffer.bytes = bytes;
+  buffer.capacity_bytes = buffer_info.size;
   buffer.allocated_bytes = requirements.size;
   buffer.usage = effective_usage;
   buffer.memory_flags = memory_flags;

@@ -15,7 +15,8 @@ math entry extends the same Flow and lowering authority; it is not a second
 graph language.
 `runD::sdk` is the only application link target.
 
-`<rund/compute/session.hpp>` owns the `Session::compute(Job&)` template and the
+`<rund/compute/session.hpp>` owns the `Session::compute(Job&)` and additive
+`Session::compute(VirtualPipeline&)` templates and the
 four Node-host product values `Request`, `Submission`, `Poll`, and `Completion`
 under `rund::compute`. Its transitive support hierarchy is
 `compute/session/{request,submission,poll,completion,await}.hpp`; those leaves
@@ -56,6 +57,11 @@ the recipe will receive payloads at Program execution. Exactly one marker is
 present in every Flow type. Neither marker is stored at runtime, so this type
 distinction adds zero payload bytes, allocation, dispatch, or copy. Internal
 names do not participate in a consumer's type spelling or diagnostics.
+Their public specializations are physically owned by cardinality:
+`flow/{bound,deferred}/exact.hpp` owns sequence operations and
+`flow/{bound,deferred}/scalar.hpp` owns scalar-only operations. The adjacent
+`bound.hpp` and `deferred.hpp` are compatibility umbrellas only; they introduce
+no implementation, state, or second input authority.
 
 The admitted span element type after removing `const` and `volatile` must be
 exactly a Compute value type. Scalar conversion is never an input adapter: for
@@ -352,6 +358,36 @@ therefore remains a materialization boundary, and two controlled Maps from
 different unrolled iterations cannot collapse into one occurrence. The
 cross-format and two-iteration negative contracts execute on CPU, Metal, and
 Vulkan and require two surviving value Maps with bit-identical output.
+
+Filter authoring retains one logical Filter step with independent selected
+values and selected-count outputs. The single Flow liveness plan determines
+whether stable Partition, CountNonzero reduction, or both are materialized.
+An immediate U32/U64 Sum reduction of that Filter instead sums its original
+values selected by the canonical live mask, using zero for rejected values.
+Folding requires the capacity to fit the existing U32 Partition-offset domain;
+larger descriptors retain the ordinary Filter path and its count/offset
+validation. The exact nonnegative sum proves `sum(filter(x,p)) = sum(select(p,x,0))`;
+both routes retain the existing widened Sum accumulation and report
+`ReduceSumOverflow` when the result exceeds the lane maximum. This is distinct
+from Window's modulo-width Sum. The rule does not apply to floating, fixed,
+signed, Min or Max reductions. A branch
+that separately observes the filtered values or count keeps its corresponding
+materialization. Bounded active masks and count-overflow validation remain
+ordinary graph dependencies; no Host count read or warm allocation is added.
+
+The compiled fusion pass separates three authorities under
+`compute/flow/plan/fuse/`: `recipes.cpp` projects live Map inputs, outputs, and
+expressions; `compose.cpp` owns expression-DAG substitution and capacity
+admission; and `fuse.cpp` alone owns producer/user topology and Gather-to-Map
+rewrites. Their declaration-only `internal.hpp` carries no executable body or
+parallel fusion policy.
+
+The public Flow model is likewise a small `flow/model.hpp` umbrella over
+semantic facets: `base.hpp` owns stage/input identities, `traits.hpp` owns
+cardinality and borrowed-range laws, `expression.hpp` owns canonical element
+capture, `schema.hpp` owns record/schema projection, and `factory.hpp` owns
+the final construction surface. These facets extend one namespace and do not
+mirror runtime Flow state.
 
 A single-output map whose selected expression is exactly one of its input
 values forwards that canonical value ID. It does not create a map node,
@@ -673,7 +709,7 @@ reject because their empty range has no public value.
 without allocating or replanning. The returned `RangeSnapshot` reports the
 written and total row counts, so a caller can detect truncation and retry with
 larger caller-owned storage. Each row contains its graph-node ordinal, selected
-Direct/Shared/Prefix/Block candidate, workgroup width, data-stage count, shared
+Direct/Shared/Prefix/Block/Tiled candidate, workgroup width, data-stage count, shared
 capacity, scratch bytes, and source/execution fingerprints. This is execution
 evidence for measurement and diagnostics; it is not a candidate-selection API.
 
@@ -1455,68 +1491,88 @@ confirms submission amortization as the next structural lever. The exact runtime
 
 ### Virtual working sets
 
-`<rund/compute/virtual.hpp>` is the opt-in path for a logical dataset larger
-than the admitted physical working set. A `VirtualBacking` supplies immutable
-`size_bytes()` plus checked byte-range `read` and `write` callbacks. A
-`VirtualBuffer<T>` is a typed logical view over that backing; it does not
-allocate `count*sizeof(T)` device storage. One `VirtualPipeline<R(A)>` freezes
-an admitted Map, Window, Reduce, or Scan Program and retains a compatible
-Device-global page-cache Pool. That Pool owns canonical cache input/output
-frames, disposable execution input/output frames, and host
-input/output/prefetch images:
+`<rund/compute/virtual.hpp>` provides the opt-in public SDK surface for a
+logical working set larger than its admitted physical frame set.
+`VirtualBacking` owns an immutable byte extent plus checked read/write
+callbacks. `VirtualBuffer<T>` is a typed logical view; it does not allocate the
+complete logical extent as resident Buffers. `VirtualPipeline<R(A)>` freezes
+one admitted Program over those views and retains a Device-global compatible
+residency owner.
 
-A backing defaults to the serialized `VirtualBackingTier::Host` contract.
-A high-latency backing may return `VirtualBackingTier::Persistent` and admit
-two parallel reads; the fixed Pool then keeps epochs `e+1` and `e+2` in its
-two preallocated prefetch lanes. Writes and terminal publication remain
-ordered, and runD never exceeds the backing's declared read concurrency.
+For a dataset intentionally kept on one Device, use
+`resident_virtual_backing<T>(device, count)`. It returns the same
+`VirtualBacking` interface for explicit initialization and observation, but
+retains one exact runD Buffer internally. An admitted DeviceVsm product can
+bind that Buffer directly, so its run records zero backing callback bytes and
+zero whole-run Host staging while preserving one aggregate Final/publication.
+For an eligible ordinary all-staged unary nonresident Pointwise run with
+`Q>=2`, the route first probes `StagedLoop`. Exact mapped Host-visible/coherent
+input and output views are required, and the route enum carries that decision
+into preparation without recomputing shape, tier, or max-read policy. The
+admitted loop owns one native recurrence submit, Q GPU epochs, zero transfer
+submits/bytes, zero Host epoch submit/service/callbacks, and one
+Final/Authority/output publication/version. A mapped structural
+`BackendUnsupported` before owner, rearm, stage, lease, or native acceptance
+cleanly declines to the legacy route; owner mutation, native acceptance, or a
+non-capability failure is terminal. The legacy nonresident Persistent Pointwise
+R2 route uses `BackendChunked` two-coordinate chunks and `ceil(Q/2)` physical
+submissions. Unsupported Persistent spatial Window declines pre-lease to
+dedicated bounded Window (`Q<=4`) or Stream (`Q>4`) with one logical handoff,
+Final, and output version; current Metal fallback queue calls may be Q.
+Explicit/resident DeviceVsm Window remains separate. Rolling is the capability
+fallback for unsupported routes. Dynamic true fixed-R PagedLoop remains blocked
+by the absence of a portable same-submit GPU↔Host system-scope
+rendezvous/forward-progress primitive.
+
+`ResidencyConfig::{device_resident_bytes,host_resident_bytes}` bound the
+eligible working set. A zero value selects the bounded product default.
+Preparation returns a typed failure rather than silently materializing a dense
+fallback.
 
 ```cpp fragment
 #include <rund/compute.hpp>
 #include <rund/compute/virtual.hpp>
 
-auto source = rund::compute::virtual_buffer<std::int32_t>(count, input_store);
-auto target = rund::compute::virtual_buffer<std::int32_t>(count, output_store);
-if (!source || !target) { return; }
 auto prepared = rund::compute::virtual_pipeline(
     program, *source, *target,
     rund::compute::ResidencyConfig{
         .device_resident_bytes = 96 * 1024,
-        .host_staging_bytes = 96 * 1024});
+        .host_resident_bytes = 96 * 1024});
 
 if (!prepared || !prepared->run()) { return; }
 auto profile = prepared->profile();
 ```
 
-For `P` logical pages and derived frame capacity `K`, the stored stream plan
-has `Q=ceil(P/K)` epochs and constant-size planner state. The complete logical
-backing is never materialized as a vector of page Buffers. The terminal epoch
-zero-fills unused input frames, but only exact logical output bytes reach the
-backing. `PipelinePlan::residency` exposes logical bytes, paired page bytes,
-page count, frame capacity, resident bytes, epoch count, and identity.
-`Stats::pipeline.residency` reports page-ins, page-outs, cache hits, evictions,
-prefetch/late pages, logical page bytes, stall/overlap time, backing callback
-time, resident-frame peak, failures, and the explicit warm sample cohort.
-`Stats::{uploaded_bytes,downloaded_bytes}` separately report actual physical
-frame-range transfers; terminal padding is not transferred.
+`run()` executes the complete prepared logical count. `run(n)` accepts an
+active prefix no larger than that count without rebuilding the Pipeline or
+changing plan identity. `PipelinePlan::residency` exposes immutable logical
+geometry, capacity, and identity. `Stats::pipeline.residency` exposes the
+latest residency/cache/backing facts and warm sample cohort;
+`Stats::{uploaded_bytes,downloaded_bytes}` expose physical transfers only.
 
-The backing object is the serialization and poison authority shared by every
-view over it. A write failure can leave a partial logical result, so that
-backing remains poisoned across newly constructed views until a successful
-retry overwrites at least the output extent that could have been changed.
-Product execution admits independent Map, symmetric cross-page Window
-Sum/Min/Max with Clamp or Clip boundaries, deterministic page-partial Reduce
-Min/Max/CountNonzero and unsigned Sum, and inclusive/exclusive Scan through a
-checked sequential carry. Signed/fixed Sum, hierarchical multi-frame Scan,
-Sort, Gather, Scatter, indirect domains, graph composition, native sparse
-resources, and storage-tier scheduling are not silently replaced by dense
-execution. The exact formulas, native capability gates, and verification owners live in
-[Compute Virtual Residency](../../node/docs/contracts/compute/residency.md).
-CPU and Metal currently satisfy the public execution gate. Vulkan freezes the
-portability-subset extension fact when its adapter is created; a portability
-adapter returns `BackendUnsupported` before any Pipeline owner or backing
-callback, while the native Vulkan implementation awaits product-device
-verification.
+The public product currently admits the documented pointwise Map, cross-page
+Window, deterministic Reduce, hierarchical Scan, and constrained recurrent
+U64 Map-chain-to-Sum routes on CPU, Metal, and Vulkan. Unsupported compositions
+return a typed rejection. Vulkan cold preparation retains an exact
+prefix/selected-local/suffix command set and submits only Authority-issued
+locals; it does not execute one unleased full-prefix fallback. Apple Vulkan
+evidence runs through MoltenVK and does not establish native sparse-capable
+Vulkan hardware behavior.
+
+This page owns SDK use only. Canonical implementation status and contracts are
+partitioned by responsibility:
+
+- [product surface and active-prefix behavior](../../node/docs/contracts/compute/residency/product.md);
+- [immutable demand and identity](../../node/docs/contracts/compute/residency/plan.md);
+- [state, backing, and poison authority](../../node/docs/contracts/compute/residency/state.md);
+- [physical pools and lending](../../node/docs/contracts/compute/residency/pool.md);
+- [graph execution](../../node/docs/contracts/compute/residency/graph.md);
+- [rolling cycle and overlap meaning](../../node/docs/contracts/compute/residency/cycle.md);
+- [backend terminals and capability gates](../../node/docs/contracts/compute/residency/backend/README.md);
+- [implementation and verification map](../../node/docs/contracts/compute/residency/verify/README.md).
+
+Measurement procedure and bounded results live under
+[Virtual Performance](./performance/virtual/README.md).
 
 Memory observation is explicit and allocation-free. `Program::memory()`,
 `Job::memory()`, and `Device::memory()` return a fixed-size
@@ -1741,7 +1797,9 @@ Request -> Submission -> Poll | Completion
    +---- direct co_await ----+
 ```
 
-`Session::compute(job)` returns `rund::compute::Request`; `submit()` returns a
+`Session::compute(job)` returns `rund::compute::Request`; the additive
+`Session::compute(virtual_pipeline)` overload returns the same `Request` for a
+prepared `VirtualPipeline`; `submit()` returns a
 move-only `Submission`; `poll()` returns a `Poll` snapshot,
 `wait_for(duration)` returns a bounded-wait `Poll`; and `wait()` or direct
 coroutine await returns `Completion`. These names share
@@ -1785,9 +1843,17 @@ step order, control observation, cancellation boundary, or statistics
 publication.
 
 `submit()` admits one coordinator in the Session's bounded Scheduler and
-returns without making `wait()` the execution-start trigger. `poll()`, an
-external `wait()`, and `co_await session.compute(job)` all observe that one
-Scheduler completion cell; Compute has no second future-like terminal flag.
+returns without making `wait()` the execution-start trigger. For an eligible
+strict DeviceVSM VirtualPipeline, native queue acceptance is the
+`Pending`/`BackendSubmitted` boundary: the callback validates terminal evidence,
+performs quarantine/poison ordering, and wakes the retained worker
+continuation, which alone performs common Final, Stats, and publication. The
+caller still observes one Scheduler completion cell. Ordinary routes remain
+worker-blocking compatibility execution; general nonresident recurrence,
+Host epoch control, GPU-driven execution, and the 100x target remain blocked.
+`poll()`, an external `wait()`, and `co_await session.compute(job)` all observe
+that one Scheduler completion cell; Compute has no second future-like terminal
+flag.
 `rund::compute::Poll::submitted` reports Session admission, while
 `rund::compute::Poll::backend_submitted` becomes true only after the prepared CPU or
 accelerator backend accepts the execution. Both fields are snapshot
@@ -1805,9 +1871,9 @@ be followed by a successful result.
 CPU cancellation is observed before submission, after each deterministic tile
 epoch, between graph steps, and between collective passes. The same
 `compute_cancelled` reason is selected independently of worker completion
-order. Accelerator cancellation is observed before dispatch or after backend
-completion; an already submitted command is allowed to finish and its result
-is discarded.
+order. Accelerator cancellation is accepted only before the virtual worker
+claims `Running`; after that point the request reports `AlreadyCompleted`, and
+an accepted command completes through the same single Final/publication path.
 Session telemetry also applies to NodeHost Compute. Each admitted terminal
 emits one `rund::telemetry::Event` with common source, level, session, scope,
 and the nested `compute` projection for its typed code, backend, graph, worker,
@@ -2132,10 +2198,12 @@ leaves for either case instead of creating a second execution authority. The
 split preserves both registry rows and bit/hash parity while a semantic edit
 recompiles one leaf.
 
-`flow/primitives.cpp` is a CPU-only semantic oracle containing only composition
-laws that need a whole Flow: pipe, ordered outputs, combine,
-branch/record/repeat, indices, group, join, and relational records. It does not
-open an accelerator or repeat physical backend parity. `bounded.cpp` is the
+`flow/primitives/dispatcher.cpp` is the CPU-only ordered owner for the Flow
+primitive semantic oracle. Its `projection`, `composition`, `indexed`,
+`scatter`, `bounded`, `group`, and `pool` leaves own the independent laws for
+pipe, ordered outputs, combine, branch/record/repeat, indices, gather/scatter,
+group/join, windows, and relational records. The cohort does not open an
+accelerator or repeat physical backend parity. `bounded.cpp` is the
 only filter/compact/expand law owner,
 including worker identity, inactive tails, reduction rewrites, invalid counts,
 and warm reuse. `expression/part/integral.hpp` owns unsigned 32/64-bit high-bit
@@ -2146,10 +2214,15 @@ domain/backend owners and are not mirrored in the Flow UX oracle.
 
 The registered `flow.cpp` case is a thin ordered runner. Its surface, shape,
 device, expression, record, composition, basic, parity, and selected-backend
-contracts are one-word translation units below `flow/contract/`. Shared typed
-fixtures and result-hash oracles have one `local.hpp`/`model.hpp` authority.
+contracts are one-word translation units below `flow/contract/`. The record
+dispatcher preserves the field, runtime, and schema sequence while its
+`record/fields.cpp`, `record/runtime.cpp`, and `record/schema.cpp` leaves own
+those contract families. Shared typed fixtures and result-hash oracles have
+one `local.hpp`/`model.hpp` authority.
 The split reduces edit invalidation while preserving the same selected backend
 sequence, return codes, graph/output comparisons, and registry owner.
+The selected-backend runner is likewise a thin ordered coordinator over
+compiled `backend/{indexed,alias,fusion,reset}.cpp` semantic owners.
 
 NodeHost has no parallel math matrix. `Session::compute(Job<Signature>&)`
 extracts the same opaque `JobState` for every signature, while
@@ -2601,3 +2674,13 @@ packets, is recorded in
 A packet is closure evidence only when its recorded source manifest matches the
 verified tree. Those local measurements apply to the named host and workload,
 not a portable performance guarantee.
+## Graph page binding view
+
+The public virtual Graph exposes page permutations through the additive
+`virtual_pipeline(..., GraphPageMap, config)` overload. The map carries the
+Program fingerprint and entries keyed by dense public input ordinal; it is
+deep-copied during preparation. Only nonresident GraphPointwise external
+Backing inputs with read-only ports are eligible. The planner checks a full
+`K <= 32` target/source bijection and every nonzero tail `q` before residency
+or Authority mutation. Internal, output, transient, ReadWrite, mixed, and
+resident DeviceVSM remaps are outside this surface.

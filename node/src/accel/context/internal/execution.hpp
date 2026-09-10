@@ -56,14 +56,16 @@ struct ResetPlan final {
 };
 
 // Fixed-width semantic summary derived once from the admitted canonical Map
-// IR. Source backends discard ParsedIR and canonical bytes after graph-token
-// creation; recurrence classification consumes this normalized value instead
-// of retaining or reparsing either representation.
+// IR. Source backends normally discard ParsedIR after graph-token creation.
+// The narrow U64 total Map surface retains the typed admission so DeviceVsm
+// can lower an exact one-or-more-read/one-write Map->Reduce kernel without
+// reparsing source text or treating a summary hash as semantic authority.
 enum class MapSemanticKind : std::uint8_t {
   Unknown,
   AddWrapU32Pair,
   AddWrapU32Immediate,
-  ResidentWindowBaseU32,
+  MulWrapU32Immediate,
+  AddWrapU64Immediate,
   ResidentWindowItemsU32,
   ResidentWindowCountU32,
 };
@@ -74,9 +76,9 @@ struct MapSemantic final {
   std::uint32_t maximum{};
   std::uint32_t tile{};
   std::uint32_t windows{};
-  // Cold ParsedIR proof that every node is total for all admitted lane values.
-  // Recurrence lowering consumes this bit after canonical IR has been dropped;
-  // source text is never reparsed as semantic authority.
+  // Cold proof, derived from ParsedIR, that every node is total for all
+  // admitted lane values. Summary-only consumers use this bit; DeviceVsm also
+  // requires the retained typed admission above. Neither reparses source text.
   bool recurrence_total{};
 };
 

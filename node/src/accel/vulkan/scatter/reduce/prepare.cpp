@@ -1,3 +1,8 @@
+#include "../../adapter/error.hpp"
+#include "../../adapter/access.hpp"
+#include "../../buffer/access.hpp"
+#include "../../buffer/create.hpp"
+
 #include "model.hpp"
 
 #include "../../../scatter/reduce/model.hpp"

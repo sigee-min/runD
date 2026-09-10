@@ -334,23 +334,163 @@ come from one matched `1.0.7` artifact; a `1.0.6` header or library may not be
 mixed into the tuple.
 
 The `1.0.8` Alpha establishes a byte-budgeted, Device-global page-cache
-authority. `ResidencyConfig` is the 16-byte pair
-of device-resident and host-staging byte budgets; frame count is derived and
-is not public policy. The 192-byte `ResidencyStats` adds cache hits, eviction,
-prefetch/late-page, logical page-I/O, stall, and overlap evidence without a
-second telemetry ledger. This yields a 376-byte `PipelineStats`, 856-byte
-`Stats`, 1,160-byte `compute::telemetry::Profile`, 1,352-byte inline `Run`, and
-1,360-byte `Result<Run>` on the checked 64-bit ABI. `ResidencyPlan` retains its
-64-byte layout but its executable vocabulary is frame/epoch/resident bytes.
-One frame's resident budget covers the canonical cache input/output pair and
-the disposable execution input/output pair; host budget covers the input and
-output mirrors plus two fixed prefetch images. The page cache
-and its staging retain one reservation from the existing Device Pipeline
-budget, and per-Pipeline plans hold only shared references to that authority.
+authority. `ResidencyConfig::{device_resident_bytes,host_resident_bytes}` is
+the 16-byte budget pair; frame count is derived and is not public policy. The
+232-byte `ResidencyStats` adds cache hits, eviction,
+prefetch/late-page, logical page-I/O, stall, aggregate plus directional
+H2D/D2H overlap evidence, and an exact bounded-window receipt without a second
+telemetry ledger. `window_handoff_count` counts accepted public Final
+handoffs, `window_batch_count` counts the native batches within them, and
+`window_queue_call_count` counts backend queue API calls. CPU, Q=1, rolling,
+pre-native fallback, and an unauthenticated Final publish zero for all three.
+One Metal Q=2..4 Final publishes `1/Q/Q`; one Vulkan Final publishes `1/Q/1`
+because one queue call may submit the Q native batches. This yields a 416-byte
+`PipelineStats`, 896-byte `Stats`, 1,200-byte
+`compute::telemetry::Profile`, 1,392-byte `Run`, and 1,400-byte
+`Result<Run>` on the checked 64-bit ABI. The `Run` owns a 1,392-byte inline
+payload; the source-private `RunState` is 1,384 bytes and occupies that store
+with 8 bytes of fixed headroom and no heap owner.
+`ResidencyPlan` retains its 64-byte layout but its executable vocabulary is
+frame/epoch/resident bytes. The capacity coordinate is per bank. The public
+budget pair selects the Pool's eligible working set `K`; it is not a
+per-Prepared-owner cap on a compatible shared arena whose canonical capacity
+`C` may be larger. The Device-global Registry budget alone caps newly allocated
+arena storage. A CPU Host budget unit covers matching input/output frames in
+both canonical Host banks; an accelerator Device budget unit covers both
+canonical Device banks. Those banks are the only prepared execution storage.
+There is no cache/execution mirror or D2D publication owner.
+
+On CPU the Host budget covers both authoritative Host execution banks; backing
+read, compute, output hash, and backing writeback use those frame ranges
+directly, with zero separate staging/prefetch payload and zero H2D/D2H. On an
+accelerator, `K` is the Device execution capacity per bank and `H>=K` is the
+independently derived Host input-cache capacity per bank. The Host budget
+retains exactly `2*(H*input_page_bytes + K*output_page_bytes)`: Authority-managed
+reusable Host/Input frames and Host/Output frames, `2H` and `2K` respectively.
+Backing reads target the same Host input frames later consumed by H2D. After
+the exact native terminal, Direct non-Scan, non-reduction execution may
+authenticate a coherent Host view of Device/Output and hold that Device page in
+`Writeback` while hashing and writing backing directly. If that capability is
+absent or invalid, D2H targets Host/Output and the Authority atomically retires
+Device/Output dirty state to `Empty` while publishing the corresponding Host
+output as the sole dirty copy; Graph reduction and Scan retain this physical
+path. The `2K` Host/Output capacity and exact retained-byte formula are
+unchanged. Non-Reduce pages flush to backing and become clean; Reduce
+consumes and invalidates Host partials before writing its final scalar. A
+successful current run leaves no dirty Host output at terminal publication.
+The two prefetch workers own metadata only. Each Pool retains one reservation
+from the existing Device
+Pipeline budget, and per-Pipeline plans hold only shared references to that
+physical owner.
+
+Source-private `CacheDomain::{Backing,Transient}` identity distinguishes
+backing pages from transient materializations in the same Authority table
+without changing any public ABI.
+The Stream plan's exact frame-local dirty geometry has offset
+`input_page_bytes + output_prefix_bytes` and width `output_payload_bytes`.
+Runtime projects its page byte count to an absolute `DirtyExtent`, and
+`begin_transform` atomically binds matching Input/Output regions with that
+extent. Device Output may be atomically migrated to Host Output; only
+Backing-domain dirty output may enter
+backing writeback, while consumed Transient partials are discarded. Those
+states add no public ledger, counter mirror, or layout member.
+
+One Device `Registry` owns the only mutable `Authority` and execution gate
+across every `PoolLayout`; Pools own eligible physical regions only.
+Compatible planner-sealed Graph Input, Intermediate, and Output physical
+classes may share canonical two-bank arenas with per-bank capacity `C`; each Pool executes only
+its two explicit `K<=C` prefixes while the Authority searches both full banks
+and relocates compatible hits into the selected prefix before execution. This is physical owner/Authority-region
+lending, not a second cache. Distinct live colors in one Pool cannot alias an
+arena. Graph views in the same tier and committed per-bank storage bin may
+retain non-accounting typed `BufferState` views over one CPU allocation or
+accelerator native handle even when role, page geometry, `Type`, or
+`FixedFormat` differs. Page-geometry or role mismatches own distinct Authority
+rows; a type-only view of the same frame geometry may use canonical rows. Run
+admission evicts only clean rows from another coordinate view while rejecting dirty or
+in-flight conflicts. Different committed storage bins, smaller-to-larger
+relocation, split/coalesce/growth, dirty-live victim reclamation, and one
+runtime victim choice across different native buffers remain partial; semantic
+cache identity remains distinct.
+Direct Stream layouts lend Input only.
 `VirtualBacking::tier()` and `max_parallel_reads()` are matched `1.0.8`
 physical-I/O capability methods. Their defaults preserve serialized Host
 backing behavior; an explicitly concurrent Persistent backing may use both
-preallocated lanes.
+preallocated lanes. `VirtualWriteLanes` is an additive side capability for the
+fixed Host GraphPersist ring; it does not add a `VirtualBacking` vtable slot.
+The private `VirtualBackingAccess::write_lanes` policy treats absence or a
+value below two as one lane and caps the admitted value at two.
+
+VirtualPipeline cold preparation owns two physical Pipeline states, one for
+each bank, and aggregates their actual producer evidence without changing any
+public layout. Non-Scan execution may overlap actual H2D/D2H intervals with
+the opposite bank's compute;
+`ResidencyStats::{h2d_overlap_ns,d2h_overlap_ns}` are their exact directional
+receipt intersections, `overlap_ns` is their saturating sum rather than
+backing-prefetch time, and `stall_ns` is the unhidden remainder. CPU may
+overlap compute `e` with direct page-ready `e+1`,
+but transfer-only `overlap_ns` remains zero and `e+2` triple Host supply is not
+claimed. The Map-to-Sum Graph route uses two fixed source-private transaction
+tickets and both metadata-only backing lanes: its frozen Prefix `PageUse` span
+admits Host batches `e+1` and `e+2`, then the same pages admit exact arbitrary
+Device locals. Prefix/Collective dependencies remain ordered, and dirty
+Intermediate/Output terminalization precedes same-bank reuse. Inclusive and
+exclusive Scan use all admitted frames in a
+local Scan, checked block-prefix, and fused uniform-add rerun. Complete page
+images are reusable across active prefixes, while a boundary image retains its
+extent-sensitive identity.
+
+The matched virtual product accepts pointwise-only graphs, one Clamp Window
+collective with pointwise Maps before and after it, and a direct-U64 pointwise
+Map chain followed by Sum. After fusion, each remaining Map and the terminal
+Sum are real `[stage,bank]` prepared Pipelines consuming ordered multi-port
+leases; the product includes a three-stage `1R->2W`, `2R->1W`, `1R->1W`
+Transient-VSM route. The product contract
+verifies non-identity `Map(+3) -> Clamp Window Sum -> Map(*2)` cross-page
+execution. Other Reduce and Scan compositions currently require one collective
+node, and Clip
+Window does not admit a preceding Map whose `f(identity)` could corrupt the
+partial tail. Those rejections do not complete pre/post/global stages.
+Multiple collectives and intermediate materialization across multiple logical
+backings are outside this SDK identity.
+
+The Stream plan's frozen `first_use`, cyclic `next_use`, dirty extent, and
+prefetch distance are consumed by production virtual execution. The sliced
+Map-to-Sum route freezes the sole O(resources + stages) recurrent Graph plan
+and sends its exact `K`-bounded `PageUse` spans to Host admission and both
+device stages. The former dormant O(total uses) materialized Graph plan is
+removed. These source-private additions change no public ABI.
+
+These methods still do not expose a complete Persistent/Host/Device global
+planner. Accelerator Host input pages are capacity-bounded and reusable under
+the Registry Authority. Host output is authoritative dirty state inside a run
+on the physical D2H path; coherent Direct instead retains Device output
+authority through backing writeback. The current terminal flush leaves either
+owner clean;
+`VirtualBackingTier` is callback capability, not a native storage scheduler.
+The `resident_virtual_backing<T>(device, count)` factory adds no public object
+layout: it returns the existing shared `VirtualBacking` owner and stores the
+exact Buffer capability only in the source-private backing state. Custom
+backings cannot manufacture that resident authority.
+Native NVMe scheduling, terminal-persistent Host dirty retention,
+complete per-tier occupancy/traffic telemetry, one complete three-tier page
+state machine, incompatible-geometry relocation, dirty-live-victim reclamation,
+and global victim selection across incompatible native buffers
+remain outside this exact SDK identity until they have implementation and
+producer evidence. Compatible Graph Input/Intermediate/Output Cross-K lending
+and same-storage-bin cross-role/page-geometry/type extent ownership and
+Authority view activation are inside the source-private Pool contract; Direct
+Stream lending remains Input-only. The public executable U64 Graph route
+proves same-type page-geometry execution over one raw extent on CPU, Metal,
+and Vulkan. Apple Vulkan evidence is the MoltenVK portability path, not native
+sparse-capable Vulkan-device evidence.
+Cross-type and cross-role Virtual kernel execution are not part of this SDK
+identity. A warm `H>K`
+Host hit can require Device page-in while producing zero backing-read,
+late-page, and prefetch-page evidence; those counters are not one global
+identity. CPU direct Host-frame execution is part of this SDK
+identity; ordinary dense Buffers remain valid non-virtual physical storage but
+own no paging policy.
 Headers and linked implementations must come from one matched `1.0.8`
 artifact; a `1.0.7` header or library may not be mixed into the tuple.
 
@@ -379,9 +519,15 @@ no second graph, target, compilation, or execution authority.
 backing, a Device-global admitted page cache, multi-epoch execution, residency
 sampling, and its terminal `Stats`, `MemoryStats`, `PipelinePlan`, and
 `Profile` observations. The default `<rund/compute.hpp>` entry does not import
-this facade or the Pipeline templates it consumes.
-`<rund/compute/pipeline.hpp>` is the opt-in focused direct owner of `pipeline`,
-`read`, `write`, `write_final`, `write_window`, `write_each`, `tile_repeat`,
+this facade, and the Virtual entry reaches only the narrow Device/Program
+access leaf rather than the Pipeline builder templates.
+Its installed declarations are physically partitioned into the backing,
+buffer, pipeline, and preparation support owners under
+`rund/compute/virtual/`; `virtual.hpp` remains the source-compatible
+include-only umbrella and no support leaf is a second product authority.
+`<rund/compute/pipeline.hpp>` is the opt-in focused composed public entry for
+`pipeline`, `read`, `write`, `write_final`, `write_window`, `write_each`,
+`tile_repeat`,
 `PipelineBuilder`, `Pipeline`,
 `PipelineSealedRepetitionCapacity`, copyable
 `StateSnapshot`, copyable `LatestDeviceState`, move-only `SnapshotStorage`,
@@ -391,6 +537,15 @@ and the bounded profile vocabulary `PipelineProfile`, `StepClock`,
 `<rund/compute.hpp>` entry deliberately excludes it, while `<rund/rund.hpp>`
 composes it. The fluent builder binds compiled Programs and resident Buffers
 but does not add a graph language.
+Its declarations are physically split by authority:
+`rund/compute/pipeline/access.hpp` owns the narrow Device/Program state
+access used by both Pipeline construction and the opt-in Virtual extension,
+`rund/compute/pipeline/snapshot.hpp`
+owns the snapshot handles, `rund/compute/pipeline/runtime.hpp` owns
+`Pipeline`/`HostIteration` runtime declarations, and
+`rund/compute/pipeline/builder/base.hpp` owns binding contracts and build
+seams while `rund/compute/pipeline/builder.hpp` owns the fluent builder
+templates. `rund/compute/pipeline.hpp` remains the stable composed public entry.
 `Pipeline::{begin_samples,end_samples}` delimits a prepared-run cohort, and
 `PipelineStats::{sampled_runs,clean_runs,samples_clean}` exposes its fixed-size
 evidence through the existing by-value Stats ABI.

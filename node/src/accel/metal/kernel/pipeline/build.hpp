@@ -4,7 +4,7 @@
 #include "state.hpp"
 #include "status.hpp"
 
-#include "../../../kernel/backend/pipeline_failure.hpp"
+#include "../../../kernel/backend/pipeline/failure.hpp"
 #include "../../../kernel/recurrence.hpp"
 
 #include <rund/compute/pipeline/shape.hpp>

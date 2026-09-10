@@ -1,8 +1,11 @@
+#include "../adapter/access.hpp"
+
 #include <accel/device.hpp>
 #include <accel/runtime.hpp>
 
 #include "../command.hpp"
 #include "local.hpp"
+#include "stats.hpp"
 
 #include <mutex>
 

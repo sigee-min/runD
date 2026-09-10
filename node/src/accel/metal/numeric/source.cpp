@@ -1,6 +1,7 @@
 #include "source.hpp"
 
 #include "source/program.hpp"
+#include "../../kernel/backend/source/storage.hpp"
 #include <kernel/program/compute/lowering/metal/fixed.hpp>
 
 namespace rund::node::accel::detail {

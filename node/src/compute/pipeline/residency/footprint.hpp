@@ -14,6 +14,14 @@ struct ByteRange final {
   std::uint64_t bytes{};
 };
 
+// Geometry-only projection scratch. This is not a frozen residency plan and
+// owns no future-use, victim, pin, or transition policy.
+struct FootprintEpoch final {
+  std::uint32_t node{};
+  std::uint32_t tile{};
+  std::vector<PageDemand> uses;
+};
+
 struct WindowFootprint final {
   std::uint32_t input_resource{};
   std::uint32_t output_resource{};
@@ -37,12 +45,12 @@ struct ScanFootprint final {
 
 [[nodiscard]] bool ProjectRange(const ByteRange &range,
                                 std::uint64_t page_bytes,
-                                std::vector<PageUse> &uses) noexcept;
+                                std::vector<PageDemand> &uses) noexcept;
 [[nodiscard]] bool ProjectWindow(const WindowFootprint &footprint,
                                  std::uint64_t page_bytes,
-                                 DemandEpoch &epoch) noexcept;
+                                 FootprintEpoch &epoch) noexcept;
 [[nodiscard]] bool ProjectScan(const ScanFootprint &footprint,
                                std::uint64_t page_bytes,
-                               std::vector<DemandEpoch> &epochs) noexcept;
+                               std::vector<FootprintEpoch> &epochs) noexcept;
 
 } // namespace rund::compute::detail::residency

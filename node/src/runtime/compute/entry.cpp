@@ -1,9 +1,9 @@
-#include "request.hpp"
-#include "state.hpp"
-#include "local.hpp"
-#include "operation.hpp"
 #include "../runtime/local.hpp"
 #include "../session/state.hpp"
+#include "local.hpp"
+#include "operation.hpp"
+#include "request.hpp"
+#include "state.hpp"
 
 #include "../../compute/compile/service.hpp"
 
@@ -160,13 +160,25 @@ compute::Request Session::compute_pipeline(
                                               operation.table);
 }
 
+compute::Request Session::compute_virtual(
+    std::shared_ptr<compute::detail::VirtualPipelineState> pipeline) noexcept {
+  if (state_->runtime != nullptr) {
+    return state_->runtime->compute_virtual(std::move(pipeline));
+  }
+  node::compute_detail::Operation operation =
+      node::compute_detail::make_virtual_pipeline(std::move(pipeline));
+  return compute::detail::SessionAccess::make({}, std::move(operation.owner),
+                                              operation.table);
+}
+
 } // namespace rund
 
 namespace rund::node {
 
 ::rund::compute::Request
 Runtime::compute_job(std::shared_ptr<compute::detail::JobState> job) noexcept {
-  compute_detail::Operation operation = compute_detail::make_job(std::move(job));
+  compute_detail::Operation operation =
+      compute_detail::make_job(std::move(job));
   return compute_operation(std::move(operation.owner), operation.table);
 }
 
@@ -174,6 +186,13 @@ Runtime::compute_job(std::shared_ptr<compute::detail::JobState> job) noexcept {
     std::shared_ptr<compute::detail::PipelineState> pipeline) noexcept {
   compute_detail::Operation operation =
       compute_detail::make_pipeline(std::move(pipeline));
+  return compute_operation(std::move(operation.owner), operation.table);
+}
+
+::rund::compute::Request Runtime::compute_virtual(
+    std::shared_ptr<compute::detail::VirtualPipelineState> pipeline) noexcept {
+  compute_detail::Operation operation =
+      compute_detail::make_virtual_pipeline(std::move(pipeline));
   return compute_operation(std::move(operation.owner), operation.table);
 }
 
@@ -188,9 +207,8 @@ Runtime::compute_operation(std::shared_ptr<void> operation,
                                   runtime_detail::RetireSubmitted);
     host = state_->compute_host;
   }
-  return ::rund::compute::detail::SessionAccess::make(std::move(host),
-                                                      std::move(operation),
-                                                      operations);
+  return ::rund::compute::detail::SessionAccess::make(
+      std::move(host), std::move(operation), operations);
 }
 
 } // namespace rund::node

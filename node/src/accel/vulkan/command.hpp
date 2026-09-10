@@ -2,8 +2,10 @@
 
 #include <accel/check.hpp>
 
-#include "adapter/api.hpp"
+#include "adapter/state.hpp"
 #include <memory>
+#include <mutex>
+#include <span>
 
 namespace rund {
 struct RuntimeStats;
@@ -34,7 +36,10 @@ void EncodeVulkanComputeToComputeBarrier(VkCommandBuffer command_buffer);
 
 [[nodiscard]] bool SubmitVulkanCommand(VulkanAdapter &adapter,
                                        bool collect_timestamp = true,
-                                       rund::RuntimeStats *stats = nullptr);
+                                       rund::RuntimeStats *stats = nullptr,
+                                       bool *submitted = nullptr);
+[[nodiscard]] bool SubmitVulkanTransferCommand(VulkanAdapter &adapter,
+                                                bool *submitted = nullptr);
 [[nodiscard]] bool SubmitVulkanTransfer(VulkanAdapter &adapter,
                                         VulkanBuffer &staging,
                                         std::shared_ptr<void> target = {});
@@ -45,6 +50,11 @@ void EncodeVulkanComputeToComputeBarrier(VkCommandBuffer command_buffer);
                                         VkCommandBuffer command, VkFence fence,
                                         KernelCompletion completion, void *user,
                                         bool collect_timing = true);
+[[nodiscard]] bool
+SubmitVulkanExternal(VulkanAdapter &adapter,
+                     std::span<const VkCommandBuffer> commands, VkFence fence,
+                     KernelCompletion completion, void *user,
+                     bool collect_timing = true);
 
 [[nodiscard]] rund::AccelCheck SubmitVulkanEncodedResources(
     VulkanAdapter &adapter, const std::shared_ptr<void> &resources,

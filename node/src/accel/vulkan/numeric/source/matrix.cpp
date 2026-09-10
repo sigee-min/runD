@@ -1,4 +1,5 @@
 #include "../matrix.hpp"
+#include "../../../kernel/backend/source/storage.hpp"
 #include "../source.hpp"
 
 namespace rund::node::accel::detail {

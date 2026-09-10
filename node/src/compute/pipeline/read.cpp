@@ -128,7 +128,7 @@ Status read_pipeline_raw(const std::shared_ptr<PipelineState> &state,
       result = Status::fail(Reason::TransferInvalid);
     } else {
       const DownloadResult transfer = state->device->ops->download(
-          *state->device, *observed_buffer, data, bytes);
+          *state->device, *observed_buffer, data, bytes, 0u);
       result = transfer.status;
       record_pipeline_download(*state, bytes, transfer);
       if (result && !transfer.payload_hash_valid) {

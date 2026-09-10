@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../accel/range_aggregate/model.hpp"
+#include "../../accel/range_aggregate/model/plan.hpp"
 
 #include <kernel/program/compute/compact/model.hpp>
 #include <kernel/program/compute/factor/model.hpp>
@@ -19,7 +19,9 @@
 #include <kernel/program/compute/stencil/model.hpp>
 #include <kernel/program/compute/transform/model.hpp>
 #include <kernel/program/compute/window/model.hpp>
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/primitive.hpp>
+#include <rund/compute/abi/flow/model.hpp>
+#include <rund/compute/fixed.hpp>
 #include <rund/compute/ops.hpp>
 
 #include <cstddef>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
 #include "algebra.hpp"
 
 namespace rund::node::accel::detail {

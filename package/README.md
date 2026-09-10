@@ -4,6 +4,12 @@
 and black-box consumer proofs. Repository include paths and subsystem targets
 are private.
 
+The checked-in package identity is `1.0.8`, used by the Release candidate gates.
+It may advance before a matching archive, checksum, and verifier are hosted; the
+public installer follows the separately published release boundary in the root
+[Quick start](../README.md#quick-start) and the [Release](./docs/release.md)
+contract.
+
 ## Consume
 
 ```cmake

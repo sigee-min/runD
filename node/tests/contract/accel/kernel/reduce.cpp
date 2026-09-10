@@ -17,6 +17,8 @@ namespace {
 bool BackendRunsReduce(const rund::AccelDevice &pick) {
   return SignedReduceSourcesCarryDomainOrder() &&
          WideReduceSourcesCarryFixedHierarchy() && reduce::MatchesU32(pick) &&
+         reduce::MatchesExtremaSimdBoundaries<rund::kernel::u32>(pick) &&
+         reduce::MatchesExtremaSimdBoundaries<rund::kernel::u64>(pick) &&
          reduce::MatchesU64(pick) && reduce::CountsNonzeroU32(pick) &&
          reduce::CountsNonzeroU64(pick) &&
          reduce::MatchesWideHierarchyU32(pick) &&

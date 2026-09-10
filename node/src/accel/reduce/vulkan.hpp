@@ -14,10 +14,6 @@ namespace rund::node::accel::detail {
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck ExecuteVulkanReduce(
-    const rund::AccelDevice &pick, const rund::kernel::ReduceDesc &desc,
-    const rund::kernel::ReducePlan &plan, rund::kernel::ComputeDomain domain,
-    const ReduceBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanReduce(
     const rund::AccelDevice &pick, const rund::kernel::ReduceDesc &desc,
     const rund::kernel::ReducePlan &plan, rund::kernel::ComputeDomain domain,

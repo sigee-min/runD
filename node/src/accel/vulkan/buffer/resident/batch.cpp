@@ -1,3 +1,5 @@
+#include "../../adapter/access.hpp"
+
 #include "batch.hpp"
 
 #include "../../resident/access.hpp"

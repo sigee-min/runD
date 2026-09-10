@@ -1,6 +1,6 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/flow/model.hpp>
 #include <rund/compute/ops.hpp>
 
 #include <cstdint>

@@ -1,3 +1,5 @@
+#include "../adapter/error.hpp"
+
 #include "pipeline.hpp"
 
 #include "../cached/index.hpp"

@@ -5,6 +5,7 @@
 
 #include <rund/compute/pipeline.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -12,6 +13,106 @@
 #include <mutex>
 
 namespace rund_node_test_pipeline_transfer {
+
+namespace {
+
+using namespace rund::compute;
+using rund::node::accel::detail::DownloadRangeState;
+using rund::node::accel::detail::TransferAuthority;
+
+[[nodiscard]] bool ResidentDisjoint() {
+  ResidentBatchFixture fixture = make_resident_batch_spy();
+  std::array<std::byte, 8u> first{};
+  std::array<std::byte, 12u> second{};
+  const std::array<VirtualRead, 2u> ranges{{
+      {.offset = 4u, .bytes = first},
+      {.offset = 20u, .bytes = second},
+  }};
+  const Status status = fixture.backing->read_batch(ranges);
+  constexpr std::array<std::byte, 8u> expected_first{
+      std::byte{0x05}, std::byte{0x06}, std::byte{0x07}, std::byte{0x08},
+      std::byte{0x09}, std::byte{0x0a}, std::byte{0x0b}, std::byte{0x0c}};
+  constexpr std::array<std::byte, 12u> expected_second{
+      std::byte{0x15}, std::byte{0x16}, std::byte{0x17}, std::byte{0x18},
+      std::byte{0x19}, std::byte{0x1a}, std::byte{0x1b}, std::byte{0x1c},
+      std::byte{0x1d}, std::byte{0x1e}, std::byte{0x1f}, std::byte{0x20}};
+  return status && fixture.spy->batch_calls == 1u &&
+         fixture.spy->batch_routes == 2u &&
+         fixture.spy->authority == TransferAuthority::Shared &&
+         fixture.spy->outcomes[0u].state == DownloadRangeState::Complete &&
+         fixture.spy->outcomes[0u].confirmed_bytes == first.size() &&
+         fixture.spy->outcomes[0u].hash_valid &&
+         fixture.spy->outcomes[0u].payload_hash == 0x4cc23a8486396823ull &&
+         fixture.spy->outcomes[1u].state == DownloadRangeState::Complete &&
+         fixture.spy->outcomes[1u].confirmed_bytes == second.size() &&
+         fixture.spy->outcomes[1u].hash_valid &&
+         fixture.spy->outcomes[1u].payload_hash == 0xe11badb1b2ac544bull &&
+         std::memcmp(first.data(), expected_first.data(), first.size()) == 0 &&
+         std::memcmp(second.data(), expected_second.data(), second.size()) == 0;
+}
+
+[[nodiscard]] bool ResidentScalarFallback() {
+  ResidentBatchFixture fixture = make_resident_scalar_spy();
+  std::array<std::byte, 8u> first{};
+  std::array<std::byte, 8u> second{};
+  second.fill(std::byte{0x7f});
+  const std::array<VirtualRead, 2u> ranges{{
+      {.offset = 0u, .bytes = first},
+      {.offset = 60u, .bytes = second},
+  }};
+  const Status status = fixture.backing->read_batch(ranges);
+  constexpr std::array<std::byte, 8u> expected_first{
+      std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04},
+      std::byte{0x05}, std::byte{0x06}, std::byte{0x07}, std::byte{0x08}};
+  return !status && status.reason() == Reason::ShapeMismatch &&
+         fixture.spy->batch_calls == 0u && fixture.spy->scalar_calls == 1u &&
+         fixture.spy->scalar_routes == 1u &&
+         std::memcmp(first.data(), expected_first.data(), first.size()) == 0 &&
+         std::all_of(second.begin(), second.end(), [](const std::byte value) {
+           return value == std::byte{0x7f};
+         });
+}
+
+[[nodiscard]] bool ResidentLateFailure() {
+  ResidentBatchFixture fixture = make_resident_batch_spy();
+  fixture.spy->late_failure = true;
+  std::array<std::byte, 8u> first{};
+  std::array<std::byte, 8u> second{};
+  std::array<std::byte, 8u> third{};
+  second.fill(std::byte{0x6d});
+  third.fill(std::byte{0x7e});
+  const std::array<VirtualRead, 3u> ranges{{
+      {.offset = 0u, .bytes = first},
+      {.offset = 16u, .bytes = second},
+      {.offset = 32u, .bytes = third},
+  }};
+  const Status status = fixture.backing->read_batch(ranges);
+  constexpr std::array<std::byte, 8u> expected_first{
+      std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04},
+      std::byte{0x05}, std::byte{0x06}, std::byte{0x07}, std::byte{0x08}};
+  return !status && status.reason() == Reason::TransferInvalid &&
+         fixture.spy->batch_calls == 1u && fixture.spy->batch_routes == 3u &&
+         fixture.spy->scalar_calls == 0u &&
+         fixture.spy->outcomes[0u].state == DownloadRangeState::Complete &&
+         fixture.spy->outcomes[0u].confirmed_bytes == first.size() &&
+         fixture.spy->outcomes[0u].hash_valid &&
+         fixture.spy->outcomes[1u].state ==
+             DownloadRangeState::FailedMayWrite &&
+         fixture.spy->outcomes[1u].confirmed_bytes == 2u &&
+         !fixture.spy->outcomes[1u].hash_valid &&
+         fixture.spy->outcomes[2u].state == DownloadRangeState::Untouched &&
+         fixture.spy->outcomes[2u].confirmed_bytes == 0u &&
+         std::memcmp(first.data(), expected_first.data(), first.size()) == 0 &&
+         second[0u] == std::byte{0x11} && second[1u] == std::byte{0x12} &&
+         std::all_of(
+             second.begin() + 2u, second.end(),
+             [](const std::byte value) { return value == std::byte{0x6d}; }) &&
+         std::all_of(third.begin(), third.end(), [](const std::byte value) {
+           return value == std::byte{0x7e};
+         });
+}
+
+} // namespace
 
 bool CheckBatchSuccessAndAccounting() {
   using namespace rund::compute;
@@ -125,7 +226,9 @@ bool CheckBatchSuccessAndAccounting() {
                      first_result.size()) == 0 &&
          std::memcmp(tail_result.data(),
                      native(*fixture.outputs[1u])->bytes.data(),
-                     tail_result.size()) == 0;
+                     tail_result.size()) == 0 &&
+         ResidentDisjoint() && ResidentScalarFallback() &&
+         ResidentLateFailure();
 }
 
 } // namespace rund_node_test_pipeline_transfer

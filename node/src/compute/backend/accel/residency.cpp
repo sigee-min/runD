@@ -1,3 +1,4 @@
+#include "../../../accel/kernel/prepared/interface/api.hpp"
 #include "local.hpp"
 
 #include "../../pipeline/state.hpp"
@@ -148,6 +149,24 @@ Status prepare_pipeline_residency(PipelineState &pipeline) noexcept {
         pipeline.alternate_prepared, std::move(alternate_candidate));
   }
   return Status::success();
+}
+
+Status prepare_residency_selection(PipelineState &pipeline) noexcept {
+  bool retained_selection = false;
+  const rund::AccelCheck queried =
+      node::accel::detail::QueryPreparedKernelPipelineResidency(
+          pipeline.prepared, retained_selection);
+  if (!queried.ok) {
+    return Status::fail(
+        project_reason(queried.reason, Reason::PipelineMemoryBudget));
+  }
+  if (retained_selection) {
+    return prepare_pipeline_residency(pipeline);
+  }
+  // A whole-command transfer owner cannot execute Authority-selected locals.
+  // Admission must fail here rather than prepare successfully and discover the
+  // missing arbitrary-local execution contract after touching backing state.
+  return Status::fail(Reason::BackendUnsupported);
 }
 
 } // namespace rund::compute::detail::accel_backend

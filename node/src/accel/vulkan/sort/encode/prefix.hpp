@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../../sort/block/bucket.hpp"
+#include "../../command/dispatch.hpp"
 #include "classify.hpp"
 
 namespace rund::node::accel::detail {

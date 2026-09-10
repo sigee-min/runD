@@ -20,10 +20,6 @@ struct MetalKernelImmutablePipelines;
   return plan.pass_count == 2u ? 3u : (plan.pass_count == 1u ? 1u : 0u);
 }
 
-[[nodiscard]] rund::AccelCheck ExecuteMetalSegmentedScan(
-    const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
-    const rund::kernel::SegmentedScanPlan &plan,
-    rund::kernel::ComputeDomain domain, const SegmentedScanBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalSegmentedScan(
     const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
     const rund::kernel::SegmentedScanPlan &plan,

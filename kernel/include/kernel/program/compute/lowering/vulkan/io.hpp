@@ -111,22 +111,25 @@ inline void AppendVulkanBuffers(std::string &out, const ParsedIR &parsed,
 
 inline void AppendVulkanHelpers(std::string &out, const ParsedIR &parsed,
                                 const ArtifactKey &key,
-                                const std::vector<BindingLayout> &layouts) {
-  AppendVulkanParamLoadBody(out, key.scalar);
+                                const std::vector<BindingLayout> &layouts,
+                                const bool emit_param_helpers = true) {
+  if (emit_param_helpers) {
+    AppendVulkanParamLoadBody(out, key.scalar);
+  }
   for (std::size_t index = 0u; index < parsed.bindings.size(); ++index) {
     const ParsedBinding &binding = parsed.bindings[index];
     if (binding.kind == 2u) {
-      AppendVulkanReadLoadBody(
-          out, binding.element_bytes == sizeof(u64) ? ComputeScalar::Lane64
-                                                    : ComputeScalar::Lane32,
-          layouts[index]);
+      AppendVulkanReadLoadBody(out,
+                               binding.element_bytes == sizeof(u64)
+                                   ? ComputeScalar::Lane64
+                                   : ComputeScalar::Lane32,
+                               layouts[index]);
     }
   }
   for (std::size_t index = 0u; index < parsed.bindings.size(); ++index) {
     const ParsedBinding &binding = parsed.bindings[index];
     if (binding.kind == 3u) {
-      AppendVulkanStoreBody(out,
-                            VulkanStoreScalar(binding.element_bytes),
+      AppendVulkanStoreBody(out, VulkanStoreScalar(binding.element_bytes),
                             layouts[index]);
     }
   }

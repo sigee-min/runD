@@ -22,6 +22,20 @@ Flow recipe
   -> CPU, Metal, or Vulkan execution
 ```
 
+The public virtual Graph may additionally provide a bounded external-input
+page binding view through the additive
+`virtual_pipeline(..., GraphPageMap, config)` overload. Entries are limited to
+`(input ordinal, target_local, source_local, origin)` plus the Program
+fingerprint. Preparation resolves the ordinal to the canonical private
+resource ID once, deep-copies the span, and requires one full bijective
+`K`-page template per mapped external resource (`K <= 32`). It rejects
+foreign, duplicate, missing, or out-of-range entries before remapped-plan
+publication or Authority mutation; a bounded shape probe may precede that
+final validation. The
+runtime resolves source backing pages per batch while preserving the canonical
+GraphState and Program fingerprint. This is not a second graph compiler, an
+internal/output remap, or a partial-byte Assemble surface.
+
 `GraphState` remains private. `graph::Info` is an immutable observation of the
 same admitted graph and cannot mutate scheduling or execution.
 
@@ -191,6 +205,12 @@ authority for Program bindings, CPU references, and accelerator references.
 No backend reinterprets Map or primitive ports to reconstruct that order.
 CPU runtime steps are formed in that same canonical node pass; there is no
 second traversal of `GraphState` after Kernel lowering.
+
+Tiled Graph slice compilation is partitioned under `compile/slice/`: canonical
+shape inspection, Map stage construction, terminal reduction construction,
+referenced-resource classification, and reduce/pointwise assembly each have a
+compiled owner. Their declarations-only internal boundary shares one borrowed
+canonical `GraphState`; it does not introduce an alternate lowering graph.
 
 The construction owner is `node/src/compute/graph/build/`. Map, Scan,
 primitive, and output admission are separate physical units but append to one
@@ -705,6 +725,14 @@ and invalid access-mode values. `resource::AccessMode` is the one read/write
 vocabulary used by both planner input and `graph::Info`; there is no
 graph-specific mirror or mode conversion.
 
+The compiled implementation keeps one authority per concern under
+`node/src/compute/resource/plan/`: `footprint.cpp` validates and projects one
+logical access, `overlap.cpp` owns exact intersection arithmetic, `index.cpp`
+owns the augmented AVL candidate index, and `analyze.cpp` alone publishes
+lifetimes, dependency rows, and barrier witnesses. `model.hpp` contains only
+their private value and declaration boundary; none of these decisions is
+mirrored in a compatibility translation unit.
+
 The original contiguous spelling remains valid as
 `{offset_bytes, size_bytes}`. It is exactly the byte-lane special case
 `element_bytes=1`, `element_count=size_bytes`, and `stride_bytes=1`; callers
@@ -833,34 +861,60 @@ The cache has an explicit positive ready-entry capacity and LRU retention.
 In-flight entries may temporarily exceed that capacity and are not evicted.
 `clear()` removes ready entries but cannot cancel an in-flight compilation.
 
-The ordered fingerprint map is the only membership index. With ready capacity
-`C` and `I` in-flight compilations, lookup performs `O(log(C + I))` semantic
-fingerprint comparisons. A ready hit takes one mutex interval and allocates
-nothing. One miss creates exactly one pending entry and map node while holding
-that interval; same-key followers find that pending entry and allocate nothing
-before waiting. Moving candidate allocation ahead of admission would let `W`
-racing callers create `O(W)` discarded nodes, so no speculative allocation
-path exists. No pointer, allocation order, or call ordinal enters the key.
+The fingerprint hash index is the only membership index. It mixes both
+64-bit fingerprint words and always compares the complete fingerprint for
+equality. Hash collisions do not coalesce different Programs. With ready
+capacity `C` and `I` in-flight compilations, lookup is expected `O(1)` and
+worst-case `O(C + I)` under collisions; no worst-case constant-time claim is
+made. Bucket order has no observable role. A ready hit takes one mutex interval
+and allocates nothing. Miss admission allocates one pending owner and an index
+node under the same interval; index growth may also allocate buckets. Same-key
+followers find the pending entry without speculative candidate allocations.
+
+The cached `on` entry is inline beside the other FlowBuilder entries and uses
+the same compiled Device binding validator as compilation. The previous
+out-of-line entry is removed; installed consumers rebuild against the current
+headers and library together.
+
+The synchronous cache call borrows its builder through a context pointer and
+one invocation pointer. The binding template does not copy, move, allocate or
+retain the callable; its lifetime covers the entire call, including a pending
+wait. Only the admitted miss invokes it, within the existing exception mapping.
+Large, non-copyable and temporary captures therefore have the same allocation-free
+binding. There is no owning `std::function` compatibility route. Ready hits borrow
+the entry while holding the membership mutex; only pending waiters retain an entry
+owner across the condition-variable unlock. Returning a Program still acquires its
+own shared owner before that mutex is released.
+
+`program/cache.hpp` is the narrow call boundary. Mutable membership,
+LRU links, outcome and synchronization belong to `program/cache/state.hpp`,
+consumed only by the implementation and state contracts. Flow and graph
+compilation validate Device binding through the compiled cache owner and never
+include its index or synchronization representation. The old ordered-map
+comparator, map type and stored iterators are removed.
 
 Ready entries form one intrusive oldest-to-newest list. A ready hit moves its
 entry to the newest end in `O(1)`. Immediately before one builder publishes,
 the ready count `R` is at most capacity `C`; changing that one entry from
 in-flight to ready gives `R <= C + 1`. Completion therefore appends once and,
 only when `R = C + 1`, unlinks the unique oldest ready entry and erases its
-stored map position in amortized `O(1)`. It performs no entry scan, timestamp
+fingerprint from the index in expected `O(1)`. It performs no entry scan, timestamp
 comparison, or allocation and cannot select an in-flight entry. The list is
-the sole eviction-order authority; map iteration order is irrelevant.
+the sole eviction-order authority; index iteration order is irrelevant.
 `stats()` reads the ready count and derives in-flight count as
-`map_size - ready_count`, so observation is `O(1)` and creates no second entry
+`index_size - ready_count`, so observation is `O(1)` and creates no second entry
 state.
 
 Unlinking an eviction victim or the ready entries removed by `clear()` occurs
 under the cache mutex, but destruction of each detached Program owner occurs
 after releasing it. Backend pipeline or resource destruction therefore cannot
 extend the cache critical section or block an unrelated hit, miss, in-flight
-publication, or waiter notification. `clear()` transfers existing map nodes;
-it allocates no second retirement container payload and leaves in-flight nodes
-in place.
+publication, or waiter notification. `clear()` follows only the ready LRU list, removes those memberships, and
+links existing entry owners into a detached retirement chain. It does not scan
+in-flight entries or allocate a retirement container. Destruction consumes the
+chain iteratively after unlocking, avoiding recursion proportional to capacity.
+Entries retain their complete key rather than a bucket iterator, so rehashing
+while other compilations are pending cannot invalidate completion or eviction.
 
 ## Asynchronous Compilation
 
@@ -1051,7 +1105,7 @@ state, opaque Program owner, and destruction-gate fixture; the `service`,
 `async`, `capacity`, `lifetime`, and `failure` leaves own the corresponding
 semantic groups. Each leaf has an independent rebuild closure; case
 registration, checks, result codes, and execution order are fixed.
-`compute.program-cache-index` owns the semantic-fingerprint map, intrusive LRU
+`compute.program-cache-index` owns the semantic-fingerprint index, intrusive LRU
 order, ready-count invariant, zero-allocation hit, and pending-preserving clear
 contracts. The accelerator
 `compute.graph-services` case retains graph identity, resource planning, and

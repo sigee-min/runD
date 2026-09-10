@@ -40,8 +40,12 @@ MetalCommandFailureReason(id<MTLCommandBuffer> const command) noexcept {
 } // namespace
 #endif
 
-rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
-                             rund::RuntimeStats *const stats) {
+namespace {
+
+rund::AccelCheck WaitCommandKind(MetalAdapter &adapter,
+                                 void *const command_buffer,
+                                 rund::RuntimeStats *const stats,
+                                 const SubmitKind kind) {
 #if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
   if (stats != nullptr) {
     *stats = rund::RuntimeStats{.outcome = {.ok = true, .reason = "ok"}};
@@ -52,8 +56,7 @@ rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
     return rund::AccelCheck{false, "accel_metal_command_unavailable"};
   }
   const std::uint64_t submit_begin = MonotonicNanoseconds();
-  const bool force_device_lost =
-      adapter.fault_device_lost_once.exchange(false, std::memory_order_relaxed);
+  const bool force_device_lost = adapter.device_loss_fault.take(kind);
   [command commit];
   [command waitUntilCompleted];
   const std::uint64_t submit_wait_ns = MonotonicNanoseconds() - submit_begin;
@@ -85,8 +88,22 @@ rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
   (void)adapter;
   (void)command_buffer;
   (void)stats;
+  (void)kind;
   return rund::AccelCheck{false, "accel_metal_unavailable"};
 #endif
+}
+
+} // namespace
+
+rund::AccelCheck WaitCommand(MetalAdapter &adapter, void *const command_buffer,
+                             rund::RuntimeStats *const stats) {
+  return WaitCommandKind(adapter, command_buffer, stats, SubmitKind::Work);
+}
+
+rund::AccelCheck WaitTransferCommand(
+    MetalAdapter &adapter, void *const command_buffer,
+    rund::RuntimeStats *const stats) {
+  return WaitCommandKind(adapter, command_buffer, stats, SubmitKind::Transfer);
 }
 
 rund::AccelCheck QueueCommand(MetalAdapter &adapter, void *const command_buffer,
@@ -101,7 +118,7 @@ rund::AccelCheck QueueCommand(MetalAdapter &adapter, void *const command_buffer,
   }
   MetalAdapter *const target = &adapter;
   const bool force_device_lost =
-      adapter.fault_device_lost_once.exchange(false, std::memory_order_relaxed);
+      adapter.device_loss_fault.take(SubmitKind::Work);
   const std::uint64_t submit_begin =
       collect_timestamp ? MonotonicNanoseconds() : 0u;
   [command addCompletedHandler:^(id<MTLCommandBuffer> finished) {

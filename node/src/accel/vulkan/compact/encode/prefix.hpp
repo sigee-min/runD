@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../command/dispatch.hpp"
 #include "classify.hpp"
 
 namespace rund::node::accel::detail {

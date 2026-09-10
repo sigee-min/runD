@@ -6,6 +6,7 @@
 #include "cpu/local.hpp"
 #include "cpu/segmented/reduce/backend.hpp"
 #include "cpu/segmented/scan/backend.hpp"
+#include "metal/abi.hpp"
 #include "run/local.hpp"
 #include "scan/inclusive/run.hpp"
 #include "scan/stream/run.hpp"
@@ -37,11 +38,16 @@ namespace node_accel_contract {
 [[nodiscard]] bool BackendRunsReduce(const rund::AccelDevice &pick);
 [[nodiscard]] bool BackendRunsScatter(const rund::AccelDevice &pick);
 [[nodiscard]] bool BackendRunsStencil(const rund::AccelDevice &pick);
-[[nodiscard]] bool MapRecurrenceSourceContract();
+[[nodiscard]] bool MapRecurrenceNestedMarkerContract();
+[[nodiscard]] bool MapRecurrenceGeometryContract();
+[[nodiscard]] bool MapRecurrenceHistoryContract();
+[[nodiscard]] bool MapRecurrencePreparationContract();
+[[nodiscard]] bool MapRecurrenceSourceMaterializationContract();
 [[nodiscard]] bool BackendParameterModelsMatchSources();
 [[nodiscard]] bool ResetModelContract();
 [[nodiscard]] bool MetalTemplateMemoryContract();
 [[nodiscard]] bool MetalIcbCalibrationContract();
+[[nodiscard]] bool NativeTerminalCellContract();
 
 } // namespace node_accel_contract
 
@@ -262,7 +268,9 @@ int RunAccelKernelCoreContract() {
   TEST_ASSERT(node_accel_contract::AuthorityContract());
   TEST_ASSERT(node_accel_contract::MetalTemplateMemoryContract());
   TEST_ASSERT(node_accel_contract::MetalIcbCalibrationContract());
+  TEST_ASSERT(node_accel_contract::NativeTerminalCellContract());
   TEST_ASSERT(node_accel_contract::BackendParameterModelsMatchSources());
+  TEST_ASSERT(node_accel_contract::MetalPipelineAbiContract());
   const rund::AccelDevice cpu_pick = rund::node::accel::PickAccel(
       node_accel_contract::cpu_context::CpuPolicy());
   TEST_ASSERT(cpu_pick.check.ok);
@@ -287,7 +295,12 @@ int RunAccelKernelCoreContract() {
       node_accel_contract::KernelBindingIndicesUseInlineStorageUntilOverflow());
   TEST_ASSERT(node_accel_contract::AvailableBackendsRunSegmentedScan());
   TEST_ASSERT(node_accel_contract::AvailableBackendsRunSegmentedReduce());
-  TEST_ASSERT(node_accel_contract::MapRecurrenceSourceContract());
+  TEST_ASSERT(node_accel_contract::MapRecurrenceNestedMarkerContract());
+  TEST_ASSERT(node_accel_contract::MapRecurrenceGeometryContract());
+  TEST_ASSERT(node_accel_contract::MapRecurrenceHistoryContract());
+  TEST_ASSERT(node_accel_contract::MapRecurrencePreparationContract());
+  TEST_ASSERT(
+      node_accel_contract::MapRecurrenceSourceMaterializationContract());
   TEST_ASSERT(node_accel_contract::BackendRunsSegmentedScan(cpu_pick));
   TEST_ASSERT(node_accel_contract::BackendRunsSegmentedReduce(cpu_pick));
   TEST_ASSERT(node_accel_contract::BackendRunsGather(cpu_pick));

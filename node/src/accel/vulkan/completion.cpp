@@ -1,3 +1,6 @@
+#include "adapter/error.hpp"
+#include "buffer/access.hpp"
+
 #include <accel/check.hpp>
 
 #include "../clock.hpp"
@@ -30,6 +33,11 @@ void RunVulkanCompletion(VulkanAdapter *const adapter) noexcept {
           (adapter->pending_head + 1u) % adapter->pending.size();
       --adapter->pending_size;
     }
+
+    // Retain only while an actual callback/native owner can drop the last
+    // public Device. Retaining across the empty service wait would pin an idle
+    // adapter forever and prevent its destructor from stopping this worker.
+    std::shared_ptr<void> worker_owner = adapter->owner_token.lock();
 
     KernelResult result{
         .check = rund::AccelCheck{true, "ok"},
@@ -81,6 +89,12 @@ void RunVulkanCompletion(VulkanAdapter *const adapter) noexcept {
       if (!pending.external) {
         ReleaseVulkanBuffer(*adapter, pending.staging);
       }
+      if (!pending.external &&
+          pending.command.slot < adapter->completed_sequences.size()) {
+        adapter->completed_sequences[pending.command.slot] =
+            pending.command.sequence;
+        adapter->completed_status[pending.command.slot] = result.check;
+      }
     }
     if (pending.completion != nullptr) {
       pending.completion(pending.user, result);
@@ -95,6 +109,31 @@ void RunVulkanCompletion(VulkanAdapter *const adapter) noexcept {
       }
       adapter->command_cv.notify_all();
     }
+  }
+}
+
+void RunVulkanResidencyCompletion(VulkanAdapter *const adapter) noexcept {
+  for (;;) {
+    VulkanAdapter::ResidencyService service = nullptr;
+    void *user = nullptr;
+    {
+      std::unique_lock lock{adapter->residency_mutex};
+      adapter->residency_cv.wait(lock, [&] {
+        return adapter->residency_service != nullptr || adapter->residency_stop;
+      });
+      if (adapter->residency_service == nullptr && adapter->residency_stop) {
+        return;
+      }
+      service = adapter->residency_service;
+      user = adapter->residency_user;
+      adapter->residency_service = nullptr;
+      adapter->residency_user = nullptr;
+    }
+    // The fixed window retains native Pipelines, but those Pipelines borrow
+    // the adapter. Common Final is allowed to release the last public owner,
+    // so retain the adapter across both callbacks and request destruction.
+    std::shared_ptr<void> worker_owner = adapter->owner_token.lock();
+    service(user);
   }
 }
 

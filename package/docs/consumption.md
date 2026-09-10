@@ -104,12 +104,31 @@ that translation unit plus the final link.
 The current proof owners are:
 
 - `tests/consumer/blackbox.cpp` orders Replay, numeric evidence, Cluster, and
-  network leaves under `blackbox/`;
+  network leaves under `blackbox/`; `blackbox/replay.cpp` is the sole Replay
+  coordinator, `blackbox/replay/model.cpp` owns the shared replay fixture and
+  borrowed source/restore callbacks, and
+  `blackbox/replay/{record,codec,scenario,checkpoint,history}.cpp`
+  independently own record, codec/diff, replay/scenario, checkpoint/resume,
+  and bounded history contracts;
 - `tests/consumer/example/device/program.cpp` orders failure, profile,
   attribution, and tick-execution leaves under `device/program/`;
 - `tests/consumer/compute/flow/primitives.cpp` orders the installed Flow
   primitive families under `flow/primitives/`, while `surface` owns the
   compile-time type checks.
+- `tests/consumer/compute.cpp` orders the installed Compute runtime journey;
+  `compute/contracts/{status,fixed,graph,pipeline,flow}.cpp` are independent
+  compile-time contract owners, with shared concepts in the focused
+  `compute/contracts/{common,telemetry,pipeline}.hpp` facets.
+- `tests/consumer/compute/fixed/dispatcher.cpp` preserves the fixed-point
+  journey order; `fixed/{arithmetic,multiplication,policy,rejection,rescale}.cpp`
+  separately own the installed fixed arithmetic, declared products, policies,
+  rejection diagnostics, and rescale contracts. `compute/fixed.hpp` is only the
+  public declaration consumed by `compute.cpp`.
+- `tests/consumer/compute/graph/services/dispatcher.cpp` preserves the graph
+  services order; `services/{session,resource,graph,execution}.cpp` separately
+  own session/async lifecycle, resource planning, graph validation, and the
+  device/cache execution journey. `compute/graph/services.hpp` is declaration
+  only.
 
 The detailed behavior remains owned by the
 [Runtime](../../node/docs/contracts/runtime.md),

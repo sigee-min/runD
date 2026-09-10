@@ -4,7 +4,6 @@
 
 #include "../../../../../host/net/interest.hpp"
 #include "../../../../../host/net/operation.hpp"
-#include "../../../../reactor/platform.hpp"
 #include "../../state/model/task.hpp"
 #include "../../state/storage.hpp"
 #include "../../timer/store.hpp"

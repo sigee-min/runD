@@ -8,8 +8,14 @@ list(APPEND NODE_SOURCES
   src/accel/context/capability.cpp
   src/accel/context/shared.cpp
   src/accel/context/buffer.cpp
+  src/accel/context/buffer/view.cpp
   src/accel/context/reject.cpp
   src/accel/context/open.cpp
   src/accel/context/support.cpp
   src/accel/context/transfer.cpp
+  src/accel/context/transfer/route.cpp
+  src/accel/context/transfer/upload.cpp
+  src/accel/context/transfer/download.cpp
+  src/accel/context/transfer/copy.cpp
+  src/accel/context/transfer/pipeline.cpp
 )

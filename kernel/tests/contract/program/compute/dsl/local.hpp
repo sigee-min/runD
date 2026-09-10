@@ -2,8 +2,8 @@
 
 #include "contract/program/compute/lowering/fixed/nonlinear.hpp"
 
-#include <kernel/program/compute/dsl.hpp>
 #include <kernel/program/compute/artifact.hpp>
+#include <kernel/program/compute/dsl.hpp>
 #include <kernel/program/compute/lowering/artifact/admission.hpp>
 #include <kernel/program/compute/lowering/entry.hpp>
 #include <kernel/program/compute/lowering/fusion/build.hpp>
@@ -17,6 +17,8 @@
 namespace program_compute_contract {
 
 int RunComputeDslIdentityContract();
+int RunComputeDslBasicIdentityContract();
+int RunComputeDslFixedIdentityContract();
 int RunComputeDslCseContract();
 int RunComputeDslOpsContract();
 int RunComputeDslRejectContract();
@@ -32,12 +34,12 @@ using namespace lowering_support;
 using namespace nonlinear_support;
 
 template <typename Body, typename Buffer>
-concept CanReadBuffer = requires(Body body, Buffer&& buffer) {
+concept CanReadBuffer = requires(Body body, Buffer &&buffer) {
   body.template read<"input">(std::forward<Buffer>(buffer));
 };
 
 template <typename Body, typename Buffer>
-concept CanWriteBuffer = requires(Body body, Buffer&& buffer) {
+concept CanWriteBuffer = requires(Body body, Buffer &&buffer) {
   body.template write<"output">(std::forward<Buffer>(buffer));
 };
 
@@ -67,5 +69,5 @@ concept CanWriteBuffer = requires(Body body, Buffer&& buffer) {
   });
 }
 
-}  // namespace dsl_support
-}  // namespace program_compute_contract
+} // namespace dsl_support
+} // namespace program_compute_contract

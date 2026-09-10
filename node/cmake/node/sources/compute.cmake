@@ -3,13 +3,140 @@ list(APPEND NODE_SOURCES
   src/compute/compile/service.cpp
   src/compute/open/cpu.cpp
   src/compute/device/info.cpp
-  src/compute/device/residency.cpp
-  src/compute/device/residency_pool.cpp
-  src/compute/device/residency_prefetch.cpp
+  src/compute/device/residency/cycle/plan.cpp
+  src/compute/device/residency/execution/graph_drain/issue.cpp
+  src/compute/device/residency/execution/graph_drain/model.cpp
+  src/compute/device/residency/execution/graph_drain/release.cpp
+  src/compute/device/residency/execution/graph_drain/terminal.cpp
+  src/compute/device/residency/execution/graph_forecast/issue.cpp
+  src/compute/device/residency/execution/graph_forecast/model.cpp
+  src/compute/device/residency/execution/graph_forecast/release.cpp
+  src/compute/device/residency/execution/graph_forecast/retire.cpp
+  src/compute/device/residency/execution/graph_forecast/terminal.cpp
+  src/compute/device/residency/execution/graph_ready/model.cpp
+  src/compute/device/residency/execution/graph_persist/issue.cpp
+  src/compute/device/residency/execution/graph_persist/model.cpp
+  src/compute/device/residency/execution/graph_persist/release.cpp
+  src/compute/device/residency/execution/graph_persist/terminal.cpp
+  src/compute/device/residency/registry/graph_persist_owner.cpp
+  src/compute/device/residency/execution/graph_promote/issue.cpp
+  src/compute/device/residency/execution/graph_promote/ready_validate.cpp
+  src/compute/device/residency/execution/graph_promote/validate.cpp
+  src/compute/device/residency/execution/graph_promote/bind.cpp
+  src/compute/device/residency/execution/graph_promote/model.cpp
+  src/compute/device/residency/execution/graph_promote/release.cpp
+  src/compute/device/residency/execution/graph_promote/terminal.cpp
+  src/compute/device/residency/execution/plan/seal.cpp
+  src/compute/device/residency/execution/plan/project.cpp
+  src/compute/device/residency/execution/plan/input.cpp
+  src/compute/device/residency/execution/plan/window.cpp
+  src/compute/device/residency/execution/receipt.cpp
+  src/compute/device/residency/execution/run/lifecycle.cpp
+  src/compute/device/residency/execution/run/finalize.cpp
+  src/compute/device/residency/execution/run/authority_close.cpp
+  src/compute/device/residency/execution/run/authority_close/validation.cpp
+  src/compute/device/residency/execution/run/authority_close/preparation.cpp
+  src/compute/device/residency/execution/run/authority_close/application.cpp
+  src/compute/device/residency/execution/service.cpp
+  src/compute/device/residency/execution/stream.cpp
+  src/compute/device/residency/execution/window.cpp
+  src/compute/device/residency/execution/window/authority_close.cpp
+  src/compute/device/residency/executor.cpp
+  src/compute/device/residency/pool.cpp
+  src/compute/device/residency/pool/internal.cpp
+  src/compute/device/residency/pool/footprint.cpp
+  src/compute/device/residency/pool/lifecycle.cpp
+  src/compute/device/residency/pool/acquire.cpp
+  src/compute/device/residency/pool/acquire/common.cpp
+  src/compute/device/residency/pool/acquire/graph.cpp
+  src/compute/device/residency/pool/acquire/ordinary.cpp
+  src/compute/device/residency/persist/lifecycle.cpp
+  src/compute/device/residency/persist/submit.cpp
+  src/compute/device/residency/persist/wait.cpp
+  src/compute/device/residency/persist/work.cpp
+  src/compute/device/residency/prefetch.cpp
+  src/compute/device/residency/prefetch/cancel.cpp
+  src/compute/device/residency/prefetch/observe.cpp
+  src/compute/device/residency/prefetch/submit.cpp
+  src/compute/device/residency/prefetch/support.cpp
+  src/compute/device/residency/prefetch/work.cpp
+  src/compute/device/residency/registry/release_check/row.cpp
+  src/compute/device/residency/registry/release_check/graph.cpp
+  src/compute/device/residency/registry/release_check/execution.cpp
+  src/compute/device/residency/registry/release_check/cycle.cpp
+  src/compute/device/residency/registry/frame/support.cpp
+  src/compute/device/residency/registry/frame/journal.cpp
+  src/compute/device/residency/registry/frame/registration.cpp
+  src/compute/device/residency/registry/frame/ownership.cpp
+  src/compute/device/residency/registry/view.cpp
+  src/compute/device/residency/registry/view_owner.cpp
+  src/compute/device/residency/registry/view_receipt.cpp
+  src/compute/device/residency/registry/graph.cpp
+  src/compute/device/residency/registry/lease/support.cpp
+  src/compute/device/residency/registry/lease/ordinary.cpp
+  src/compute/device/residency/registry/lease/transform.cpp
+  src/compute/device/residency/registry/alias.cpp
+  src/compute/device/residency/registry/cpu.cpp
+  src/compute/device/residency/registry/cpu_graph_owner.cpp
+  src/compute/device/residency/registry/cycle_owner.cpp
+  src/compute/device/residency/registry/graph_forecast_owner.cpp
+  src/compute/device/residency/registry/graph_promote_owner.cpp
+  src/compute/device/residency/registry/graph_drain_owner.cpp
+  src/compute/device/residency/registry/sliding_owner.cpp
+  src/compute/device/residency/registry/direct_recurrence_owner.cpp
+  src/compute/device/residency/registry/execution_owner.cpp
+  src/compute/device/residency/registry/execution/admit.cpp
+  src/compute/device/residency/registry/execution/admit/direct.cpp
+  src/compute/device/residency/registry/execution/admit/regions.cpp
+  src/compute/device/residency/registry/execution/issue.cpp
+  src/compute/device/residency/registry/execution/issue/validation.cpp
+  src/compute/device/residency/registry/execution/issue/window.cpp
+  src/compute/device/residency/registry/execution/issue/output.cpp
+  src/compute/device/residency/registry/execution/issue/finalize.cpp
+  src/compute/device/residency/registry/execution/terminal.cpp
+  src/compute/device/residency/registry/execution/close.cpp
+  src/compute/device/residency/registry/execution/close/reject.cpp
+  src/compute/device/residency/registry/execution/close/abandon.cpp
+  src/compute/device/residency/registry/execution/close/abort.cpp
+  src/compute/device/residency/registry/complete.cpp
+  src/compute/device/residency/registry/execution/accept.cpp
+  src/compute/device/residency/registry/execution/release.cpp
+  src/compute/device/residency/registry/drain.cpp
+  src/compute/device/residency/registry/freeze/stream.cpp
+  src/compute/device/residency/registry/freeze/graph.cpp
+  src/compute/device/residency/registry/view/activation.cpp
+  src/compute/device/residency/registry/view/commit.cpp
+  src/compute/device/residency/registry/view/terminal.cpp
+  src/compute/device/residency/registry/graph_epoch.cpp
+  src/compute/device/residency/registry/graph_epoch/admission.cpp
+  src/compute/device/residency/registry/graph_epoch/validation.cpp
+  src/compute/device/residency/registry/graph_epoch/assignment.cpp
+  src/compute/device/residency/registry/graph_epoch/relocation.cpp
+  src/compute/device/residency/registry/graph_epoch/lifecycle.cpp
+  src/compute/device/residency/registry/graph_persist_quarantine/snapshot.cpp
+  src/compute/device/residency/registry/graph_persist_quarantine/validation.cpp
+  src/compute/device/residency/registry/graph_persist_quarantine/commit.cpp
+  src/compute/device/residency/registry/graph_persist_quarantine/retry.cpp
+  src/compute/device/residency/registry/probe.cpp
+  src/compute/device/residency/registry/transaction_owner.cpp
+  src/compute/device/residency/registry/transaction_owner/cleanup.cpp
+  src/compute/device/residency/registry/transaction_owner/final.cpp
+  src/compute/device/residency/registry/transaction_owner/prepare.cpp
+  src/compute/device/residency/registry/transaction_owner/tag.cpp
+  src/compute/device/residency/registry/transaction_owner/validation.cpp
+  src/compute/virtual/graph/forecast/terminal.cpp
+  src/compute/virtual/host_ring.cpp
+  src/compute/virtual/resident_backing/factory.cpp
+  src/compute/virtual/resident_backing/io.cpp
+  src/compute/backend/accel/execution/prepare.cpp
   src/compute/buffer.cpp
   src/compute/buffer/write.cpp
   src/compute/expression/arity.cpp
-  src/compute/expression/build.cpp
+  src/compute/expression/build/canonical.cpp
+  src/compute/expression/build/leaf.cpp
+  src/compute/expression/build/unary.cpp
+  src/compute/expression/build/conversion.cpp
+  src/compute/expression/build/composite.cpp
   src/compute/map/compile/check.cpp
   src/compute/map/compile/cpu.cpp
   src/compute/map/compile/emit.cpp
@@ -17,10 +144,27 @@ list(APPEND NODE_SOURCES
   src/compute/map/compile/operation.cpp
   src/compute/map/compile/replay.cpp
   src/compute/cpu/arena.cpp
-  src/compute/cpu/prepared.cpp
+  src/compute/cpu/prepared/plan.cpp
+  src/compute/cpu/prepared/layout.cpp
+  src/compute/cpu/prepared/lifetime.cpp
+  src/compute/cpu/prepared/materialize.cpp
+  src/compute/cpu/prepared/access.cpp
+  src/compute/cpu/prepared/factory.cpp
   src/compute/cpu/run/execute.cpp
   src/compute/cpu/run/primitive.cpp
-  src/compute/cpu/run/primitive/algebra.cpp
+  src/compute/cpu/run/primitive/support.cpp
+  src/compute/cpu/run/primitive/collective.cpp
+  src/compute/cpu/run/primitive/reference.cpp
+  src/compute/cpu/run/primitive/indexed.cpp
+  src/compute/cpu/run/primitive/ordering.cpp
+  src/compute/cpu/run/primitive/algebra/support.cpp
+  src/compute/cpu/run/primitive/algebra/stencil.cpp
+  src/compute/cpu/run/primitive/algebra/window.cpp
+  src/compute/cpu/run/primitive/algebra/transform.cpp
+  src/compute/cpu/run/primitive/algebra/matrix.cpp
+  src/compute/cpu/run/primitive/algebra/factor.cpp
+  src/compute/cpu/run/primitive/algebra/solve.cpp
+  src/compute/cpu/run/primitive/algebra/spectrum.cpp
   src/compute/run/value.cpp
   src/compute/job/control/bind.cpp
   src/compute/job/control/cache.cpp
@@ -30,32 +174,108 @@ list(APPEND NODE_SOURCES
   src/compute/job/control/stats.cpp
   src/compute/job/control/validate.cpp
   src/compute/job/control/view.cpp
+  src/compute/job/control/view/layout.cpp
+  src/compute/job/control/view/materialize.cpp
+  src/compute/job/control/view/runtime.cpp
   src/compute/job/cpu/advance.cpp
   src/compute/job/cpu/run.cpp
   src/compute/job/cpu/step.cpp
   src/compute/job/cpu/submit.cpp
   src/compute/job/cpu/tile.cpp
+  src/compute/job/cpu/tile/collective.cpp
+  src/compute/job/cpu/tile/finish.cpp
+  src/compute/job/cpu/tile/primitive.cpp
+  src/compute/job/cpu/tile/run.cpp
+  src/compute/job/cpu/tile/selection.cpp
+  src/compute/job/cpu/tile/trace.cpp
   src/compute/job/write.cpp
   src/compute/cpu/map.cpp
   src/compute/cpu/view.cpp
   src/compute/cpu/run/state.cpp
+  src/compute/cpu/run/state/binding.cpp
+  src/compute/cpu/run/state/materialize.cpp
+  src/compute/cpu/run/state/prepare.cpp
+  src/compute/cpu/run/state/route.cpp
+  src/compute/cpu/run/state/slices.cpp
+  src/compute/cpu/run/state/support.cpp
+  src/compute/cpu/run/storage.cpp
+  src/compute/cpu/run/storage/support.cpp
+  src/compute/cpu/run/storage/materialize.cpp
   src/compute/cpu/scratch.cpp
+  src/compute/cpu/scratch/range.cpp
+  src/compute/cpu/scratch/sort.cpp
+  src/compute/cpu/scratch/scatter.cpp
+  src/compute/cpu/scratch/scatter_reduce.cpp
+  src/compute/cpu/scratch/transform.cpp
+  src/compute/cpu/scratch/factor.cpp
+  src/compute/cpu/scratch/solve.cpp
+  src/compute/cpu/scratch/spectrum.cpp
   src/compute/run/read.cpp
   src/compute/stats.cpp
   src/compute/telemetry.cpp
   src/compute/program/cache.cpp
   src/compute/program/introspection.cpp
+  src/compute/program/lifetime.cpp
   src/compute/pipeline/build.cpp
-  src/compute/pipeline/async.cpp
-  src/compute/pipeline/claim.cpp
+  src/compute/pipeline/builder/configuration.cpp
+  src/compute/pipeline/builder/lifecycle.cpp
+  src/compute/pipeline/assembly/internal.cpp
+  src/compute/pipeline/assembly/recurrence.cpp
+  src/compute/pipeline/assembly/window.cpp
+  src/compute/pipeline/assembly/window/mutation.cpp
+  src/compute/pipeline/assembly/window/validation.cpp
+  src/compute/pipeline/assembly/window/resources.cpp
+  src/compute/pipeline/assembly/window/steps.cpp
+  src/compute/pipeline/assembly/window/publication.cpp
+  src/compute/pipeline/async/step.cpp
+  src/compute/pipeline/async/step/window.cpp
+  src/compute/pipeline/async/step/failure.cpp
+  src/compute/pipeline/async/step/complete.cpp
+  src/compute/pipeline/async/step/schedule.cpp
+  src/compute/pipeline/async/terminal.cpp
+  src/compute/pipeline/async/submission.cpp
+  src/compute/pipeline/claim/buffer.cpp
+  src/compute/pipeline/claim/resource.cpp
+  src/compute/pipeline/claim/observation.cpp
+  src/compute/pipeline/claim/terminal.cpp
+  src/compute/pipeline/claim/deferred.cpp
+  src/compute/pipeline/claim/transaction.cpp
+  src/compute/pipeline/generation.cpp
+  src/compute/pipeline/execution/prepare.cpp
+  src/compute/pipeline/execution/attempt.cpp
+  src/compute/pipeline/execution/schedule.cpp
+  src/compute/pipeline/execution/schedule/model.cpp
+  src/compute/pipeline/execution/schedule/prepare.cpp
+  src/compute/pipeline/execution/schedule/submit.cpp
+  src/compute/pipeline/execution/schedule/signal.cpp
+  src/compute/pipeline/execution/schedule/abort.cpp
+  src/compute/pipeline/execution/schedule/callback.cpp
+  src/compute/pipeline/execution/submit.cpp
+  src/compute/pipeline/execution/submit/completion.cpp
+  src/compute/pipeline/execution/submit/outcome.cpp
+  src/compute/pipeline/execution/window/callback.cpp
+  src/compute/pipeline/execution/window/evidence.cpp
+  src/compute/pipeline/execution/window/submission.cpp
+  src/compute/pipeline/execution/window/signal.cpp
   src/compute/pipeline/plan.cpp
   src/compute/pipeline/plan/admit.cpp
+  src/compute/pipeline/plan/admit/model.cpp
+  src/compute/pipeline/plan/admit/initial.cpp
+  src/compute/pipeline/plan/admit/steps.cpp
+  src/compute/pipeline/plan/admit/publications.cpp
+  src/compute/pipeline/plan/admit/state_pairs.cpp
   src/compute/pipeline/plan/arena.cpp
+  src/compute/pipeline/plan/arena/chunks.cpp
   src/compute/pipeline/plan/backend.cpp
+  src/compute/pipeline/plan/backend/stream.cpp
   src/compute/pipeline/plan/bind.cpp
+  src/compute/pipeline/plan/bind/publication.cpp
   src/compute/pipeline/plan/contract.cpp
   src/compute/pipeline/plan/memory.cpp
   src/compute/pipeline/plan/memory/accel.cpp
+  src/compute/pipeline/plan/memory/accel/occurrence.cpp
+  src/compute/pipeline/plan/memory/accel/route.cpp
+  src/compute/pipeline/plan/memory/accel/final.cpp
   src/compute/pipeline/plan/memory/commitment.cpp
   src/compute/pipeline/plan/memory/cpu.cpp
   src/compute/pipeline/plan/memory/host.cpp
@@ -65,33 +285,89 @@ list(APPEND NODE_SOURCES
   src/compute/pipeline/plan/memory/workload.cpp
   src/compute/pipeline/plan/memory/workspace.cpp
   src/compute/pipeline/output.cpp
-  src/compute/pipeline/plan/publication.cpp
+  src/compute/pipeline/plan/publication/common.cpp
+  src/compute/pipeline/plan/publication/controls.cpp
+  src/compute/pipeline/plan/publication/window.cpp
+  src/compute/pipeline/plan/publication/terminal.cpp
+  src/compute/pipeline/plan/publication/identity.cpp
+  src/compute/pipeline/plan/publication/coordinator.cpp
   src/compute/pipeline/plan/resource.cpp
   src/compute/pipeline/plan/schedule.cpp
+  src/compute/pipeline/plan/schedule/materialize.cpp
+  src/compute/pipeline/plan/schedule/repetition.cpp
   src/compute/pipeline/plan/scratch.cpp
   src/compute/pipeline/residency/identity.cpp
   src/compute/pipeline/residency/footprint.cpp
   src/compute/pipeline/residency/authority.cpp
   src/compute/pipeline/residency/integration.cpp
+  src/compute/pipeline/residency/integration/support.cpp
+  src/compute/pipeline/residency/integration/semantic.cpp
+  src/compute/pipeline/residency/integration/graph.cpp
+  src/compute/pipeline/residency/integration/direct.cpp
+  src/compute/pipeline/residency/integration/append/support.cpp
+  src/compute/pipeline/residency/integration/append/direct.cpp
+  src/compute/pipeline/residency/integration/append/graph.cpp
+  src/compute/pipeline/residency/integration/append/semantic.cpp
   src/compute/pipeline/residency/model.cpp
-  src/compute/pipeline/residency/planner.cpp
+  src/compute/pipeline/residency/model/project.cpp
+  src/compute/pipeline/residency/model/dependency.cpp
+  src/compute/pipeline/residency/planner/stream.cpp
+  src/compute/pipeline/residency/planner/graph.cpp
+  src/compute/pipeline/residency/planner/graph/support.cpp
+  src/compute/pipeline/residency/planner/graph/validation.cpp
+  src/compute/pipeline/residency/planner/graph/liveness.cpp
+  src/compute/pipeline/residency/planner/graph/physical.cpp
+  src/compute/pipeline/residency/planner/graph/dependencies.cpp
   src/compute/pipeline/read.cpp
   src/compute/pipeline/transfer/batch/model.cpp
   src/compute/pipeline/transfer/batch/publication.cpp
   src/compute/pipeline/transfer/batch/upload.cpp
   src/compute/pipeline/transfer/batch/download.cpp
   src/compute/pipeline/write.cpp
-  src/compute/pipeline/snapshot.cpp
+  src/compute/pipeline/snapshot/hash.cpp
+  src/compute/pipeline/snapshot/metadata.cpp
+  src/compute/pipeline/snapshot/payload.cpp
+  src/compute/pipeline/snapshot/restore.cpp
+  src/compute/pipeline/snapshot/storage.cpp
+  src/compute/pipeline/snapshot/coordinator.cpp
+  src/compute/pipeline/snapshot/publication.cpp
   src/compute/pipeline/profile.cpp
   src/compute/pipeline/run.cpp
   src/compute/pipeline/run/cpu.cpp
+  src/compute/pipeline/run/cpu/publication.cpp
+  src/compute/pipeline/run/cpu/window.cpp
+  src/compute/pipeline/run/cpu/stats.cpp
+  src/compute/pipeline/run/cpu/status.cpp
+  src/compute/pipeline/run/cpu/step.cpp
+  src/compute/pipeline/run/cpu/ordinary.cpp
+  src/compute/pipeline/run/cpu/nested.cpp
+  src/compute/pipeline/run/accel.cpp
+  src/compute/pipeline/run/residency/cpu.cpp
+  src/compute/pipeline/run/residency/locals.cpp
+  src/compute/pipeline/run/residency/publication.cpp
+  src/compute/pipeline/run/residency/submission.cpp
+  src/compute/pipeline/run/evidence.cpp
   src/compute/pipeline/run/finish.cpp
   src/compute/pipeline/run/memory.cpp
+  src/compute/pipeline/run/memory/primitives.cpp
+  src/compute/pipeline/run/memory/shared.cpp
+  src/compute/pipeline/run/memory/jobs.cpp
+  src/compute/pipeline/run/memory/snapshot.cpp
   src/compute/pipeline/run/profile.cpp
   src/compute/pipeline/run/publish.cpp
   src/compute/pipeline/run/start.cpp
-  src/compute/resource/plan.cpp
+  src/compute/resource/plan/analyze.cpp
+  src/compute/resource/plan/footprint.cpp
+  src/compute/resource/plan/index.cpp
+  src/compute/resource/plan/overlap.cpp
   src/compute/resource/memory.cpp
+  src/compute/resource/memory/validation.cpp
+  src/compute/resource/memory/lifetime.cpp
+  src/compute/resource/memory/materialize.cpp
+  src/compute/resource/memory/alias.cpp
+  src/compute/resource/memory/finalize.cpp
+  src/compute/resource/memory/arena/ordinary.cpp
+  src/compute/resource/memory/arena/large.cpp
   src/compute/resource/memory/arena.cpp
   src/compute/memory/arena.cpp
   src/compute/memory/device.cpp
@@ -109,6 +385,10 @@ list(APPEND NODE_SOURCES
   src/compute/graph/describe/finish.cpp
   src/compute/graph/describe/hazard.cpp
   src/compute/graph/describe/node.cpp
+  src/compute/graph/describe/node/access.cpp
+  src/compute/graph/describe/node/map.cpp
+  src/compute/graph/describe/node/scan.cpp
+  src/compute/graph/describe/node/primitive.cpp
   src/compute/graph/describe/resource.cpp
   src/compute/graph/compile/entry.cpp
   src/compute/graph/compile/finish.cpp
@@ -117,12 +397,23 @@ list(APPEND NODE_SOURCES
   src/compute/graph/compile/primitive.cpp
   src/compute/graph/compile/program.cpp
   src/compute/graph/compile/scan.cpp
+  src/compute/graph/compile/slice/source.cpp
+  src/compute/graph/compile/slice/stage.cpp
+  src/compute/graph/compile/slice/reduce.cpp
+  src/compute/graph/compile/slice/resources.cpp
+  src/compute/graph/compile/slice/tiled.cpp
+  src/compute/graph/compile/slice/pointwise.cpp
+  src/compute/graph/compile/slice/map.cpp
+  src/compute/graph/compile/slice/scan.cpp
+  src/compute/graph/compile/slice/semantic.cpp
   src/compute/flow/compile.cpp
   src/compute/flow/convert.cpp
   src/compute/flow/create.cpp
   src/compute/flow/matrix.cpp
   src/compute/flow/plan/expression.cpp
   src/compute/flow/plan/fuse.cpp
+  src/compute/flow/plan/fuse/compose.cpp
+  src/compute/flow/plan/fuse/recipes.cpp
   src/compute/flow/plan/graph.cpp
   src/compute/flow/plan/live.cpp
   src/compute/flow/plan/order.cpp
@@ -130,26 +421,220 @@ list(APPEND NODE_SOURCES
   src/compute/flow/stage/binary.cpp
   src/compute/flow/stage/input.cpp
   src/compute/flow/stage/scan.cpp
+  src/compute/flow/stage/filter.cpp
   src/compute/flow/stage/select.cpp
   src/compute/flow/stage/unary.cpp
   src/compute/virtual/backing.cpp
   src/compute/virtual/active.cpp
   src/compute/virtual/buffer.cpp
+  src/compute/virtual/state.cpp
   src/compute/virtual/observe.cpp
+  src/compute/virtual/observe/access.cpp
+  src/compute/virtual/observe/graph.cpp
+  src/compute/virtual/observe/memory.cpp
+  src/compute/virtual/observe/profile.cpp
+  src/compute/virtual/observe/validation.cpp
   src/compute/virtual/prepare.cpp
+  src/compute/virtual/prepare/geometry.cpp
+  src/compute/virtual/prepare/residency.cpp
+  src/compute/virtual/prepare/residency/bank.cpp
+  src/compute/virtual/prepare/window.cpp
+  src/compute/virtual/prepare/validation.cpp
+  src/compute/virtual/multi/pipeline.cpp
+  src/compute/virtual/multi/prepare.cpp
+  src/compute/virtual/multi/validation.cpp
+  src/compute/virtual/graph/prepare.cpp
+  src/compute/virtual/graph/prepare/validation.cpp
+  src/compute/virtual/graph/prepare/slices.cpp
+  src/compute/virtual/graph/prepare/bytes.cpp
+  src/compute/virtual/graph/prepare/materialize.cpp
+  src/compute/virtual/graph/prepare/topology.cpp
+  src/compute/virtual/graph/prepare/budget.cpp
+  src/compute/virtual/graph/prepare/assemble.cpp
   src/compute/virtual/run.cpp
-  src/compute/virtual/run/backing.cpp
-  src/compute/virtual/run/cache.cpp
+  src/compute/virtual/run/admission.cpp
+  src/compute/virtual/run/backing/materialize.cpp
+  src/compute/virtual/run/backing/prefetch.cpp
+  src/compute/virtual/run/backing/recovery.cpp
+  src/compute/virtual/run/backing/supply.cpp
+  src/compute/virtual/run/backing_set.cpp
+  src/compute/virtual/run/cache/input.cpp
+  src/compute/virtual/run/cache/output.cpp
+  src/compute/virtual/run/cache/transform.cpp
+  src/compute/virtual/run/cache/supply.cpp
+  src/compute/virtual/run/cache/retention.cpp
+  src/compute/virtual/run/cache/writeback.cpp
+  src/compute/virtual/run/dispatch.cpp
+  src/compute/virtual/run/dispatch/accelerator.cpp
+  src/compute/virtual/run/dispatch/device_vsm.cpp
+  src/compute/virtual/run/dispatch/epochs.cpp
+  src/compute/virtual/run/dispatch/graph.cpp
+  src/compute/virtual/run/dispatch/pooled.cpp
+  src/compute/virtual/run/dispatch/poolless.cpp
+  src/compute/virtual/run/dispatch/result.cpp
+  src/compute/virtual/run/dispatch/work.cpp
   src/compute/virtual/run/evidence.cpp
-  src/compute/virtual/run/projection.cpp
+  src/compute/virtual/run/execution.cpp
+  src/compute/virtual/run/execution/seal.cpp
+  src/compute/virtual/run/execution/sliding.cpp
+  src/compute/virtual/run/execution/io.cpp
+  src/compute/virtual/run/execution/direct.cpp
+  src/compute/virtual/run/execution/window.cpp
+  src/compute/virtual/run/execution/window/prepare.cpp
+  src/compute/virtual/run/execution/window/service.cpp
+  src/compute/virtual/run/execution/stream/service.cpp
+  src/compute/virtual/run/execution/stream/native.cpp
+  src/compute/virtual/run/execution/stream/pump.cpp
+  src/compute/virtual/run/execution/stream/execute.cpp
+  src/compute/virtual/run/execution/fill.cpp
+  src/compute/virtual/run/execution/injection.cpp
+  src/compute/virtual/run/final.cpp
+  src/compute/virtual/run/readiness.cpp
+  src/compute/virtual/run/device_vsm/route/graph.cpp
+  src/compute/virtual/run/device_vsm/route/probe.cpp
+  src/compute/virtual/run/device_vsm/route/owner.cpp
+  src/compute/virtual/run/device_vsm/route/prepare.cpp
+  src/compute/virtual/run/device_vsm/route/dispose.cpp
+  src/compute/virtual/run/device_vsm/route/execute.cpp
+  src/compute/virtual/run/device_vsm/identity.cpp
+  src/compute/virtual/graph/reduce.cpp
+  src/compute/virtual/graph/reduce/batch.cpp
+  src/compute/virtual/graph/reduce/coordinator.cpp
+  src/compute/virtual/graph/reduce/failure.cpp
+  src/compute/virtual/graph/reduce/finish.cpp
+  src/compute/virtual/graph/reduce/prepare.cpp
+  src/compute/virtual/graph/reduce/pair.cpp
+  src/compute/virtual/graph/reduce/receipts/book.cpp
+  src/compute/virtual/graph/reduce/receipts/book/lifecycle.cpp
+  src/compute/virtual/graph/reduce/receipts/book/lookup.cpp
+  src/compute/virtual/graph/reduce/receipts/book/unknown.cpp
+  src/compute/virtual/graph/reduce/receipts/permit.cpp
+  src/compute/virtual/graph/reduce/receipts/receipt.cpp
+  src/compute/virtual/graph/reduce/receipts/quarantine.cpp
+  src/compute/virtual/graph/reduce/abort.cpp
+  src/compute/virtual/graph/reduce/authority.cpp
+  src/compute/virtual/graph/reduce/cleanup.cpp
+  src/compute/virtual/graph/reduce/collective/finish.cpp
+  src/compute/virtual/graph/reduce/collective/model.cpp
+  src/compute/virtual/graph/reduce/collective/prepare.cpp
+  src/compute/virtual/graph/reduce/evidence.cpp
+  src/compute/virtual/graph/reduce/lease.cpp
+  src/compute/virtual/graph/reduce/middle/bind.cpp
+  src/compute/virtual/graph/reduce/middle/execute.cpp
+  src/compute/virtual/graph/reduce/middle/model.cpp
+  src/compute/virtual/graph/reduce/middle/ready.cpp
+  src/compute/virtual/graph/reduce/middle/run.cpp
+  src/compute/virtual/graph/reduce/middle/select.cpp
+  src/compute/virtual/graph/reduce/model.cpp
+  src/compute/virtual/graph/reduce/output.cpp
+  src/compute/virtual/graph/reduce/output/consume.cpp
+  src/compute/virtual/graph/reduce/output/download.cpp
+  src/compute/virtual/graph/reduce/output/issue.cpp
+  src/compute/virtual/graph/reduce/output/persist/cancel.cpp
+  src/compute/virtual/graph/reduce/output/persist/cpu.cpp
+  src/compute/virtual/graph/reduce/output/persist/finish.cpp
+  src/compute/virtual/graph/reduce/output/persist/io.cpp
+  src/compute/virtual/graph/reduce/output/persist/issue.cpp
+  src/compute/virtual/graph/reduce/output/persist/controller.cpp
+  src/compute/virtual/graph/reduce/output/persist/prepare.cpp
+  src/compute/virtual/graph/reduce/output/persist/projection.cpp
+  src/compute/virtual/graph/reduce/output/persist/start.cpp
+  src/compute/virtual/graph/reduce/output/persist/stats.cpp
+  src/compute/virtual/graph/reduce/output/persist/submit.cpp
+  src/compute/virtual/graph/reduce/output/projection.cpp
+  src/compute/virtual/graph/reduce/output/terminal.cpp
+  src/compute/virtual/graph/reduce/prefetch/accept.cpp
+  src/compute/virtual/graph/reduce/prefetch/cancel.cpp
+  src/compute/virtual/graph/reduce/prefetch/consume.cpp
+  src/compute/virtual/graph/reduce/prefetch/evidence.cpp
+  src/compute/virtual/graph/reduce/prefetch/input.cpp
+  src/compute/virtual/graph/reduce/prefetch/issue.cpp
+  src/compute/virtual/graph/reduce/prefetch/model.cpp
+  src/compute/virtual/graph/reduce/prefetch/projection.cpp
+  src/compute/virtual/graph/reduce/prefetch/replenish.cpp
+  src/compute/virtual/graph/reduce/prefetch/retire.cpp
+  src/compute/virtual/graph/reduce/prefetch/schedule.cpp
+  src/compute/virtual/graph/reduce/prefetch/selection.cpp
+  src/compute/virtual/graph/reduce/prefetch/stage.cpp
+  src/compute/virtual/graph/reduce/prefetch/stage/cpu.cpp
+  src/compute/virtual/graph/reduce/prefetch/stage/project.cpp
+  src/compute/virtual/graph/reduce/prefetch/stage/pair.cpp
+  src/compute/virtual/graph/reduce/prefix.cpp
+  src/compute/virtual/graph/reduce/promote.cpp
+  src/compute/virtual/graph/reduce/promote/copy.cpp
+  src/compute/virtual/graph/reduce/promote/issue.cpp
+  src/compute/virtual/graph/reduce/promote/projection.cpp
+  src/compute/virtual/graph/reduce/promote/terminal.cpp
+  src/compute/virtual/graph/reduce/promote/upload.cpp
+  src/compute/virtual/graph/reduce/projection.cpp
+  src/compute/virtual/graph/reduce/projection/effects.cpp
+  src/compute/virtual/graph/reduce/projection/identity.cpp
+  src/compute/virtual/graph/reduce/projection/regions.cpp
+  src/compute/virtual/graph/reduce/projection/stage.cpp
+  src/compute/virtual/graph/reduce/projection/ticket.cpp
+  src/compute/virtual/graph/reduce/result.cpp
+  src/compute/virtual/graph/reduce/stage/abort.cpp
+  src/compute/virtual/graph/reduce/stage/fold.cpp
+  src/compute/virtual/graph/reduce/stage/model.cpp
+  src/compute/virtual/graph/reduce/stage/submit.cpp
+  src/compute/virtual/graph/reduce/stage/wait.cpp
+  src/compute/virtual/graph/reduce/supply/device.cpp
+  src/compute/virtual/graph/reduce/supply/model.cpp
+  src/compute/virtual/graph/reduce/supply/prepare.cpp
+  src/compute/virtual/graph/reduce/timeline.cpp
+  src/compute/virtual/graph/reduce/transfer.cpp
+  src/compute/virtual/graph/reduce/wavefront/admit.cpp
+  src/compute/virtual/graph/reduce/wavefront/model.cpp
+  src/compute/virtual/graph/reduce/wavefront/ready.cpp
+  src/compute/virtual/graph/reduce/wavefront/select.cpp
+  src/compute/virtual/graph/reduce/wavefront/terminal.cpp
+  src/compute/virtual/run/overlap/model.cpp
+  src/compute/virtual/run/overlap/prepare.cpp
+  src/compute/virtual/run/overlap/prepare/admission.cpp
+  src/compute/virtual/run/overlap/prepare/cleanup.cpp
+  src/compute/virtual/run/overlap/prepare/lookahead.cpp
+  src/compute/virtual/run/overlap/prepare/prefetch.cpp
+  src/compute/virtual/run/overlap/prepare/supply.cpp
+  src/compute/virtual/run/overlap/submit.cpp
+  src/compute/virtual/run/overlap/flush.cpp
+  src/compute/virtual/run/overlap/scheduler.cpp
+  src/compute/virtual/run/projection/dispatch.cpp
+  src/compute/virtual/run/projection/frames.cpp
+  src/compute/virtual/run/projection/identity.cpp
+  src/compute/virtual/run/projection/graph/banks.cpp
+  src/compute/virtual/run/projection/graph/coordinator.cpp
+  src/compute/virtual/run/projection/graph/materialize.cpp
+  src/compute/virtual/run/projection/graph/regions.cpp
+  src/compute/virtual/run/projection/graph/validate.cpp
+  src/compute/virtual/run/projection/multi.cpp
+  src/compute/virtual/run/projection/ordinary.cpp
+  src/compute/virtual/run/projection/pages.cpp
+  src/compute/virtual/run/projection/transfer.cpp
+  src/compute/virtual/run/projection/validate.cpp
   src/compute/virtual/run/reduce.cpp
-  src/compute/virtual/run/scan.cpp
+  src/compute/virtual/run/scan/input.cpp
+  src/compute/virtual/run/scan/uniform.cpp
+  src/compute/virtual/run/scan/transfer.cpp
   src/compute/virtual/run/sample.cpp
   src/compute/virtual/run/epoch.cpp
+  src/compute/virtual/run/epoch/admission.cpp
+  src/compute/virtual/run/epoch/cleanup.cpp
+  src/compute/virtual/run/epoch/execute.cpp
+  src/compute/virtual/run/epoch/supply.cpp
+  src/compute/virtual/run/epoch/output.cpp
+  src/compute/virtual/run/epoch/drain.cpp
+  src/compute/virtual/run/publication.cpp
+  src/compute/virtual/run/transaction/model.cpp
+  src/compute/virtual/run/transaction/record.cpp
+  src/compute/virtual/run/transaction/begin.cpp
+  src/compute/virtual/run/transaction/prepare.cpp
+  src/compute/virtual/run/transaction/commit.cpp
+  src/compute/virtual/run/transaction/abort.cpp
   src/compute/virtual/stats.cpp
 )
 
 if(RUND_TEST_NODE)
-  set_source_files_properties(src/compute/open/cpu.cpp PROPERTIES
-    COMPILE_DEFINITIONS RUND_NODE_OPEN_PROBE=1)
+  set_source_files_properties(
+    src/compute/open/cpu.cpp
+    PROPERTIES COMPILE_DEFINITIONS RUND_NODE_OPEN_PROBE=1)
 endif()

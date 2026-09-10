@@ -444,6 +444,17 @@ hash skip that scan in `O(1)` before downstream evidence localization.
 `string_view`. All labels are compile-time literals owned by the comparison
 schema, so reading `M` mismatch rows performs `Theta(M)` field projections,
 zero field allocations, and zero field-byte copies.
+The installed Replay evidence surface is physically divided under
+`include/rund/replay/record/`: `base.hpp` owns Save, immutable evidence rows,
+and Record; `check.hpp` owns Check; and `diff.hpp` owns Diff, Window, and their
+comparison entry points. `record.hpp` is a compatibility umbrella only, so
+there is one class definition and one evidence owner for every public value.
+The Runtime comparison implementation is physically divided under
+`runtime/replay/diff/`: the parent `diff.cpp` owns ordered field aggregation,
+`sequence.cpp` owns Observation and Trace sequence comparison,
+`window.cpp` owns bounded first-mismatch localization, and `support.cpp` owns
+the stateless comparison schema helpers. `local.hpp` is declarations-only;
+none of these leaves retains replay state or duplicates the Record authority.
 Window exposes all bounded context as paired borrowed spans:
 `expected_observations()`/`actual_observations()`,
 `expected_host_events()`/`actual_host_events()`,
@@ -1024,7 +1035,10 @@ The implementation cut is owned by these paths:
   `node/src/runtime/runtime/scope/`;
 - replay product surface and values: `node/src/runtime/replay/surface/`,
   `node/src/runtime/replay/binding.cpp`,
-  `node/src/runtime/replay/record/`, `node/src/runtime/replay/checkpoint.cpp`,
+  `node/src/runtime/replay/record/`, `node/src/runtime/replay/checkpoint.cpp`
+  and `node/src/runtime/replay/checkpoint/` (hash chain, owned state, immutable
+  data validation, persistence, loading, and Binding resume each have one
+  translation-unit owner; `local.hpp` is declarations-only),
   `node/src/runtime/replay/history.cpp`, `node/src/runtime/replay/hash.cpp`,
   `node/src/runtime/replay/exception.hpp` for the one exception-type-to-Code
   projection, and `node/src/runtime/replay/codec/`;
@@ -1033,8 +1047,9 @@ The implementation cut is owned by these paths:
 - scope identity and evidence: `node/src/runtime/task/scheduler/core/identity.cpp`,
   `node/src/runtime/task/scheduler/core/snapshot.cpp`,
   `node/src/runtime/task/scheduler/core/host.cpp` for the narrow active-host
-  bridge, `node/src/runtime/task/scheduler/core/replay.cpp` for canonical input
-  capture and replay,
+  bridge, `node/src/runtime/task/scheduler/core/replay/{helpers,capture,input}.cpp`
+  for canonical input capture and replay (with `replay/internal.hpp` carrying
+  declarations only),
   `node/src/runtime/task/scheduler/core/record/`,
   `node/src/runtime/task/scheduler/progress/scope.cpp`, and
   `node/src/runtime/task/scheduler/state/storage/`;
@@ -1057,7 +1072,13 @@ observation. `surface/data.hpp` owns the shared private value layout;
 that require them.
 
 Persistence is partitioned without duplicating its grammar:
-`codec/value.cpp` owns observation and trace pairs, `payload.cpp` owns both
+`codec/value.cpp` owns observation and trace pairs,
+`codec/payload/write.cpp` owns payload emission,
+`codec/payload/read.cpp` owns bounded payload admission and compact-storage
+reconstruction, and `codec/payload/sequence.cpp` owns the one shared sequence
+delta transition used by both directions. These compiled owners replace the
+former mixed payload codec; `codec/payload/internal.hpp` contains declarations
+only. The payload codec owns both
 directions of the payload grammar and the one-owner load projection,
 `save.cpp` owns the Record write entry, and `load.cpp` owns the bounded Record
 read entry and final identity validation. `codec/local.hpp` is the single
@@ -1169,6 +1190,18 @@ evidence-capacity, and mismatch cases. Generic Budget ownership belongs in
 `package/tests/consumer/example/history.cpp`, `package/tests/consumer/sdk.cpp`,
 and `package/tests/consumer/blackbox.cpp`. Every documented example fence is
 byte-identical to its compiled source.
+
+The production payload Store is physically divided under
+`runtime/replay/host/payload/store/`: the parent `store.cpp` owns construction,
+`limits.cpp` owns capacity arithmetic, `entry.cpp` owns public capture and
+append projection, `append.cpp` owns deduplication and atomic backend commit,
+and `state.cpp` owns record indexing, observation, and reset. `local.hpp`
+declares only the two checked-capacity helpers; it does not mirror Store state.
+Payload validation is separately divided under `payload/validate/`: the parent
+`validate.cpp` owns Event payload predicates, `bind.cpp` owns ordered Host/Input
+source binding, and `archive.cpp` owns chunk, storage, record-hash, and Spill
+integrity. These validators are stateless and do not become a second Archive
+or Store authority.
 
 The payload Store contract keeps one registry symbol in `payload/store/suite.cpp`.
 Its fixed first-failure sequence is `memory`, `archive`, `publish`, `input`,

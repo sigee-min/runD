@@ -1,7 +1,9 @@
 #pragma once
 
-#include "../../adapter/api.hpp"
+#include "../../adapter/state.hpp"
+#include "../access.hpp"
 #include "../../resident/access.hpp"
+#include "../create/memory.hpp"
 #include "../local.hpp"
 
 #include <rund/counter.hpp>
@@ -15,7 +17,8 @@ namespace rund::node::accel::detail {
 // prepared resource destruction.
 [[nodiscard]] inline bool TakeVulkanResidentStorage(
     VulkanAdapter &adapter, const VkDeviceSize bytes,
-    const VkBufferUsageFlags usage, VulkanBuffer &buffer,
+    const VkBufferUsageFlags usage, const VulkanMemoryUse memory_use,
+    VulkanBuffer &buffer,
     const std::uint64_t exact_storage_bytes = 0u) noexcept {
   const VkBufferUsageFlags effective_usage = usage |
                                              VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
@@ -24,13 +27,15 @@ namespace rund::node::accel::detail {
   std::size_t best = kVulkanPoolCapacity;
   for (std::size_t index = 0u; index < resident.pool_size; ++index) {
     const VulkanBuffer &candidate = resident.pool[index];
-    if (candidate.usage != effective_usage || candidate.bytes < bytes ||
+    if (!VulkanBufferMemoryReady(candidate, memory_use) ||
+        candidate.usage != effective_usage ||
+        candidate.capacity_bytes < bytes ||
         (exact_storage_bytes != 0u &&
          candidate.allocated_bytes != exact_storage_bytes)) {
       continue;
     }
     if (best == kVulkanPoolCapacity ||
-        candidate.bytes < resident.pool[best].bytes) {
+        candidate.capacity_bytes < resident.pool[best].capacity_bytes) {
       best = index;
     }
   }
@@ -38,6 +43,7 @@ namespace rund::node::accel::detail {
     return false;
   }
   buffer = resident.pool[best];
+  buffer.bytes = bytes;
   ::rund::detail::counter::Release(resident.pool_bytes, buffer.allocated_bytes);
   --resident.pool_size;
   for (std::size_t index = best; index < resident.pool_size; ++index) {
@@ -66,8 +72,9 @@ inline void EvictVulkanResidentStorage(VulkanAdapter &adapter) noexcept {
 inline void RetireVulkanResidentStorage(VulkanAdapter &adapter,
                                         VulkanBuffer &buffer) noexcept {
   VulkanResidentState &resident = VulkanResidents(adapter);
-  if (buffer.buffer == VK_NULL_HANDLE || buffer.memory == VK_NULL_HANDLE ||
-      buffer.memory_use != VulkanMemoryUse::Resident) {
+  if ((buffer.memory_use != VulkanMemoryUse::Resident &&
+       buffer.memory_use != VulkanMemoryUse::ResidentHost) ||
+      !VulkanBufferMemoryReady(buffer, buffer.memory_use)) {
     DestroyVulkanBuffer(adapter, buffer);
     return;
   }

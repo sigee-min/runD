@@ -1,5 +1,5 @@
 #include "../device/info.hpp"
-#include "../device/residency_pool.hpp"
+#include "../device/residency/pool.hpp"
 #include "../device/state.hpp"
 #include "../status.hpp"
 

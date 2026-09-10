@@ -2,7 +2,10 @@
 
 #include "../state.hpp"
 
-#include "../../../../kernel/backend/pipeline_failure.hpp"
+#include "../../../command/capture.hpp"
+#include "../../../command/timestamp.hpp"
+
+#include "../../../../kernel/backend/pipeline/failure.hpp"
 #include "../../../../kernel/recurrence.hpp"
 
 #include <array>
@@ -16,11 +19,13 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
 struct VulkanPipelineRecordEntry final {
+  const BackendRun *run{};
   std::shared_ptr<void> prepared;
   std::optional<BackendWindow> window;
   std::uint32_t transducer{NoTileTransducer};
   std::uint32_t template_index{};
   std::uint32_t occurrence_index{};
+  std::uint32_t step_index{};
 };
 
 struct VulkanPipelineRecordRecipe final {
@@ -41,6 +46,20 @@ struct VulkanPipelineRecordRecipe final {
   bool recurrence{};
 };
 
+struct VulkanPipelineRecordSlice final {
+  std::size_t first{};
+  std::size_t count{};
+  bool open{};
+  bool close{};
+  VulkanDispatchCapture *capture{};
+  std::uint32_t capture_owner{};
+};
+
+[[nodiscard]] rund::AccelCheck
+DescribeVulkanRouteDispatches(const VulkanKernelResources &,
+                              std::uint64_t &total,
+                              std::uint64_t &indirect) noexcept;
+
 [[nodiscard]] rund::AccelCheck MakeVulkanPipelineRecordRecipe(
     std::span<const BackendBatchEntry> entries,
     std::span<const std::uint8_t> barriers,
@@ -60,7 +79,8 @@ struct VulkanPipelineRecordRecipe final {
 RecordVulkanPipeline(VulkanPipeline &pipeline, VulkanCommand &command,
                      CommandKind kind, bool replay,
                      PreparedPipelineFailureContext *failure = nullptr,
-                     VulkanTimestampCapture *timestamps = nullptr) noexcept;
+                     VulkanTimestampCapture *timestamps = nullptr,
+                     const VulkanPipelineRecordSlice *slice = nullptr) noexcept;
 
 [[nodiscard]] std::uint64_t VulkanPipelineRecordHostBytes(
     const VulkanPipelineRecordRecipe &recipe) noexcept;

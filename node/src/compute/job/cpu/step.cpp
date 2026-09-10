@@ -1,3 +1,4 @@
+#include "../../cpu/state/program.hpp"
 #include "model.hpp"
 
 #include "../../cpu/bounded.hpp"

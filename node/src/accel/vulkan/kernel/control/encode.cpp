@@ -2,6 +2,7 @@
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
+#include "../../command/dispatch.hpp"
 #include "../../barrier.hpp"
 #include "../../descriptor.hpp"
 

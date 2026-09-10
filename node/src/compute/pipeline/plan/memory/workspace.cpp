@@ -1,3 +1,4 @@
+#include "../../state/assembly.hpp"
 #include "local.hpp"
 
 #include "../arena.hpp"

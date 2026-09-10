@@ -77,8 +77,8 @@ bool ExactPreparationEvidence(
   case ::rund::compute::PreparationEvidenceSource::OwnerLocal:
     return profile.memory().available() &&
            profile.memory().backend == preparation.backend &&
-           preparation.pipeline_compiles != 0u &&
-           preparation.pipeline_cache_hits == 0u &&
+           preparation.pipeline_compiles == 1u &&
+           preparation.pipeline_cache_hits == 1u &&
            preparation.pipeline_cache_evictions == 0u &&
            preparation.shader_compile_ns != 0u &&
            preparation.pipeline_create_ns != 0u;
@@ -95,7 +95,9 @@ bool ExactPreparationEvidence(
 bool ExactProfile(const ::rund::compute::telemetry::Profile &profile,
                   const ::rund::compute::PipelinePlan &plan,
                   const Backend backend, const std::size_t active_count,
-                  const std::uint32_t sampled_runs) noexcept {
+                  const std::uint32_t sampled_runs,
+                  const bool gpu_driven_product,
+                  const bool resident_backing) noexcept {
   const ::rund::compute::Stats &stats = profile.execution();
   const auto &residency = stats.pipeline.residency;
   const std::uint64_t logical_bytes =
@@ -111,9 +113,49 @@ bool ExactProfile(const ::rund::compute::telemetry::Profile &profile,
   const std::uint64_t backing_bytes = active_count * sizeof(std::int32_t);
   const std::uint64_t supplied_pages =
       residency.page_in_count + residency.cache_hit_count;
+  const bool private_transfer =
+      backend == Backend::Vulkan && !gpu_driven_product;
   const std::uint64_t uploaded_bytes =
-      residency.page_in_count * physical_page_bytes;
-  const std::uint64_t downloaded_bytes = active_pages * physical_page_bytes;
+      private_transfer ? residency.page_in_count * physical_page_bytes : 0u;
+  const std::uint64_t downloaded_bytes =
+      private_transfer ? active_pages * physical_page_bytes : 0u;
+  const std::uint64_t persistent_miss_pages =
+      residency.prefetch_count + residency.late_page_count;
+  // CPU executes directly in its authoritative Host frames, so every
+  // physical-frame miss is also a backing miss. Accelerators may promote a
+  // reusable Host-cache hit without another Persistent read.
+  const bool exact_tier_supply =
+      backend == Backend::Cpu
+          ? persistent_miss_pages == residency.page_in_count &&
+                residency.page_in_bytes == residency.backing_read_bytes
+          : persistent_miss_pages <= residency.page_in_count &&
+                residency.backing_read_bytes <= residency.page_in_bytes;
+  const bool exact_transfer_submissions =
+      gpu_driven_product
+          ? stats.transfer_submissions.host_to_device == 0u &&
+                stats.transfer_submissions.device_to_host == 0u &&
+                stats.transfer_submissions.device_to_device == 0u
+      : backend == Backend::Vulkan
+          ? (residency.page_in_count == 0u
+                 ? stats.transfer_submissions.host_to_device == 0u
+                 : stats.transfer_submissions.host_to_device != 0u &&
+                       stats.transfer_submissions.host_to_device <=
+                           active_epochs) &&
+                stats.transfer_submissions.device_to_host == active_epochs
+          : stats.transfer_submissions.host_to_device == 0u &&
+                stats.transfer_submissions.device_to_host == 0u;
+  const bool exact_product_receipt =
+      !gpu_driven_product ||
+      (residency.window_handoff_count == 1u &&
+       residency.window_batch_count == 1u &&
+       residency.window_queue_call_count == 1u && stats.command_submits == 1u &&
+       stats.command_inflight_peak == 1u);
+  const bool resident_bypass = resident_backing && gpu_driven_product;
+  const bool exact_backing_bytes =
+      resident_bypass ? residency.backing_read_bytes == 0u &&
+                            residency.backing_write_bytes == 0u
+                      : residency.backing_read_bytes <= backing_bytes &&
+                            residency.backing_write_bytes == backing_bytes;
   const bool warm_exact =
       sampled_runs == 0u ||
       (residency.samples_allocation_free(sampled_runs) &&
@@ -135,22 +177,16 @@ bool ExactProfile(const ::rund::compute::telemetry::Profile &profile,
          residency.frame_capacity == FrameCapacity &&
          residency.resident_frames_peak ==
              std::min(active_pages,
-                      static_cast<std::uint64_t>(FrameCapacity)) &&
+                      static_cast<std::uint64_t>(FrameCapacity) * 2u) &&
          residency.epoch_count == active_epochs &&
          supplied_pages == active_pages &&
-         residency.page_out_count == active_pages &&
-         residency.prefetch_count + residency.late_page_count ==
-             residency.page_in_count &&
-         residency.page_in_bytes == residency.backing_read_bytes &&
-         residency.backing_read_bytes <= backing_bytes &&
-         residency.page_out_bytes == backing_bytes &&
-         residency.backing_write_bytes == backing_bytes &&
+         residency.page_out_count == active_pages && exact_tier_supply &&
+         exact_backing_bytes && residency.page_out_bytes == backing_bytes &&
          residency.plan_identity_hi == plan.residency.identity_hi &&
          residency.plan_identity_lo == plan.residency.identity_lo &&
          residency.sampled_runs == sampled_runs && warm_exact &&
-         stats.dispatches == active_epochs * FrameCapacity &&
-         stats.transfer_submissions.host_to_device == 0u &&
-         stats.transfer_submissions.device_to_host == 0u &&
+         stats.dispatches == (gpu_driven_product ? 1u : active_pages) &&
+         exact_transfer_submissions && exact_product_receipt &&
          stats.uploaded_bytes == uploaded_bytes &&
          stats.downloaded_bytes == downloaded_bytes;
 }

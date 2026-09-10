@@ -281,8 +281,28 @@ Public node and kernel headers must not include Metal, Objective-C, Vulkan,
 platform windowing, or SDK loader headers as host headers. Adapter SDK
 dependencies stay in private node implementation files; kernel lowering may
 emit backend source text as data without making that SDK a public host include.
+Within the private Vulkan adapter, command capture, dispatch encoding, and
+timestamp capture are separate owners: `command/capture.hpp` owns the scoped
+thread-local indirect-replay record, `command/dispatch.hpp` owns the Vulkan
+command wrappers, and `command/timestamp.hpp` owns the scoped query cursor.
+Their compiled definitions live in the matching `command/*.cpp` files; buffer,
+shader, runtime, and adapter access contracts include their owning narrow
+header directly rather than depending on an aggregate adapter API header.
+These boundaries do not alter capture scope restoration, 256-byte push-constant
+validation, indirect replay matching, overflow failure, or timestamp ordering.
+`buffer/create.hpp` owns the allocation declaration and default arguments;
+`buffer/create.cpp` owns its sole implementation. No consumer includes the
+allocation implementation as a header. Collective execution templates are
+self-contained and included at namespace scope; Sort's private preparation
+builder lives in its owning `resources/prepare.cpp`, not a namespace-injected
+header fragment.
 
 ## Verification
+
+Native private-header and host/shader layout ownership is specified by
+[Native ABI Boundaries](abi.md). Vulkan Kernel headers own their namespaces
+and SDK guards; operation preparation and numeric table leaves include only
+their direct dependencies rather than relying on namespace injection.
 
 ```bash
 tools/check/run

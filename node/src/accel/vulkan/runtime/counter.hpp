@@ -1,7 +1,7 @@
 #pragma once
 
+#include "../adapter/state.hpp"
 #include <rund/counter.hpp>
-#include "../adapter/api.hpp"
 
 #include <cstdint>
 
@@ -9,9 +9,12 @@ namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
+inline void RecordVulkanCommandSubmit(VulkanAdapter &adapter) {
+  ::rund::detail::counter::Accumulate(adapter.command_submit_count, 1u);
+}
+
 inline void RecordVulkanCommandSubmitWaitNs(VulkanAdapter &adapter,
                                             const std::uint64_t elapsed_ns) {
-  ::rund::detail::counter::Accumulate(adapter.command_submit_count, 1u);
   ::rund::detail::counter::Accumulate(adapter.command_submit_wait_ns,
                                       elapsed_ns);
 }

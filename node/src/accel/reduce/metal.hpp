@@ -14,10 +14,6 @@ namespace rund::node::accel::detail {
 struct MetalAdapter;
 struct MetalKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck ExecuteMetalReduce(
-    const rund::AccelDevice &pick, const rund::kernel::ReduceDesc &desc,
-    const rund::kernel::ReducePlan &plan, rund::kernel::ComputeDomain domain,
-    const ReduceBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalReduce(
     const rund::AccelDevice &pick, const rund::kernel::ReduceDesc &desc,
     const rund::kernel::ReducePlan &plan, rund::kernel::ComputeDomain domain,

@@ -32,10 +32,11 @@ Implementation authority:
 Verification authority:
 
 - `/node/tests/contract/accel/kernel/scatter.cpp`
-- `/node/tests/contract/accel/kernel/scatter/match/`
+- `/node/tests/contract/accel/kernel/scatter/match/` including typed Scatter Reduce cohort/reuse checks
 - `/node/tests/contract/accel/kernel/scatter/reject/`
 - `/node/tests/contract/accel/kernel/scatter/local.hpp`
 - `/node/tests/contract/accel/kernel/primitive/local.hpp`
+- `/node/tests/contract/compute/pipeline/view/scatter.hpp` for exact conflict telemetry and repeated public Pipeline output
 
 ## Contract
 
@@ -99,3 +100,53 @@ cache identity, `prepare` owns resource lifetime and binding, `encode` owns the
 ordered control-initialize-fold submission, and `finish` owns status,
 telemetry, and dispatch accounting. The backend-local `model` is the sole
 prepared-resource layout authority.
+
+## Metal Scatter Reduce aggregation
+
+`metal/scatter/reduce/source.cpp` owns control, initialization and ordered
+fold emission. `source/parallel.hpp` owns the associative 32-bit fold body.
+Both are consumed by the same exact source materialization/byte-count emitter;
+the parallel executable no longer emits the unused ordered arithmetic helper.
+The Kernel parallel-fold predicate remains the only reassociation authority.
+
+Preflight preserves the 256-lane stride and count-overflow precedence. Each
+SIMD cohort reduces its earliest invalid ordinal; one elected active lane
+merges a non-identity minimum into a 4-byte threadgroup atomic word. Two
+barriers bracket that merge. This replaces a declared 1024-byte array and
+nine barriers without changing the first-error result. Input inspection still
+uses one workgroup; there is no cross-workgroup synchronization or new pass.
+
+On the parallel fold, active-lane prefix/sum produces rank and cohort size;
+broadcast/vote proves whether all active targets are equal. Uniform cohorts
+reduce their values using modular U32 sum or correctly signed/unsigned Min/Max,
+then their elected lane issues one contributor-count atomic and one value
+atomic. Nonuniform cohorts retain per-source count/value atomics. No fixed
+hardware SIMD width is assumed; tail lanes return before cohort operations.
+
+An atomic contribution of size `c` with previous target count `p` records
+
+```
+conflicts = c - (p == 0 ? 1 : 0).
+```
+
+Exactly one contribution sees zero at each occupied target. Summing therefore
+produces `logical_count - occupied_target_count`, independently of physical
+arrival. The admitted U32 logical-count bound prevents contributor and conflict
+count wrap. Local conflicts are summed once per live SIMD cohort before one
+nonzero update to the common status counter, removing per-source global
+statistics contention. The ordered 64-bit/Fixed-saturating fold instead counts
+conflicts in its sole writer's register and publishes once after the unchanged
+source-order arithmetic loop.
+
+Control-initialize-fold ordering, three dispatches, parameter ABI, retained
+`4*O + 16 + 24` device scratch, error reasons and untouched output on failed
+preflight remain unchanged. Source-array and atomic counts are algorithm
+bounds, not physical occupancy measurements. Host-specific latency observations
+are owned by [the performance record](../../../../docs/reference/performance/metal-scatter-reduce.md).
+
+Vulkan's ordered Scatter Reduce fold also accumulates conflicts in its sole
+writer's private scalar and writes status once after the ordinal loop. This
+avoids a repeated status-buffer read/modify/write and preserves the same
+`N - occupied` statistic. Public Pipeline tests cover both widths on each
+backend; they also assert the first failing ordinal and zero conflicts after
+preflight rejection. The native Vulkan parallel fold is unchanged.

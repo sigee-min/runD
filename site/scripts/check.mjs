@@ -2,11 +2,15 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { pages as requiredPages } from "./pages.mjs";
+import { publicRelease } from "./public-release.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const failures = [];
 const sourceByPage = new Map();
 const repositoryRoot = resolve(root, "..");
+const publicReleaseLabel = `${publicRelease.version} ${publicRelease.channel}`;
+const publicCmakeRequirement =
+  `find_package(runD ${publicRelease.version} EXACT CONFIG REQUIRED)`;
 const packageVersionAuthority = await readFile(
   resolve(repositoryRoot, "cmake/root/package.cmake"),
   "utf8",
@@ -16,6 +20,61 @@ const packageVersion = packageVersionAuthority.match(
 )?.[1];
 if (!packageVersion) {
   failures.push("cmake/root/package.cmake: package version authority is invalid");
+}
+const readJson = async (path, label) => {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    failures.push(`${label}: invalid JSON`);
+    return {};
+  }
+};
+const sitePackage = await readJson(resolve(root, "package.json"), "site/package.json");
+const siteLock = await readJson(
+  resolve(root, "package-lock.json"),
+  "site/package-lock.json",
+);
+if (sitePackage.version !== publicRelease.version) {
+  failures.push(
+    `site/package.json: version ${sitePackage.version ?? "<missing>"} differs from public release ${publicRelease.version}`,
+  );
+}
+if (siteLock.version !== publicRelease.version) {
+  failures.push(
+    `site/package-lock.json: root version ${siteLock.version ?? "<missing>"} differs from public release ${publicRelease.version}`,
+  );
+}
+if (siteLock.packages?.[""]?.version !== publicRelease.version) {
+  failures.push(
+    `site/package-lock.json: package root version ${siteLock.packages?.[""]?.version ?? "<missing>"} differs from public release ${publicRelease.version}`,
+  );
+}
+if (siteLock.packages?.[""]?.name !== sitePackage.name) {
+  failures.push("site/package-lock.json: package root name differs from site/package.json");
+}
+const rootReadme = await readFile(resolve(repositoryRoot, "README.md"), "utf8");
+const quickStartStart = rootReadme.indexOf("## Quick start");
+const quickStartEnd = rootReadme.indexOf("## Determinism boundary", quickStartStart);
+const rootQuickStart =
+  quickStartStart >= 0
+    ? rootReadme.slice(quickStartStart, quickStartEnd >= 0 ? quickStartEnd : undefined)
+    : "";
+const rootQuickStartRequirements = [
+  ["release URL", publicRelease.releaseUrl],
+  ["CMake requirement", publicCmakeRequirement],
+  ["artifact archive", publicRelease.artifacts.archive],
+  ["artifact checksum", publicRelease.artifacts.checksum],
+  ["artifact verifier", publicRelease.artifacts.verifier],
+  ["artifact prefix", publicRelease.artifacts.prefix],
+];
+if (rootQuickStart === "") {
+  failures.push("README.md: public Quick start section is missing");
+} else {
+  for (const [label, expected] of rootQuickStartRequirements) {
+    if (!rootQuickStart.includes(expected)) {
+      failures.push(`README.md: Quick start is missing public ${label}: ${expected}`);
+    }
+  }
 }
 const stylePath = resolve(root, "public/assets/styles.css");
 const styles = await readFile(stylePath, "utf8");
@@ -77,7 +136,7 @@ if (!syntax) {
     {
       language: "cmake",
       label: "CMakeLists.txt",
-      source: `find_package(runD ${packageVersion} EXACT CONFIG REQUIRED)\ntarget_link_libraries(app PRIVATE runD::sdk)`,
+      source: `${publicCmakeRequirement}\ntarget_link_libraries(app PRIVATE runD::sdk)`,
       types: ["function", "number", "keyword", "namespace"],
     },
     {
@@ -149,7 +208,7 @@ for (const page of requiredPages) {
   if (!header) {
     failures.push(`${page}: missing global header`);
   } else {
-    if (!header.includes(`<span class="brand-version">${packageVersion} Alpha</span>`)) {
+    if (!header.includes(`<span class="brand-version">${publicReleaseLabel}</span>`)) {
       failures.push(`${page}: global header has a divergent brand version`);
     }
     if (!header.includes('class="brand" href="/runD/" aria-label="runD home"')) {
@@ -379,14 +438,27 @@ for (const misleadingPerformanceClaim of [
 }
 
 const apiPage = sourceByPage.get("docs/api/index.html");
-const headerRegistry = await readFile(
-  resolve(repositoryRoot, "package/docs/surface/headers.tsv"),
-  "utf8",
+if (!apiPage.includes(`${publicRelease.directHeaders.length} direct entries`)) {
+  failures.push(
+    `docs/api/index.html: direct-entry count differs from published ${publicRelease.directHeaders.length}`,
+  );
+}
+const directHeaderSection =
+  apiPage.match(/<section id="headers">[\s\S]*?<section id="visibility">/)?.[0] ?? "";
+const listedDirectHeaders = new Set(
+  [...directHeaderSection.matchAll(/<td><code>&lt;([^&]+)&gt;<\/code><\/td><td>/g)].map(
+    (match) => match[1],
+  ),
 );
-for (const row of headerRegistry.trim().split("\n").slice(1)) {
-  const [kind, path] = row.split("\t");
-  if (kind === "direct" && !apiPage.includes(`&lt;${path}&gt;`)) {
-    failures.push(`docs/api/index.html: missing direct header ${path}`);
+const publishedDirectHeaders = new Set(publicRelease.directHeaders);
+for (const path of listedDirectHeaders) {
+  if (!publishedDirectHeaders.has(path)) {
+    failures.push(`docs/api/index.html: unpublished direct header listed: ${path}`);
+  }
+}
+for (const path of publicRelease.directHeaders) {
+  if (!listedDirectHeaders.has(path)) {
+    failures.push(`docs/api/index.html: missing published direct header ${path}`);
   }
 }
 for (const nonexistentHeader of ["rund/fixed.hpp", "rund/telemetry.hpp"]) {
@@ -443,6 +515,41 @@ for (const [page, html] of sourceByPage) {
         failures.push(`${page}: missing fragment ${href}`);
       }
     }
+  }
+}
+
+for (const [page, html] of sourceByPage) {
+  for (const match of html.matchAll(
+    /find_package\(runD\s+([0-9]+\.[0-9]+\.[0-9]+)/g,
+  )) {
+    if (match[1] !== publicRelease.version) {
+      failures.push(
+        `${page}: public CMake version ${match[1]} differs from ${publicRelease.version}`,
+      );
+    }
+  }
+  for (const match of html.matchAll(
+    /rund-sdk-([0-9]+\.[0-9]+\.[0-9]+)-[A-Za-z0-9-]+/g,
+  )) {
+    if (match[1] !== publicRelease.version) {
+      failures.push(
+        `${page}: public artifact version ${match[1]} differs from ${publicRelease.version}`,
+      );
+    }
+  }
+}
+
+const publicQuickStart = sourceByPage.get("docs/start/index.html") ?? "";
+for (const [label, expected] of [
+  ["release URL", publicRelease.releaseUrl],
+  ["CMake requirement", publicCmakeRequirement],
+  ["artifact archive", publicRelease.artifacts.archive],
+  ["artifact checksum", publicRelease.artifacts.checksum],
+  ["artifact verifier", publicRelease.artifacts.verifier],
+  ["artifact prefix", publicRelease.artifacts.prefix],
+]) {
+  if (!publicQuickStart.includes(expected)) {
+    failures.push(`docs/start/index.html: missing public ${label}: ${expected}`);
   }
 }
 

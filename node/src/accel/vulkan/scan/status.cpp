@@ -1,5 +1,5 @@
 #include "../../scan/vulkan.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../status.hpp"
 
 namespace rund::node::accel::detail {

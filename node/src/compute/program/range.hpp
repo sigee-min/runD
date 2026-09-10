@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../accel/range_aggregate/model.hpp"
+#include "../../accel/range_aggregate/model/plan.hpp"
 
 #include <rund/compute/program/range.hpp>
 
@@ -19,6 +19,8 @@ public_range_kind(const node::accel::detail::RangePath value) noexcept {
     return RangeKind::Shared;
   case RangePath::PrefixDifference:
     return RangeKind::Prefix;
+  case RangePath::TiledDifference:
+    return RangeKind::Tiled;
   case RangePath::BlockPrefixSuffix:
     return RangeKind::Block;
   }

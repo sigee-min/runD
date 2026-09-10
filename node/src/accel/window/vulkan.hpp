@@ -5,7 +5,7 @@
 
 #include "../kernel/bindings/range.hpp"
 #include "../kernel/preparation.hpp"
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/plan.hpp"
 #include <kernel/program/compute/window/model.hpp>
 
 #include <memory>
@@ -16,11 +16,6 @@ struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 struct BoundControl;
 
-[[nodiscard]] rund::AccelCheck
-ExecuteVulkanWindow(const rund::AccelDevice &pick,
-                    const rund::kernel::WindowDesc &desc,
-                    const rund::kernel::WindowPlan &plan,
-                    const RangeBinds &bindings, const RangePlan &range);
 [[nodiscard]] rund::AccelCheck PrepareVulkanWindow(
     const rund::AccelDevice &pick, const rund::kernel::WindowDesc &desc,
     const rund::kernel::WindowPlan &plan, const RangeBinds &bindings,

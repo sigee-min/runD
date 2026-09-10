@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../kernel/backend/source_recipe.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
 #include "algebra.hpp"
 
 namespace rund::node::accel::detail {
@@ -100,7 +100,21 @@ template <typename Sink>
   )glsl") ||
       !sink.append(scalar) ||
       !sink.append(R"glsl( value = scratch0_values[uint(right)];
-  if (left != uint64_t(0)) { value -= scratch0_values[uint(left - uint64_t(1))]; }
+  const uint64_t right_group = right / uint64_t()glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl();
+  if (right_group != uint64_t(0)) {
+    value += scratch1_values[uint(right_group - uint64_t(1))];
+  }
+  if (left != uint64_t(0)) {
+    value -= scratch0_values[uint(left - uint64_t(1))];
+    const uint64_t left_group = (left - uint64_t(1)) / uint64_t()glsl") ||
+      !backend_source_recipe::append_decimal(sink, shape.width()) ||
+      !sink.append(R"glsl();
+    if (left_group != uint64_t(0)) {
+      value -= scratch1_values[uint(left_group - uint64_t(1))];
+    }
+  }
   )glsl")) {
     return false;
   }

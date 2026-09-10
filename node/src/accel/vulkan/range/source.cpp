@@ -1,7 +1,7 @@
 #include "../../domain.hpp"
 #include "local.hpp"
 
-#include "../../kernel/backend/source_recipe.hpp"
+#include "../../kernel/backend/source/storage.hpp"
 #include "../../source/hash.hpp"
 #include "source/algebra.hpp"
 #include "source/block.hpp"
@@ -9,6 +9,7 @@
 #include "source/direct.hpp"
 #include "source/prefix.hpp"
 #include "source/shared.hpp"
+#include "source/tiled.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -108,6 +109,10 @@ layout(set = 0, binding = 4, std430) buffer Scratch1 {
   }
   if (execution.saturating_sum() && !EmitVulkanRangeSaturatingAlgebra(sink)) {
     return false;
+  }
+  if (candidate == RangePath::TiledDifference) {
+    return op == RangeOp::Sum &&
+           EmitVulkanTiledDifferenceBody(sink, wide, shape);
   }
   if (candidate == RangePath::PrefixDifference) {
     return op == RangeOp::Sum &&

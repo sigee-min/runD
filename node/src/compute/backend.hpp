@@ -1,8 +1,13 @@
 #pragma once
 
+#include "../../include/rund/compute/abi/state.hpp"
+
 #include "../accel/backend/result.hpp"
-#include "../accel/kernel/prepared.hpp"
-#include "device/state.hpp"
+#include "../accel/kernel/callback.hpp"
+#include "../accel/kernel/prepared/callback.hpp"
+#include "backend/residency.hpp"
+#include "backend/transfer/model.hpp"
+#include "backend/virtual.hpp"
 
 #include <accel/graph/value.hpp>
 #include <accel/kernel/run/binding.hpp>
@@ -13,72 +18,39 @@
 #include <memory>
 #include <span>
 
+namespace rund {
+struct AccelKernel;
+}
+
+namespace rund::node::accel::detail {
+struct KernelScratchPlan;
+struct PreparedKernelPipelineReservation;
+struct PreparedKernelProgramRoute;
+struct PreparedKernelPipelineShape;
+struct PreparedKernelRun;
+struct PreparedKernelPipeline;
+struct BackendRecurrence;
+struct BackendPublish;
+struct PreparedPipelineMemory;
+struct PreparedKernelTemplateRegistry;
+} // namespace rund::node::accel::detail
+
 namespace rund::compute::detail {
 
 struct AccelProgram;
 struct JobState;
 struct PipelineState;
-struct ProgramState;
+
 using JobDone = void (*)(void *, Result<RunState>) noexcept;
 using PipelineDone = node::accel::detail::PreparedPipelineCompletion;
 
-struct DownloadResult final {
-  Status status{Status::success()};
-  std::uint64_t payload_hash{};
-  std::uint64_t staging_bytes{};
-  std::uint64_t staging_peak_bytes{};
-  std::uint64_t staging_reused_bytes{};
-  std::uint64_t staging_budget{};
-  std::uint64_t buffer_allocations{};
-  std::uint64_t buffer_reuses{};
-  std::uint64_t command_submits{};
-  std::uint64_t readback_ns{};
-  bool staging_reused{};
-  bool payload_hash_valid{};
-};
-
-struct UploadResult final {
-  Status status{Status::success()};
-  std::uint64_t staging_bytes{};
-  std::uint64_t staging_peak_bytes{};
-  std::uint64_t staging_reused_bytes{};
-  std::uint64_t staging_budget{};
-  std::uint64_t buffer_allocations{};
-  std::uint64_t buffer_reuses{};
-  std::uint64_t command_submits{};
-};
-
-struct CopyResult final {
-  Status status{Status::success()};
-  std::uint64_t command_submits{};
-};
-
-struct UploadRequest final {
-  BufferState *buffer = nullptr;
-  const void *data = nullptr;
-  std::size_t bytes = 0u;
-  std::size_t offset = 0u;
-};
-
-struct DownloadRequest final {
-  const BufferState *buffer = nullptr;
-  void *data = nullptr;
-  std::size_t bytes = 0u;
-  std::size_t offset = 0u;
-  std::uint64_t *payload_hash = nullptr;
-};
-
-struct CopyRequest final {
-  const BufferState *source = nullptr;
-  BufferState *target = nullptr;
-  std::size_t bytes = 0u;
-  std::size_t source_offset = 0u;
-  std::size_t target_offset = 0u;
-};
-
 struct DeviceOps final {
   Status (*allocate)(DeviceState &, BufferState &, std::size_t, std::size_t,
-                     bool, std::uint64_t exact_storage_bytes) = nullptr;
+                     bool, node::accel::detail::BackendBufferMemory,
+                     std::uint64_t exact_storage_bytes) = nullptr;
+  // Re-seals a typed capability over the same physical allocation; no native
+  // allocation or transfer is permitted at this boundary.
+  Status (*project_buffer_view)(const BufferState &, BufferState &) = nullptr;
   std::uint64_t (*buffer_storage_bytes)(const DeviceState &,
                                         std::uint64_t) noexcept = nullptr;
   std::uint64_t (*pipeline_transfer_storage_bytes)(
@@ -90,12 +62,25 @@ struct DeviceOps final {
                                node::accel::detail::TransferAuthority) =
       nullptr;
   DownloadResult (*download)(DeviceState &, const BufferState &, void *,
-                             std::size_t) = nullptr;
+                             std::size_t, std::size_t) = nullptr;
   DownloadResult (*download_batch)(
       DeviceState &, std::span<const DownloadRequest>,
       node::accel::detail::TransferAuthority) = nullptr;
+  // Maximum ordered prefix batch accepted by the backend-neutral resident
+  // transfer owner. Zero requires callers to use the scalar operation.
+  std::size_t download_prefix_capacity = 0u;
   CopyResult (*copy_batch)(DeviceState &, std::span<const CopyRequest>,
                            node::accel::detail::TransferAuthority) = nullptr;
+  // Backend-owned immutable capability. A nonempty result proves a stable,
+  // coherent, read-only Host view for the complete Buffer lifetime. Compute
+  // may read it only after the exact native execution terminal.
+  BufferReadView (*host_read)(const DeviceState &,
+                              const BufferState &) noexcept = nullptr;
+  // Authenticates a stable coherent writable view of the complete Buffer.
+  // This capability never substitutes for an Authority lease over the exact
+  // Input range that a caller intends to mutate.
+  BufferWriteView (*host_write)(const DeviceState &,
+                                const BufferState &) noexcept = nullptr;
   Status (*compile)(DeviceState &, AccelProgram &,
                     const rund::AccelGraph &) = nullptr;
   RangeSnapshot (*program_ranges)(const AccelProgram &,
@@ -138,8 +123,6 @@ struct DeviceOps final {
   rund::AccelCheck (*seed_pipeline_generation)(
       const node::accel::detail::PreparedKernelPipeline &,
       std::uint32_t) noexcept = nullptr;
-  Status (*prepare_pipeline_transfer)(PipelineState &) noexcept = nullptr;
-  Status (*prepare_pipeline_residency)(PipelineState &) noexcept = nullptr;
   UploadResult (*upload_pipeline_transfer)(PipelineState &, const void *,
                                            std::size_t) noexcept = nullptr;
   DownloadResult (*download_pipeline_transfer)(
@@ -148,7 +131,8 @@ struct DeviceOps final {
   MemoryCounter (*job_staging)(const JobState &) noexcept = nullptr;
   node::accel::detail::PreparedPipelineMemory (*pipeline_memory)(
       const PipelineState &) noexcept = nullptr;
-  Status (*virtual_pipeline_capability)(const DeviceState &) noexcept = nullptr;
+  DeviceResidencyOps residency{};
+  VirtualDeviceOps virtual_execution{};
 };
 
 [[nodiscard]] const DeviceOps &AccelDeviceOps() noexcept;

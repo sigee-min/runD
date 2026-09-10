@@ -1,5 +1,7 @@
 #pragma once
 
+#include <rund/compute/abi/primitive.hpp>
+
 #include "../device/state.hpp"
 #include "../expression/state.hpp"
 #include "../map/step.hpp"

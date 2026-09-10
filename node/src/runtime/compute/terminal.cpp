@@ -4,8 +4,21 @@
 
 namespace rund::node::compute_detail {
 
+bool ClaimVirtualStart(std::atomic<TerminalPhase> &phase) noexcept {
+  TerminalPhase expected = TerminalPhase::Open;
+  return phase.compare_exchange_strong(expected, TerminalPhase::Running,
+                                       std::memory_order_acq_rel,
+                                       std::memory_order_acquire);
+}
+
 FinishClaim ClaimFinish(std::atomic<TerminalPhase> &phase) noexcept {
   TerminalPhase expected = TerminalPhase::Open;
+  if (phase.compare_exchange_strong(expected, TerminalPhase::Finishing,
+                                    std::memory_order_acq_rel,
+                                    std::memory_order_acquire)) {
+    return FinishClaim::Finish;
+  }
+  expected = TerminalPhase::Running;
   if (phase.compare_exchange_strong(expected, TerminalPhase::Finishing,
                                     std::memory_order_acq_rel,
                                     std::memory_order_acquire)) {
@@ -25,7 +38,8 @@ CancelClaim RequestCancel(std::atomic<TerminalPhase> &phase) noexcept {
   if (expected == TerminalPhase::Cancelled) {
     return CancelClaim::Cancelled;
   }
-  if (expected == TerminalPhase::Finishing ||
+  if (expected == TerminalPhase::Running ||
+      expected == TerminalPhase::Finishing ||
       expected == TerminalPhase::Complete) {
     return CancelClaim::Closed;
   }

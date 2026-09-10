@@ -13,6 +13,7 @@ enum class RangeKind : std::uint8_t {
   Shared,
   Prefix,
   Block,
+  Tiled,
 };
 
 // One capability-planned Range execution embedded in a compiled Program.

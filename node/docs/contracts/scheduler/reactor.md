@@ -1,5 +1,10 @@
 # Readiness Reactor
 
+Ready-set insertion/removal indices, wait snapshots, churn, and generation
+transitions are exercised by `ready/sets/index.cpp`. Cross-session,
+cross-scope, tombstone, and deterministic-trace capability non-aliasing are a
+separate compiled contract in `ready/sets/capability.cpp`.
+
 This page owns the scheduler-owned fd readiness reactor, timed reactor waits,
 backend normalization, readiness ordering, fd generation ownership, persistent
 ready sets, and network readiness integration. Network byte, connection, and
@@ -16,10 +21,12 @@ protocol semantics remain owned by [Network](../net.md).
 - `runtime/reactor/readiness/handle.hpp`: the only checked conversion owner
   between public integer descriptors and the width-safe reactor handle.
   Implementations include it directly.
-- `runtime/reactor/platform.hpp`: the only scheduler-to-platform backend
-  contract; it owns normalized backend state, registration changes, probe
-  values, capacity preparation, lifecycle, registration, polling, handle
-  identity, and native-error results.
+- `runtime/reactor/platform/{state,result,lifecycle,registration,poll,handle}.hpp`:
+  the focused facets of the single scheduler-to-platform backend contract.
+  They own normalized backend state, operation and batch results, lifecycle,
+  registration changes, polling and immediate probes, and retained
+  native-handle identity respectively. These facets describe one opaque
+  platform owner and do not introduce alternate backend state or dispatch.
 - `runtime/reactor/diagnostics.hpp`: backend-lifecycle and scheduler-policy
   observation counters. Diagnostics never define backend state, readiness, or
   wake order, so changing an observation field cannot invalidate every user of
@@ -45,12 +52,18 @@ protocol semantics remain owned by [Network](../net.md).
 - `runtime/platform/posix/probe.cpp`: shared POSIX immediate-probe mechanics
   over a backend-owned reusable buffer; the scheduler sees only normalized
   requests and results.
-- `reactor/registry.cpp`: the sole scheduler-side wait and descriptor-state
-  authority. A fixed-capacity slot arena stores each full wait once, a compact
-  slot-id order preserves wait-id order, and one fd state owns linked wait
-  membership, aggregate read/write counts, generation identity, and native
-  registration lifetime. There is no separate wait index or registration
-  vector.
+- `reactor/registry.cpp`: registry capacity lifecycle and live-count
+  observation. A fixed-capacity slot arena stores each full wait once, a
+  compact slot-id order preserves wait-id order, and one fd state owns linked
+  wait membership, generation identity, and native registration lifetime.
+  `reactor/registry/search.cpp` owns sorted wait/fd lookup,
+  `registry/lookup.cpp` owns public non-mutating projections and registration
+  change routing, `registry/wait.cpp` owns single-wait insertion/removal, and
+  `registry/batch.cpp` owns atomic ready-batch removal.
+  `reactor/registry/operations.cpp` remains the single compiled owner of slot
+  reset/release/link mutation and aggregate read/write reference counts; its
+  declarations-only local seam adds no parallel registry or index. There is no
+  separate wait index or registration vector.
 
 `ReactorRuntime::registry` is the only full `ReactorWait` authority. Wait ids
 are nonzero, and the compact order is sorted by wait id, so cancellation lookup

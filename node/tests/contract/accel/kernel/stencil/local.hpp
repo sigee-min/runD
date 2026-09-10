@@ -19,7 +19,8 @@ MatchesCapabilitySharedBoundaryU32(const rund::AccelDevice &pick,
 MatchesForcedPrefixDifferenceU32(const rund::AccelDevice &pick);
 [[nodiscard]] bool
 MatchesForcedPrefixDifferenceU64(const rund::AccelDevice &pick);
-[[nodiscard]] bool MatchesDeepPrefixHierarchyU32(const rund::AccelDevice &pick);
+[[nodiscard]] bool MatchesTiledDifference(const rund::AccelDevice &pick);
+[[nodiscard]] bool MatchesDeepPrefixHierarchy(const rund::AccelDevice &pick);
 [[nodiscard]] bool MatchesMinU32(const rund::AccelDevice &pick);
 [[nodiscard]] bool MatchesMinI32(const rund::AccelDevice &pick);
 [[nodiscard]] bool MatchesMaxU64(const rund::AccelDevice &pick);

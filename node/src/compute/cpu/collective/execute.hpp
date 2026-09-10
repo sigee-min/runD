@@ -1,6 +1,7 @@
 #pragma once
 
-#include "../state.hpp"
+#include "../state/collective.hpp"
+#include "../state/run.hpp"
 
 #include <algorithm>
 #include <atomic>

@@ -22,11 +22,16 @@ void SeedInput(const std::span<std::int32_t> values) noexcept {
 }
 
 bool GoldenMatches(const std::span<const std::int32_t> values) noexcept {
-  if (values.size() != LogicalElements) {
+  return values.size() == LogicalElements && GoldenPageMatches(values, 0u);
+}
+
+bool GoldenPageMatches(const std::span<const std::int32_t> values,
+                       const std::size_t offset) noexcept {
+  if (offset > LogicalElements || values.size() > LogicalElements - offset) {
     return false;
   }
   for (std::size_t index = 0u; index < values.size(); ++index) {
-    if (values[index] != ProductValue(SeedValue(index))) {
+    if (values[index] != ProductValue(SeedValue(offset + index))) {
       return false;
     }
   }

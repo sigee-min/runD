@@ -11,6 +11,9 @@ namespace rund::node::accel::detail {
                                            void *command_buffer,
                                            rund::RuntimeStats *stats = nullptr);
 [[nodiscard]] rund::AccelCheck
+WaitTransferCommand(MetalAdapter &adapter, void *command_buffer,
+                    rund::RuntimeStats *stats = nullptr);
+[[nodiscard]] rund::AccelCheck
 QueueCommand(MetalAdapter &adapter, void *command_buffer,
              KernelCompletion completion, void *user,
              bool collect_timestamp = true) noexcept;

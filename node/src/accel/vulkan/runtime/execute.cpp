@@ -1,4 +1,6 @@
 #include "local.hpp"
+#include "execute.hpp"
+#include "../adapter/error.hpp"
 #include <rund/counter.hpp>
 
 #include <kernel/program/compute/lowering/artifact/admission.hpp>

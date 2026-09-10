@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../adapter/api.hpp"
+#include "../adapter/access.hpp"
 
 #include <accel/device.hpp>
 

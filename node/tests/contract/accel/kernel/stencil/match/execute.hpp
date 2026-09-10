@@ -27,8 +27,10 @@ namespace match_detail {
 
 enum class ForcedRangePath : std::uint8_t {
   Direct,
+  SharedHalo,
   PrefixDifference,
   BlockPrefixSuffix,
+  TiledDifference,
 };
 
 [[nodiscard]] inline const char *
@@ -55,6 +57,12 @@ ForcedCapabilities(const rund::node::accel::detail::RangeCaps &base,
   switch (path) {
   case ForcedRangePath::Direct:
     break;
+  case ForcedRangePath::SharedHalo:
+    support |= RangeSupportBit(RangeSupport::SharedHalo);
+    break;
+  case ForcedRangePath::TiledDifference:
+    support |= RangeSupportBit(RangeSupport::TiledDifference);
+    break;
   case ForcedRangePath::PrefixDifference:
     support |= RangeSupportBit(RangeSupport::PrefixDifference);
     break;
@@ -76,6 +84,10 @@ ExpectedCandidate(const ForcedRangePath path) noexcept {
   switch (path) {
   case ForcedRangePath::Direct:
     return RangePath::Direct;
+  case ForcedRangePath::SharedHalo:
+    return RangePath::SharedHalo;
+  case ForcedRangePath::TiledDifference:
+    return RangePath::TiledDifference;
   case ForcedRangePath::PrefixDifference:
     return RangePath::PrefixDifference;
   case ForcedRangePath::BlockPrefixSuffix:

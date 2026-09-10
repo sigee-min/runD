@@ -41,15 +41,17 @@ namespace {
   constexpr RangeShape block_shape =
       Shape(RangeOp::Minimum, 515u, 515u, 4u, rund::kernel::ComputeDomain::I32);
   constexpr RangePlan shared_plan =
-      PlanRange(shared_shape, *shared_capabilities);
+      ContractPlanRange(shared_shape, *shared_capabilities);
   constexpr RangePlan direct_plan =
-      PlanRange(direct_shape, *direct_capabilities);
+      ContractPlanRange(direct_shape, *direct_capabilities);
   constexpr RangePlan prefix_plan =
-      PlanRange(prefix_shape, *prefix_capabilities);
-  constexpr RangePlan block_plan = PlanRange(block_shape, *block_capabilities);
-  constexpr RangePlan cpu_plan = PlanRange(direct_shape, RangeCaps::cpu());
+      ContractPlanRange(prefix_shape, *prefix_capabilities);
+  constexpr RangePlan block_plan =
+      ContractPlanRange(block_shape, *block_capabilities);
+  constexpr RangePlan cpu_plan =
+      ContractPlanRange(direct_shape, RangeCaps::cpu());
   constexpr RangePlan unavailable_plan =
-      PlanRange(direct_shape, RangeCaps::unavailable());
+      ContractPlanRange(direct_shape, RangeCaps::unavailable());
   constexpr RangePlan metal_direct_range = PlanSourceVariant(
       RangeSource::Metal, RangeOp::Sum, rund::kernel::ComputeDomain::U32, 64u,
       0u, RangePath::Direct);

@@ -94,7 +94,7 @@ void CompleteTraceSamples(void *const raw, KernelResult result) noexcept {
   [blit endEncoding];
   if (adapter->fault_trace_resolve_device_lost_once.exchange(
           false, std::memory_order_relaxed)) {
-    adapter->fault_device_lost_once.store(true, std::memory_order_relaxed);
+    static_cast<void>(adapter->device_loss_fault.arm(SubmitKind::Work));
   }
   const rund::AccelCheck queued = QueueCommand(
       *adapter, (__bridge void *)command, CompleteTraceResolve, trace, false);

@@ -47,6 +47,7 @@ rund_node_component(NUMERIC numeric sources/evidence.cmake)
 rund_node_component(STORAGE storage sources/storage.cmake)
 rund_node_component(TELEMETRY telemetry sources/telemetry.cmake)
 rund_node_component(ACCEL_SIMD accel-simd sources/accel/simd.cmake)
+rund_node_component(RANGE_PLAN range-plan sources/accel/range.cmake)
 rund_node_component(ACCEL_CORE accel-core sources/accel/core.cmake)
 rund_node_component(ACCEL_CPU accel-cpu sources/accel/cpu.cmake)
 rund_node_component(ACCEL_CONTEXT accel-context sources/accel/context.cmake)
@@ -90,6 +91,7 @@ set(RUND_NODE_NATIVE_COMPONENTS
 # uses only SIMD for its typed CPU path; native selection and adapters remain
 # above CPU Accel and never enter a CPU-only exact build.
 set(RUND_NODE_SCCS
+  RANGE_PLAN
   NUMERIC
   STORAGE
   TELEMETRY
@@ -102,6 +104,8 @@ set(RUND_NODE_SCCS
   RUNTIME_BASE
   CPU_RUNTIME_PRODUCT
   RUNTIME_PRODUCT)
+set(RUND_NODE_SCC_RANGE_PLAN_COMPONENTS RANGE_PLAN)
+set(RUND_NODE_SCC_RANGE_PLAN_DEPENDS)
 set(RUND_NODE_SCC_NUMERIC_COMPONENTS NUMERIC)
 set(RUND_NODE_SCC_NUMERIC_DEPENDS)
 set(RUND_NODE_SCC_STORAGE_COMPONENTS STORAGE)
@@ -116,7 +120,7 @@ set(RUND_NODE_SCC_CPU_ACCEL_COMPONENTS
   ACCEL_CORE
   ACCEL_CPU
   ACCEL_CONTEXT)
-set(RUND_NODE_SCC_CPU_ACCEL_DEPENDS CPU_SIMD)
+set(RUND_NODE_SCC_CPU_ACCEL_DEPENDS CPU_SIMD RANGE_PLAN)
 set(RUND_NODE_SCC_ACCEL_EXECUTION_COMPONENTS
   ACCEL_PICK
   ACCEL_FAKE
@@ -125,6 +129,7 @@ set(RUND_NODE_SCC_ACCEL_EXECUTION_COMPONENTS
 set(RUND_NODE_SCC_ACCEL_EXECUTION_DEPENDS CPU_ACCEL)
 set(RUND_NODE_SCC_CPU_COMPUTE_COMPONENTS COMPUTE_CPU)
 set(RUND_NODE_SCC_CPU_COMPUTE_DEPENDS
+  RANGE_PLAN
   CPU_SIMD
   STORAGE
   TELEMETRY
@@ -370,6 +375,7 @@ if(NOT "${rund_node_cpu_simd_profile_components}" STREQUAL "ACCEL_SIMD" OR
     "Node CPU SIMD profile must own exactly its five-source ACCEL_SIMD closure")
 endif()
 set(rund_node_expected_cpu_accel_components
+  RANGE_PLAN
   ACCEL_SIMD
   ACCEL_CORE
   ACCEL_CPU
@@ -381,9 +387,10 @@ list(SORT rund_node_sorted_cpu_accel_components)
 if(NOT "${rund_node_sorted_cpu_accel_components}" STREQUAL
        "${rund_node_expected_cpu_accel_components}")
   message(FATAL_ERROR
-    "Node CPU Accel profile must own only SIMD, generic, CPU, and context components")
+    "Node CPU Accel profile must own only Range planning, SIMD, generic, CPU, and context components")
 endif()
 set(rund_node_expected_cpu_compute_components
+  RANGE_PLAN
   ACCEL_SIMD
   COMPUTE_CPU
   STORAGE
@@ -396,7 +403,7 @@ list(SORT rund_node_sorted_cpu_compute_components)
 if(NOT "${rund_node_sorted_cpu_compute_components}" STREQUAL
        "${rund_node_expected_cpu_compute_components}")
   message(FATAL_ERROR
-    "Node CPU Compute profile must own only SIMD, storage, telemetry, CPU Compute, and worker components")
+    "Node CPU Compute profile must own only Range planning, SIMD, storage, telemetry, CPU Compute, and worker components")
 endif()
 foreach(component IN LISTS rund_node_cpu_simd_profile_components)
   list(FIND rund_node_cpu_compute_profile_components "${component}"
@@ -422,6 +429,11 @@ rund_node_components_source_count(rund_node_cpu_simd_profile_source_count
   ${rund_node_cpu_simd_profile_components})
 rund_node_components_source_count(rund_node_cpu_compute_profile_source_count
   ${rund_node_cpu_compute_profile_components})
+list(LENGTH RUND_NODE_COMPONENT_RANGE_PLAN_SOURCES
+  rund_node_range_plan_source_count)
+if(NOT rund_node_range_plan_source_count EQUAL 1)
+  message(FATAL_ERROR "Range planner must retain its single compiled owner")
+endif()
 list(LENGTH RUND_NODE_COMPONENT_COMPUTE_CPU_SOURCES
   rund_node_compute_cpu_source_count)
 list(LENGTH RUND_NODE_COMPONENT_COMPUTE_ACCEL_SOURCES
@@ -435,7 +447,7 @@ list(LENGTH RUND_NODE_COMPONENT_TELEMETRY_SOURCES
 math(EXPR rund_node_expected_compute_profile_source_count
   "${rund_node_accel_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_compute_accel_source_count} + ${rund_node_storage_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
 math(EXPR rund_node_expected_cpu_compute_profile_source_count
-  "${rund_node_cpu_simd_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_storage_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
+  "${rund_node_range_plan_source_count} + ${rund_node_cpu_simd_profile_source_count} + ${rund_node_compute_cpu_source_count} + ${rund_node_storage_source_count} + ${rund_node_telemetry_source_count} + ${rund_node_worker_backend_source_count}")
 if(rund_node_accel_profile_source_count EQUAL 0 OR
    NOT rund_node_compute_profile_source_count EQUAL
        rund_node_expected_compute_profile_source_count OR

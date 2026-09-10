@@ -64,6 +64,19 @@ the retained backend handle and extent against the backend registry. There is
 no context-buffer registry, registration pass, weak-record compaction, global
 buffer mutex, or owner-order scan.
 
+The source-private `ProjectAccelBufferView(context, source, desc)` is the sole
+projection owner for changing a semantic accelerator type over an existing
+allocation. It first authenticates `source` through the normal context and
+resident registry admission, then requires a checked descriptor whose exact
+`scalar_width_bytes * count` equals the source's already admitted `byte_extent`
+and whose usage is compatible with the canonical backend usage. It re-seals the
+new typed capability through `OpenAccelBuffer`; it does not allocate backend
+memory, copy bytes, change the resident owner, or authorize a partial range.
+Type-changing callers supply the new width/count for the complete logical
+extent. Usage-only projections preserve the source width/count, independently
+of the active execution prefix. Width changes are valid only when the complete
+logical byte extent and all canonical owner/handle facts remain unchanged.
+
 Buffer admission fails closed with:
 
 - `accel_context_buffer_invalid` for missing context admission, missing buffer

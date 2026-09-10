@@ -817,6 +817,20 @@ grep -q '^product/warm/metal/rolling/m262144_r1024_n257/warm_p50_us	10.000	us$' 
 grep -q '^product/warm/vulkan/window/n262144_r1024/warm_p95_us	10.000	us$' \
   "$work/compute-observe.tsv"
 
+# A new supported physical range path remains part of exact semantics.
+perl -pe 's/^(product_(?:cold|warm),(?:metal|vulkan),.*),prefix,64,4,0,1024,/$1,tiled,64,1,0,0,/' \
+  "$compute_observation" >"$work/compute-tiled.csv"
+perl "$root/tools/internal/measure/compare" \
+  "$fixture" measure-compute "$work/compute-tiled.csv" observe \
+  >"$work/compute-tiled.out"
+if cmp -s "$work/compute-observe.tsv" "$work/compute-tiled.out"; then
+  echo "Compute physical tiled path lost its exact semantic identity" >&2
+  exit 1
+fi
+sed '/^semantic	/d' "$work/compute-observe.tsv" >"$work/compute-original-timing.tsv"
+sed '/^semantic	/d' "$work/compute-tiled.out" >"$work/compute-tiled-timing.tsv"
+cmp "$work/compute-original-timing.tsv" "$work/compute-tiled-timing.tsv"
+
 sed 's/,10[.]000,10[.]000,1000000[.]000,4,/,10.000,10.000,999999.000,4,/' \
   "$compute_observation" >"$work/compute-derived.csv"
 perl "$root/tools/internal/measure/compare" \
@@ -966,6 +980,8 @@ printf '%s\n' \
 packet_identity_digest=$(log_digest "$packet_identity")
 compiler_path=$(command -v perl)
 compiler_digest=$(log_digest "$compiler_path")
+"$compiler_path" --version >"$work/compiler-version.txt"
+compiler_version_digest=$(log_digest "$work/compiler-version.txt")
 
 retain_packet() {
   route=$1
@@ -975,6 +991,7 @@ retain_packet() {
   packet="$fixture/.cache/evidence/$route/20260101T00000${number}Z"
   mkdir -p "$packet"
   cp "$source_log" "$packet/$log_name"
+  cp "$work/compiler-version.txt" "$packet/compiler-version.txt"
   cp "$manifest_file" "$packet/source-manifest.tsv"
   cp "$packet_identity" "$packet/source-identity.tsv"
   printf 'baseline\t%s\tstatus=failed\n' "$route" \
@@ -1012,6 +1029,7 @@ retain_packet() {
     'generator	fixture' \
     "compiler	$compiler_path" \
     "compiler_sha256	$compiler_digest" \
+    "compiler_version_sha256	$compiler_version_digest" \
     "host	$(uname -a)" \
     'profile	fixture' \
     "artifact	$artifact" \
@@ -1116,6 +1134,62 @@ grep -q '^fixture	measure-scheduler	spawn_complete/warm_median_ns_per_op	upper	9
 grep -q '^fixture	measure-scheduler	spawn_complete/cold_ns_per_op	upper	10	25	ns/op$' \
   "$work/candidate.tsv"
 
+# A reviewed semantic recalibration must never ratchet numeric budgets up.
+ceiling_command() {
+  ceiling_tool=$1
+  ceiling_table=$2
+  perl "$root/tools/internal/measure/$ceiling_tool" --ceiling "$ceiling_table" \
+    "$fixture" fixture \
+    "$scheduler_packet1" "$scheduler_packet2" "$scheduler_packet3" \
+    "$compute_packet1" "$compute_packet2" "$compute_packet3" \
+    "$flow_packet1" "$flow_packet2" "$flow_packet3" \
+    "$graph_packet1" "$graph_packet2" "$graph_packet3" \
+    "$telemetry_packet1" "$telemetry_packet2" "$telemetry_packet3"
+}
+cp "$baseline" "$work/ceiling-original.tsv"
+perl -F'\t' -lane '
+  if ($F[1] eq "measure-compute" &&
+      $F[2] eq "product/cold/cpu/window/n4096_r4/first_result_us") {
+    $F[4] = "5.000"; $F[5] = "7";
+  }
+  print join "\t", @F;
+' "$baseline" >"$work/ceiling.tsv"
+ceiling_command project "$work/ceiling.tsv" >"$work/ceiling-candidate.tsv"
+grep -q '^fixture	measure-compute	product/cold/cpu/window/n4096_r4/first_result_us	upper	10.000	2	us$' \
+  "$work/ceiling-candidate.tsv"
+cp "$work/ceiling-candidate.tsv" "$baseline"
+ceiling_command cut "$work/ceiling.tsv" >"$work/ceiling-cut.log"
+ceiling_sha=$(cmake -E sha256sum "$work/ceiling.tsv" | awk 'NR == 1 { print $1 }')
+grep -q "^baseline-ceiling	sha256	$ceiling_sha$" "$work/ceiling-cut.log"
+if ceiling_command cut "$baseline" >"$work/ceiling-self.out" 2>"$work/ceiling-self.err"; then
+  echo "baseline cut accepted its own table as historical ceiling" >&2
+  exit 1
+fi
+cp "$work/ceiling-original.tsv" "$baseline"
+perl -F'\t' -lane '
+  if ($F[1] eq "measure-compute" &&
+      $F[2] eq "product/cold/cpu/window/n4096_r4/first_result_us") {
+    $F[4] = "9.999999999999999999999"; $F[5] = "0";
+  }
+  print join "\t", @F;
+' "$baseline" >"$work/ceiling-too-low.tsv"
+if ceiling_command project "$work/ceiling-too-low.tsv" >"$work/ceiling-low.out" 2>"$work/ceiling-low.err"; then
+  echo "baseline projection widened a breached historical ceiling" >&2
+  exit 1
+fi
+[ ! -s "$work/ceiling-low.out" ]
+grep -q 'ceiling exceeded:' "$work/ceiling-low.err"
+perl -F'\t' -lane '
+  $F[6] = "ms" if $F[1] eq "measure-compute" &&
+    $F[2] eq "product/cold/cpu/window/n4096_r4/first_result_us";
+  print join "\t", @F;
+' "$baseline" >"$work/ceiling-unit.tsv"
+if ceiling_command project "$work/ceiling-unit.tsv" >"$work/ceiling-unit.out" 2>"$work/ceiling-unit.err"; then
+  echo "baseline projection accepted a changed ceiling unit" >&2
+  exit 1
+fi
+grep -q 'ceiling unit changed:' "$work/ceiling-unit.err"
+
 admit() {
   perl "$root/tools/internal/measure/admit" "$fixture" fixture \
     "$scheduler_packet1" "$scheduler_packet2" "$scheduler_packet3" \
@@ -1141,6 +1215,7 @@ cmp "$work/admission.log" "$work/admission-repeat.log"
 
 admit_packet="$fixture/.cache/evidence/measure-admit/20260101T000001Z"
 mkdir -p "$admit_packet"
+cp "$work/compiler-version.txt" "$admit_packet/compiler-version.txt"
 cp "$work/candidate.tsv" "$admit_packet/candidate.tsv"
 cp "$work/admission.log" "$admit_packet/admission.log"
 cp "$manifest_file" "$admit_packet/source-manifest.tsv"
@@ -1152,6 +1227,10 @@ admit_proof_sha=$(log_digest "$admit_packet/admission.log")
 printf '%s\n' \
   'route	measure-admit' \
   'status	passed' \
+  'generator	fixture' \
+  "compiler	$compiler_path" \
+  "compiler_sha256	$compiler_digest" \
+  "compiler_version_sha256	$compiler_version_digest" \
   "host	$(uname -a)" \
   "source_manifest_sha256	$admit_manifest_sha" \
   "source_identity_sha256	$admit_identity_sha" \
@@ -1344,6 +1423,30 @@ fi
 grep -q 'packet compiler artifact mismatch' "$work/cut-compiler.err"
 cp "$work/cut-artifact.run.tsv" "$scheduler_packet2/run.tsv"
 
+cp "$scheduler_packet2/compiler-version.txt" "$work/cut-compiler-version.txt"
+printf 'tampered\n' >>"$scheduler_packet2/compiler-version.txt"
+if cut >"$work/cut-version.out" 2>"$work/cut-version.err"; then
+  echo "baseline cut accepted tampered compiler version bytes" >&2
+  exit 1
+fi
+grep -q 'packet compiler version mismatch' "$work/cut-version.err"
+cp "$work/cut-compiler-version.txt" "$scheduler_packet2/compiler-version.txt"
+
+# Even individually sealed observations must agree across the triplet.
+printf 'different compiler version\n' >"$scheduler_packet2/compiler-version.txt"
+foreign_version_digest=$(log_digest "$scheduler_packet2/compiler-version.txt")
+awk -F '\t' -v OFS='\t' -v digest="$foreign_version_digest" '
+  $1 == "compiler_version_sha256" { $2 = digest }
+  { print }
+' "$work/cut-artifact.run.tsv" >"$scheduler_packet2/run.tsv"
+if cut >"$work/cut-version-context.out" 2>"$work/cut-version-context.err"; then
+  echo "baseline cut accepted different triplet compiler versions" >&2
+  exit 1
+fi
+grep -q 'calibration source or toolchain identity differs' "$work/cut-version-context.err"
+cp "$work/cut-compiler-version.txt" "$scheduler_packet2/compiler-version.txt"
+cp "$work/cut-artifact.run.tsv" "$scheduler_packet2/run.tsv"
+
 foreign_compiler=/bin/sh
 foreign_compiler_digest=$(log_digest "$foreign_compiler")
 awk -F '\t' -v OFS='\t' -v compiler="$foreign_compiler" \
@@ -1412,12 +1515,12 @@ fi
 record_root="$work/record-root"
 record_build="$work/record-build"
 mkdir -p "$record_root/package/cmake" \
-  "$record_root/tools/internal/measure" \
+  "$record_root/tools/internal/toolchain" \
   "$record_root/tools/internal/source/manifest" "$record_build"
 cp "$root/package/cmake/identity.cmake" \
   "$record_root/package/cmake/identity.cmake"
-cp "$root/tools/internal/measure/compiler" \
-  "$record_root/tools/internal/measure/compiler"
+cp "$root/tools/internal/toolchain/compiler" \
+  "$record_root/tools/internal/toolchain/compiler"
 cp "$root/tools/internal/source/manifest/adopt.cmake" \
   "$record_root/tools/internal/source/manifest/adopt.cmake"
 cp "$manifest_file" "$record_build/source-manifest.tsv"
@@ -1440,7 +1543,7 @@ printf '%s\n' \
   "CMAKE_CXX_COMPILER:FILEPATH=$record_compiler_link" \
   >"$record_build/CMakeCache.txt"
 record_compiler=$(CXX=/does/not/exist perl \
-  "$root/tools/internal/measure/compiler" "$record_build")
+  "$root/tools/internal/toolchain/compiler" "$record_build")
 [ "$record_compiler" = "$record_compiler_link" ]
 cmake -D "ROOT=$record_root" -D "BUILD=$record_build" \
   -D "ROUTE=measure-flow" -D "STATUS=passed" \
@@ -1469,6 +1572,9 @@ grep -q '^profile	fixture$' "$record_run"
 grep -q '^artifact	runD-flow-measure$' "$record_run"
 grep -Eq '^artifact_sha256	[0-9a-f]{64}$' "$record_run"
 grep -Eq '^compiler_sha256	[0-9a-f]{64}$' "$record_run"
+record_version_digest=$(log_digest "$(dirname "$record_run")/compiler-version.txt")
+grep -q "^compiler_version_sha256	$record_version_digest$" "$record_run"
+cmp "$work/compiler-version.txt" "$(dirname "$record_run")/compiler-version.txt"
 
 if cmake -D "ROOT=$record_root" -D "BUILD=$record_build" \
     -D "ROUTE=measure-missing" -D "STATUS=passed" \

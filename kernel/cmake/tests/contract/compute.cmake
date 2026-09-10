@@ -1,7 +1,14 @@
 set(KERNEL_COMPUTE_CORE_TEST_SOURCES
   tests/contract/run/compute.cpp
   tests/contract/program/compute.cpp
-  tests/contract/program/compute/tile.cpp
+  tests/contract/program/compute/tile/support.cpp
+  tests/contract/program/compute/tile/geometry.cpp
+  tests/contract/program/compute/tile/backend.cpp
+  tests/contract/program/compute/tile/lifecycle.cpp
+  tests/contract/program/compute/tile/storage.cpp
+  tests/contract/program/compute/tile/bounded.cpp
+  tests/contract/program/compute/tile/memory.cpp
+  tests/contract/program/compute/tile/dispatcher.cpp
   tests/contract/program/compute/tile/async.cpp
   tests/contract/program/compute/lowering/cpu.cpp
 )
@@ -11,6 +18,8 @@ set(KERNEL_COMPUTE_MODEL_TEST_SOURCES
   tests/contract/program/compute/model.cpp
   tests/contract/program/compute/dsl.cpp
   tests/contract/program/compute/dsl/identity.cpp
+  tests/contract/program/compute/dsl/identity/basic.cpp
+  tests/contract/program/compute/dsl/identity/fixed.cpp
   tests/contract/program/compute/dsl/cse.cpp
   tests/contract/program/compute/dsl/ops.cpp
   tests/contract/program/compute/dsl/ops/hash.cpp
@@ -95,6 +104,9 @@ set(KERNEL_COMPUTE_MODEL_TEST_SOURCES
   tests/contract/program/compute/backend/lowering/artifact.cpp
   tests/contract/program/compute/backend/lowering/runtime.cpp
   tests/contract/program/compute/backend/lowering/emission/reachability.cpp
+  tests/contract/program/compute/backend/lowering/emission/reachability/fixed.cpp
+  tests/contract/program/compute/backend/lowering/emission/reachability/integer.cpp
+  tests/contract/program/compute/backend/lowering/emission/reachability/u128.cpp
   tests/contract/program/compute/lowering/vulkan.cpp
   tests/contract/program/compute/lowering/vulkan/base.cpp
   tests/contract/program/compute/lowering/vulkan/expanded.cpp
@@ -103,6 +115,11 @@ set(KERNEL_COMPUTE_MODEL_TEST_SOURCES
   tests/contract/program/compute/lowering/vulkan/bit.cpp
   tests/contract/program/compute/lowering/vulkan/nonlinear.cpp
   tests/contract/program/compute/metadata.cpp
+  tests/contract/program/compute/metadata/resources.cpp
+  tests/contract/program/compute/metadata/surface.cpp
+  tests/contract/program/compute/metadata/rejection.cpp
+  tests/contract/program/compute/metadata/identity.cpp
+  tests/contract/program/compute/metadata/retention.cpp
   tests/contract/program/compute/numeric/algebra.cpp
   tests/contract/program/compute/numeric/algebra/accuracy.cpp
   tests/contract/program/compute/numeric/algebra/factor.cpp

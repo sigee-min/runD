@@ -372,6 +372,15 @@ therefore creates `N` handler tasks, not `N` additional accept-drain tasks, and
 performs exactly `N` successful native accept attempts plus at most one final
 would-block attempt.
 
+The sequential server contract is physically split along those observations.
+`net/server/core/inline.cpp` owns the two warmed bounded batches and byte/order
+oracle; `inline/outcome.cpp` owns typed stop, coroutine failure, synchronous
+throw, flattened failure, and task failure; `inline/arrival.cpp` owns
+would-block and suspended-handler backlog arrival; and `inline/public_io.cpp`
+owns public connect/send/receive integration. `inline/support.cpp` is the sole
+count/event projection owner, with declarations only in `inline/local.hpp`.
+No leaf retains a second socket, accept order, or server result authority.
+
 Each server call owns one handler in its coordinator coroutine. Sequential
 serving invokes it in order. Parallel serving lends a pointer to that same
 owner to peer tasks and joins every task before destroying the handler, so a

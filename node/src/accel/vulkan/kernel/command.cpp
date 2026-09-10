@@ -1,5 +1,6 @@
 #include <accel/check.hpp>
 
+#include "../command/dispatch.hpp"
 #include "../command/resources.hpp"
 #include "local.hpp"
 #include "ops/table.hpp"

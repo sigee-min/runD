@@ -1,8 +1,11 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/resource.hpp>
+#include <rund/compute/fixed.hpp>
+#include <rund/compute/status.hpp>
 #include <rund/compute/compile.hpp>
-#include <rund/compute/device/pipeline_memory.hpp>
+#include <rund/compute/device/pipeline/memory.hpp>
 #include <rund/compute/target.hpp>
 #include <span>
 namespace rund::compute::detail {

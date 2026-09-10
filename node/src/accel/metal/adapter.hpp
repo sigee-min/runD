@@ -47,6 +47,12 @@ void RecordMetalDispatch(MetalAdapter &adapter);
 void RecordMetalDispatches(MetalAdapter &adapter, rund::kernel::u64 count);
 void RecordMetalCommandSubmitWaitNs(MetalAdapter &adapter,
                                     std::uint64_t elapsed_ns);
+void RecordMetalCommandSubmit(MetalAdapter &adapter);
+void RecordMetalCommandSubmitWaitOnlyNs(MetalAdapter &adapter,
+                                        std::uint64_t elapsed_ns);
+[[nodiscard]] std::uint64_t
+BeginMetalResidencyCommand(MetalAdapter &adapter) noexcept;
+[[nodiscard]] bool EndMetalResidencyCommand(MetalAdapter &adapter) noexcept;
 [[nodiscard]] std::uint64_t
 RecordMetalComputeKernelSeconds(MetalAdapter &adapter, double start_seconds,
                                 double end_seconds);

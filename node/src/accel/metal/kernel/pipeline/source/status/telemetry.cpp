@@ -1,27 +1,14 @@
 #include "../../source.hpp"
 
+#include "../../abi/source/begin.def"
+
 namespace rund::node::accel::detail {
 
-std::string_view MetalPipelineTelemetrySourceText() noexcept {
-  return R"rundmetal(struct TelemetryParams {
-  uint kind;
-  uint primary_word_count;
-  uint count_source;
-  uint predicate_source;
-  uint has_count;
-  uint has_predicate;
-  uint iteration;
-  uint count_word_offset;
-  uint predicate_word_offset;
-  uint indirect_dispatch_count;
-  uint declared_step_count;
-  uint declared_step;
-  ulong capacity;
-  ulong predicate_expected;
-  ulong work_item_count;
-};
+namespace {
 
-inline ulong telemetry_scalar(device const uint *words, const uint source) {
+inline constexpr char MetalPipelineTelemetry[] =
+#include "../../abi/schema/telemetry.def"
+    R"rundmetal(inline ulong telemetry_scalar(device const uint *words, const uint source) {
   return source == 2u ? ulong(words[0]) | (ulong(words[1]) << 32u)
                       : ulong(words[0]);
 }
@@ -190,158 +177,9 @@ kernel void rund_pipeline_telemetry_accumulate(
       control->failed_step != params.declared_step) {
     return;
   }
-  if (params.kind == 2u) {
-    if (params.primary_word_count >= 4u) {
-      control->conflict_count =
-          telemetry_add(control->conflict_count, ulong(primary[2]));
-      if (primary[0] != 0u) {
-        control->overflow_ordinal =
-            min(control->overflow_ordinal, ulong(primary[1]));
-      } else {
-        const ulong logical = ulong(primary[1]);
-        control->generated_item_count =
-            telemetry_add(control->generated_item_count, logical);
-        control->generated_capacity =
-            telemetry_add(control->generated_capacity, params.capacity);
-        control->indirect_dispatch_count = telemetry_add(
-            control->indirect_dispatch_count,
-            ulong(params.indirect_dispatch_count));
-        control->indirect_work_item_count = telemetry_add(
-            control->indirect_work_item_count,
-            telemetry_add(logical, params.work_item_count));
-      }
-    }
-    return;
-  }
-  if (params.kind == 4u) {
-    if (primary[0] != 0u) {
-      control->overflow_ordinal =
-          min(control->overflow_ordinal, ulong(primary[1]));
-    } else {
-      const ulong logical = ulong(primary[1]);
-      control->generated_item_count =
-          telemetry_add(control->generated_item_count, logical);
-      control->generated_capacity =
-          telemetry_add(control->generated_capacity, params.capacity);
-      control->indirect_dispatch_count = telemetry_add(
-          control->indirect_dispatch_count,
-          ulong(params.indirect_dispatch_count));
-      control->indirect_work_item_count = telemetry_add(
-          control->indirect_work_item_count, logical);
-    }
-    return;
-  }
-  if (params.kind == 3u) {
-    const ulong logical = telemetry_scalar(count_words +
-                                               params.count_word_offset,
-                                           params.count_source);
-    control->generated_item_count =
-        telemetry_add(control->generated_item_count, logical);
-    control->generated_capacity =
-        telemetry_add(control->generated_capacity, params.capacity);
-    if (logical > params.capacity) {
-      control->overflow_ordinal =
-          min(control->overflow_ordinal, params.capacity);
-      return;
-    }
-    if (params.iteration != 0u) {
-      if (logical == 0ul) {
-        control->skipped_iteration_count =
-            telemetry_add(control->skipped_iteration_count, 1ul);
-        return;
-      }
-      control->iteration_count =
-          telemetry_add(control->iteration_count, 1ul);
-    }
-    control->indirect_dispatch_count = telemetry_add(
-        control->indirect_dispatch_count,
-        ulong(params.indirect_dispatch_count));
-    control->indirect_work_item_count = telemetry_add(
-        control->indirect_work_item_count,
-        telemetry_multiply_u32(logical, params.indirect_dispatch_count));
-    return;
-  }
-  if (params.kind == 5u) {
-    const ulong logical = telemetry_scalar(count_words +
-                                               params.count_word_offset,
-                                           params.count_source);
-    control->generated_item_count =
-        telemetry_add(control->generated_item_count, logical);
-    control->generated_capacity =
-        telemetry_add(control->generated_capacity, params.capacity);
-    if (logical > params.capacity) {
-      control->overflow_ordinal =
-          min(control->overflow_ordinal, params.capacity);
-      return;
-    }
-    if (params.iteration != 0u) {
-      if (logical == 0ul) {
-        control->skipped_iteration_count =
-            telemetry_add(control->skipped_iteration_count, 1ul);
-        return;
-      }
-      control->iteration_count =
-          telemetry_add(control->iteration_count, 1ul);
-    }
-    control->indirect_dispatch_count = telemetry_add(
-        control->indirect_dispatch_count,
-        ulong(params.indirect_dispatch_count));
-    ulong active = 0ul;
-    for (uint index = 0u; index + 4u < params.primary_word_count;
-         index += 8u) {
-      const ulong work = ulong(primary[index + 3u]) |
-                         (ulong(primary[index + 4u]) << 32u);
-      active = telemetry_add(active, work);
-    }
-    control->indirect_work_item_count = telemetry_add(
-        control->indirect_work_item_count, active);
-    return;
-  }
-  if (params.kind != 1u || params.primary_word_count == 0u ||
-      (params.primary_word_count & 3u) != 0u) { return; }
-  const ulong logical = params.has_count != 0u
-                            ? telemetry_scalar(count_words +
-                                                   params.count_word_offset,
-                                               params.count_source)
-                            : params.capacity;
-  if (params.has_predicate != 0u) {
-    const ulong predicate =
-        telemetry_scalar(predicate_words + params.predicate_word_offset,
-                         params.predicate_source);
-    if (predicate != params.predicate_expected) {
-      control->skipped_iteration_count =
-          telemetry_add(control->skipped_iteration_count, 1ul);
-      return;
-    }
-    control->iteration_count = telemetry_add(control->iteration_count, 1ul);
-  }
-  if (params.has_count == 0u) { return; }
-  control->generated_item_count =
-      telemetry_add(control->generated_item_count, logical);
-  control->generated_capacity =
-      telemetry_add(control->generated_capacity, params.capacity);
-  if (logical > params.capacity) {
-    control->overflow_ordinal =
-        min(control->overflow_ordinal, params.capacity);
-    return;
-  }
-  if (params.iteration != 0u && params.has_predicate == 0u) {
-    if (logical == 0ul) {
-      control->skipped_iteration_count =
-          telemetry_add(control->skipped_iteration_count, 1ul);
-      return;
-    }
-    control->iteration_count = telemetry_add(control->iteration_count, 1ul);
-  }
-  control->indirect_dispatch_count = telemetry_add(
-      control->indirect_dispatch_count,
-      ulong(params.indirect_dispatch_count));
-  ulong active = 0ul;
-  for (uint index = 3u; index < params.primary_word_count; index += 4u) {
-    active = telemetry_add(active, ulong(primary[index]));
-  }
-  control->indirect_work_item_count =
-      telemetry_add(control->indirect_work_item_count, active);
+  const StepControl value =
+      telemetry_step_control(primary, count_words, predicate_words, params);
+  merge_pipeline_telemetry(control, value);
 }
 
 kernel void rund_pipeline_telemetry_accumulate_profiled(
@@ -373,6 +211,14 @@ kernel void rund_pipeline_telemetry_accumulate_profiled(
 }
 
 )rundmetal";
+
+} // namespace
+
+std::string_view MetalPipelineTelemetrySourceText() noexcept {
+  return std::string_view{MetalPipelineTelemetry,
+                          sizeof(MetalPipelineTelemetry) - 1u};
 }
 
 } // namespace rund::node::accel::detail
+
+#include "../../abi/source/end.def"

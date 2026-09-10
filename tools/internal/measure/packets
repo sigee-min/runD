@@ -1,15 +1,31 @@
 #!/bin/sh
 set -eu
 
+aggregator=
+aggregator_argument=
+if [ "$#" -ge 4 ] && [ "$1" = "--aggregate" ]; then
+  aggregator=$2
+  aggregator_argument=$3
+  shift 3
+fi
+
 if [ "$#" -eq 0 ]; then
-  echo "usage: tools/internal/measure/packets <command> [argument ...]" >&2
+  echo "usage: tools/internal/measure/packets [--aggregate <command> <argument>] <command> [argument ...]" >&2
   exit 2
 fi
 
-ordinal=1
-while [ "$ordinal" -le 3 ]; do
-  printf 'diagnostic_packet,begin,%s,3\n' "$ordinal"
-  RUND_MEASURE_PACKET=$ordinal "$@"
-  printf 'diagnostic_packet,end,%s,3\n' "$ordinal"
-  ordinal=$((ordinal + 1))
-done
+measure_packets() {
+  ordinal=1
+  while [ "$ordinal" -le 3 ]; do
+    printf 'diagnostic_packet,begin,%s,3\n' "$ordinal"
+    RUND_MEASURE_PACKET=$ordinal "$@"
+    printf 'diagnostic_packet,end,%s,3\n' "$ordinal"
+    ordinal=$((ordinal + 1))
+  done
+}
+
+if [ -n "$aggregator" ]; then
+  measure_packets "$@" | "$aggregator" "$aggregator_argument"
+else
+  measure_packets "$@"
+fi

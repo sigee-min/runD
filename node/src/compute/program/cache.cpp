@@ -1,10 +1,10 @@
 #include "cache.hpp"
+#include "cache/state.hpp"
 
 #include <rund/counter.hpp>
-#include "state.hpp"
 
 #include <rund/compute/device.hpp>
-#include <rund/compute/flow/builder.hpp>
+#include <rund/compute/cache.hpp>
 
 #include <new>
 #include <utility>
@@ -63,7 +63,7 @@ std::shared_ptr<ProgramCacheEntry> evict_ready(ProgramCacheState &cache) {
     return {};
   }
   ProgramCacheEntry *const victim = cache.oldest;
-  const auto slot = victim->slot;
+  const auto slot = cache.entries.find(victim->key);
   auto retired = std::move(slot->second);
   unlink(cache, *victim);
   cache.entries.erase(slot);
@@ -72,31 +72,44 @@ std::shared_ptr<ProgramCacheEntry> evict_ready(ProgramCacheState &cache) {
 }
 
 Result<std::shared_ptr<ProgramState>>
-reuse(ProgramCacheState &cache, std::shared_ptr<ProgramCacheEntry> entry,
-      std::unique_lock<std::mutex> &lock) {
-  if (std::holds_alternative<ProgramCachePending>(entry->outcome)) {
-    ::rund::detail::counter::Accumulate(cache.waits, 1u);
-    entry->ready.wait(lock, [&] {
-      return !std::holds_alternative<ProgramCachePending>(entry->outcome);
-    });
-  } else {
-    ::rund::detail::counter::Accumulate(cache.hits, 1u);
-  }
+reuse_outcome(ProgramCacheState &cache, ProgramCacheEntry &entry) {
   if (const auto *const program =
-          std::get_if<std::shared_ptr<ProgramState>>(&entry->outcome);
+          std::get_if<std::shared_ptr<ProgramState>>(&entry.outcome);
       program != nullptr) {
-    touch(cache, *entry);
+    touch(cache, entry);
     return Result<std::shared_ptr<ProgramState>>::success(*program);
   }
-  const Status &failure = std::get<Status>(entry->outcome);
+  const Status &failure = std::get<Status>(entry.outcome);
   return Result<std::shared_ptr<ProgramState>>::fail(failure.reason());
+}
+
+Result<std::shared_ptr<ProgramState>>
+reuse(ProgramCacheState &cache, const std::shared_ptr<ProgramCacheEntry> &entry,
+      std::unique_lock<std::mutex> &lock) {
+  if (std::holds_alternative<ProgramCachePending>(entry->outcome)) {
+    // Waiting releases the lock: publication, eviction or clear may remove
+    // membership before this waiter resumes. Retain only this escaping path.
+    const auto pending = entry;
+    ::rund::detail::counter::Accumulate(cache.waits, 1u);
+    pending->ready.wait(lock, [&] {
+      return !std::holds_alternative<ProgramCachePending>(pending->outcome);
+    });
+    return reuse_outcome(cache, *pending);
+  }
+  ::rund::detail::counter::Accumulate(cache.hits, 1u);
+  return reuse_outcome(cache, *entry);
 }
 
 } // namespace
 
+bool cache_matches_device(const std::shared_ptr<ProgramCacheState> &cache,
+                          const std::shared_ptr<DeviceState> &device) noexcept {
+  return cache != nullptr && cache->device == device;
+}
+
 Result<std::shared_ptr<ProgramState>>
 cached_program(const std::shared_ptr<ProgramCacheState> &cache,
-               const graph::Fingerprint fingerprint, ProgramBuilder builder) {
+               const graph::Fingerprint &fingerprint, ProgramBuilder builder) {
   if (cache == nullptr || cache->device == nullptr || cache->capacity == 0u) {
     return Result<std::shared_ptr<ProgramState>>::fail(
         Reason::ProgramCacheInvalid);
@@ -111,8 +124,8 @@ cached_program(const std::shared_ptr<ProgramCacheState> &cache,
     }
     try {
       entry = std::make_shared<ProgramCacheEntry>();
-      const auto inserted = cache->entries.emplace(fingerprint, entry);
-      entry->slot = inserted.first;
+      entry->key = fingerprint;
+      cache->entries.emplace(fingerprint, entry);
     } catch (const std::bad_alloc &) {
       return Result<std::shared_ptr<ProgramState>>::fail(
           Reason::ProgramCacheCapacity);
@@ -124,7 +137,7 @@ cached_program(const std::shared_ptr<ProgramCacheState> &cache,
       Result<std::shared_ptr<ProgramState>>::fail(
           Reason::ProgramCompileException);
   try {
-    built = builder();
+    built = builder.invoke(builder.context);
   } catch (const std::bad_alloc &) {
     built =
         Result<std::shared_ptr<ProgramState>>::fail(Reason::ProgramCapacity);
@@ -144,7 +157,7 @@ cached_program(const std::shared_ptr<ProgramCacheState> &cache,
       append(*cache, *entry);
     } else {
       entry->outcome = Status::fail(built.reason());
-      cache->entries.erase(entry->slot);
+      cache->entries.erase(entry->key);
     }
     retired = evict_ready(*cache);
   }
@@ -154,18 +167,23 @@ cached_program(const std::shared_ptr<ProgramCacheState> &cache,
 }
 
 void ProgramCacheState::clear_ready() noexcept {
-  decltype(entries) retired;
+  std::shared_ptr<ProgramCacheEntry> retired;
   {
     std::lock_guard lock{mutex};
-    for (auto entry = entries.begin(); entry != entries.end();) {
-      if (std::holds_alternative<ProgramCachePending>(entry->second->outcome)) {
-        ++entry;
-        continue;
-      }
-      const auto ready = entry++;
-      unlink(*this, *ready->second);
-      retired.insert(retired.end(), entries.extract(ready));
+    while (oldest != nullptr) {
+      const auto slot = entries.find(oldest->key);
+      auto entry = std::move(slot->second);
+      unlink(*this, *entry);
+      entries.erase(slot);
+      entry->retired_next = std::move(retired);
+      retired = std::move(entry);
     }
+  }
+  // Iterative retirement avoids recursive destruction for large caches and
+  // never runs a Program destructor while holding the membership mutex.
+  while (retired != nullptr) {
+    auto entry = std::move(retired);
+    retired = std::move(entry->retired_next);
   }
 }
 
@@ -211,15 +229,6 @@ void ProgramCache::clear() noexcept {
     return;
   }
   state_->clear_ready();
-}
-
-FlowBuilder on(const Device &device, const ProgramCache &cache) noexcept {
-  if (device.state_ == nullptr || cache.state_ == nullptr ||
-      cache.state_->device != device.state_) {
-    return FlowBuilder{device.state_,
-                       std::shared_ptr<detail::ProgramCacheState>{}};
-  }
-  return FlowBuilder{device.state_, cache.state_};
 }
 
 } // namespace rund::compute

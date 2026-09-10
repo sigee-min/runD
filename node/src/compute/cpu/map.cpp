@@ -1,4 +1,5 @@
 #include "map.hpp"
+#include "state/arena.hpp"
 #include "view.hpp"
 
 #include "../device/state.hpp"

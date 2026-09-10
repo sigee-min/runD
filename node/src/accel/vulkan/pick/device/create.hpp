@@ -1,10 +1,11 @@
 #pragma once
 
+#include "../../timeline/owner.hpp"
 #include "enumerate.hpp"
 
 namespace rund::node::accel::detail {
 
-#if defined(RUND_NODE_HAVE_VULKAN_SDK) && \
+#if defined(RUND_NODE_HAVE_VULKAN_SDK) &&                                      \
     defined(RUND_NODE_HAVE_GLSLANG_VALIDATOR)
 struct VulkanCreatedDevice {
   VkDevice device = VK_NULL_HANDLE;
@@ -12,22 +13,29 @@ struct VulkanCreatedDevice {
   std::uint32_t queue_family = 0u;
   std::uint32_t timestamp_valid_bits = 0u;
   std::vector<VkExtensionProperties> extensions{};
+  VulkanTimelineSupport timeline{};
   bool found_queue = false;
   bool device_failed = false;
   bool queue_failed = false;
 };
 
-[[nodiscard]] inline std::vector<const char*> EnabledVulkanDeviceExtensions(
-    const std::vector<VkExtensionProperties>& device_extensions) {
-  std::vector<const char*> enabled{};
-  if (HasVulkanExtension(device_extensions, kVulkanPortabilitySubsetExtension)) {
+[[nodiscard]] inline std::vector<const char *> EnabledVulkanDeviceExtensions(
+    const std::vector<VkExtensionProperties> &device_extensions,
+    const VulkanTimelineSupport timeline) {
+  std::vector<const char *> enabled{};
+  if (HasVulkanExtension(device_extensions,
+                         kVulkanPortabilitySubsetExtension)) {
     enabled.push_back(kVulkanPortabilitySubsetExtension);
+  }
+  if (timeline.route == VulkanTimelineRoute::Extension) {
+    enabled.push_back(kVulkanTimelineExtension);
   }
   return enabled;
 }
 
-[[nodiscard]] inline VulkanCreatedDevice CreateVulkanLogicalDevice(
-    const VkPhysicalDevice physical_device) {
+[[nodiscard]] inline VulkanCreatedDevice
+CreateVulkanLogicalDevice(const VkPhysicalDevice physical_device,
+                          const std::uint32_t instance_api_version) {
   VulkanCreatedDevice out{};
   if (!FindVulkanComputeQueueFamily(physical_device, out.queue_family,
                                     out.timestamp_valid_bits)) {
@@ -42,9 +50,11 @@ struct VulkanCreatedDevice {
     out.device_failed = true;
     return out;
   }
+  out.timeline = QueryVulkanTimelineSupport(
+      physical_device, instance_api_version, out.extensions);
 
-  const std::vector<const char*> enabled_extensions =
-      EnabledVulkanDeviceExtensions(out.extensions);
+  const std::vector<const char *> enabled_extensions =
+      EnabledVulkanDeviceExtensions(out.extensions, out.timeline);
   const float queue_priority = 1.0F;
   VkDeviceQueueCreateInfo queue_info{};
   queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -57,6 +67,18 @@ struct VulkanCreatedDevice {
   device_info.queueCreateInfoCount = 1u;
   device_info.pQueueCreateInfos = &queue_info;
   device_info.pEnabledFeatures = &enabled_features;
+  VkPhysicalDeviceVulkan12Features core_timeline{};
+  VkPhysicalDeviceTimelineSemaphoreFeaturesKHR extension_timeline{};
+  if (out.timeline.route == VulkanTimelineRoute::Core) {
+    core_timeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    core_timeline.timelineSemaphore = VK_TRUE;
+    device_info.pNext = &core_timeline;
+  } else if (out.timeline.route == VulkanTimelineRoute::Extension) {
+    extension_timeline.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
+    extension_timeline.timelineSemaphore = VK_TRUE;
+    device_info.pNext = &extension_timeline;
+  }
   device_info.enabledExtensionCount =
       static_cast<std::uint32_t>(enabled_extensions.size());
   device_info.ppEnabledExtensionNames = enabled_extensions.data();
@@ -77,4 +99,4 @@ struct VulkanCreatedDevice {
 }
 #endif
 
-}  // namespace rund::node::accel::detail
+} // namespace rund::node::accel::detail

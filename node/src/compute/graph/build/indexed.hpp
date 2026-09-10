@@ -2,7 +2,10 @@
 
 #include "../../graph/state.hpp"
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/ids.hpp>
+#include <rund/compute/abi/expression/model.hpp>
+#include <rund/compute/abi/flow/model.hpp>
 
 #include <cstddef>
 #include <cstdint>

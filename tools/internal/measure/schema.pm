@@ -148,8 +148,8 @@ sub order_key {
 }
 
 sub load {
-  my ($root, $complete) = @_;
-  my $baseline = "$root/docs/reference/performance/baseline.tsv";
+  my ($root, $complete, $baseline) = @_;
+  $baseline //= "$root/docs/reference/performance/baseline.tsv";
   -f $baseline or fail("missing $baseline");
   open my $input, '<', $baseline or fail("cannot read $baseline: $!");
   my $header = <$input> // '';
@@ -333,7 +333,7 @@ sub packet {
       or fail("invalid packet directory: $packet");
 
   my @run_order = qw(route status revision dirty generator compiler
-                      compiler_sha256 host profile artifact artifact_sha256
+                      compiler_sha256 compiler_version_sha256 host profile artifact artifact_sha256
                       source_manifest_kind source_manifest_sha256
                       source_identity_sha256 workload:status workload:exit
                       proof:kind proof:route proof:status proof:profile
@@ -347,13 +347,19 @@ sub packet {
   $field->{revision} ne '' or fail("packet revision is empty: $packet");
   $field->{dirty} =~ /\A(?:true|false)\z/
       or fail("packet dirty state is invalid: $packet");
-  $field->{generator} ne '' && $field->{compiler} ne ''
-      or fail("packet toolchain is empty: $packet");
+  $field->{generator} ne '' && $field->{generator} ne 'unknown' &&
+      $field->{compiler} =~ m{\A/} && -x $field->{compiler}
+      or fail("packet toolchain is invalid: $packet");
   $field->{compiler_sha256} =~ /\A[0-9a-f]{64}\z/
       or fail("packet compiler identity is invalid: $packet");
   -f $field->{compiler} &&
       sha256($field->{compiler}) eq $field->{compiler_sha256}
       or fail("packet compiler artifact mismatch: $packet");
+  $field->{compiler_version_sha256} =~ /\A[0-9a-f]{64}\z/ &&
+      -f "$packet/compiler-version.txt" && !-l "$packet/compiler-version.txt" &&
+      -s "$packet/compiler-version.txt" &&
+      sha256("$packet/compiler-version.txt") eq $field->{compiler_version_sha256}
+      or fail("packet compiler version mismatch: $packet");
   $field->{host} eq host_text()
       or fail("packet host mismatch: $packet");
   $field->{profile} eq $profile
@@ -387,7 +393,7 @@ sub packet {
   }
 
   my %allowed = map { $_ => 1 }
-      qw(run.tsv source-manifest.tsv source-identity.tsv baseline.log),
+      qw(run.tsv source-manifest.tsv source-identity.tsv compiler-version.txt baseline.log),
       $spec->{log};
   opendir my $directory, $packet
       or fail("cannot read packet directory $packet: $!");
@@ -398,7 +404,7 @@ sub packet {
     my $path = "$packet/$name";
     -f $path && !-l $path or fail("invalid packet entry $name: $packet");
   }
-  for my $name (qw(run.tsv source-manifest.tsv source-identity.tsv baseline.log),
+  for my $name (qw(run.tsv source-manifest.tsv source-identity.tsv compiler-version.txt baseline.log),
                   $spec->{log}) {
     -f "$packet/$name" && !-l "$packet/$name"
         or fail("missing immutable packet file $name: $packet");
@@ -460,6 +466,7 @@ sub packet {
     revision => $field->{revision}, dirty => $field->{dirty},
     generator => $field->{generator}, compiler => $field->{compiler},
     compiler_sha256 => $field->{compiler_sha256},
+    compiler_version_sha256 => $field->{compiler_version_sha256},
     artifact => $field->{artifact}, artifact_sha256 => $field->{artifact_sha256},
     log_sha256 => $field->{'proof:log:sha256'}, profile => $profile,
   };

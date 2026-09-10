@@ -2,6 +2,7 @@
 
 #include "src/accel/context/internal/execution.hpp"
 #include "src/accel/metal/range/local.hpp"
+#include "src/accel/metal/range/pipeline/name.hpp"
 #include "src/accel/source/hash.hpp"
 #include "src/accel/vulkan/kernel/manifest.hpp"
 #include "src/accel/vulkan/kernel/ops/table.hpp"
@@ -37,10 +38,12 @@ using namespace rund::node::accel::detail;
   const RangeCaps vulkan =
       Gpu(RangeSource::Vulkan, kRangeWidth256Bit, 256u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_prefix);
-  const RangePlan first = PlanRange(Shape(RangeOp::Sum, 515u, 300u), metal);
-  const RangePlan second = PlanRange(Shape(RangeOp::Sum, 515u, 515u), metal);
+  const RangePlan first =
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 300u), metal);
+  const RangePlan second =
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 515u), metal);
   const RangePlan other_backend =
-      PlanRange(Shape(RangeOp::Sum, 515u, 300u), vulkan);
+      ContractPlanRange(Shape(RangeOp::Sum, 515u, 300u), vulkan);
   return first.ok() && second.ok() && other_backend.ok() &&
          first.candidate() == second.candidate() &&
          first.source_identity() == second.source_identity() &&
@@ -55,14 +58,14 @@ using namespace rund::node::accel::detail;
   const RangeCaps caps =
       Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 4u, 32768u,
           std::numeric_limits<u32>::max(), direct_prefix);
-  const RangePlan first = PlanRange(
+  const RangePlan first = ContractPlanRange(
       AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 257u, 65u, 129u, 2u, 64u),
       caps);
   const RangePlan second =
-      PlanRange(AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 513u, 129u,
-                            257u, 2u, 128u),
-                caps);
-  const RangePlan clipped = PlanRange(
+      ContractPlanRange(AffineShape(RangeOp::Sum, RangeBoundary::Clamp, 513u,
+                                    129u, 257u, 2u, 128u),
+                        caps);
+  const RangePlan clipped = ContractPlanRange(
       AffineShape(RangeOp::Sum, RangeBoundary::Clip, 257u, 65u, 129u, 2u, 64u),
       caps);
   return first.ok() && second.ok() && clipped.ok() &&
@@ -71,6 +74,56 @@ using namespace rund::node::accel::detail;
          first.execution_identity() != second.execution_identity() &&
          first.source_identity() != clipped.source_identity();
 }
+
+[[nodiscard]] constexpr bool BlockStrideIdentityContract() {
+  const auto caps = Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                        std::numeric_limits<u32>::max(),
+                        RangeSupportBit(RangeSupport::Direct) |
+                            RangeSupportBit(RangeSupport::BlockPrefixSuffix));
+  const auto dense =
+      ContractPlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 257u,
+                                    65u, 129u, 1u, 64u),
+                        caps);
+  const auto strided =
+      ContractPlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 257u,
+                                    65u, 129u, 2u, 64u),
+                        caps);
+  const auto other_stride =
+      ContractPlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip, 257u,
+                                    65u, 129u, 3u, 64u),
+                        caps);
+  return dense.ok() && strided.ok() && other_stride.ok() &&
+         dense.source_identity() != strided.source_identity() &&
+         strided.source_identity() == other_stride.source_identity() &&
+         strided.execution_identity() != other_stride.execution_identity();
+}
+[[nodiscard]] bool MetalBlockStrideKeyContract() {
+#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
+  const auto caps = Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+                        std::numeric_limits<u32>::max(),
+                        RangeSupportBit(RangeSupport::Direct) |
+                            RangeSupportBit(RangeSupport::BlockPrefixSuffix));
+  std::array<std::string, 3u> keys{}, sources{};
+  for (u64 stride = 1u; stride <= 3u; ++stride) {
+    const auto plan =
+        ContractPlanRange(AffineShape(RangeOp::Minimum, RangeBoundary::Clip,
+                                      257u, 65u, 129u, stride, 64u),
+                          caps);
+    if (!plan.ok() ||
+        plan.candidate().disposition() != RangePath::BlockPrefixSuffix) {
+      return false;
+    }
+    keys[stride - 1u] = RangePipelineKey(RequireExec(plan));
+    sources[stride - 1u] = MetalRangeSource(RequireExec(plan));
+  }
+  return keys[0] != keys[1] && keys[1] == keys[2] && sources[0] != sources[1] &&
+         sources[1] == sources[2];
+#else
+  return true;
+#endif
+}
+
+static_assert(BlockStrideIdentityContract());
 
 static_assert(IdentityContract());
 static_assert(AffineIdentityContract());
@@ -211,6 +264,7 @@ static_assert(AffineIdentityContract());
 
 bool CacheContract() {
   return IdentityContract() && AffineIdentityContract() &&
+         BlockStrideIdentityContract() && MetalBlockStrideKeyContract() &&
          MetalRejectedCompileTelemetryIsExact() &&
          MetalNamedPipelinePublicationIsTransactional() &&
          MetalSourcePublicationIsTransactional() && MetalSourceRetryIsExact();

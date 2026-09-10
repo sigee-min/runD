@@ -6,7 +6,7 @@
 #include "../../sequence/input/pack.hpp"
 #include "../../sequence/input/window.hpp"
 #include "../../sequence/output.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../cached/pipeline.hpp"
 #include "../command.hpp"
 #include "../resident/bindings.hpp"

@@ -1,3 +1,4 @@
+#include "../../device/state.hpp"
 #include "model.hpp"
 
 #include "../../exception.hpp"
@@ -26,15 +27,6 @@ Result<std::shared_ptr<JobState>> bind_job_validated(
   } catch (const std::bad_alloc &) {
     return Result<std::shared_ptr<JobState>>::fail(Reason::BufferCapacity);
   }
-}
-
-Result<std::shared_ptr<JobState>>
-bind_job(const std::shared_ptr<ProgramState> &program,
-         const std::span<const std::shared_ptr<BufferState>> inputs,
-         const std::span<const std::shared_ptr<BufferState>> outputs) {
-  const Status valid = validate_bound_buffers(program, inputs, outputs);
-  return valid ? bind_job_validated(program, inputs, outputs)
-               : Result<std::shared_ptr<JobState>>::fail(valid.reason());
 }
 
 namespace {
@@ -108,13 +100,6 @@ Result<std::shared_ptr<JobState>>
 make_job_raw(const std::shared_ptr<ProgramState> &program,
              const std::span<const HostView> inputs) {
   return make_job_values(program, inputs, JobBindings::Writable);
-}
-
-Result<std::shared_ptr<JobState>>
-bind_job_buffers(const std::shared_ptr<ProgramState> &program,
-                 const std::span<const std::shared_ptr<BufferState>> inputs,
-                 const std::span<const std::shared_ptr<BufferState>> outputs) {
-  return bind_job(program, inputs, outputs);
 }
 
 Result<std::shared_ptr<JobState>>

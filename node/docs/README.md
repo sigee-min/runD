@@ -44,6 +44,7 @@ installed boundary is owned by [SDK Surface](../../package/docs/surface.md).
 | [Telemetry](./contracts/telemetry.md) | Levels, events, findings, and parity. |
 | [Build Graph](./contracts/build/graph.md) | Translation-unit ownership and focused link closure. |
 | [Compute Pipeline](./contracts/compute/pipeline.md) | Frozen dependent Program order, resident Buffer hazards, one prepared execution, claims, poison, readback, evidence, and Session integration. |
+| [Compute Virtual Residency](./contracts/compute/residency/README.md) | Device-global virtual working-set product and its partitioned authority map. |
 
 ## Verification
 

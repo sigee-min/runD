@@ -1,7 +1,8 @@
 #include "model.hpp"
+#include "source/parallel.hpp"
 
+#include "../../../kernel/backend/source/storage.hpp"
 #include "../../../scatter/reduce/model.hpp"
-#include "../../../kernel/backend/source_recipe.hpp"
 
 #include <cstdint>
 #include <string>
@@ -19,13 +20,12 @@ struct ScatterReduceSourceSemantics final {
   bool parallel_fold{};
 };
 
-[[nodiscard]] ScatterReduceSourceSemantics ScatterReduceSemantics(
-    const rund::kernel::ScatterReducePlan &plan) noexcept {
+[[nodiscard]] ScatterReduceSourceSemantics
+ScatterReduceSemantics(const rund::kernel::ScatterReducePlan &plan) noexcept {
   const bool sum = plan.op == rund::kernel::ScatterReduceOp::Sum;
-  const bool signed_value =
-      plan.domain == rund::kernel::ComputeDomain::I32 ||
-      plan.domain == rund::kernel::ComputeDomain::I64 ||
-      plan.domain == rund::kernel::ComputeDomain::Fixed;
+  const bool signed_value = plan.domain == rund::kernel::ComputeDomain::I32 ||
+                            plan.domain == rund::kernel::ComputeDomain::I64 ||
+                            plan.domain == rund::kernel::ComputeDomain::Fixed;
   return ScatterReduceSourceSemantics{
       .wide = plan.element_bytes == 8u,
       .signed_comparison = !sum && signed_value,
@@ -39,8 +39,7 @@ struct ScatterReduceSourceSemantics final {
 } // namespace
 
 std::string MetalScatterReduceKey(const rund::kernel::ScatterReducePlan &plan) {
-  const ScatterReduceSourceSemantics semantics =
-      ScatterReduceSemantics(plan);
+  const ScatterReduceSourceSemantics semantics = ScatterReduceSemantics(plan);
   std::string key = "scatter_reduce.";
   key += std::to_string(static_cast<unsigned>(plan.op));
   key += semantics.wide ? ".64" : ".32";
@@ -55,10 +54,9 @@ std::string MetalScatterReduceKey(const rund::kernel::ScatterReducePlan &plan) {
 
 template <typename Sink>
 [[nodiscard]] bool EmitMetalScatterReduceSource(
-    Sink &source, const rund::kernel::ScatterReducePlan &plan) noexcept(
-    noexcept(source += std::string_view{})) {
-  const ScatterReduceSourceSemantics semantics =
-      ScatterReduceSemantics(plan);
+    Sink &source, const rund::kernel::ScatterReducePlan
+                      &plan) noexcept(noexcept(source += std::string_view{})) {
+  const ScatterReduceSourceSemantics semantics = ScatterReduceSemantics(plan);
   const bool wide = semantics.wide;
   const bool signed_value = semantics.signed_comparison;
   const bool fixed_saturate = semantics.saturating_sum;
@@ -110,16 +108,18 @@ kernel void rund_scatter_reduce_control(
       }
     }
   }
-  threadgroup uint invalids[256];
-  invalids[tid] = local_invalid;
-  threadgroup_barrier(mem_flags::mem_threadgroup);
-  for (uint stride = 128u; stride != 0u; stride >>= 1u) {
-    if (tid < stride) {
-      invalids[tid] = min(invalids[tid], invalids[tid + stride]);
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
+  threadgroup atomic_uint first_invalid;
+  if (tid == 0u) {
+    atomic_store_explicit(&first_invalid, 0xffffffffu, memory_order_relaxed);
   }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  const uint group_invalid = simd_min(local_invalid);
+  if (simd_prefix_exclusive_sum(1u) == 0u && group_invalid != 0xffffffffu) {
+    atomic_fetch_min_explicit(&first_invalid, group_invalid, memory_order_relaxed);
+  }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
   if (tid != 0u) { return; }
+  const uint invalid = atomic_load_explicit(&first_invalid, memory_order_relaxed);
   atomic_store_explicit(&status[0], 0u, memory_order_relaxed);
   atomic_store_explicit(&status[1], uint(min(logical, 0xfffffffful)),
                         memory_order_relaxed);
@@ -137,9 +137,9 @@ kernel void rund_scatter_reduce_control(
                           memory_order_relaxed);
     return;
   }
-  if (invalids[0] != 0xffffffffu) {
+  if (invalid != 0xffffffffu) {
     atomic_store_explicit(&status[0], 2u, memory_order_relaxed);
-    atomic_store_explicit(&status[1], invalids[0], memory_order_relaxed);
+    atomic_store_explicit(&status[1], invalid, memory_order_relaxed);
     return;
   }
   indirect[0] = uint((params.output_count + 255u) / 256u);
@@ -148,62 +148,64 @@ kernel void rund_scatter_reduce_control(
                           : "  indirect[3] = 1u;\n";
   source += "}\n";
 
-  source += "inline ";
-  source += bits;
-  source += " rund_scatter_reduce_fold(";
-  source += bits;
-  source += " lhs, ";
-  source += bits;
-  source += " rhs) {\n";
-  if (plan.op == rund::kernel::ScatterReduceOp::Sum) {
-    if (fixed_saturate) {
-      source += "  const ";
-      source += signed_bits;
-      source += " a = as_type<";
-      source += signed_bits;
-      source += ">(lhs);\n  const ";
-      source += signed_bits;
-      source += " b = as_type<";
-      source += signed_bits;
-      source += ">(rhs);\n  if (b > 0 && a > as_type<";
-      source += signed_bits;
-      source += ">(";
-      source += max_bits;
-      source += ") - b) { return ";
-      source += max_bits;
-      source += "; }\n  if (b < 0 && a < as_type<";
-      source += signed_bits;
-      source += ">(";
-      source += min_bits;
-      source += ") - b) { return ";
-      source += min_bits;
-      source += "; }\n";
-      source += "  return lhs + rhs;\n";
+  if (!parallel_fold) {
+    source += "inline ";
+    source += bits;
+    source += " rund_scatter_reduce_fold(";
+    source += bits;
+    source += " lhs, ";
+    source += bits;
+    source += " rhs) {\n";
+    if (plan.op == rund::kernel::ScatterReduceOp::Sum) {
+      if (fixed_saturate) {
+        source += "  const ";
+        source += signed_bits;
+        source += " a = as_type<";
+        source += signed_bits;
+        source += ">(lhs);\n  const ";
+        source += signed_bits;
+        source += " b = as_type<";
+        source += signed_bits;
+        source += ">(rhs);\n  if (b > 0 && a > as_type<";
+        source += signed_bits;
+        source += ">(";
+        source += max_bits;
+        source += ") - b) { return ";
+        source += max_bits;
+        source += "; }\n  if (b < 0 && a < as_type<";
+        source += signed_bits;
+        source += ">(";
+        source += min_bits;
+        source += ") - b) { return ";
+        source += min_bits;
+        source += "; }\n";
+        source += "  return lhs + rhs;\n";
+      } else {
+        source += "  return lhs + rhs;\n";
+      }
+    } else if (plan.op == rund::kernel::ScatterReduceOp::Min) {
+      if (signed_value) {
+        source += "  return as_type<";
+        source += signed_bits;
+        source += ">(rhs) < as_type<";
+        source += signed_bits;
+        source += ">(lhs) ? rhs : lhs;\n";
+      } else {
+        source += "  return rhs < lhs ? rhs : lhs;\n";
+      }
     } else {
-      source += "  return lhs + rhs;\n";
+      if (signed_value) {
+        source += "  return as_type<";
+        source += signed_bits;
+        source += ">(rhs) > as_type<";
+        source += signed_bits;
+        source += ">(lhs) ? rhs : lhs;\n";
+      } else {
+        source += "  return rhs > lhs ? rhs : lhs;\n";
+      }
     }
-  } else if (plan.op == rund::kernel::ScatterReduceOp::Min) {
-    if (signed_value) {
-      source += "  return as_type<";
-      source += signed_bits;
-      source += ">(rhs) < as_type<";
-      source += signed_bits;
-      source += ">(lhs) ? rhs : lhs;\n";
-    } else {
-      source += "  return rhs < lhs ? rhs : lhs;\n";
-    }
-  } else {
-    if (signed_value) {
-      source += "  return as_type<";
-      source += signed_bits;
-      source += ">(rhs) > as_type<";
-      source += signed_bits;
-      source += ">(lhs) ? rhs : lhs;\n";
-    } else {
-      source += "  return rhs > lhs ? rhs : lhs;\n";
-    }
+    source += "}\n\n";
   }
-  source += "}\n\n";
 
   std::string_view identity = wide ? "0ul" : "0u";
   if (plan.op == rund::kernel::ScatterReduceOp::Min) {
@@ -247,54 +249,19 @@ kernel void rund_scatter_reduce_control(
   if (indirect[3] == 0u) { return; }
 )MSL";
   if (parallel_fold) {
-    source += R"MSL(  const ulong ordinal = ulong(gid);
-  if (ordinal >= logical) { return; }
-  const uint target = indices[ordinal];
-  device atomic_uint* contributor_counts =
-      reinterpret_cast<device atomic_uint*>(counts);
-  const uint prior = atomic_fetch_add_explicit(
-      &contributor_counts[target], 1u, memory_order_relaxed);
-  if (prior != 0u) {
-    atomic_fetch_add_explicit(&status[2], 1u, memory_order_relaxed);
-  }
-  device atomic_uint* atomic_output =
-      reinterpret_cast<device atomic_uint*>(output);
-)MSL";
-    if (plan.op == rund::kernel::ScatterReduceOp::Sum) {
-      source += R"MSL(  atomic_fetch_add_explicit(
-      &atomic_output[target], uint(values[ordinal]), memory_order_relaxed);
-)MSL";
-    } else if (plan.op == rund::kernel::ScatterReduceOp::Min) {
-      source += signed_value ? R"MSL(  device atomic_int* signed_atomic_output =
-      reinterpret_cast<device atomic_int*>(output);
-  atomic_fetch_min_explicit(
-      &signed_atomic_output[target], as_type<int>(uint(values[ordinal])),
-      memory_order_relaxed);
-)MSL"
-                             : R"MSL(  atomic_fetch_min_explicit(
-      &atomic_output[target], uint(values[ordinal]), memory_order_relaxed);
-)MSL";
-    } else {
-      source += signed_value ? R"MSL(  device atomic_int* signed_atomic_output =
-      reinterpret_cast<device atomic_int*>(output);
-  atomic_fetch_max_explicit(
-      &signed_atomic_output[target], as_type<int>(uint(values[ordinal])),
-      memory_order_relaxed);
-)MSL"
-                             : R"MSL(  atomic_fetch_max_explicit(
-      &atomic_output[target], uint(values[ordinal]), memory_order_relaxed);
-)MSL";
+    if (!AppendMetalScatterReduceParallelFold(source, plan.op, signed_value)) {
+      return false;
     }
   } else {
     source += R"MSL(  if (gid != 0u) { return; }
+  uint conflicts = 0u;
   for (ulong ordinal = 0u; ordinal < logical; ++ordinal) {
     const uint target = indices[ordinal];
-    if (counts[target] != 0u) {
-      atomic_fetch_add_explicit(&status[2], 1u, memory_order_relaxed);
-    }
+    conflicts += uint(counts[target] != 0u);
     ++counts[target];
     output[target] = rund_scatter_reduce_fold(output[target], values[ordinal]);
   }
+  atomic_store_explicit(&status[2], conflicts, memory_order_relaxed);
 )MSL";
   }
   source += "}\n";
@@ -303,8 +270,8 @@ kernel void rund_scatter_reduce_control(
 
 std::string
 MetalScatterReduceSource(const rund::kernel::ScatterReducePlan &plan) {
-  const auto emit = [&plan](auto &sink) noexcept(noexcept(
-      EmitMetalScatterReduceSource(sink, plan))) {
+  const auto emit = [&plan](auto &sink) noexcept(
+                        noexcept(EmitMetalScatterReduceSource(sink, plan))) {
     return EmitMetalScatterReduceSource(sink, plan);
   };
   return backend_source_recipe::materialize(emit);

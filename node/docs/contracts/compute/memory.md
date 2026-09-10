@@ -6,6 +6,100 @@ Node owns the mapping from Compute object ownership to public `MemoryStats` and
 private executor and lowering-owner byte oracles live in
 [`kernel/docs/contracts/compute/handoff.md`](../../../../kernel/docs/contracts/compute/handoff.md).
 
+Pipeline runtime memory observation is split by semantic owner. The
+`pipeline/run/memory.cpp` coordinator holds the existing gate-scoped assembly
+and public summary entry points; `run/memory/primitives.cpp` owns prepared
+counter conversion, remaining-counter projection, and Pool buffer ownership
+classification; `run/memory/shared.cpp` owns shared PipelineState, prepared,
+workspace, arena, scratch, and alias/lifetime accounting; `run/memory/jobs.cpp`
+owns per-Job binding/view/workspace attribution and Profile memory rows; and
+`run/memory/snapshot.cpp` owns the bounded `MemorySnapshot` row projection.
+These are transient projections over one PipelineState and do not introduce a
+second memory ledger or retained allocation state.
+
+The pipeline memory contract is verified through the ordered dispatcher in
+`node/tests/contract/compute/pipeline/memory/dispatcher.cpp`. Its shared
+program builder lives in `memory/support.cpp`; `basic.cpp` owns pipeline
+planning, prepared-memory, scratch, transfer, and execution observations;
+`reset.cpp` owns partial-writer reset and profile-reuse checks; `arena.cpp`
+owns arena/rank/follower materialization; and `capacity.cpp` owns chunk,
+packing, dedicated, and scale envelopes. The dispatcher preserves the
+Job/shared attribution → basic → reset → arena → capacity order. `attribution.cpp`
+verifies first-declaration Job/Workspace ownership with null, alternate, shared,
+and maximum-capacity occurrences, plus allocation-free observation.
+
+Pipeline preparation seals one memory inventory after Jobs, native streams,
+and any restored publication owner are final. `seal_pipeline_jobs` resolves
+first-declaration Job/Workspace attribution once and retains only each unique
+Job's occurrence ordinal and immutable metadata extent (16 bytes per owner).
+Ordinals borrow the frozen primary/alternate routes; they retain no new Job
+lifetime owner. The temporary pointer grouping and Workspace scratch die when
+sealing returns. Runtime observation consumes this ordered inventory without
+sorting addresses or searching previously observed owners. Profile rows still
+belong to the first declaration and empty/repeated rows overwrite stale values.
+
+`seal_pipeline_shared` projects unique Workspace/Arena/Buffer ownership once,
+including both inclusive and Pool-exclusive views. Its frozen values include
+actual inventory capacity in Host/Metadata. Observation reads live backend
+prepared counters, Job staging and bound View payloads, frame and transfer
+counters, and coordinator staging under the existing gate. Those changing
+coordinates are never cached or reconstructed by subtraction. Preparation
+remains the single inventory producer; there is no lazy rebuild or legacy warm
+traversal fallback. Synthetic ownership contracts explicitly seal their fixture
+before observation, just as public preparation does.
+
+CPU corruption detection remains live: observation checks the sealed storage
+count, each storage's arena, and each unique Job's indexed storage/arena
+reference. It does not rediscover membership by pointer search. A broken
+reference still saturates the same categories. Publication ownership can be
+adopted only while `preparing`; sealing follows that adoption, so an observable
+Pipeline cannot swap its metadata owner underneath the inventory.
+
+Summary-only Job projection visits unique owners; profile projection additionally
+clears the requested prefix of step rows. The frozen inventory adds 392 inline
+bytes on the measured Darwin ARM64 build plus 16 bytes per unique Job, with one
+cold vector allocation. Host admission budgets the canonical primary/alternate
+owner bound; observation charges the actual vector capacity. No new allocation
+occurs during observation.
+
+The cold `plan/state.hpp` owns `PipelineMemoryPlan`; runtime `state.hpp` no
+longer includes Builder assembly or that complete plan. Shared resource
+coordinates and execution-route tags live in `state/plan.hpp` and
+`state/route.hpp`. Preparation consumers include `state/assembly.hpp` explicitly.
+The consumed Builder and its plan already die at the preparation boundary;
+this dependency cut makes that lifetime separation visible in the type graph
+without claiming another runtime allocation reduction.
+
+Arena layout validation computes checked parallel-table prefix sizes before
+materializing offsets and owners. Each table is resized once after validation,
+without per-step growth or copying. Chunk ordering, best-growth/slack placement,
+owner identity, and largest/peak evidence retain the original rules. Repeated
+route contracts compare every prefix, owner, and offset against one step.
+
+Accelerator scratch page projection reserves the already computed maximum page
+count once before appending descriptors. It retains the same serial maximum
+envelope, view-slot prefix, last-page extent, and checked backing-byte sum.
+The capacity contract verifies a 1,024-page layout with one cold descriptor
+allocation and zero descriptor allocations when reusing its capacity.
+
+The CPU primitive scratch contract is verified through
+`node/tests/contract/compute/memory/scratch/cpu/primitive/dispatcher.cpp`.
+`support.cpp` owns fixed-format and primitive construction plus shared arena
+checks; `range.cpp` owns the range envelope; `empty.cpp` owns empty and
+no-scratch cases; `scatter.cpp` owns sort, scatter, and shared-epoch checks;
+and `typed.cpp` owns typed transform, factor, solve, and spectrum checks. The
+dispatcher preserves the range → empty → scatter → i32 → i64 order and the
+public return offsets.
+
+CPU Job View transfer ownership is split by execution phase. The
+`job/control/view.cpp` coordinator owns graph reachability and dense requirement
+projection; `job/control/view/layout.cpp` owns checked strided-transfer byte
+planning and forged requirement-index validation; `job/control/view/materialize.cpp`
+owns dense staging allocation and binding replacement; and
+`job/control/view/runtime.cpp` owns the allocation-free gather/publish copy and
+round-trip accounting. The shared `view/local.hpp` is declaration-only, so the
+transfer byte law and staging/runtime paths do not create a second View owner.
+
 ## Public observation coordinates
 
 `MemoryCounter` is one fixed public value shape, but a producer publishes only
@@ -63,6 +157,22 @@ exact logical retained object/container extent owned by runD and excludes
 allocator rounding. Staging consumes only the lease extent exposed by its
 backend owner.
 
+Virtual observation includes the Pool object, its physical-owner vector
+capacity, each unique `PhysicalArena` and `BufferState` object, and both
+prefetch workers' cold-sized request/page/range arrays in Host/Metadata. A
+cross-type `BufferState` view therefore adds its real object extent even though
+it correctly adds zero physical payload/accounting. Buffer bytes and
+Authority-registered Host storage remain in their existing resident and
+host/device payload categories, so this metadata producer cannot double-count
+the shared extent.
+Virtual observation code mirrors that single-ledger boundary. `virtual/observe.cpp`
+only coordinates common validation; `observe/validation.cpp` owns input and
+poolless invariants, `observe/graph.cpp` owns graph and semantic-port
+validation, `observe/memory.cpp` owns the one memory projection, and
+`observe/access.cpp` plus `profile.cpp` own their public synchronized views.
+The declarations-only `observe/local.hpp` stores no validation result or
+parallel memory ledger.
+
 `MemoryStats` is the sole public memory summary. `MemorySnapshot::summary` is
 that same value, while its bounded entries only decompose the existing summary
 by category, use, and owner index; they do not form another ledger.
@@ -71,24 +181,23 @@ mapping/device-governor planning coordinate and is not copied into live
 `MemoryStats`. Thus requested/logical payload, committed storage charge,
 unavailable physical residency, logical metadata, and planned admission remain
 distinguishable through the existing authorities without another ledger.
-The opt-in [virtual residency product](./residency.md) retains one
-Device-global Pool containing canonical cache input/output Buffers, disposable
-execution input/output Buffers, and the host input/output/prefetch images.
-Compatible Pipelines share that single admitted owner; they do not duplicate
-its retained charge.
-The native Vulkan path also retains one mapped transfer arena. Its unbound-buffer
-requirement query contributes the exact `VkMemoryRequirements::size` to the
-same Pipeline plan and Device admission before any allocation; successful
-candidate publication projects that same charge into
-`MemoryStats::staging`. The frame Buffers follow the same `R_b=L_b` and backend
-`C_b` laws above. Their exact checked sum is admitted once by the Device-global
-Pool and remains visible in the Device/VirtualPipeline memory view; it is
-intentionally absent from each sharing Pipeline's private
-`PipelinePlan::{peak_bytes,committed_peak_bytes}`. Pipeline-private native
-transfer/submission owners are still included in that Pipeline plan before
-materialization. The compact page plan
-and its active-frame count are execution evidence, not `F_b`: neither portable
-fixed frames nor a logical backing proves OS/device physical page residency.
+
+The opt-in [virtual residency product](./residency/README.md) publishes
+through these existing memory authorities. Each unique physical arena is
+charged once; a borrowing Pipeline or typed semantic view contributes no
+duplicate payload charge. Every real `BufferState` view still contributes its
+exact Host/Metadata object extent. CPU authoritative Host frames add no
+residency-specific Staging payload. Accelerator Device banks and registered
+Host input/output frames remain in their existing Device, Host, Resident, and
+Staging coordinates. A coherent output view removes transfer traffic, not the
+retained fallback capacity, so it cannot change the Pool memory formula.
+
+The canonical frame, Host-retention, cross-layout lending, and single-charge
+formulas live in [Residency Pool](./residency/pool.md). State transitions and
+tier limitations live in [Residency State](./residency/state.md). Vulkan
+virtual preparation currently materializes no Pool, Pipeline, transfer, or
+backing owner, so ordinary Vulkan Buffer requirements cannot be reported as
+virtual-residency memory evidence.
 
 Device-wide Buffer accounting uses allocation meters inside the existing
 `DeviceMemory` owner. Its one mutex serializes paired logical/committed
@@ -234,6 +343,19 @@ phase traverse a different dependency graph. The mapping is compiled once in
 consumers retain only its declaration. No consumer carries a local per-node
 operation switch; traversal order, allocation, emitted IR, and the number of
 visited nodes remain fixed by the shared mapping.
+
+Expression construction has the same ownership boundary. Canonical node
+hashing, probing, and insertion are owned by `expression/build/canonical.cpp`;
+leaf creation, unary/shift validation, conversion/mask validation, and
+binary/ternary fixed-point propagation are separate compiled owners under
+`expression/build/`. Their declaration-only `internal.hpp` shares construction
+primitives without creating a second implementation authority.
+
+Declared fixed-multiply contract execution is compiled rather than carried by
+an executable omnibus header. `fixed/multiply/declared.cpp` is the public test
+entry, `declared/execution.cpp` owns backend execution and evidence ordering,
+and the narrow `declared/reference.hpp` owns only generic bit-exact rounding,
+overflow, and multiply reference formulas used by that one translation unit.
 
 ## Program host ownership
 
@@ -414,11 +536,12 @@ Prepared native reset records then compose their handle or descriptor around
 the proved Range; repeated encoding performs no range, overflow, alignment,
 replacement, allocation, or payload-copy work.
 
-The public `Run` receipt retains its private state in a 1,152-byte,
-`uint64_t`-aligned inline store. The source-private `RunState` is exactly 1,152
-bytes with 8-byte alignment, and `Result<Run>` is 1,160 bytes on the checked
-64-bit ABI. The inline store is the complete private owner; it is neither heap
-storage nor extra initialized/copied payload.
+The public `Run` receipt retains its private state in a 1,392-byte,
+`uint64_t`-aligned inline store. The source-private `RunState` is exactly 1,384
+bytes with 8-byte alignment, leaving 8 bytes of fixed inline headroom, and
+`Result<Run>` is 1,400 bytes on the checked 64-bit ABI. The inline store is the
+complete private owner; it is neither heap storage nor extra initialized or
+copied payload.
 Construction, copying, moving, and destruction are compiled owners; public
 headers never require the complete private state. A warm
 `Program::run(Buffer, Buffer)` therefore still performs zero SDK heap
@@ -426,6 +549,13 @@ allocations, and copying or moving its receipt adds no owner allocation. The
 copied receipt retains independent mutable read telemetry over the same shared
 buffers. The compile-time size, alignment, and nothrow checks plus the
 allocation and telemetry-divergence oracles live in `compute.reuse`.
+Its test source authority is split into `reuse/surface.cpp` for telemetry and
+public-shape laws, `reuse/one_shot.cpp` for read-only result and resident
+profile observations, `reuse/lifecycle.cpp` for concurrent Program isolation
+and lifetime, `reuse/allocation.cpp` for warm allocation and receipt
+telemetry divergence, and `reuse/support.cpp` for the one shared memory
+comparison. `reuse.cpp` retains the original ordered dispatcher and return
+identity.
 
 ### One-shot host result ownership
 
@@ -469,6 +599,17 @@ bytes. Larger transfers complete their bounded slices in order and cannot
 materialize a payload-sized staging allocation. A full command envelope
 applies bounded condition-variable backpressure rather than exposing transient
 queue pressure as a transfer error.
+
+The Vulkan resident batch-download surface is physically split under
+`node/src/accel/vulkan/buffer/resident/batch/download/`: `entry.cpp` owns
+public mode selection and adapter locking, `inline.cpp` owns bounded
+fixed-capacity transfer execution, `batch.cpp` owns the large streaming
+partition, `completion.cpp` owns range and terminal evidence projections, and
+`lifecycle.cpp` owns the active-readback guard. `batch/copy.cpp` coordinates a
+batch copy, `sync.cpp` owns timeline sequencing, `download/encode.cpp` owns
+device-to-host command encoding, and `upload/{overlap,preserve,encode}.cpp`
+own upload alias analysis, preservation, and command encoding respectively.
+No leaf duplicates resident ownership or terminal status policy.
 
 Metal and Vulkan public resident handles, not their adapter registries, own
 native buffers. Vulkan separates the public adapter-owning handle from
@@ -521,12 +662,23 @@ authority.
 ### Memory Plan
 
 `graph::Info::memory` is the immutable `MemoryPlan` evidence for this
-ownership and its exact first-write reset frontiers.
-The planner has two private responsibilities with one published result:
-`resource/memory.cpp` derives lifetimes, materialization classes, and reuse
-proofs; `resource/memory/arena.cpp` consumes that frozen model and owns the
-deterministic aligned placement algorithm. Neither side may reconstruct the
-other's policy, and backends consume only the resulting `MemoryPlan`.
+ownership and its exact first-write reset frontiers. The planner has one thin
+`resource/memory.cpp` coordinator and focused private owners with one
+published result: `memory/validation.cpp` validates resource lineage,
+domains, and page admission; `memory/lifetime.cpp` indexes the ordered access
+stream into one transient lifetime/use value; `memory/materialize.cpp` derives
+logical, live, reset, and materialization rows; `memory/alias.cpp` proves
+pointwise destructive-source reuse; and `memory/finalize.cpp` computes the
+closed-interval peak and publishes the selected `MemoryPlan` layout.
+`resource/memory/arena.cpp` validates and stably partitions frozen resource
+IDs, coordinates ordinary and large placement, and publishes the one
+`Layout`; `resource/memory/arena/ordinary.cpp` owns canonical page-local
+best-fit placement/coalescing and ordinary extent measurement; and
+`resource/memory/arena/large.cpp` owns deterministic large-owner reuse and
+growth. The transient `memory_detail::Work` value is the sole handoff between
+planner owners and is discarded at return. No owner reconstructs another
+owner's placement or memory totals, and backends consume only the resulting
+`MemoryPlan`.
 `logical_bytes` is the saturating sum of authored internal extents;
 `live_bytes` is the maximum closed-interval live sum; `physical_bytes` is `A`;
 `allocation_count` is the retained arena Buffer count; `reset_bytes` and
@@ -609,6 +761,17 @@ materialization may consume less but cannot consume more in any byte or object
 count. Opaque allocator headers and driver-private allocation granularity are
 not guessed as bytes; backend object capacities are gated before native calls
 and their actual retained high-water remains telemetry.
+
+The CPU state contract has one direct owner per value family below
+`node/src/compute/cpu/state/`: Map/model values (`map.hpp`), collectives
+(`collective.hpp`), primitive descriptors (`primitive.hpp`), the non-movable
+prepared arena and execution envelope (`arena.hpp`), Job/Workspace slices
+(`binding.hpp`), immutable graph programs (`program.hpp`), per-Program storage
+(`storage.hpp`), and occurrence-specific run state (`run.hpp`). Primitive
+scratch planning and materialization likewise live in direct range, sort, scatter,
+transform, factor, solve, and spectrum owners below
+`node/src/compute/cpu/scratch/`; `scratch.cpp` only validates and dispatches
+the sealed family request. No family owns a second arena or storage ledger.
 Primary and transactional-alternate accelerator streams retain their final
 owners together, but their cold preparation phases are serialized by the
 Pipeline builder. `accumulate_serial_memory` is the sole prepared-owner
@@ -659,7 +822,14 @@ exactly `peak_bytes`. Every multiplication and addition is checked and no
 report is clamped to another report. The public equations and symbols are
 owned by [Compute](../../../../docs/reference/compute.md).
 
-The scratch planner consumes the admitted Kernel operation sequence and is the
+The compiled scratch owners under
+`node/src/accel/kernel/scratch/` keep this authority disjoint: `requests.cpp`
+derives the canonical per-operation backend request sequence, `batch.cpp`
+owns checked lifetime-aware page placement and immutable batch results,
+`range.cpp` projects Range temporary roles into that batch, `plan.cpp` is the
+ordered admitted-Kernel coordinator and diagnostic boundary, and
+`validation.cpp` authenticates the retained layout against run bindings. The
+scratch planner consumes the admitted Kernel operation sequence and is the
 single physical placement authority for accelerator temporary storage. Its
 typed batch input is
 
@@ -1048,7 +1218,34 @@ materialization, and construction reserves the proved active counts before the
 first emplacement. There is therefore no per-Map or per-collective owner
 allocation, vector relocation, or warm pointer chase. This changes allocation
 topology only: Program order, step identity, serial scratch ownership, and
-retained byte observation remain unchanged.
+retained byte observation remain unchanged. `cpu/run/storage.cpp` owns the
+ordered storage-plan coordinator; `cpu/run/storage/support.cpp` owns checked
+plan derivation and container accounting; and
+`cpu/run/storage/materialize.cpp` owns plan validation and `CpuGraphStorage`
+construction. `cpu/run/state.cpp` retains only the out-of-line graph-program
+lifetime seam. `cpu/run/state/route.cpp` owns route derivation,
+`state/slices.cpp` owns arena slice accounting, `state/binding.cpp` owns
+binding freeze, `state/materialize.cpp` owns retained run construction, and
+`state/prepare.cpp` owns Job preparation. `state/support.cpp` is the single
+checked `size_t` accumulation owner used by route and slice planning. These
+leaves retain one `CpuRun`, `CpuGraphStorage`, and `CpuPreparedArena`; none
+mirrors execution state. CPU primitive execution keeps the same single binding and
+scratch owners while separating operation families: `cpu/run/primitive.cpp`
+coordinates validation and routing, `primitive/support.cpp` owns dense-port and
+bounded-count binding, and `primitive/{collective,reference,indexed,ordering}.cpp`
+own segmented, reference, indexed, and ordering dispatch respectively. Algebra
+families are split by operation in `primitive/algebra/{stencil,window,transform,
+matrix,factor,solve,spectrum}.cpp`, with `algebra/support.cpp` as the sole
+semantic-status recorder; no execution leaf creates a second `CpuGraphRun` or
+scratch ledger.
+
+The focused CPU graph-memory contract mirrors those ownership cuts:
+`memory/graph.cpp` owns storage/route preflight and cache lifecycle,
+`memory/graph/view.cpp` owns dense/strided View transfer requirements and forged
+requirement rejection, and `memory/graph/resident.cpp` owns retained Job arena,
+warm-memory, and output/hash evidence. Their `graph/local.hpp` contains only
+the two canonical inputs and declarations; it owns no storage or execution
+body.
 
 Nested planning preserves two coordinates. The plan publishes `K`, `Tile`,
 and `N`, and every largest-workspace, peak-envelope, and View location records
@@ -1094,7 +1291,10 @@ normal and transactional alternate Jobs across its nested and transactional
 binding oracles, their Program/workspace/Buffer owners and View descriptors,
 shared arena bindings, and the available primary/alternate opaque
 prepared-pipeline owners. Every captured identity remains equal after
-successive executions and after overflow.
+successive executions and after overflow. The nested-window evidence cases
+are owned by separate retained-reuse, maximum-plan, and aggregate-statistics
+translation units under `node/tests/contract/compute/window/nested/`; the
+existing `contract.cpp` remains the sole ordered public dispatcher.
 
 Metal retains its host boundary in that immutable model. The warm path creates
 the required outer command buffer and encoder, passes the frozen
@@ -1168,8 +1368,14 @@ binding, so capture owns no threadgroup row or replay path. A future producer
 requiring dynamic threadgroup memory must first add an explicit producer
 manifest and frozen capacity law.
 
-Map source specialization has no heap scratch owner. Admission bounds the
-binding count by `kMaxComputeBindingCount`; specialization stores at most two
+Map source specialization has no heap scratch owner. Its physical ownership
+is split without duplicating that plan:
+`kernel/step/map/stride/upper.cpp` owns the checked source envelope,
+`plan.cpp` owns fixed edit discovery/canonicalization, and `materialize.cpp`
+owns copy and in-place publication. The public `stride.hpp` retains only the
+word-class value law and entry declarations; private edit storage lives in a
+declaration-only `local.hpp`. Admission bounds the binding count by
+`kMaxComputeBindingCount`; specialization stores at most two
 decimal-literal edits plus one Metal `uchar`-to-`uint` pointee edit per binding
 in one fixed stack array, canonicalizes that active span in place, counts the
 final recipe exactly, and allocates only the retained source string. The
@@ -1758,6 +1964,21 @@ runner. Counter observation, Program ownership, primitive scratch, value-route
 arena, CPU graph storage, and accelerator ownership live in one-word
 translation units below `tests/contract/compute/memory/`. `local.hpp` and
 `model.hpp` are the sole shared counter, snapshot, and accounting fixture.
+The accelerator side is split further by observable ownership:
+`memory/accel.cpp` owns Buffer commitment, budget rejection, transfer pooling,
+and release accounting; `accel/program.cpp` owns retained Program metadata;
+`accel/models.cpp` owns Metal/Vulkan backend counter models; `accel/job.cpp`
+owns retained Job snapshot accounting; and `accel/sort.cpp` owns cold/warm Sort
+workspace behavior. Each leaf consumes the same public memory counters and the
+one shared accounting model rather than reproducing them.
+The independent graph-services memory planner contract is also phase-owned:
+its `memory.cpp` is an ordered boolean coordinator, while compiled leaves under
+`graph/services/memory/` own the common typed construction API, basic
+reuse/reset, wide-page capacity, pointwise alias selection, large-resource
+packing, and malformed/overflow rejection. `memory/local.hpp` contains only
+type aliases, the canonical wide-page constant, and declarations; the actual
+`plan_memory` call and equality/overlap predicates each have one compiled
+owner.
 Each semantic leaf has its own rebuild closure. Memory rows, allocation
 oracles, backend order, failure codes, and case identity are invariant.
 The focused `accel.kernel-core` reset leaf independently proves 32- and 64-bit

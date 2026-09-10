@@ -1,3 +1,5 @@
+#include "interface/evidence.hpp"
+#include <rund/compute/abi/state.hpp>
 #include "evidence.hpp"
 
 #include "../evidence.hpp"
@@ -134,6 +136,7 @@ PipelineEvidence(const rund::AccelContext &context,
   return PreparedPipelineEvidence{
       .shared = BatchEvidence(context, backend.stats, pipeline.counts, overall),
       .check = overall,
+      .terminal = backend.terminal,
       .control = backend.pipeline.control_observed ? backend.pipeline.control
                                                    : PreparedPipelineControl{},
       .profile = backend.pipeline.profile,
@@ -146,6 +149,79 @@ PipelineEvidence(const rund::AccelContext &context,
       .submitted = backend.pipeline.submitted,
       .control_observed = backend.pipeline.control_observed,
       .control_valid = control_valid,
+  };
+}
+
+PreparedPipelineEvidence
+PipelineEvidence(const rund::AccelContext &context,
+                 const PipelineState &pipeline, const KernelResult &backend,
+                 const std::span<const std::uint32_t> selected_steps) noexcept {
+  if (selected_steps.empty()) {
+    return PipelineEvidence(context, pipeline, backend);
+  }
+  const rund::AccelCheck overall = PipelineOutcome(pipeline, backend);
+  const bool raw_control_valid =
+      backend.pipeline.control_observed &&
+      ValidPreparedPipelineControl(backend.pipeline.control, pipeline.status);
+  EvidenceCounts selected{};
+  // A service-free recurrence deliberately retains one aggregate semantic
+  // owner, not Q selectable rows. It is executable only through the whole-run
+  // submit surface, so sparse evidence must fail before indexing that compact
+  // owner table.
+  bool selection_valid =
+      pipeline.service_free_direct == nullptr &&
+      pipeline.state_count >= pipeline.status.active_step_count &&
+      selected_steps.size() <= pipeline.size;
+  for (std::size_t selected_index = 0u;
+       selection_valid && selected_index < selected_steps.size();
+       ++selected_index) {
+    const std::uint32_t declared = selected_steps[selected_index];
+    for (std::size_t prior = 0u; prior < selected_index; ++prior) {
+      selection_valid = selection_valid && selected_steps[prior] != declared;
+    }
+    const RunState *state = nullptr;
+    for (std::size_t active = 0u;
+         selection_valid && active < pipeline.status.active_step_count;
+         ++active) {
+      if (pipeline.status.declared_steps[active] == declared) {
+        state = pipeline.states[active].get();
+        break;
+      }
+    }
+    selection_valid = state != nullptr;
+    if (state != nullptr) {
+      Accumulate(selected, *state);
+    }
+  }
+  const rund::AccelCheck checked =
+      selection_valid && (!overall.ok || raw_control_valid)
+          ? overall
+          : rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
+  PreparedPipelineControl control = backend.pipeline.control_observed
+                                        ? backend.pipeline.control
+                                        : PreparedPipelineControl{};
+  if (checked.ok) {
+    control.failed_step = PreparedPipelineNoStep;
+    control.verified_prefix = static_cast<std::uint32_t>(selected_steps.size());
+  }
+  return PreparedPipelineEvidence{
+      .shared = BatchEvidence(context, backend.stats, selected, checked),
+      .check = checked,
+      .terminal = backend.terminal,
+      .control = control,
+      // Whole-stream native step rows cannot truthfully project a sparse
+      // selection. Residency exposes the exact aggregate and issued count;
+      // per-step native profile evidence remains unavailable.
+      .profile = {},
+      .status_entry_count = pipeline.status.status_entry_count,
+      .control_byte_count =
+          backend.pipeline.control_observed ? PreparedPipelineControlBytes : 0u,
+      .control_command_count = backend.pipeline.control_command_count,
+      .control_ns = backend.pipeline.control_ns,
+      .active_step_count = static_cast<std::uint32_t>(selected_steps.size()),
+      .submitted = backend.pipeline.submitted,
+      .control_observed = backend.pipeline.control_observed,
+      .control_valid = selection_valid && raw_control_valid,
   };
 }
 

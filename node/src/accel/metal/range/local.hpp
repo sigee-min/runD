@@ -1,12 +1,13 @@
 #pragma once
 
-#include "../../range_aggregate/execution.hpp"
+#include "../../range_aggregate/execution/projection.hpp"
 #include "../adapter.hpp"
 #include "../object.hpp"
 #include "../pipeline/cache.hpp"
 #include "../resident.hpp"
 #include "../state.hpp"
 #include "api.hpp"
+#include "source.hpp"
 #include <accel/check.hpp>
 #include <kernel/program/compute/graph/schema.hpp>
 
@@ -119,13 +120,6 @@ struct MetalRangeResources {
 };
 
 void DestroyMetalRangeResources(void *raw);
-[[nodiscard]] std::string MetalRangeSource(const RangeExec &execution);
-[[nodiscard]] bool MetalRangeSourceUpperBytes(const RangeExec &execution,
-                                              std::uint64_t &upper) noexcept;
-[[nodiscard]] std::string MetalRangeControlSource(const RangePlan &plan);
-[[nodiscard]] bool
-MetalRangeControlSourceUpperBytes(const RangePlan &plan,
-                                  std::uint64_t &upper) noexcept;
 [[nodiscard]] MetalRangeAttempt CompileMetalRange(MetalAdapter &adapter,
                                                   const RangeExec &execution,
                                                   std::shared_ptr<void> &out);

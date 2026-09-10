@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "../../../reactor/platform/lifecycle.hpp"
 #include "../../../reactor/diagnostics.hpp"
 
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__linux__)

@@ -4,7 +4,6 @@
 #include <accel/device.hpp>
 
 #include "../../kernel/reset/model.hpp"
-#include "../../kernel/backend/template_plan.hpp"
 #include "../../kernel/submission.hpp"
 #include "../command/run.hpp"
 #include "../kernel.hpp"

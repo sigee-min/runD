@@ -1,3 +1,7 @@
+#include "../adapter/error.hpp"
+#include "../buffer/access.hpp"
+#include "../buffer/create.hpp"
+
 #include "resource.hpp"
 
 #include "../barrier.hpp"

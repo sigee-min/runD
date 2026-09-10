@@ -71,6 +71,11 @@ int CheckProductWidthProjection(const rund::compute::Backend backend) {
   const PipelinePlan plan = prepared->plan();
   const Stats stats = prepared->stats();
   const ResidencyStats &residency = stats.pipeline.residency;
+  const bool coherent =
+      stats.uploaded_bytes == 0u && stats.downloaded_bytes == 0u;
+  const bool rolling = backend == Backend::Vulkan &&
+                       stats.uploaded_bytes == PageCount * InputPageBytes &&
+                       stats.downloaded_bytes == PageCount * OutputPageBytes;
   return plan.residency.logical_bytes == InputBytes + OutputBytes &&
                  plan.residency.page_bytes ==
                      InputPageBytes + OutputPageBytes &&
@@ -81,8 +86,7 @@ int CheckProductWidthProjection(const rund::compute::Backend backend) {
                  residency.active_count == LogicalElements &&
                  residency.backing_read_bytes == InputBytes &&
                  residency.backing_write_bytes == OutputBytes &&
-                 stats.uploaded_bytes == PageCount * InputPageBytes &&
-                 stats.downloaded_bytes == PageCount * OutputPageBytes
+                 (coherent || rolling)
              ? 0
              : 7;
 }

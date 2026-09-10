@@ -11,11 +11,6 @@ namespace rund::node::accel::detail {
 struct MetalRuntimeBuffer;
 struct MetalKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck
-ExecuteMetalScan(const rund::AccelDevice &pick,
-                 const rund::kernel::ScanDesc &desc,
-                 const rund::kernel::ScanPlan &plan,
-                 rund::kernel::ComputeDomain domain, const ScanBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalScan(
     const rund::AccelDevice &pick, const rund::kernel::ScanDesc &desc,
     const rund::kernel::ScanPlan &plan, rund::kernel::ComputeDomain domain,

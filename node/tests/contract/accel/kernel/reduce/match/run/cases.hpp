@@ -159,4 +159,42 @@ bool MatchesMinI32(const rund::AccelDevice &pick) {
                                         11u, 7u, 13u, 0xfffffff9u});
 }
 
+template <typename T>
+bool MatchesExtremaSimdBoundaries(const rund::AccelDevice &pick) {
+  constexpr bool wide = sizeof(T) == 8u;
+  const auto scalar = wide ? rund::kernel::ComputeScalar::Lane64
+                           : rund::kernel::ComputeScalar::Lane32;
+  const auto element = wide ? rund::kernel::ReduceElement::U64
+                            : rund::kernel::ReduceElement::U32;
+  for (const auto block : {3u, 33u, 65u, 256u}) {
+    // Partial SIMD groups and a partial final workgroup, followed by at least
+    // one more pass and multiple packed physical groups. High-word ties
+    // exercise the U64 low-word winner mask.
+    std::vector<T> input(67u * block + 3u);
+    for (std::size_t i = 0u; i < input.size(); ++i) {
+      input[i] =
+          static_cast<T>((static_cast<rund::kernel::u64>(i % 3u) << 32u) |
+                         static_cast<rund::kernel::u32>(i * 2654435761u));
+      if ((i & 1u) != 0u) {
+        input[i] ^= T{1u} << (sizeof(T) * 8u - 1u);
+      }
+    }
+    for (const bool signed_domain : {false, true}) {
+      const auto domain =
+          wide ? (signed_domain ? rund::kernel::ComputeDomain::I64
+                                : rund::kernel::ComputeDomain::U64)
+               : (signed_domain ? rund::kernel::ComputeDomain::I32
+                                : rund::kernel::ComputeDomain::U32);
+      for (const auto op :
+           {rund::kernel::ReduceOp::Min, rund::kernel::ReduceOp::Max}) {
+        if (!MatchesReference<T>(pick, scalar, domain, op, element, input,
+                                 block)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 } // namespace node_accel_contract::reduce

@@ -4,6 +4,7 @@ set(NODE_TEST_COMPUTE_COMMON_SOURCES
 
 set(NODE_TEST_COMPUTE_SOURCES
   tests/contract/compute/numeric.cpp
+  tests/contract/compute/numeric/scan_parity.cpp
   tests/contract/compute/telemetry/contract.cpp
   tests/contract/compute/telemetry/profile.cpp
   tests/contract/compute/telemetry/projection.cpp
@@ -11,6 +12,11 @@ set(NODE_TEST_COMPUTE_SOURCES
   tests/contract/compute/result.cpp
   tests/contract/compute/error.cpp
   tests/contract/compute/reuse.cpp
+  tests/contract/compute/reuse/support.cpp
+  tests/contract/compute/reuse/surface.cpp
+  tests/contract/compute/reuse/one_shot.cpp
+  tests/contract/compute/reuse/lifecycle.cpp
+  tests/contract/compute/reuse/allocation.cpp
   tests/contract/compute/cpu/tiles.cpp
   tests/contract/compute/cpu/view.cpp
   tests/contract/compute/program/cache/concurrency.cpp
@@ -24,14 +30,34 @@ set(NODE_TEST_COMPUTE_SOURCES
   tests/contract/compute/graph/services/boundary.cpp
   tests/contract/compute/graph/services/birth.cpp
   tests/contract/compute/graph/services/memory.cpp
+  tests/contract/compute/graph/services/memory/support.cpp
+  tests/contract/compute/graph/services/memory/basic.cpp
+  tests/contract/compute/graph/services/memory/wide.cpp
+  tests/contract/compute/graph/services/memory/alias.cpp
+  tests/contract/compute/graph/services/memory/capacity.cpp
+  tests/contract/compute/graph/services/memory/rejection.cpp
   tests/contract/compute/graph/services/plan.cpp
   tests/contract/compute/graph/services/resource.cpp
-  tests/contract/compute/flow/primitives.cpp
+  tests/contract/compute/graph/services/resource/complexity.cpp
+  tests/contract/compute/graph/services/resource/oracle.cpp
+  tests/contract/compute/flow/primitives/support.cpp
+  tests/contract/compute/flow/primitives/projection.cpp
+  tests/contract/compute/flow/primitives/composition.cpp
+  tests/contract/compute/flow/primitives/indexed.cpp
+  tests/contract/compute/flow/primitives/scatter.cpp
+  tests/contract/compute/flow/primitives/bounded.cpp
+  tests/contract/compute/flow/primitives/group.cpp
+  tests/contract/compute/flow/primitives/pool.cpp
+  tests/contract/compute/flow/primitives/dispatcher.cpp
 )
 
 set(NODE_TEST_COMPUTE_ACCEL_SOURCES
   tests/contract/compute/device.cpp
-  tests/contract/compute/vulkan/cache.cpp
+  tests/contract/compute/vulkan/cache/descriptor.cpp
+  tests/contract/compute/vulkan/cache/map_bias.cpp
+  tests/contract/compute/vulkan/cache/collective.cpp
+  tests/contract/compute/vulkan/cache/shader.cpp
+  tests/contract/compute/vulkan/cache/dispatcher.cpp
   tests/contract/compute/map.cpp
   tests/contract/compute/map/local/model.cpp
   tests/contract/compute/map/canonical.cpp
@@ -39,17 +65,30 @@ set(NODE_TEST_COMPUTE_ACCEL_SOURCES
   tests/contract/compute/map/envelope.cpp
   tests/contract/compute/map/run.cpp
   tests/contract/compute/fixed/multiply/declared.cpp
+  tests/contract/compute/fixed/multiply/declared/execution.cpp
   tests/contract/compute/fixed/predicate/wide.cpp
   tests/contract/compute/resident/write.cpp
   tests/contract/compute/flow.cpp
   tests/contract/compute/flow/contract/backend.cpp
+  tests/contract/compute/flow/contract/backend/alias.cpp
+  tests/contract/compute/flow/contract/backend/fusion.cpp
+  tests/contract/compute/flow/contract/backend/indexed.cpp
+  tests/contract/compute/flow/contract/backend/reset.cpp
   tests/contract/compute/flow/contract/basic.cpp
   tests/contract/compute/flow/contract/compose.cpp
   tests/contract/compute/flow/contract/device.cpp
   tests/contract/compute/flow/contract/expression.cpp
+  tests/contract/compute/flow/contract/expression/composite.cpp
+  tests/contract/compute/flow/contract/expression/hash.cpp
+  tests/contract/compute/flow/contract/expression/extended.cpp
+  tests/contract/compute/flow/contract/expression/functional.cpp
   tests/contract/compute/flow/contract/parity.cpp
-  tests/contract/compute/flow/contract/record.cpp
+  tests/contract/compute/flow/contract/record/fields.cpp
+  tests/contract/compute/flow/contract/record/runtime.cpp
+  tests/contract/compute/flow/contract/record/schema.cpp
+  tests/contract/compute/flow/contract/record/dispatcher.cpp
   tests/contract/compute/flow/contract/shape.cpp
+  tests/contract/compute/flow/contract/slice.cpp
   tests/contract/compute/flow/contract/surface.cpp
   tests/contract/compute/flow/numeric.cpp
   tests/contract/compute/flow/numeric/local/model.cpp
@@ -67,8 +106,17 @@ set(NODE_TEST_COMPUTE_ACCEL_SOURCES
 # unmapped support sources global. One row may name multiple cases when they
 # deliberately share one fixture authority.
 list(APPEND RUND_NODE_TEST_COMPANION_ROWS
+  "tests/contract/compute/vulkan/cache/descriptor.cpp|compute.vulkan-cache"
+  "tests/contract/compute/vulkan/cache/map_bias.cpp|compute.vulkan-cache"
+  "tests/contract/compute/vulkan/cache/collective.cpp|compute.vulkan-cache"
+  "tests/contract/compute/vulkan/cache/shader.cpp|compute.vulkan-cache"
   "tests/contract/compute/telemetry/profile.cpp|compute.telemetry"
   "tests/contract/compute/telemetry/projection.cpp|compute.telemetry"
+  "tests/contract/compute/reuse/support.cpp|compute.reuse"
+  "tests/contract/compute/reuse/surface.cpp|compute.reuse"
+  "tests/contract/compute/reuse/one_shot.cpp|compute.reuse"
+  "tests/contract/compute/reuse/lifecycle.cpp|compute.reuse"
+  "tests/contract/compute/reuse/allocation.cpp|compute.reuse"
   "tests/contract/compute/cpu/view.cpp|compute.cpu-tiles"
   "tests/contract/compute/map/local/model.cpp|compute.map"
   "tests/contract/compute/map/canonical.cpp|compute.map"
@@ -82,20 +130,49 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/flow/numeric/modes/golden.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
   "tests/contract/compute/flow/numeric/modes/policy.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
   "tests/contract/compute/flow/numeric/modes/transform.cpp|compute.flow-numeric-accel,compute.flow-numeric-modes"
+  "tests/contract/compute/batch/reset.cpp|compute.batch"
+  "tests/contract/compute/flow/primitives/support.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/projection.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/composition.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/indexed.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/scatter.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/bounded.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/group.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/primitives/pool.cpp|compute.flow-primitives"
+  "tests/contract/compute/flow/contract/record/fields.cpp|compute.flow"
+  "tests/contract/compute/flow/contract/record/runtime.cpp|compute.flow"
+  "tests/contract/compute/flow/contract/record/schema.cpp|compute.flow"
+  "tests/contract/compute/flow/contract/record/dispatcher.cpp|compute.flow"
   "tests/contract/compute/graph/services/boundary.cpp|compute.graph-plan"
   "tests/contract/compute/graph/services/birth.cpp|compute.graph-plan"
   "tests/contract/compute/graph/services/memory.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory/support.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory/basic.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory/wide.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory/alias.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory/capacity.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/memory/rejection.cpp|compute.graph-plan"
   "tests/contract/compute/graph/services/resource.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/resource/complexity.cpp|compute.graph-plan"
+  "tests/contract/compute/graph/services/resource/oracle.cpp|compute.graph-plan"
   "tests/contract/compute/flow/shape/local/model.cpp|compute.static-matrix"
   "tests/contract/compute/flow/shape/surface.cpp|compute.static-matrix"
   "tests/contract/compute/flow/shape/run.cpp|compute.static-matrix"
   "tests/contract/compute/pipeline/backend.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/binding.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/chunk.cpp|compute.pipeline"
-  "tests/contract/compute/pipeline/checkpoint.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/setup.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/initial.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/copy.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/alias.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/storage.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/portability.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/boundary.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/checkpoint/dispatcher.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/completion.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/empty.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/sealed.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/generation.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/fixed.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/feedback.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/hazard.cpp|compute.pipeline"
@@ -104,19 +181,131 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/identity.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/loss.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/metal.cpp|compute.pipeline"
-  "tests/contract/compute/pipeline/metal/residency.cpp|compute.pipeline"
-  "tests/contract/compute/pipeline/vulkan/transfer.cpp|compute.pipeline,compute.pipeline-vulkan-transfer"
-  "tests/contract/compute/pipeline/memory.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/transactional.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/execution.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/execution/single.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/staged.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/terminal.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/schedule.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/dispatcher.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/metal/residency/support.cpp|compute.pipeline,compute.pipeline-metal-sliding-gate"
+  "tests/contract/compute/pipeline/metal/persistent_sliding/support.cpp|compute.pipeline-metal-persistent-sliding"
+  "tests/contract/compute/pipeline/metal/persistent_sliding/window.cpp|compute.pipeline-metal-persistent-sliding"
+  "tests/contract/compute/pipeline/metal/persistent_sliding/recurrence.cpp|compute.pipeline-metal-persistent-sliding"
+  "tests/contract/compute/pipeline/metal/persistent_sliding/history.cpp|compute.pipeline-metal-persistent-sliding"
+  "tests/contract/compute/pipeline/metal/persistent_sliding/persistent.cpp|compute.pipeline-metal-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/backing.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/atomic.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/contract.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/evidence.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/failure.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/known_failure.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/memory_retry.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/route.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/surface.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/start_failure.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/query.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/unknown.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/window/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/persistent_product/window/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/binary/capacity.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/binary/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/binary/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/binary/resident.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/binary/resident_hash.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/binary/surface.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/contract.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/evidence.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/graph/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/graph/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/graph/semantic.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/graph_multi/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/graph_multi/capacity.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/graph_multi/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/multi_scan/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/multi_scan/capacity.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/multi_scan/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/multi_scan/rejection.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/pointwise_dag/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/pointwise_dag/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/reduce_ops/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/reduce_ops/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/reduce_sum/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/reduce_sum/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/route.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/scan/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/scan/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/scan_u32/case.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/scan_u32/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/warm.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/window/model.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/window/run.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/window/cases.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/window/fixture.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/device_vsm_product/window/fusion.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/support.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/generated.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/recurrence.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/history.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/persistent.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/prepare.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/preflight.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/submit.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/persistent_sliding/terminal.cpp|compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/vulkan/transfer/support.cpp|compute.pipeline,compute.pipeline-vulkan-transfer"
+  "tests/contract/compute/pipeline/vulkan/transfer/selection.cpp|compute.pipeline,compute.pipeline-vulkan-transfer"
+  "tests/contract/compute/pipeline/vulkan/transfer/execution.cpp|compute.pipeline,compute.pipeline-vulkan-transfer"
+  "tests/contract/compute/pipeline/vulkan/transfer/probe.cpp|compute.pipeline,compute.pipeline-vulkan-transfer"
+  "tests/contract/compute/pipeline/vulkan/transfer/dispatcher.cpp|compute.pipeline-vulkan-transfer"
+  "tests/contract/compute/pipeline/vulkan/graph_admission/rejection.cpp|compute.pipeline-vulkan-graph-admission"
+  "tests/contract/compute/pipeline/vulkan/graph_admission/generation.cpp|compute.pipeline-vulkan-graph-admission"
+  "tests/contract/compute/pipeline/vulkan/residency/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/window.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/schedule.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/warm.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/abort.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/product/rolling.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/vulkan/residency/product/window.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/memory/dispatcher.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory/support.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory/basic.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory/attribution.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory/reset.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory/arena.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/memory/capacity.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/admission.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/profile/steps.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/profile/samples.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/range/introspection.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/range/resident.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/repeat.cpp|compute.pipeline"
+  "tests/contract/compute/boundary/modes/bounded.cpp|compute.boundary-modes"
+  "tests/contract/compute/boundary/modes/domain.cpp|compute.boundary-modes"
+  "tests/contract/compute/boundary/modes/fixed.cpp|compute.boundary-modes"
+  "tests/contract/compute/pipeline/repeat/bounded.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/repeat/reset.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/vulkan/sliding_gate/terminal.cpp|compute.pipeline-vulkan-sliding-gate"
   "tests/contract/compute/pipeline/state.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/status.cpp|compute.pipeline"
-  "tests/contract/compute/pipeline/surface.cpp|compute.pipeline"
-  "tests/contract/compute/pipeline/views.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/lifecycle.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/then.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/tile.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/record.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/bounded.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/alias.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/shared_count.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/surface/dispatcher.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/dispatcher.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/support.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/basic.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/reduce.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/sort.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/reset.cpp|compute.pipeline"
+  "tests/contract/compute/pipeline/view/primitives.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/view/arena.cpp|compute.pipeline"
   "tests/contract/compute/pipeline/transfer/model.cpp|compute.pipeline-transfer"
   "tests/contract/compute/pipeline/transfer/success.cpp|compute.pipeline-transfer"
@@ -125,26 +314,212 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/residency/planner.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/identity.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/graph.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/projection.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_drain.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_forecast.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_persist.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/fetch_fill.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_promote/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_promote/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_promote/wide.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_promote/group.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_promote/single.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_host_input.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/graph_wavefront.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/host_ring.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/footprint.cpp|compute.pipeline-residency"
-  "tests/contract/compute/pipeline/residency/authority.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/physical_view.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/cache.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/migration.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/transform.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/capacity.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/lifetime.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/graph.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/relocation.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/views.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/view_commit.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/prefetch.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/cycle.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/execution/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/execution/plan.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/execution/authority.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/execution/native.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/execution/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/lifecycle.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/graph.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/terminal.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/authority/physical.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/authority/window.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/authority/cache.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/authority/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/sliding/generation.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/backend.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/admission.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/terminal.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/concurrency.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/reentrant.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/native_sliding/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/persistent_sliding/contract.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/persistent_sliding/fake.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/service_free_direct/contract.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/service_free_direct/authority.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/service_free_direct/authority/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/service_free_direct/authority/success.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/service_free_direct/authority/terminal.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/service_free_direct/fake.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/contract.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/graph_terminal.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/authority.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/fake.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/fixture.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/geometry.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/product_evidence.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/surface.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/source.cpp|compute.pipeline-residency,compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/source/graph_map_reduce.cpp|compute.pipeline-residency,compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/graph_pointwise_source.cpp|compute.pipeline-residency,compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/scan_source.cpp|compute.pipeline-residency,compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/graph_map_scan_source.cpp|compute.pipeline-residency,compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/reduce_source.cpp|compute.pipeline-residency,compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/reduce_terminal.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual/authority.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual/run.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual_binary.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual_binary/artifact.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual_binary/prepare.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual_binary/execution.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual_binary/evidence.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/device_vsm/actual_binary/terminal.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/service_free_direct/actual.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/service_free_direct/product/evidence.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/service_free_direct/product/known.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/service_free_direct/product/unknown.cpp|compute.pipeline-metal-persistent-sliding,compute.pipeline-vulkan-persistent-sliding"
+  "tests/contract/compute/pipeline/residency/window/support.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/window/stream.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/window/schedule.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/window/dispatcher.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/pool.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/pool_admission.cpp|compute.pipeline-residency"
   "tests/contract/compute/virtual/backing.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/golden.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/pager.cpp|compute.virtual-residency-oracle"
   "tests/contract/compute/virtual/oracle.cpp|compute.virtual-residency-oracle"
-  "tests/contract/compute/virtual/product/backing.cpp|compute.virtual-residency-product"
-  "tests/contract/compute/virtual/product/active.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/backing.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input,compute.virtual-route-selection,compute.pipeline-vulkan-graph-admission"
+  "tests/contract/compute/virtual/product/active/support.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active/base.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active/growth.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active/evidence.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active/evidence/stats.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active/cache.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/active/dispatcher.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/prefetch.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/window.cpp|compute.virtual-residency-product"
-  "tests/contract/compute/virtual/product/reduce.cpp|compute.virtual-residency-product"
-  "tests/contract/compute/virtual/product/scan.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/window/clip.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/window/exact.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/window/model.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/window/tier.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/reduce/support.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/reduce/basic.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/reduce/sequence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/reduce/sequence/diagnostics.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/reduce/lending.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/reduce/direct.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/reduce/dispatcher.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/route/support.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-route-selection"
+  "tests/contract/compute/virtual/product/route/observation.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-route-selection"
+  "tests/contract/compute/virtual/product/route/protocol.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-route-selection"
+  "tests/contract/compute/virtual/product/route/resolve.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-route-selection"
+  "tests/contract/compute/virtual/product/oracle/common.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/oracle/persistent.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/oracle/device_vsm.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/oracle/rolling.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/oracle/window.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront_host.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront_host/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront_host/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront_host/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront_multi_host.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_wavefront_later_multi_host.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_persist_ring.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_wide_host.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_wide_device.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_wide_host/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_wide_host/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_wide_host/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_wide_host/device.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_shape/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deep.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deep/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deep/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deep/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deeper.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deeper/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deeper/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_deeper/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_frontier.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_frontier/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_frontier/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_frontier/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/program.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/fixture.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/fixture/prepare.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/fixture/run.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/fixture/staged.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/fixture/u32.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/evidence.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident/oracle.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident_host/program.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident_host/fixture.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident_host/evidence.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_resident_host/oracle.cpp|compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_six.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_six/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_six/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_six/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_seven.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_seven/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_seven/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_seven/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_depth_seven/evidence/validation.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise/success.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise/failure.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_pointwise_multi.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input"
+  "tests/contract/compute/virtual/product/graph_pointwise_multi/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input"
+  "tests/contract/compute/virtual/product/graph_pointwise_multi/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input"
+  "tests/contract/compute/virtual/product/graph_pointwise_multi/publication.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input"
+  "tests/contract/compute/virtual/product/graph_pointwise_multi/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input"
+  "tests/contract/compute/virtual/product/graph_pointwise_multi/case.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product,compute.virtual-graph-pointwise-later-input"
+  "tests/contract/compute/virtual/product/scan/support.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/scan/basic.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/scan/tiered.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/scan/failure.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/scan/dispatcher.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/cache.cpp|compute.virtual-residency-product"
-  "tests/contract/compute/virtual/product/golden.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/golden.cpp|compute.virtual-residency-product,compute.virtual-route-selection"
   "tests/contract/compute/virtual/product/evidence.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/surface.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/capability.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/prepare.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/execution.cpp|compute.virtual-residency-product"
-  "tests/contract/compute/virtual/product/failure.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/device_vsm_unknown.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/support.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/boundary.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/backing.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/device_vsm.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/native.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/multilane.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/failure/dispatcher.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/width.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/concurrency/local.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/concurrency/pipeline.cpp|compute.virtual-residency-product"
@@ -154,11 +529,17 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/matrix.cpp|compute.window"
   "tests/contract/compute/window/nested/contract.cpp|compute.window"
   "tests/contract/compute/window/nested/control.cpp|compute.window"
-  "tests/contract/compute/window/nested/evidence.cpp|compute.window"
+  "tests/contract/compute/window/nested/control/capacity.cpp|compute.window"
+  "tests/contract/compute/window/nested/control/dormant.cpp|compute.window"
+  "tests/contract/compute/window/nested/retained.cpp|compute.window"
+  "tests/contract/compute/window/nested/maximum.cpp|compute.window"
+  "tests/contract/compute/window/nested/aggregate.cpp|compute.window"
   "tests/contract/compute/window/nested/execution.cpp|compute.window"
   "tests/contract/compute/window/nested/failure.cpp|compute.window"
   "tests/contract/compute/window/nested/fixture.cpp|compute.window"
   "tests/contract/compute/window/nested/identity.cpp|compute.window"
+  "tests/contract/compute/window/nested/identity/runtime.cpp|compute.window"
+  "tests/contract/compute/window/nested/identity/transactional.cpp|compute.window"
   "tests/contract/compute/window/nested/oracle.cpp|compute.window"
   "tests/contract/compute/window/nested/plan.cpp|compute.window"
   "tests/contract/compute/window/nested/program.cpp|compute.window"
@@ -168,21 +549,39 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/window/output/failure.cpp|compute.window"
   "tests/contract/compute/window/output/model.cpp|compute.window"
   "tests/contract/compute/window/output/ordinary.cpp|compute.window"
-  "tests/contract/compute/window/output/publication.cpp|compute.window"
-  "tests/contract/compute/window/output/publication_mutation.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/contract.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/arity.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/fingerprint.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/source.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/mutation.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/mutation/job.cpp|compute.window"
+  "tests/contract/compute/window/output/publication/rollback.cpp|compute.window"
   "tests/contract/compute/window/output/subview.cpp|compute.window"
   "tests/contract/compute/window/parity.cpp|compute.window"
   "tests/contract/compute/window/plan.cpp|compute.window"
   "tests/contract/compute/window/terminal.cpp|compute.window"
   "tests/contract/compute/window/workset.cpp|compute.window"
   "tests/contract/compute/memory/accel.cpp|compute.memory"
+  "tests/contract/compute/memory/accel/program.cpp|compute.memory"
+  "tests/contract/compute/memory/accel/models.cpp|compute.memory"
+  "tests/contract/compute/memory/accel/job.cpp|compute.memory"
+  "tests/contract/compute/memory/accel/sort.cpp|compute.memory"
   "tests/contract/compute/memory/arena.cpp|compute.memory"
-  "tests/contract/compute/memory/buffer_lifecycle.cpp|compute.memory"
-  "tests/contract/compute/memory/cpu_arena.cpp|compute.memory"
+  "tests/contract/compute/memory/lifecycle.cpp|compute.memory"
+  "tests/contract/compute/memory/cpu/arena.cpp|compute.memory"
   "tests/contract/compute/memory/graph.cpp|compute.memory"
+  "tests/contract/compute/memory/graph/resident.cpp|compute.memory"
+  "tests/contract/compute/memory/graph/view.cpp|compute.memory"
   "tests/contract/compute/memory/observe.cpp|compute.memory"
   "tests/contract/compute/memory/program.cpp|compute.memory"
-  "tests/contract/compute/memory/scratch.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/accelerator.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/collective.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/primitive/support.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/primitive/range.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/primitive/empty.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/primitive/scatter.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/primitive/typed.cpp|compute.memory"
+  "tests/contract/compute/memory/scratch/cpu/primitive/dispatcher.cpp|compute.memory"
   "tests/contract/compute/backend/domain.cpp|compute.backend"
   "tests/contract/compute/backend/map.cpp|compute.backend"
   "tests/contract/compute/backend/matrix.cpp|compute.backend"
@@ -191,7 +590,11 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/backend/primitive.cpp|compute.backend"
   "tests/contract/compute/backend/segment.cpp|compute.backend"
   "tests/contract/compute/collective/modes/backend.cpp|compute.collective-modes"
-  "tests/contract/compute/collective/modes/bounded.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/bounded/plan.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/bounded/resident.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/bounded/aggregate.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/bounded/window.cpp|compute.collective-modes"
+  "tests/contract/compute/collective/modes/bounded/dispatcher.cpp|compute.collective-modes"
   "tests/contract/compute/collective/modes/cancel.cpp|compute.collective-modes"
   "tests/contract/compute/collective/modes/core.cpp|compute.collective-modes"
   "tests/contract/compute/collective/modes/empty.cpp|compute.collective-modes"
@@ -237,25 +640,29 @@ set(NODE_TEST_COMPUTE_EXPRESSIONS_SOURCES
 )
 
 set(NODE_TEST_COMPUTE_LINE_TABLE_SOURCES
-  ${NODE_TEST_COMPUTE_EXPRESSIONS_SOURCES}
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
+  tests/contract/compute/memory/accel/program.cpp
+  tests/contract/compute/memory/accel/models.cpp
+  tests/contract/compute/memory/accel/job.cpp
+  tests/contract/compute/memory/accel/sort.cpp
   tests/contract/compute/memory/arena.cpp
-  tests/contract/compute/memory/buffer_lifecycle.cpp
-  tests/contract/compute/memory/cpu_arena.cpp
+  tests/contract/compute/memory/lifecycle.cpp
+  tests/contract/compute/memory/cpu/arena.cpp
   tests/contract/compute/memory/graph.cpp
+  tests/contract/compute/memory/graph/resident.cpp
+  tests/contract/compute/memory/graph/view.cpp
   tests/contract/compute/memory/observe.cpp
   tests/contract/compute/memory/program.cpp
-  tests/contract/compute/memory/scratch.cpp
+  tests/contract/compute/memory/scratch/accelerator.cpp
+  tests/contract/compute/memory/scratch/cpu/collective.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/support.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/range.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/empty.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/scatter.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/typed.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/dispatcher.cpp
 )
-
-# These executable contracts print their own value/backend diagnostics. Keep
-# source lines for sanitizer and crash symbolization without emitting the full
-# template-local DWARF graph in Debug builds.
-set_property(SOURCE ${NODE_TEST_COMPUTE_LINE_TABLE_SOURCES}
-  APPEND PROPERTY COMPILE_OPTIONS
-    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang>>:-gline-tables-only>"
-    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANG_AND_ID:CXX,GNU>>:-g1>")
 
 set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/flow/shape.cpp
@@ -263,15 +670,24 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/flow/shape/surface.cpp
   tests/contract/compute/flow/shape/run.cpp
   tests/contract/compute/batch.cpp
+  tests/contract/compute/batch/reset.cpp
   tests/contract/compute/job.cpp
   tests/contract/compute/pipeline.cpp
   tests/contract/compute/pipeline/backend.cpp
   tests/contract/compute/pipeline/binding.cpp
   tests/contract/compute/pipeline/chunk.cpp
-  tests/contract/compute/pipeline/checkpoint.cpp
+  tests/contract/compute/pipeline/checkpoint/setup.cpp
+  tests/contract/compute/pipeline/checkpoint/initial.cpp
+  tests/contract/compute/pipeline/checkpoint/copy.cpp
+  tests/contract/compute/pipeline/checkpoint/alias.cpp
+  tests/contract/compute/pipeline/checkpoint/storage.cpp
+  tests/contract/compute/pipeline/checkpoint/portability.cpp
+  tests/contract/compute/pipeline/checkpoint/boundary.cpp
+  tests/contract/compute/pipeline/checkpoint/dispatcher.cpp
   tests/contract/compute/pipeline/completion.cpp
   tests/contract/compute/pipeline/empty.cpp
   tests/contract/compute/pipeline/sealed.cpp
+  tests/contract/compute/pipeline/generation.cpp
   tests/contract/compute/pipeline/fixed.cpp
   tests/contract/compute/pipeline/feedback.cpp
   tests/contract/compute/pipeline/hazard.cpp
@@ -280,20 +696,134 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/identity.cpp
   tests/contract/compute/pipeline/loss.cpp
   tests/contract/compute/pipeline/metal.cpp
-  tests/contract/compute/pipeline/metal/residency.cpp
+  tests/contract/compute/pipeline/metal/residency/transactional.cpp
+  tests/contract/compute/pipeline/metal/residency/execution.cpp
+  tests/contract/compute/pipeline/metal/residency/execution/single.cpp
+  tests/contract/compute/pipeline/metal/residency/staged.cpp
+  tests/contract/compute/pipeline/metal/residency/terminal.cpp
+  tests/contract/compute/pipeline/metal/residency/schedule.cpp
+  tests/contract/compute/pipeline/metal/residency/dispatcher.cpp
+  tests/contract/compute/pipeline/metal/residency/support.cpp
+  tests/contract/compute/pipeline/metal/persistent_sliding/dispatcher.cpp
+  tests/contract/compute/pipeline/metal/persistent_sliding/support.cpp
+  tests/contract/compute/pipeline/metal/persistent_sliding/window.cpp
+  tests/contract/compute/pipeline/metal/persistent_sliding/recurrence.cpp
+  tests/contract/compute/pipeline/metal/persistent_sliding/history.cpp
+  tests/contract/compute/pipeline/metal/persistent_sliding/persistent.cpp
+  tests/contract/compute/pipeline/metal/sliding_gate.cpp
+  tests/contract/compute/pipeline/persistent_product/backing.cpp
+  tests/contract/compute/pipeline/persistent_product/atomic.cpp
+  tests/contract/compute/pipeline/persistent_product/case.cpp
+  tests/contract/compute/pipeline/persistent_product/contract.cpp
+  tests/contract/compute/pipeline/persistent_product/evidence.cpp
+  tests/contract/compute/pipeline/persistent_product/failure.cpp
+  tests/contract/compute/pipeline/persistent_product/known_failure.cpp
+  tests/contract/compute/pipeline/persistent_product/memory_retry.cpp
+  tests/contract/compute/pipeline/persistent_product/fixture.cpp
+  tests/contract/compute/pipeline/persistent_product/route.cpp
+  tests/contract/compute/pipeline/persistent_product/surface.cpp
+  tests/contract/compute/pipeline/persistent_product/start_failure.cpp
+  tests/contract/compute/pipeline/persistent_product/query.cpp
+  tests/contract/compute/pipeline/persistent_product/unknown.cpp
+  tests/contract/compute/pipeline/persistent_product/window/case.cpp
+  tests/contract/compute/pipeline/persistent_product/window/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/binary/capacity.cpp
+  tests/contract/compute/pipeline/device_vsm_product/binary/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/binary/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/binary/resident.cpp
+  tests/contract/compute/pipeline/device_vsm_product/binary/resident_hash.cpp
+  tests/contract/compute/pipeline/device_vsm_product/binary/surface.cpp
+  tests/contract/compute/pipeline/device_vsm_product/contract.cpp
+  tests/contract/compute/pipeline/device_vsm_product/evidence.cpp
+  tests/contract/compute/pipeline/device_vsm_product/graph/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/graph/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/graph/semantic.cpp
+  tests/contract/compute/pipeline/device_vsm_product/graph_multi/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/graph_multi/capacity.cpp
+  tests/contract/compute/pipeline/device_vsm_product/graph_multi/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/multi_scan/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/multi_scan/capacity.cpp
+  tests/contract/compute/pipeline/device_vsm_product/multi_scan/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/multi_scan/rejection.cpp
+  tests/contract/compute/pipeline/device_vsm_product/pointwise_dag/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/pointwise_dag/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/reduce_ops/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/reduce_ops/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/reduce_sum/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/reduce_sum/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/route.cpp
+  tests/contract/compute/pipeline/device_vsm_product/scan/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/scan/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/scan_u32/case.cpp
+  tests/contract/compute/pipeline/device_vsm_product/scan_u32/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/warm.cpp
+  tests/contract/compute/pipeline/device_vsm_product/window/model.cpp
+  tests/contract/compute/pipeline/device_vsm_product/window/run.cpp
+  tests/contract/compute/pipeline/device_vsm_product/window/cases.cpp
+  tests/contract/compute/pipeline/device_vsm_product/window/fixture.cpp
+  tests/contract/compute/pipeline/device_vsm_product/window/fusion.cpp
   tests/contract/compute/pipeline/vulkan/contract.cpp
-  tests/contract/compute/pipeline/vulkan/transfer.cpp
-  tests/contract/compute/pipeline/memory.cpp
+  tests/contract/compute/pipeline/vulkan/graph_admission.cpp
+  tests/contract/compute/pipeline/vulkan/graph_admission/rejection.cpp
+  tests/contract/compute/pipeline/vulkan/graph_admission/generation.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/dispatcher.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/support.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/generated.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/recurrence.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/history.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/persistent.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/prepare.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/preflight.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/submit.cpp
+  tests/contract/compute/pipeline/vulkan/persistent_sliding/terminal.cpp
+  tests/contract/compute/pipeline/vulkan/residency/support.cpp
+  tests/contract/compute/pipeline/vulkan/residency/window.cpp
+  tests/contract/compute/pipeline/vulkan/residency/schedule.cpp
+  tests/contract/compute/pipeline/vulkan/residency/warm.cpp
+  tests/contract/compute/pipeline/vulkan/residency/abort.cpp
+  tests/contract/compute/pipeline/vulkan/residency/dispatcher.cpp
+  tests/contract/compute/pipeline/vulkan/residency/product/rolling.cpp
+  tests/contract/compute/pipeline/vulkan/residency/product/window.cpp
+  tests/contract/compute/pipeline/vulkan/sliding_gate.cpp
+  tests/contract/compute/pipeline/vulkan/sliding_gate/terminal.cpp
+  tests/contract/compute/pipeline/vulkan/transfer/dispatcher.cpp
+  tests/contract/compute/pipeline/vulkan/transfer/support.cpp
+  tests/contract/compute/pipeline/vulkan/transfer/selection.cpp
+  tests/contract/compute/pipeline/vulkan/transfer/execution.cpp
+  tests/contract/compute/pipeline/vulkan/transfer/probe.cpp
+  tests/contract/compute/pipeline/memory/dispatcher.cpp
+  tests/contract/compute/pipeline/memory/support.cpp
+  tests/contract/compute/pipeline/memory/basic.cpp
+  tests/contract/compute/pipeline/memory/attribution.cpp
+  tests/contract/compute/pipeline/memory/reset.cpp
+  tests/contract/compute/pipeline/memory/arena.cpp
+  tests/contract/compute/pipeline/memory/capacity.cpp
   tests/contract/compute/pipeline/admission.cpp
   tests/contract/compute/pipeline/profile/steps.cpp
   tests/contract/compute/pipeline/profile/samples.cpp
   tests/contract/compute/pipeline/range/introspection.cpp
   tests/contract/compute/pipeline/range/resident.cpp
   tests/contract/compute/pipeline/repeat.cpp
+  tests/contract/compute/pipeline/repeat/bounded.cpp
+  tests/contract/compute/pipeline/repeat/reset.cpp
   tests/contract/compute/pipeline/state.cpp
   tests/contract/compute/pipeline/status.cpp
-  tests/contract/compute/pipeline/surface.cpp
-  tests/contract/compute/pipeline/views.cpp
+  tests/contract/compute/pipeline/surface/lifecycle.cpp
+  tests/contract/compute/pipeline/surface/then.cpp
+  tests/contract/compute/pipeline/surface/tile.cpp
+  tests/contract/compute/pipeline/surface/record.cpp
+  tests/contract/compute/pipeline/surface/bounded.cpp
+  tests/contract/compute/pipeline/surface/alias.cpp
+  tests/contract/compute/pipeline/surface/shared_count.cpp
+  tests/contract/compute/pipeline/surface/dispatcher.cpp
+  tests/contract/compute/pipeline/view/dispatcher.cpp
+  tests/contract/compute/pipeline/view/support.cpp
+  tests/contract/compute/pipeline/view/basic.cpp
+  tests/contract/compute/pipeline/view/reduce.cpp
+  tests/contract/compute/pipeline/view/sort.cpp
+  tests/contract/compute/pipeline/view/reset.cpp
+  tests/contract/compute/pipeline/view/primitives.cpp
   tests/contract/compute/pipeline/view/arena.cpp
   tests/contract/compute/pipeline/transfer/contract.cpp
   tests/contract/compute/pipeline/transfer/model.cpp
@@ -301,22 +831,203 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/transfer/failure.cpp
   tests/contract/compute/pipeline/transfer/download.cpp
   tests/contract/compute/pipeline/residency/contract.cpp
+  tests/contract/compute/pipeline/residency/physical_view.cpp
   tests/contract/compute/pipeline/residency/planner.cpp
   tests/contract/compute/pipeline/residency/identity.cpp
   tests/contract/compute/pipeline/residency/graph.cpp
+  tests/contract/compute/pipeline/residency/projection.cpp
+  tests/contract/compute/pipeline/residency/graph_drain.cpp
+  tests/contract/compute/pipeline/residency/graph_forecast.cpp
+  tests/contract/compute/pipeline/residency/graph_persist.cpp
+  tests/contract/compute/pipeline/residency/fetch_fill.cpp
+  tests/contract/compute/pipeline/residency/graph_promote/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/graph_promote/support.cpp
+  tests/contract/compute/pipeline/residency/graph_promote/wide.cpp
+  tests/contract/compute/pipeline/residency/graph_promote/group.cpp
+  tests/contract/compute/pipeline/residency/graph_promote/single.cpp
+  tests/contract/compute/pipeline/residency/graph_host_input.cpp
+  tests/contract/compute/pipeline/residency/graph_wavefront.cpp
+  tests/contract/compute/pipeline/residency/host_ring.cpp
   tests/contract/compute/pipeline/residency/footprint.cpp
-  tests/contract/compute/pipeline/residency/authority.cpp
+  tests/contract/compute/pipeline/residency/authority/cache.cpp
+  tests/contract/compute/pipeline/residency/authority/support.cpp
+  tests/contract/compute/pipeline/residency/authority/migration.cpp
+  tests/contract/compute/pipeline/residency/authority/transform.cpp
+  tests/contract/compute/pipeline/residency/authority/capacity.cpp
+  tests/contract/compute/pipeline/residency/authority/lifetime.cpp
+  tests/contract/compute/pipeline/residency/authority/graph.cpp
+  tests/contract/compute/pipeline/residency/authority/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/authority/relocation.cpp
+  tests/contract/compute/pipeline/residency/authority/views.cpp
+  tests/contract/compute/pipeline/residency/authority/view_commit.cpp
+  tests/contract/compute/pipeline/residency/authority/prefetch.cpp
+  tests/contract/compute/pipeline/residency/cycle.cpp
+  tests/contract/compute/pipeline/residency/execution/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/execution/support.cpp
+  tests/contract/compute/pipeline/residency/execution/plan.cpp
+  tests/contract/compute/pipeline/residency/execution/authority.cpp
+  tests/contract/compute/pipeline/residency/execution/native.cpp
+  tests/contract/compute/pipeline/residency/sliding/support.cpp
+  tests/contract/compute/pipeline/residency/sliding/lifecycle.cpp
+  tests/contract/compute/pipeline/residency/sliding/graph.cpp
+  tests/contract/compute/pipeline/residency/sliding/terminal.cpp
+  tests/contract/compute/pipeline/residency/sliding/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/sliding/authority/physical.cpp
+  tests/contract/compute/pipeline/residency/sliding/authority/window.cpp
+  tests/contract/compute/pipeline/residency/sliding/authority/cache.cpp
+  tests/contract/compute/pipeline/residency/sliding/authority/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/sliding/generation.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/backend.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/support.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/admission.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/terminal.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/concurrency.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/reentrant.cpp
+  tests/contract/compute/pipeline/residency/native_sliding/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/persistent_sliding/contract.cpp
+  tests/contract/compute/pipeline/residency/persistent_sliding/fake.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/contract.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/authority.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/authority/support.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/authority/success.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/authority/terminal.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/fake.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/contract.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/graph_terminal.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual/authority.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual/run.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual_binary.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual_binary/artifact.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual_binary/prepare.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual_binary/execution.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual_binary/evidence.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/actual_binary/terminal.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/authority.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/fake.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/fixture.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/geometry.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/product_evidence.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/surface.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/source.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/source/graph_map_reduce.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/graph_pointwise_source.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/scan_source.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/graph_map_scan_source.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/reduce_source.cpp
+  tests/contract/compute/pipeline/residency/device_vsm/reduce_terminal.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/actual.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/product/evidence.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/product/known.cpp
+  tests/contract/compute/pipeline/residency/service_free_direct/product/unknown.cpp
+  tests/contract/compute/pipeline/residency/window/dispatcher.cpp
+  tests/contract/compute/pipeline/residency/window/support.cpp
+  tests/contract/compute/pipeline/residency/window/stream.cpp
+  tests/contract/compute/pipeline/residency/window/schedule.cpp
+  tests/contract/compute/pipeline/residency/pool.cpp
+  tests/contract/compute/pipeline/residency/pool_admission.cpp
   tests/contract/compute/virtual/contract.cpp
   tests/contract/compute/virtual/backing.cpp
   tests/contract/compute/virtual/golden.cpp
   tests/contract/compute/virtual/pager.cpp
   tests/contract/compute/virtual/oracle.cpp
+  tests/contract/compute/virtual/graph_product.cpp
+  tests/contract/compute/virtual/product/graph_resident/program.cpp
+  tests/contract/compute/virtual/product/graph_resident/fixture.cpp
+  tests/contract/compute/virtual/product/graph_resident/fixture/prepare.cpp
+  tests/contract/compute/virtual/product/graph_resident/fixture/run.cpp
+  tests/contract/compute/virtual/product/graph_resident/fixture/staged.cpp
+  tests/contract/compute/virtual/product/graph_resident/fixture/u32.cpp
+  tests/contract/compute/virtual/product/graph_resident/evidence.cpp
+  tests/contract/compute/virtual/product/graph_resident/oracle.cpp
+  tests/contract/compute/virtual/product/graph_resident_host/program.cpp
+  tests/contract/compute/virtual/product/graph_resident_host/fixture.cpp
+  tests/contract/compute/virtual/product/graph_resident_host/evidence.cpp
+  tests/contract/compute/virtual/product/graph_resident_host/oracle.cpp
+  tests/contract/compute/virtual/graph_pointwise_later.cpp
   tests/contract/compute/virtual/product/contract.cpp
-  tests/contract/compute/virtual/product/active.cpp
+  tests/contract/compute/virtual/product/active/support.cpp
+  tests/contract/compute/virtual/product/active/base.cpp
+  tests/contract/compute/virtual/product/active/growth.cpp
+  tests/contract/compute/virtual/product/active/evidence.cpp
+  tests/contract/compute/virtual/product/active/evidence/stats.cpp
+  tests/contract/compute/virtual/product/active/cache.cpp
+  tests/contract/compute/virtual/product/active/dispatcher.cpp
   tests/contract/compute/virtual/product/prefetch.cpp
   tests/contract/compute/virtual/product/window.cpp
-  tests/contract/compute/virtual/product/reduce.cpp
-  tests/contract/compute/virtual/product/scan.cpp
+  tests/contract/compute/virtual/product/window/clip.cpp
+  tests/contract/compute/virtual/product/window/exact.cpp
+  tests/contract/compute/virtual/product/window/model.cpp
+  tests/contract/compute/virtual/product/window/tier.cpp
+  tests/contract/compute/virtual/product/reduce/dispatcher.cpp
+  tests/contract/compute/virtual/product/reduce/support.cpp
+  tests/contract/compute/virtual/product/reduce/basic.cpp
+  tests/contract/compute/virtual/product/reduce/sequence.cpp
+  tests/contract/compute/virtual/product/reduce/sequence/diagnostics.cpp
+  tests/contract/compute/virtual/product/reduce/lending.cpp
+  tests/contract/compute/virtual/product/reduce/direct.cpp
+  tests/contract/compute/virtual/product/route/support.cpp
+  tests/contract/compute/virtual/product/route/observation.cpp
+  tests/contract/compute/virtual/product/route/protocol.cpp
+  tests/contract/compute/virtual/product/route/resolve.cpp
+  tests/contract/compute/virtual/product/oracle/common.cpp
+  tests/contract/compute/virtual/product/oracle/persistent.cpp
+  tests/contract/compute/virtual/product/oracle/device_vsm.cpp
+  tests/contract/compute/virtual/product/oracle/rolling.cpp
+  tests/contract/compute/virtual/product/oracle/window.cpp
+  tests/contract/compute/virtual/product/route_contract.cpp
+  tests/contract/compute/virtual/product/graph_wavefront.cpp
+  tests/contract/compute/virtual/product/graph_wavefront_host.cpp
+  tests/contract/compute/virtual/product/graph_wavefront_host/program.cpp
+  tests/contract/compute/virtual/product/graph_wavefront_host/fixture.cpp
+  tests/contract/compute/virtual/product/graph_wavefront_host/evidence.cpp
+  tests/contract/compute/virtual/product/graph_wavefront_multi_host.cpp
+  tests/contract/compute/virtual/product/graph_wavefront_later_multi_host.cpp
+  tests/contract/compute/virtual/product/graph_pointwise.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_wide_host.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_wide_device.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_wide_host/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_wide_host/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_wide_host/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_wide_host/device.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_shape/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deep.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deep/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deep/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deep/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deeper.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deeper/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deeper/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_deeper/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_frontier.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_frontier/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_frontier/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_frontier/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_six.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_six/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_six/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_six/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_seven.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_seven/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_seven/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_seven/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_depth_seven/evidence/validation.cpp
+  tests/contract/compute/virtual/product/graph_pointwise/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise/success.cpp
+  tests/contract/compute/virtual/product/graph_pointwise/failure.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_multi.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_multi/program.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_multi/fixture.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_multi/publication.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_multi/evidence.cpp
+  tests/contract/compute/virtual/product/graph_pointwise_multi/case.cpp
+  tests/contract/compute/virtual/product/scan/support.cpp
+  tests/contract/compute/virtual/product/scan/basic.cpp
+  tests/contract/compute/virtual/product/scan/tiered.cpp
+  tests/contract/compute/virtual/product/scan/failure.cpp
+  tests/contract/compute/virtual/product/scan/dispatcher.cpp
   tests/contract/compute/virtual/product/cache.cpp
   tests/contract/compute/virtual/product/backing.cpp
   tests/contract/compute/virtual/product/golden.cpp
@@ -325,7 +1036,15 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/virtual/product/capability.cpp
   tests/contract/compute/virtual/product/prepare.cpp
   tests/contract/compute/virtual/product/execution.cpp
-  tests/contract/compute/virtual/product/failure.cpp
+  tests/contract/compute/virtual/product/device_vsm_unknown.cpp
+  tests/contract/compute/virtual/product/graph_persist_ring.cpp
+  tests/contract/compute/virtual/product/failure/support.cpp
+  tests/contract/compute/virtual/product/failure/boundary.cpp
+  tests/contract/compute/virtual/product/failure/backing.cpp
+  tests/contract/compute/virtual/product/failure/device_vsm.cpp
+  tests/contract/compute/virtual/product/failure/native.cpp
+  tests/contract/compute/virtual/product/failure/multilane.cpp
+  tests/contract/compute/virtual/product/failure/dispatcher.cpp
   tests/contract/compute/virtual/product/width.cpp
   tests/contract/compute/virtual/product/concurrency/local.cpp
   tests/contract/compute/virtual/product/concurrency/pipeline.cpp
@@ -336,11 +1055,17 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/matrix.cpp
   tests/contract/compute/window/nested/contract.cpp
   tests/contract/compute/window/nested/control.cpp
-  tests/contract/compute/window/nested/evidence.cpp
+  tests/contract/compute/window/nested/control/capacity.cpp
+  tests/contract/compute/window/nested/control/dormant.cpp
+  tests/contract/compute/window/nested/retained.cpp
+  tests/contract/compute/window/nested/maximum.cpp
+  tests/contract/compute/window/nested/aggregate.cpp
   tests/contract/compute/window/nested/execution.cpp
   tests/contract/compute/window/nested/failure.cpp
   tests/contract/compute/window/nested/fixture.cpp
   tests/contract/compute/window/nested/identity.cpp
+  tests/contract/compute/window/nested/identity/runtime.cpp
+  tests/contract/compute/window/nested/identity/transactional.cpp
   tests/contract/compute/window/nested/oracle.cpp
   tests/contract/compute/window/nested/plan.cpp
   tests/contract/compute/window/nested/program.cpp
@@ -350,8 +1075,13 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/output/failure.cpp
   tests/contract/compute/window/output/model.cpp
   tests/contract/compute/window/output/ordinary.cpp
-  tests/contract/compute/window/output/publication.cpp
-  tests/contract/compute/window/output/publication_mutation.cpp
+  tests/contract/compute/window/output/publication/contract.cpp
+  tests/contract/compute/window/output/publication/arity.cpp
+  tests/contract/compute/window/output/publication/fingerprint.cpp
+  tests/contract/compute/window/output/publication/source.cpp
+  tests/contract/compute/window/output/publication/mutation.cpp
+  tests/contract/compute/window/output/publication/mutation/job.cpp
+  tests/contract/compute/window/output/publication/rollback.cpp
   tests/contract/compute/window/output/subview.cpp
   tests/contract/compute/window/parity.cpp
   tests/contract/compute/window/plan.cpp
@@ -359,13 +1089,26 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/window/workset.cpp
   tests/contract/compute/memory.cpp
   tests/contract/compute/memory/accel.cpp
+  tests/contract/compute/memory/accel/program.cpp
+  tests/contract/compute/memory/accel/models.cpp
+  tests/contract/compute/memory/accel/job.cpp
+  tests/contract/compute/memory/accel/sort.cpp
   tests/contract/compute/memory/arena.cpp
-  tests/contract/compute/memory/buffer_lifecycle.cpp
-  tests/contract/compute/memory/cpu_arena.cpp
+  tests/contract/compute/memory/lifecycle.cpp
+  tests/contract/compute/memory/cpu/arena.cpp
   tests/contract/compute/memory/graph.cpp
+  tests/contract/compute/memory/graph/resident.cpp
+  tests/contract/compute/memory/graph/view.cpp
   tests/contract/compute/memory/observe.cpp
   tests/contract/compute/memory/program.cpp
-  tests/contract/compute/memory/scratch.cpp
+  tests/contract/compute/memory/scratch/accelerator.cpp
+  tests/contract/compute/memory/scratch/cpu/collective.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/support.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/range.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/empty.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/scatter.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/typed.cpp
+  tests/contract/compute/memory/scratch/cpu/primitive/dispatcher.cpp
   tests/contract/compute/backend.cpp
   tests/contract/compute/backend/domain.cpp
   tests/contract/compute/backend/map.cpp
@@ -376,7 +1119,11 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/backend/segment.cpp
   tests/contract/compute/collective/modes.cpp
   tests/contract/compute/collective/modes/backend.cpp
-  tests/contract/compute/collective/modes/bounded.cpp
+  tests/contract/compute/collective/modes/bounded/plan.cpp
+  tests/contract/compute/collective/modes/bounded/resident.cpp
+  tests/contract/compute/collective/modes/bounded/aggregate.cpp
+  tests/contract/compute/collective/modes/bounded/window.cpp
+  tests/contract/compute/collective/modes/bounded/dispatcher.cpp
   tests/contract/compute/collective/modes/cancel.cpp
   tests/contract/compute/collective/modes/core.cpp
   tests/contract/compute/collective/modes/empty.cpp
@@ -384,6 +1131,9 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/collective/modes/reduce.cpp
   tests/contract/compute/collective/modes/scale.cpp
   tests/contract/compute/boundary/modes.cpp
+  tests/contract/compute/boundary/modes/bounded.cpp
+  tests/contract/compute/boundary/modes/domain.cpp
+  tests/contract/compute/boundary/modes/fixed.cpp
   tests/contract/compute/bounded.cpp
   tests/contract/compute/bounded/backend.cpp
   tests/contract/compute/bounded/compact.cpp

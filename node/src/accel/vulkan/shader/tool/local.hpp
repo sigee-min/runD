@@ -1,6 +1,7 @@
 #pragma once
 
-#include "../../adapter/api.hpp"
+#include "../../adapter/shader.hpp"
+#include <kernel/program/compute/model.hpp>
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
 #include <filesystem>

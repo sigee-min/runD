@@ -1,4 +1,4 @@
-#include "adapter/api.hpp"
+#include "shader/api.hpp"
 
 namespace rund::node::accel::detail {
 

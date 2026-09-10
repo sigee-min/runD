@@ -2,6 +2,10 @@ set(NODE_TEST_NET_SERVER_TEST_SOURCES
   ${RUND_NODE_TEST_TASK_ALLOCATION_SUPPORT}
   tests/contract/runtime/task/net/server/core.cpp
   tests/contract/runtime/task/net/server/core/inline.cpp
+  tests/contract/runtime/task/net/server/core/inline/support.cpp
+  tests/contract/runtime/task/net/server/core/inline/outcome.cpp
+  tests/contract/runtime/task/net/server/core/inline/arrival.cpp
+  tests/contract/runtime/task/net/server/core/inline/public_io.cpp
   tests/contract/runtime/task/net/server/core/invalid.cpp
   tests/contract/runtime/task/net/server/core/local/cleanup.cpp
   tests/contract/runtime/task/net/server/core/local/client.cpp

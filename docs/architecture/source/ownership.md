@@ -65,3 +65,71 @@ admitted only when it must restore state before propagation, crosses a
 Otherwise exceptions unwind to the one owning boundary. Catch-all conversion
 requires an explicit unexpected-exception contract; it is not a substitute for
 enumerating the exception classes that the boundary is authorized to project.
+
+## Measurement source ownership
+
+The current-source Virtual crossover diagnostic has one authority per
+responsibility:
+
+- `tools/measure/compute/virtual/crossover/schema.hpp` owns the frozen
+  value-only grid, ratios, capacities, and cell ordering shared by production
+  and aggregation.
+- `tools/measure/compute/virtual/crossover/prepare.cpp` owns paired workload
+  preparation, backing setup, and deterministic input seeding.
+- `tools/measure/compute/virtual/crossover/evidence.cpp` owns output/hash,
+  cold-terminal, Profile, and warm-sample evidence validation.
+- `tools/measure/compute/virtual/crossover/run.cpp` owns ABBA sampling and
+  ordered measurement orchestration; `report.cpp` owns measurement-row
+  formatting and the frozen CSV field order.
+- `tools/measure/compute/virtual/crossover/aggregate.cpp` owns CSV column
+  emission, packet parsing, schema validation, consensus, bracket, and slice
+  reporting.
+- `tools/measure/compute/virtual/crossover.hpp` owns only the public
+  measurement entry points consumed by the CLI.
+
+The producer and aggregator communicate through the serialized CSV contract;
+neither includes the other's implementation or duplicates its parsing or
+workload logic.
+
+The natural route-matrix producer has the same single-owner rule:
+`virtual/route_matrix/run/prepare.cpp` owns case geometry, admission, and
+backing initialization; `run/sampling.cpp` owns timed execution and the fixed
+ABBA sample cohort; `run/evidence.cpp` owns terminal/profile/output/hash and
+route evidence validation; and `run.cpp` owns device/case ordering and the
+substantive coordinator. The observer is split without a second accumulator:
+`observer/evidence.cpp` owns lifecycle/hash/capability and counter
+accumulation, `observer/hooks.cpp` owns the two delegating DeviceOps hooks, and
+`observer/lifecycle.cpp` owns installation/restoration/reset/sealing;
+`observer/local.hpp` is a declaration/type seam only. The route `oracle.cpp`
+and `report/` owners retain their predicate and serialized packet authorities;
+`internal.hpp` remains a declaration/value seam only.
+
+The current-source preparation-memory diagnostic has one authority per
+responsibility:
+
+- `tools/measure/compute/pipeline/prepare/model.hpp` owns the frozen workload
+  constants and observation schema.
+- `tools/measure/compute/pipeline/prepare/contract.cpp` owns plan, memory,
+  backend-reservation, telemetry, and failure-location contract validation.
+- `tools/measure/compute/pipeline/prepare/program.hpp` owns synthetic program
+  construction and no observation or CSV policy.
+- `tools/measure/compute/pipeline/prepare/report.cpp` owns CSV columns,
+  serialization, and memory-category naming.
+- `tools/measure/compute/pipeline/prepare/run.cpp` owns device opening,
+  program/buffer setup, plan/prepare orchestration, and observation sequencing.
+
+The public `pipeline.hpp` declarations remain the CLI measurement boundary;
+the preparation-memory producer, contract, and reporter communicate through
+the one observation schema without implementation includes or forwarding
+wrappers.
+
+The shared Compute measurement suite has one owner per cross-scenario concern:
+`suite/core.hpp` exposes only common CLI declarations and timing constants;
+`suite/output.cpp` owns CSV escaping, environment rows, and workload columns;
+`suite/reference.cpp` owns the process-wide hash ledger and reference checks;
+`suite/capture.hpp` and `suite/bench.hpp` retain only the genuinely generic
+resident-job templates; `suite/bulk.hpp` owns the compile-time bulk cost
+model; and `suite/warm.hpp` owns the warm-counter arithmetic contract. The
+executable CMake source lists include the compiled output, parser, and
+reference owners explicitly, so no translation unit creates a second inline
+reference or output authority.

@@ -2,7 +2,7 @@
 
 #include "../../kernel/memory.hpp"
 #include "../../kernel/status.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../adapter/pipeline.hpp"
 #include "../descriptor.hpp"
 #include "ops/model.hpp"

@@ -28,6 +28,12 @@ struct FlowHash final {
 [[nodiscard]] int CheckExpressions(rund::compute::Backend, std::uint64_t &,
                                    std::uint64_t &);
 [[nodiscard]] int CheckRecords(rund::compute::Backend);
+[[nodiscard]] int CheckIndexedMap(rund::compute::Backend);
+[[nodiscard]] int CheckWideMap(rund::compute::Backend);
+[[nodiscard]] int CheckIndexedAlias(rund::compute::Backend);
+[[nodiscard]] int CheckIndexedCapacity();
+[[nodiscard]] int CheckFusionBoundaries(rund::compute::Backend);
+[[nodiscard]] int CheckResetProjection(rund::compute::Backend);
 [[nodiscard]] bool CheckComposition(rund::compute::Backend,
                                     std::array<FlowHash, 6u> &);
 [[nodiscard]] bool CheckTyped(rund::compute::Backend,
@@ -36,6 +42,8 @@ struct FlowHash final {
     CheckBackendContracts(std::span<const rund::compute::Backend>);
 [[nodiscard]] int CheckParityBackends(std::span<const rund::compute::Backend>);
 [[nodiscard]] int CheckBasic();
+[[nodiscard]] int
+    CheckPointwiseReduceSlices(std::span<const rund::compute::Backend>);
 [[nodiscard]] int CheckShape();
 [[nodiscard]] int CheckDevice();
 

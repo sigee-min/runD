@@ -23,11 +23,6 @@ struct MetalPipelineStatusBindings;
 struct VulkanPipelineStatusSource;
 struct VulkanPipelineTelemetrySource;
 
-[[nodiscard]] rund::AccelCheck
-ExecuteMetalScatter(const rund::AccelDevice &pick,
-                    const rund::kernel::ScatterDesc &desc,
-                    const rund::kernel::ScatterPlan &plan,
-                    const ScatterBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalScatter(const rund::AccelDevice &pick,
                                         const rund::kernel::ScatterDesc &desc,
                                         const rund::kernel::ScatterPlan &plan,
@@ -41,11 +36,6 @@ ExecuteMetalScatter(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck FinishMetalScatter(MetalAdapter &adapter,
                                        const std::shared_ptr<void> &resources);
 
-[[nodiscard]] rund::AccelCheck
-ExecuteVulkanScatter(const rund::AccelDevice &pick,
-                     const rund::kernel::ScatterDesc &desc,
-                     const rund::kernel::ScatterPlan &plan,
-                     const ScatterBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanScatter(
     const rund::AccelDevice &pick, const rund::kernel::ScatterDesc &desc,
     const rund::kernel::ScatterPlan &plan,

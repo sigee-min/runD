@@ -62,6 +62,25 @@ valid_sha256() {
   [ "${#value}" -eq 64 ]
 }
 
+toolchain_valid() {
+  packet_host=$(field host "$run") || return 1
+  packet_generator=$(field generator "$run") || return 1
+  packet_compiler=$(field compiler "$run") || return 1
+  packet_compiler_sha256=$(field compiler_sha256 "$run") || return 1
+  packet_version_sha256=$(field compiler_version_sha256 "$run") || return 1
+  [ "$packet_host" = "$current_host" ] || return 1
+  [ -n "$packet_generator" ] && [ "$packet_generator" != unknown ] || return 1
+  case "$packet_compiler" in /*) ;; *) return 1 ;; esac
+  [ -f "$packet_compiler" ] && [ -x "$packet_compiler" ] || return 1
+  valid_sha256 "$packet_compiler_sha256" || return 1
+  valid_sha256 "$packet_version_sha256" || return 1
+  [ "$(file_sha256 "$packet_compiler")" = "$packet_compiler_sha256" ] || return 1
+  [ -f "$latest/compiler-version.txt" ] &&
+    [ ! -L "$latest/compiler-version.txt" ] &&
+    [ -s "$latest/compiler-version.txt" ] || return 1
+  [ "$(file_sha256 "$latest/compiler-version.txt")" = "$packet_version_sha256" ]
+}
+
 proof_valid_raw() {
   case "$route" in
     measure-compute|measure-scheduler|measure-telemetry) expected_log=measure.log ;;
@@ -259,7 +278,7 @@ for route do
     observed_manifest=$(file_sha256 "$latest/source-manifest.tsv")
     observed_identity=$(file_sha256 "$latest/source-identity.tsv")
     if [ "$observed_manifest" = "$packet_manifest" ] &&
-       [ "$observed_identity" = "$packet_identity" ]; then
+       [ "$observed_identity" = "$packet_identity" ] && toolchain_valid; then
       case "$packet_status" in
         passed)
           case "$route" in

@@ -9,7 +9,7 @@ namespace rund::compute::detail {
 
 [[nodiscard]] Status
 canonical_step_order(const FlowState &flow, const std::vector<bool> &keep,
-                     const std::vector<MapLivePlan> &map_plans,
+                     const std::vector<StepLivePlan> &map_plans,
                      const std::size_t live_steps,
                      std::vector<std::size_t> &order) {
   constexpr std::size_t NoProducer = std::numeric_limits<std::size_t>::max();
@@ -50,6 +50,11 @@ canonical_step_order(const FlowState &flow, const std::vector<bool> &keep,
         }
       } else if (const auto *scan = std::get_if<ScanStep>(&entry)) {
         if (!register_output(scan->output, step)) {
+          return Status::fail(Reason::GraphBindingInvalid);
+        }
+      } else if (const auto *filter = std::get_if<FilterStep>(&entry)) {
+        if (!register_output(filter->values, step) ||
+            !register_output(filter->count, step)) {
           return Status::fail(Reason::GraphBindingInvalid);
         }
       } else {
@@ -97,7 +102,7 @@ canonical_step_order(const FlowState &flow, const std::vector<bool> &keep,
       if (const auto *map = std::get_if<MapStep>(&entry)) {
         const std::span<const std::uint32_t> map_inputs =
             flow.value_ids.view(map->inputs);
-        const MapLivePlan &map_plan = map_plans[step];
+        const StepLivePlan &map_plan = map_plans[step];
         for (std::size_t input = 0u; input < map_inputs.size(); ++input) {
           if ((map_plan.used_inputs & live_bit(input)) != 0u &&
               !visit_value(map_inputs[input])) {
@@ -112,6 +117,13 @@ canonical_step_order(const FlowState &flow, const std::vector<bool> &keep,
       } else if (const auto *scan = std::get_if<ScanStep>(&entry)) {
         if (!visit_value(scan->input) ||
             (scan->count != 0u && !visit_value(scan->count))) {
+          return false;
+        }
+      } else if (const auto *filter = std::get_if<FilterStep>(&entry)) {
+        const auto live = map_plans[step].live_outputs;
+        if (((live & live_bit(0u)) != 0u &&
+             (!visit_value(filter->input) || !visit_value(filter->rejected))) ||
+            ((live & live_bit(1u)) != 0u && !visit_value(filter->selected))) {
           return false;
         }
       } else {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../range_aggregate/execution.hpp"
+#include "../range_aggregate/model/plan.hpp"
 
 #include <kernel/program/compute/stencil/plan.hpp>
 

@@ -61,7 +61,13 @@ across two different stored formats.
 
 `PlanFusion(...)` is the sole boundary-decision authority. It records fused
 boundaries in a fixed 16,384-bit plan that the Node compiler consumes directly;
-Node does not reevaluate fusion legality. Candidate reader lifetimes are built
+Node does not reevaluate fusion legality. Compiled ownership is split so that
+candidate inspection belongs to `fusion/inspect.cpp`, boundary policy and capacity decisions belong to
+`fusion/policy.cpp`, and output identity mixing belongs to
+`fusion/identity.cpp`; `fusion.cpp` only coordinates those owners and publishes
+the plan. The private `fusion/local.hpp` is a declarations/data seam and owns
+no second graph or policy state.
+Candidate reader lifetimes are built
 in two cold vectors sized to the actual admitted node count, sorted by
 `(logical_id, writer)`, and counted by one ordered graph sweep with reads
 preceding writes at each node. With `N <= 16384` nodes, `B <= 64` buffers per
@@ -865,13 +871,25 @@ destructive retained handoff from the same lowering result: they never own
 canonical bytes, and keep only the representation required by their backend.
 Lowering validates checked IR bytes and hashes, known APIs, scalar and domain
 agreement, numeric policy, node and binding references, canonical writes, and
-supported IR ops before emitting an artifact. The three compiled owners below
-`lowering/validate/` separate numeric-format, domain/write, and final admission
-responsibilities. `lowering/validate.hpp` exposes only the binding-domain and
-complete-IR declarations; admission, metadata, fusion, Node, and backend
+supported IR ops before emitting an artifact. The compiled owners below
+`lowering/validate/` separate binding-domain/mask, write-mode, effective-domain,
+numeric-format, and final admission
+responsibilities: `binding.cpp` owns binding shape/index classification,
+`mask.cpp` owns canonical mask recognition, `write.cpp` owns write-mode
+admission, `propagate.cpp` owns effective-domain propagation, `format.cpp`
+owns fixed-format validation, and `entry.cpp` owns final admission.
+`validate.hpp` exposes only the binding-domain and complete-IR declarations;
+`validate/model.hpp` and `validate/local.hpp` carry declarations and immutable
+validation types only. Admission, metadata, fusion, Node, and backend
 consumers do not parse or instantiate the validation implementation
 independently. This physical boundary changes no validation order, rejection
 string, graph identity, or execution schedule. The artifact metadata is built
+The canonical parser is likewise compiled once: `lowering/parse/reader.cpp`
+owns bounded byte decoding, `binding.cpp` owns binding admission, `node.cpp`
+owns operand and numeric-node admission, and `entry.cpp` owns schema/order and
+allocation-failure closure. Public `lowering/parse.hpp` contains only the
+Reader and two parse entry declarations.
+The artifact metadata is built
 from the same parsed checked IR used for source emission, so callers do not
 rebuild execution metadata for the same IR after lowering succeeds. The thin
 `LowerComputeIR` wrapper delegates to one internal `AdmitComputeInput` parse
@@ -1010,10 +1028,35 @@ helper authority. These tests inspect emitted artifact text only as
 kernel-owned source semantics; they do not read implementation files or prove
 driver, SPIR-V, or runtime backend behavior.
 
+Vulkan node-source ownership is likewise facet-local and remains header-only:
+`source/node.hpp` is the public include-compatible umbrella, `source/node/wide/context.hpp`
+owns wide formatting and lane context, `source/node/wide/basic.hpp` owns wide
+loads, constants, predicates, bit operations, and shifts, and
+`source/node/wide/fixed.hpp` owns fixed arithmetic, comparisons, nonlinear
+operations, and stores. `source/node/ordinary.hpp` owns the scalar-domain node
+switch, while `source/node/body.hpp` owns ordered node traversal. These leaves
+contain the only node emitters; they preserve the existing generated source
+recipes and are consumed directly by `source.hpp`, so no compiled registry row
+is required and no second shader-source authority is introduced.
+
+Metal node-source ownership follows the same header-only boundary:
+`source/node.hpp` remains the include-compatible umbrella,
+`source/node/wide/context.hpp` owns Metal lane wrapping, alignment, quantization,
+and phase/canonical lane projections, `source/node/wide/basic.hpp` owns wide
+loads, constants, predicates, bit operations, and shifts, and
+`source/node/wide/fixed.hpp` owns fixed arithmetic, comparisons, nonlinear
+operations, stores, and the fixed fallback. `source/node/ordinary.hpp` owns
+non-Fixed scalar dispatch and `source/node/body.hpp` owns ordered traversal.
+The existing Metal source recipes remain the sole text-emission authority.
+
 `backend/lowering/emission/reachability.cpp` independently checks Metal and
 Vulkan source for non-Fixed-source absence, selected-lane and actual-operation
 helper presence, dead narrow-entry-point absence, and monotonic generated-source size
 across minimal, stored-helper, and full canonical-helper fixtures.
+Its independent 128-by-64 restoring-division oracle lives in
+`backend/lowering/emission/reachability/u128.cpp`; the parent source invokes
+that compiled mathematical owner in the original fail-fast order, and the
+adjacent `local.hpp` contains only its declaration.
 
 `BuildFusedComputeMapChainIR(...)` is the bounded kernel-owned executable fusion
 bridge for admitted straight-line Map chains of any admitted length at least
@@ -1048,10 +1091,13 @@ and does not cover reductions, atomics, scatter, shared writes, non-map region
 shapes, or a region containing a rejected fusion boundary. Node owns the
 single graph-order scan that splits the product graph at those boundaries and
 invokes this bridge once per maximal legal region. The declaration lives in
-`include/kernel/program/compute/lowering/fusion/build.hpp`; the complete
-implementation has one compiled owner at
-`src/program/compute/lowering/fusion/build.cpp`, so changing fusion mechanics
-does not fan out through every header consumer.
+`include/kernel/program/compute/lowering/fusion/build.hpp`. Compiled ownership
+is phase-separated: `src/program/compute/lowering/fusion/artifact.cpp` alone
+owns binding assembly, node remapping, canonical serialization, and final IR
+identity, while `fusion/build.cpp` owns source admission, graph/policy checks,
+capacity closure, and the public bridge. Their private `internal.hpp` contains
+only the shared data model and declarations, so changing fusion mechanics does
+not fan out through every public header consumer or create a second emitter.
 
 Lowering and artifact validation reasons are contract vocabulary:
 

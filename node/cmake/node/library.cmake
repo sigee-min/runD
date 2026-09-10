@@ -198,11 +198,11 @@ function(rund_node_internal_archive_context target root)
     # adapter SCC adds no second Kernel edge.
   elseif(root STREQUAL "CPU_RUNTIME_PRODUCT" OR
          root STREQUAL "RUNTIME_PRODUCT" OR root STREQUAL "NUMERIC" OR
-         root STREQUAL "STORAGE" OR root STREQUAL "TELEMETRY")
+         root STREQUAL "STORAGE" OR root STREQUAL "TELEMETRY" OR
+         root STREQUAL "RANGE_PLAN")
     # Product joins and leaf SCCs have only modeled SCC edges; they carry no
     # out-of-line external dependency.
-  elseif(NOT root STREQUAL "NUMERIC" AND NOT root STREQUAL "STORAGE" AND
-         NOT root STREQUAL "TELEMETRY")
+  else()
     message(FATAL_ERROR "Node archive ${target} has unknown SCC root ${root}")
   endif()
   if(public_dependencies)

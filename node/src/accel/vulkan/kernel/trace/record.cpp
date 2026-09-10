@@ -1,6 +1,7 @@
 #include "../trace.hpp"
 
 #include "../../command/resources.hpp"
+#include "../../command/timestamp.hpp"
 #include "../../runtime/timestamp.hpp"
 #include "../local.hpp"
 

@@ -9,4 +9,4 @@ RUND_NODE_TEST_CASE("compute.program-cache-concurrency", RunComputeProgramCacheC
 RUND_NODE_TEST_CASE("compute.program-cache-index", RunComputeProgramCacheIndexContract, "tests/contract/compute/program/cache/index.cpp", cpu-compute)
 RUND_NODE_TEST_CASE("compute.graph-build", RunComputeGraphBuildContract, "tests/contract/compute/graph/build.cpp", cpu-compute)
 RUND_NODE_TEST_CASE("compute.graph-plan", RunComputeGraphPlanContract, "tests/contract/compute/graph/services/plan.cpp", cpu-compute)
-RUND_NODE_TEST_CASE("compute.flow-primitives", RunComputeFlowPrimitivesContract, "tests/contract/compute/flow/primitives.cpp", cpu-compute)
+RUND_NODE_TEST_CASE("compute.flow-primitives", RunComputeFlowPrimitivesContract, "tests/contract/compute/flow/primitives/dispatcher.cpp", cpu-compute)

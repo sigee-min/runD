@@ -35,7 +35,15 @@ struct FlowPrimitive final {
   FlowControl control{};
 };
 
-using FlowStep = std::variant<MapStep, ScanStep, FlowPrimitive>;
+struct FilterStep final {
+  std::uint32_t input{};
+  std::uint32_t selected{};
+  std::uint32_t rejected{};
+  std::uint32_t values{};
+  std::uint32_t count{};
+};
+
+using FlowStep = std::variant<MapStep, ScanStep, FlowPrimitive, FilterStep>;
 
 struct FlowState final {
   Target target{Target::cpu()};

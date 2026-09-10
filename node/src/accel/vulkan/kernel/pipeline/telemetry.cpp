@@ -4,11 +4,12 @@
 
 #include "../../buffer/create/telemetry.hpp"
 #include "../../collective/pipeline.hpp"
+#include "../../command/dispatch.hpp"
 #include "../../command.hpp"
 #include "../../descriptor.hpp"
 #include "../lease.hpp"
 #include "source.hpp"
-#include "source_artifact.hpp"
+#include "source/artifact.hpp"
 
 #include <array>
 #include <limits>

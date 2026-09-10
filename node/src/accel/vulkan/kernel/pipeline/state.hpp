@@ -8,6 +8,7 @@
 #include "../local.hpp"
 #include "../publish.hpp"
 #include "../window.hpp"
+#include "residency/model.hpp"
 
 #include <array>
 #include <cstddef>
@@ -105,10 +106,18 @@ struct VulkanPipeline final {
   std::vector<VulkanPipelineTelemetryRecord> telemetry;
   std::shared_ptr<void> recurrence;
   std::vector<std::shared_ptr<void>> transducers;
+  std::shared_ptr<VulkanResidencySelection> residency;
+  VulkanResidencyAdmissionSnapshot residency_admission{};
+  std::uint64_t preparation_generation{};
+  std::uint64_t expected_control_generation{};
   std::uint64_t dispatch_count{};
   std::uint64_t reset_count{};
   std::uint64_t reset_bytes{};
   bool trace_active{};
+  std::uint64_t submitted_dispatch_count{};
+  std::uint64_t submitted_control_count{};
+  std::uint64_t submitted_reset_count{};
+  std::uint64_t submitted_reset_bytes{};
   submission::State<VulkanPipeline> submission{};
 
   ~VulkanPipeline();

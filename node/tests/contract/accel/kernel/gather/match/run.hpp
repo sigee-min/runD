@@ -7,7 +7,7 @@
 
 #include <node/accel/context.hpp>
 
-#include "src/accel/kernel/prepared.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
 
 #include "bindings.hpp"
 

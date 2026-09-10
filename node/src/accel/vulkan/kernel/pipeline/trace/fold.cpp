@@ -1,3 +1,5 @@
+#include "../../../adapter/error.hpp"
+
 #include "../trace.hpp"
 
 #include "../../../runtime/timestamp.hpp"

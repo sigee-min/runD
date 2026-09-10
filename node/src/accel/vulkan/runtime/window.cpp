@@ -1,3 +1,5 @@
+#include "../adapter/error.hpp"
+
 #include "local.hpp"
 #include <rund/counter.hpp>
 

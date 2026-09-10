@@ -22,10 +22,10 @@ struct MemoryBudget final {
 };
 
 // Compact public projection of one frozen virtual working set. A page is one
-// input/output transform pair. One frame has a canonical cache pair and a
-// disposable execution pair; resident_bytes is the exact logical extent of
-// all four arenas at the selected frame capacity. Backend allocation
-// granularity remains the committed-memory authority.
+// input/output transform pair. Two canonical physical banks are the execution
+// storage itself; resident_bytes is their exact logical extent at the selected
+// per-bank frame capacity. There is no cache/execution mirror. Backend
+// allocation granularity remains the committed-memory authority.
 struct ResidencyPlan final {
   std::uint64_t logical_bytes{};
   std::uint64_t page_bytes{};

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "../prepared.hpp"
+#include "../state/run.hpp"
+#include "../state/route.hpp"
+#include "../state/storage.hpp"
 #include "../../job/state.hpp"
 
 namespace rund::compute::detail {

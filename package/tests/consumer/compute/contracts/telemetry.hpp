@@ -1,0 +1,72 @@
+#pragma once
+
+#include "common.hpp"
+
+template <class T>
+concept HasComputeTelemetry = requires(T stats) {
+  stats.pipeline_compiles;
+  stats.buffer_allocations;
+  stats.download_events;
+  stats.dispatches;
+  stats.command_submits;
+  stats.uploaded_bytes;
+  stats.downloaded_bytes;
+  stats.pipeline_cache_hits;
+  stats.pipeline_cache_evictions;
+  stats.buffer_reuses;
+  stats.descriptor_pool_creations;
+  stats.descriptor_set_allocations;
+  stats.descriptor_reuses;
+  stats.original_dispatches;
+  stats.final_dispatches;
+  stats.fusions;
+  stats.fusion_rejections;
+  stats.internal_roundtrip_bytes;
+  stats.external_roundtrip_bytes;
+  stats.reset_bytes;
+  stats.reset_commands;
+  stats.kernel_ns;
+  stats.kernel_samples;
+  stats.shader_compile_ns;
+  stats.spirv_compile_ns;
+  stats.pipeline_create_ns;
+  stats.descriptor_setup_ns;
+  stats.submit_wait_ns;
+  stats.readback_ns;
+  stats.pipeline.step_count;
+  stats.pipeline.resource_count;
+  stats.pipeline.barrier_count;
+  stats.pipeline.sealed_repetition_count;
+  stats.pipeline.coalesced_repetition_count;
+  stats.pipeline.claim_conflict_count;
+  stats.pipeline.verified_step_count;
+  stats.pipeline.failed_step_index;
+  stats.pipeline.status_entry_count;
+  stats.pipeline.control_byte_count;
+  stats.pipeline.control_command_count;
+  stats.pipeline.claim_ns;
+  stats.pipeline.control_ns;
+  stats.pipeline.residency.logical_bytes;
+  stats.pipeline.residency.active_count;
+  stats.pipeline.residency.page_bytes;
+  stats.pipeline.residency.page_count;
+  stats.pipeline.residency.frame_capacity;
+  stats.pipeline.residency.resident_frames_peak;
+  stats.pipeline.residency.epoch_count;
+  stats.pipeline.residency.window_handoff_count;
+  stats.pipeline.residency.window_batch_count;
+  stats.pipeline.residency.window_queue_call_count;
+  stats.pipeline.residency.page_in_count;
+  stats.pipeline.residency.page_out_count;
+  stats.pipeline.residency.backing_read_bytes;
+  stats.pipeline.residency.backing_write_bytes;
+  stats.pipeline.residency.backing_io_ns;
+  stats.pipeline.residency.sampled_runs;
+  stats.pipeline.residency.allocation_free_runs;
+  stats.pipeline.residency.plan_identity_hi;
+  stats.pipeline.residency.plan_identity_lo;
+  stats.pipeline.residency.failed_page;
+  { stats.available() } -> std::same_as<bool>;
+  { stats.kernel_timing_available() } -> std::same_as<bool>;
+  { stats == stats } -> std::same_as<bool>;
+};

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 
 #include <array>
 #include <cstdint>

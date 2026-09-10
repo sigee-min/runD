@@ -13,11 +13,17 @@
 namespace rund::compute::detail {
 
 Status start_pipeline(PipelineState &state,
-                      const PipelineClaimAuthority authority) noexcept {
+                      const PipelineClaimAuthority authority,
+                      const std::uint64_t control_generation,
+                      const std::uint8_t control_parity) noexcept {
   if (state.phase == PipelinePhase::Running) {
     return Status::fail(Reason::PipelineBusy);
   }
   if (state.publication == nullptr) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  const bool explicit_control = control_generation != PipelineNoGeneration;
+  if (explicit_control && control_parity > 1u) {
     return Status::fail(Reason::PipelineInvalid);
   }
   {
@@ -32,17 +38,23 @@ Status start_pipeline(PipelineState &state,
     if (state.phase == PipelinePhase::Poisoned) {
       return Status::fail(Reason::PipelinePoisoned);
     }
-    if (state.publication->generation >= PipelineGenerationCapacity) {
+    if (state.publication->generation >= PipelineGenerationCapacity ||
+        (explicit_control &&
+         control_generation >= PipelineGenerationCapacity)) {
       return Status::fail(Reason::PipelineCapacity);
     }
     if (state.publication->payload_epoch ==
         std::numeric_limits<std::uint64_t>::max()) {
       return Status::fail(Reason::PipelineCapacity);
     }
-    if (state.native_generation != state.publication->generation ||
-        state.native_parity != state.publication->parity) {
+    const std::uint64_t selected_generation =
+        explicit_control ? control_generation : state.publication->generation;
+    const std::uint8_t selected_parity =
+        explicit_control ? control_parity : state.publication->parity;
+    if (state.native_generation != selected_generation ||
+        state.native_parity != selected_parity) {
       const Status seeded = seed_pipeline_generations(
-          state, state.publication->generation, state.publication->parity);
+          state, selected_generation, selected_parity);
       if (!seeded) {
         if (seeded.reason() == Reason::DeviceLost) {
           state.publication->device_lost = true;
@@ -52,8 +64,8 @@ Status start_pipeline(PipelineState &state,
         return seeded;
       }
     }
-    state.attempt_generation = state.publication->generation;
-    state.attempt_parity = state.publication->parity;
+    state.attempt.generation = selected_generation;
+    state.attempt.parity = selected_parity;
     state.publication->attempt_active = true;
   }
   reset_pipeline_profile(state);
@@ -86,11 +98,11 @@ Status start_pipeline(PipelineState &state,
   }
   state.stats.pipeline.verified_step_count = 0u;
   state.stats.pipeline.failed_step_index = PipelineStats::no_failed_step;
-  state.verified = 0u;
-  state.failure_step_known = false;
-  state.writes_possible = false;
-  state.backend_submitted = false;
-  state.dispatch_timing = false;
+  state.attempt = PipelineAttemptState{.generation = state.attempt.generation,
+                                       .parity = state.attempt.parity};
+  if (state.device->backend == Backend::Cpu) {
+    state.windows.reset_progress();
+  }
   state.failure = Reason::Ok;
   state.phase = PipelinePhase::Running;
   return Status::success();

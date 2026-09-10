@@ -1,6 +1,6 @@
 #pragma once
 
-#include "adapter/api.hpp"
+#include "adapter/state.hpp"
 #include "cached/pipeline.hpp"
 #include "collective/pipeline.hpp"
 #include "descriptor/binding.hpp"

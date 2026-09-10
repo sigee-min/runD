@@ -8,6 +8,7 @@
 #include <rund/compute/abi/graph.hpp>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <new>
 #include <vector>
@@ -26,9 +27,11 @@ using GraphResult = Result<std::shared_ptr<GraphState>>;
 GraphResult materialize_graph(const std::shared_ptr<FlowState> &flow,
                               const std::shared_ptr<DeviceState> &device,
                               const std::span<const std::size_t> order,
-                              const std::span<const MapRecipe> maps,
+                              const std::span<const StepLivePlan> live,
+                              std::span<const MapRecipe> maps,
                               const std::span<const std::uint8_t> skipped) {
-  if (flow == nullptr || maps.size() != flow->steps.size()) {
+  if (flow == nullptr || maps.size() != flow->steps.size() ||
+      live.size() != flow->steps.size()) {
     return fail(Reason::GraphCapacity);
   }
   const auto graph = make_graph(device, "flow", flow_count(flow));
@@ -54,6 +57,19 @@ GraphResult materialize_graph(const std::shared_ptr<FlowState> &flow,
   } catch (const std::bad_alloc &) {
     return fail(Reason::GraphCapacity);
   }
+
+  const auto bind_output =
+      [&](const std::uint32_t id, const std::uint32_t compiled, const Type type,
+          const std::size_t count, const FixedFormat fixed_format) {
+        values[id] = compiled;
+        const FlowValue recipe = flow->values[id - 1u];
+        flow->values[id - 1u] = FlowValue{.type = type,
+                                          .fixed_format = fixed_format,
+                                          .count = count,
+                                          .guard = recipe.guard,
+                                          .active = recipe.active,
+                                          .parent = recipe.parent};
+      };
 
   for (const std::size_t step_index : order) {
     if (!skipped.empty() && skipped[step_index] != 0u) {
@@ -132,6 +148,40 @@ GraphResult materialize_graph(const std::shared_ptr<FlowState> &flow,
       continue;
     }
 
+    if (const auto *filter = std::get_if<FilterStep>(&step)) {
+      const auto argument = [&](const std::uint32_t id) {
+        const FlowValue &value = flow->values[id - 1u];
+        return GraphArg{values[id], value.type, value.count,
+                        value.fixed_format};
+      };
+      if ((live[step_index].live_outputs & live_bit(0u)) != 0u) {
+        const std::array inputs{argument(filter->rejected),
+                                argument(filter->input)};
+        const FlowValue &value = flow->values[filter->values - 1u];
+        const std::array recipes{
+            GraphArg{0u, value.type, value.count, value.fixed_format}};
+        const GraphOut output = graph_primitive(graph, Primitive::Partition,
+                                                inputs, {}, recipes, {});
+        if (!graph->status)
+          return fail(graph->status.reason());
+        bind_output(filter->values, output.value, output.type, output.count,
+                    output.fixed_format);
+      }
+      if ((live[step_index].live_outputs & live_bit(1u)) != 0u) {
+        const std::array inputs{argument(filter->selected)};
+        const FlowValue &count = flow->values[filter->count - 1u];
+        const std::array recipes{
+            GraphArg{0u, count.type, 1u, count.fixed_format}};
+        const GraphOut output = graph_primitive(
+            graph, Primitive::Reduce, inputs, {.flag = true}, recipes, {});
+        if (!graph->status)
+          return fail(graph->status.reason());
+        bind_output(filter->count, output.value, output.type, output.count,
+                    output.fixed_format);
+      }
+      continue;
+    }
+
     const auto &primitive = std::get<FlowPrimitive>(step);
     const std::span<const std::uint32_t> inputs =
         flow->value_ids.view(primitive.inputs);
@@ -180,15 +230,8 @@ GraphResult materialize_graph(const std::shared_ptr<FlowState> &flow,
     }
     if (outputs.size() == 1u) {
       const std::uint32_t primary = outputs.front();
-      values[primary] = output.value;
-      const FlowValue recipe = flow->values[primary - 1u];
-      flow->values[primary - 1u] =
-          FlowValue{.type = output.type,
-                    .fixed_format = output.fixed_format,
-                    .count = output.count,
-                    .guard = recipe.guard,
-                    .active = recipe.active,
-                    .parent = recipe.parent};
+      bind_output(primary, output.value, output.type, output.count,
+                  output.fixed_format);
       continue;
     }
     if (outputs.size() != output.outputs.size()) {
@@ -197,15 +240,8 @@ GraphResult materialize_graph(const std::shared_ptr<FlowState> &flow,
     for (std::size_t index = 0u; index < outputs.size(); ++index) {
       const std::uint32_t recipe_value = outputs[index];
       const GraphArg &value = output.outputs[index];
-      values[recipe_value] = value.value;
-      const FlowValue recipe = flow->values[recipe_value - 1u];
-      flow->values[recipe_value - 1u] =
-          FlowValue{.type = value.type,
-                    .fixed_format = value.fixed_format,
-                    .count = value.count,
-                    .guard = recipe.guard,
-                    .active = recipe.active,
-                    .parent = recipe.parent};
+      bind_output(recipe_value, value.value, value.type, value.count,
+                  value.fixed_format);
     }
   }
 

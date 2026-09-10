@@ -5,7 +5,7 @@
 #include "../kernel/ops/model.hpp"
 #include "../numeric.hpp"
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/primitive.hpp>
 
 #include <array>
 #include <cstddef>

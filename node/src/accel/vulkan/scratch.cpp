@@ -1,3 +1,5 @@
+#include "adapter/access.hpp"
+
 #include "scratch.hpp"
 
 #include "buffer/resident/find.hpp"

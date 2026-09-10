@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../../kernel/backend/source_recipe.hpp"
-#include "../../range/local.hpp"
+#include "../../../kernel/backend/source/sink.hpp"
+#include "../../../range_aggregate/model/plan.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -85,12 +85,27 @@ kernel void rund_range_control(
     source += R"MSL(u;
 )MSL";
     switch (frozen.disposition) {
+    case RangeStageKind::TiledDifference:
+      source += R"MSL(      elements = count;
+      groups = rund_range_groups(elements, width * )MSL";
+      (void)source.decimal(kRangeTileOutputsPerLane);
+      source += R"MSL(u);
+      auxiliary = groups;
+)MSL";
+      break;
     case RangeStageKind::Direct:
     case RangeStageKind::SharedHalo:
     case RangeStageKind::PrefixWindow:
-    case RangeStageKind::BlockWindow:
       source += R"MSL(      elements = count;
       groups = rund_range_groups(elements, width);
+      auxiliary = groups;
+)MSL";
+      break;
+    case RangeStageKind::BlockWindow:
+      source += R"MSL(      elements = count;
+      groups = (count - 1ul) / )MSL";
+      (void)source.decimal(plan.shape().window_size());
+      source += R"MSL(ul + 1ul;
       auxiliary = groups;
 )MSL";
       break;
@@ -122,10 +137,10 @@ kernel void rund_range_control(
       source += "      elements = count - 1ul + ";
       (void)source.decimal(plan.shape().window_size());
       source += R"MSL(ul;
-      auxiliary = rund_range_groups(elements, )MSL";
+      auxiliary = 1ul + (elements - 1ul) / )MSL";
       (void)source.decimal(plan.shape().window_size());
-      source += R"MSL(u);
-      groups = rund_range_groups(auxiliary, width);
+      source += R"MSL(ul;
+      groups = auxiliary;
 )MSL";
       break;
     case RangeStageKind::PrefixSequential:

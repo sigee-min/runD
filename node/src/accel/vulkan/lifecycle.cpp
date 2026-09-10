@@ -1,3 +1,5 @@
+#include "buffer/access.hpp"
+
 #include "local.hpp"
 
 #include "buffer/resident/pool.hpp"
@@ -36,6 +38,7 @@ VulkanAdapter::~VulkanAdapter() {
       resident->buffers.clear();
       DestroyVulkanResidentStorage(*this);
     }
+    DestroyVulkanTimeline(timeline);
     vkDestroyDevice(device, nullptr);
   }
   resident.reset();

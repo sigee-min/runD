@@ -3,6 +3,8 @@
 #include "../state.hpp"
 #include "../view.hpp"
 
+#include "../../cpu/state/storage.hpp"
+
 #include "../../host.hpp"
 
 #include <rund/compute/abi/job.hpp>
@@ -50,10 +52,6 @@ empty_run(const std::shared_ptr<JobState> &state);
 bind_job_validated(const std::shared_ptr<ProgramState> &program,
                    std::span<const std::shared_ptr<BufferState>> inputs,
                    std::span<const std::shared_ptr<BufferState>> outputs);
-[[nodiscard]] Result<std::shared_ptr<JobState>>
-bind_job(const std::shared_ptr<ProgramState> &program,
-         std::span<const std::shared_ptr<BufferState>> inputs,
-         std::span<const std::shared_ptr<BufferState>> outputs);
 [[nodiscard]] Status refresh_host(const std::shared_ptr<JobState> &state,
                                   std::span<const HostView> inputs) noexcept;
 [[nodiscard]] bool

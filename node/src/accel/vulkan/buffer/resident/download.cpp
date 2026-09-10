@@ -1,7 +1,10 @@
+#include "../../../backend/result.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
 #include "batch/local.hpp"
+#include "transfer.hpp"
 
 #include <array>
 #include <span>

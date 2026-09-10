@@ -1,3 +1,5 @@
+#include "../../adapter/error.hpp"
+
 #include "../../../clock.hpp"
 #include "../../runtime/counter.hpp"
 #include "../cache.hpp"

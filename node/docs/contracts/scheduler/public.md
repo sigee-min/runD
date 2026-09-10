@@ -242,6 +242,12 @@ Frame and typed-completion storage consume one private alignment predicate:
 `value <= SIZE_MAX - (a - 1)` before applying the power-of-two mask. The frame
 arena and completion pool do not keep local copies of those bit-level rules;
 the shared functions are inline, stateless, and add no allocation or pass.
+The frame arena implementation is physically divided under
+`scheduler/task/frame/`: the parent `frame.cpp` owns configuration and arena
+lifecycle, `acquire.cpp` owns tier allocation and lease publication,
+`release.cpp` owns generation-authenticated return, and `observe.cpp` owns
+read-only projections. `internal.hpp` is the single Store/Header layout owner;
+the compiled leaves neither mirror the arena state nor alter its lock order.
 
 ## Public Result Shapes
 

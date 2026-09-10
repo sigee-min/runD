@@ -14,12 +14,6 @@ struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
-ExecuteVulkanSegmentedReduce(const rund::AccelDevice &pick,
-                             const rund::kernel::SegmentedReduceDesc &desc,
-                             const rund::kernel::SegmentedReducePlan &plan,
-                             rund::kernel::ComputeDomain domain,
-                             const SegmentedReduceBinds &bindings);
-[[nodiscard]] rund::AccelCheck
 PrepareVulkanSegmentedReduce(const rund::AccelDevice &pick,
                              const rund::kernel::SegmentedReduceDesc &desc,
                              const rund::kernel::SegmentedReducePlan &plan,

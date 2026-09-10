@@ -21,6 +21,10 @@
 #include "../../sort/local/api.hpp"
 #include "../local.hpp"
 
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+#include "prepare/collective.hpp"
+#endif
+
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
@@ -197,8 +201,6 @@ PrepareVulkanGatherStep(const rund::AccelDevice &pick, const BoundStep &step,
              : PrepareVulkanPartition(pick, active->desc, active->plan,
                                       *bindings, resources, pipelines);
 }
-
-#include "prepare/collective.hpp"
 
 #endif
 

@@ -1,59 +1,11 @@
 #pragma once
 
 #include "../local.hpp"
-#include <rund/counter.hpp>
-
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-#import <Metal/Metal.h>
-#endif
-
-#include <algorithm>
 
 namespace rund::node::accel::detail {
 
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-
 [[nodiscard]] MetalRuntimeBuffer
-CreateMetalRuntimeBuffer(MetalAdapter &adapter, const rund::kernel::u64 bytes,
-                         const MetalBufferUsage usage) {
-  NSUInteger length = 0u;
-  if (!ToNSUInteger(bytes, length)) {
-    return {};
-  }
-  id<MTLDevice> device = (__bridge id<MTLDevice>)adapter.device.get();
-  if (device == nil) {
-    return {};
-  }
-  id<MTLBuffer> metal_buffer =
-      [device newBufferWithLength:length options:MTLResourceStorageModeShared];
-  const std::uint64_t allocated =
-      metal_buffer == nil
-          ? 0u
-          : static_cast<std::uint64_t>([metal_buffer allocatedSize]);
-  if (allocated < bytes) {
-    return {};
-  }
-  std::shared_ptr<void> handle =
-      RetainMetalObject((__bridge void *)metal_buffer);
-  if (handle == nullptr) {
-    return {};
-  }
-
-  std::lock_guard<std::mutex> lock{adapter.mutex};
-  const std::uint64_t id = adapter.next_runtime_buffer_id++;
-  ::rund::detail::counter::Accumulate(
-      adapter.stats.runtime.run.allocations.buffer_allocation_count, 1u);
-  ::rund::detail::counter::Accumulate(adapter.memory.current, allocated);
-  adapter.memory.peak = std::max(adapter.memory.peak, adapter.memory.current);
-  ::rund::detail::counter::Accumulate(adapter.memory.cumulative, allocated);
-  return MetalRuntimeBuffer{.id = id,
-                            .bytes = bytes,
-                            .allocated_bytes = allocated,
-                            .usage = usage,
-                            .buffer = handle,
-                            .reused = false};
-}
-
-#endif
+CreateMetalRuntimeBuffer(MetalAdapter &adapter, rund::kernel::u64 bytes,
+                         MetalBufferUsage usage);
 
 } // namespace rund::node::accel::detail

@@ -1,7 +1,10 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+
 #include <accel/check.hpp>
 
+#include "../../command/dispatch.hpp"
 #include "classify.hpp"
 
 namespace rund::node::accel::detail {

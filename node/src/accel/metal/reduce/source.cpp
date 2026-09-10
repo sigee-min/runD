@@ -1,8 +1,8 @@
 #include "../../domain.hpp"
+#include "../../kernel/backend/source/storage.hpp"
 #include "local.hpp"
+#include "source/extrema.hpp"
 #include "source/op.hpp"
-#include "source/wide.hpp"
-#include "../../kernel/backend/source_recipe.hpp"
 
 #include <kernel/program/compute/reduce/wide.hpp>
 
@@ -13,8 +13,7 @@ namespace rund::node::accel::detail {
 namespace {
 
 template <typename Sink>
-void AppendCanonicalWideReduce(Sink &source,
-                               const rund::kernel::ReduceOp op,
+void AppendCanonicalWideReduce(Sink &source, const rund::kernel::ReduceOp op,
                                const char *const op_name,
                                const char *const type, const char *const suffix,
                                const bool signed_domain) {
@@ -125,8 +124,8 @@ void AppendCanonicalWideReduce(Sink &source,
 template <typename Sink>
 [[nodiscard]] bool EmitMetalCanonicalWideReduceSource(
     Sink &source, const rund::kernel::ReduceOp op, const bool signed_domain,
-    const rund::kernel::u64 block_size) noexcept(
-    noexcept(source += std::string_view{})) {
+    const rund::kernel::u64 block_size) noexcept(noexcept(source +=
+                                                          std::string_view{})) {
   const char *const op_name = MetalReduceOpName(op);
   source += R"MSL(
 #include <metal_stdlib>
@@ -170,15 +169,14 @@ template <typename Sink>
 [[nodiscard]] bool EmitMetalReduceSource(
     Sink &source, const rund::kernel::ReduceOp op,
     const rund::kernel::u64 block_size,
-    const rund::kernel::ComputeDomain domain) noexcept(
-    noexcept(source += std::string_view{})) {
+    const rund::kernel::ComputeDomain
+        domain) noexcept(noexcept(source += std::string_view{})) {
   const bool signed_domain = IsSignedDomain(domain);
   if (op == rund::kernel::ReduceOp::Sum ||
       op == rund::kernel::ReduceOp::CountNonzero) {
     return EmitMetalCanonicalWideReduceSource(source, op, signed_domain,
                                               block_size);
   }
-  const char *const op_name = MetalReduceOpName(op);
   source += R"MSL(
 #include <metal_stdlib>
 using namespace metal;
@@ -196,64 +194,9 @@ struct ReduceParams {
   uint initial_pass;
   uint count_words;
 };
-kernel void )MSL";
-  source += "rund_compute_reduce_";
-  source += op_name;
-  source += "_u32";
-  source += R"MSL((
-    device const uint* input [[buffer(0)]],
-    device uint* partial [[buffer(1)]],
-    device uint* output [[buffer(2)]],
-    device atomic_uint* status [[buffer(3)]],
-    constant ReduceParams& params [[buffer(4)]],
-    device const uint* logical_count [[buffer(5)]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint group [[threadgroup_position_in_grid]]) {
-  threadgroup ulong sums[RUND_REDUCE_BLOCK_SIZE];
-  threadgroup uint overflows[RUND_REDUCE_BLOCK_SIZE];
-  const ulong local = ulong(tid);
-  const ulong index = ulong(group) * ulong(RUND_REDUCE_BLOCK_SIZE) + local;
-  const ulong resident_count = params.count_words == 2u
-      ? (ulong(logical_count[1]) << 32u) | ulong(logical_count[0])
-      : (params.count_words == 1u ? ulong(logical_count[0]) : params.input_count);
-  const ulong active_count = params.initial_pass != 0u
-      ? min(resident_count, params.input_count) : params.input_count;
-  if (params.initial_pass != 0u && resident_count > params.input_count && tid == 0u && group == 0u) {
-    atomic_fetch_or_explicit(&status[0], 2u, memory_order_relaxed);
-  }
 )MSL";
-  if (op == rund::kernel::ReduceOp::Min || op == rund::kernel::ReduceOp::Max) {
-    source += "  if (params.initial_pass != 0u && active_count == 0ul && "
-              "tid == 0u && group == 0u) { atomic_fetch_or_explicit("
-              "&status[0], 4u, memory_order_relaxed); }\n";
-  }
-  source += MetalReduceInitU32(op, signed_domain);
-  source += R"MSL(
-  overflows[tid] = 0u;
-  threadgroup_barrier(mem_flags::mem_threadgroup);
-  uint width = RUND_REDUCE_BLOCK_SIZE;
-  while (width > 1u) {
-    const uint next = (width + 1u) >> 1u;
-    if (tid < width - next) {
-      const ulong rhs = sums[tid + next];
-)MSL";
-  source += MetalReduceCombine(op, signed_domain, false);
-  source += MetalReduceOverflowU32(op, signed_domain);
-  source += R"MSL(
-      overflows[tid] |= overflows[tid + next];
-      sums[tid] = combined;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    width = next;
-  }
-  if (tid == 0u) {
-    if (overflows[0] != 0u) { atomic_fetch_or_explicit(&status[0], 1u, memory_order_relaxed); }
-    if (params.final_pass != 0u) { output[0] = uint(sums[0]); }
-    else { partial[params.output_offset + ulong(group)] = uint(sums[0]); }
-  }
-}
-kernel void )MSL";
-  AppendMetalReduceU64(source, op, signed_domain, op_name);
+  AppendMetalReduceExtrema<false>(source, op, signed_domain);
+  AppendMetalReduceExtrema<true>(source, op, signed_domain);
   return source.valid();
 }
 
@@ -261,7 +204,7 @@ std::string MetalReduceSource(const rund::kernel::ReduceOp op,
                               const rund::kernel::u64 block_size,
                               const rund::kernel::ComputeDomain domain) {
   const auto emit = [op, block_size, domain](auto &sink) noexcept(noexcept(
-      EmitMetalReduceSource(sink, op, block_size, domain))) {
+                        EmitMetalReduceSource(sink, op, block_size, domain))) {
     return EmitMetalReduceSource(sink, op, block_size, domain);
   };
   return backend_source_recipe::materialize(emit);
@@ -271,8 +214,8 @@ bool MetalReduceSourceUpperBytes(const rund::kernel::ReduceOp op,
                                  const rund::kernel::u64 block_size,
                                  const rund::kernel::ComputeDomain domain,
                                  std::uint64_t &upper) noexcept {
-  const auto emit = [op, block_size, domain](
-                        backend_source_recipe::CountSink &sink) noexcept {
+  const auto emit = [op, block_size,
+                     domain](backend_source_recipe::CountSink &sink) noexcept {
     return EmitMetalReduceSource(sink, op, block_size, domain);
   };
   return backend_source_recipe::bytes(emit, upper);

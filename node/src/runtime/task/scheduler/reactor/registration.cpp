@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "../../../reactor/diagnostics.hpp"
+#include "../../../reactor/platform/handle.hpp"
 
 namespace rund::node {
 namespace {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "model.hpp"
+#include "route.hpp"
 
 #include <rund/compute/stats.hpp>
 
@@ -12,11 +13,15 @@ namespace rund_node_test_virtual::product {
 // independent cold-plus-warm cohort totals; they are never synthesized by
 // multiplying final-run telemetry.
 struct ProductExecutionEvidence final {
+  RouteKind route_kind{RouteKind::Unknown};
+  std::uint32_t owner_mask{};
+  std::uint32_t accepted_owner_count{};
   rund::compute::Stats final_run{};
   BackingFacts input_cohort{};
   BackingFacts output_cohort{};
   std::uint64_t warm_host_allocations{};
   std::uint64_t observed_hash{};
+  bool golden_matches{};
   bool same_capacity{};
   bool tail_poisoned{};
   bool profile_matches{};

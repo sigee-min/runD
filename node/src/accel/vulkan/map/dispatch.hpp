@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../command/dispatch.hpp"
 #include "../cached/pipeline.hpp"
 
 #include <kernel/program/compute/lowering/vulkan/shape.hpp>

@@ -23,6 +23,12 @@ npm run build
 npm run check
 ```
 
+`scripts/public-release.mjs` is the sole public-release identity for the site.
+It describes the currently hosted artifact and its exact installation filenames;
+the CMake package version may move ahead while a candidate is still private.
+`npm run check` validates every public page, the root README installation path,
+and both npm manifests against that record.
+
 The production build uses the `/runD/` GitHub Pages base path and emits static
 HTML for every documented route. `public/` owns shared browser assets. The
 site deliberately omits a generated social image; text sharing metadata

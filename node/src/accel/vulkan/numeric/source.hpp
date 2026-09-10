@@ -1,20 +1,17 @@
 #pragma once
 
-#include "../../kernel/backend/source_recipe.hpp"
+#include "../../kernel/backend/source/sink.hpp"
 
 #include <cstdint>
 #include <string>
 
 namespace rund::node::accel::detail {
 
-[[nodiscard]] std::string NumericBaseSource();
 [[nodiscard]] std::string NumericBaseSource64();
 [[nodiscard]] bool EmitNumericBaseSource(
     backend_source_recipe::CountSink &sink, bool wide) noexcept;
 [[nodiscard]] bool EmitNumericBaseSource(
     backend_source_recipe::StringSink &sink, bool wide);
-[[nodiscard]] bool NumericBaseSourceBytes(bool wide,
-                                          std::uint64_t &bytes) noexcept;
 [[nodiscard]] std::string MatrixSource();
 [[nodiscard]] std::string TransformSource();
 [[nodiscard]] std::string FactorSource();

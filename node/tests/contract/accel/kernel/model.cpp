@@ -37,10 +37,10 @@ namespace {
                                         "  uint count_source;\n"
                                         "  uint reserved;\n"
                                         "};") &&
-         OneLayout(MetalHistogramSource(), "struct HistogramParams {\n"
-                                           "  ulong element_count;\n"
-                                           "  ulong bin_count;\n"
-                                           "};") &&
+         OneLayout(MetalHistogramSource(256u), "struct HistogramParams {\n"
+                                               "  ulong element_count;\n"
+                                               "  ulong bin_count;\n"
+                                               "};") &&
          OneLayout(MetalPartitionSource(), "struct PartitionParams {\n"
                                            "  ulong element_count;\n"
                                            "};") &&

@@ -5,6 +5,7 @@
 namespace rund::compute::detail::residency {
 
 [[nodiscard]] PlanResult PlanResidency(const StreamPlanInput &input) noexcept;
-[[nodiscard]] PlanResult PlanResidency(const GraphPlanInput &input) noexcept;
+[[nodiscard]] PlanResult
+PlanResidency(const TiledGraphPlanInput &input) noexcept;
 
 } // namespace rund::compute::detail::residency

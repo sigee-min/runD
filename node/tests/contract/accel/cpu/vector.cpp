@@ -1,6 +1,5 @@
 #include "vector/fixed/32/lane.hpp"
 #include "vector/fixed/64/lane.hpp"
 #include "vector/write/multiple.hpp"
-#include "vector/plan.hpp"
 #include "vector/strided.hpp"
 #include "vector/tail.hpp"

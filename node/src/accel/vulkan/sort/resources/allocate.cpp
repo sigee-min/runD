@@ -1,3 +1,6 @@
+#include "../../adapter/error.hpp"
+#include "../../buffer/create.hpp"
+
 #include <accel/check.hpp>
 
 #include "../local/api.hpp"

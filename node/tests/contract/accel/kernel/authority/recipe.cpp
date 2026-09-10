@@ -1,9 +1,10 @@
-#include "src/accel/kernel/backend/source_recipe.hpp"
+#include "src/accel/kernel/backend/source/storage.hpp"
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-#include "src/accel/vulkan/kernel/reset_source.hpp"
-#include "src/accel/vulkan/map/control.hpp"
+#include "src/accel/vulkan/kernel/reset/source.hpp"
 #include "src/accel/vulkan/map/local.hpp"
+#include "src/accel/vulkan/map/source/control.hpp"
+#include "src/accel/vulkan/map/source/upper.hpp"
 #endif
 
 #include <array>
@@ -193,10 +194,11 @@ struct DivergentBackendSourceRecipeEmitter final {
   rund::kernel::LoweringArtifact base{};
   base.key.op_hash_hi = prepared.plan.op_hash_hi;
   base.key.op_hash_lo = prepared.plan.op_hash_lo;
-  base.source_text =
-      std::string{vulkan_controlled_map_source_detail::CanonicalVariant} +
-      "\n" + std::string{vulkan_controlled_map_source_detail::Entry} +
-      std::string{vulkan_controlled_map_source_detail::Guard};
+  // Use independent, ordinary GLSL text: constructing this fixture from the
+  // replacement needles would accept an escaped-newline bug in both sides.
+  base.source_text = "// artifact_variant=canonical\n"
+                     "void main() {\n"
+                     "  if (gid >= rund_dispatch.tile_count) { return; }\n";
   base.source_text_upper_bytes = base.source_text.size();
   base.ok = true;
   base.reason = "ok";
@@ -207,11 +209,16 @@ struct DivergentBackendSourceRecipeEmitter final {
   }
   const rund::kernel::LoweringArtifact controlled =
       VulkanControlledMapArtifact(std::move(base), prepared.plan);
-  const std::string expected_binding =
-      "layout(set = 0, binding = 4, std430) readonly buffer RundControlArgs";
+  constexpr std::string_view expected_controlled =
+      "// artifact_variant=controlled\n"
+      "layout(set = 0, binding = 4, std430) readonly buffer RundControlArgs "
+      "{ uint rund_control_args[]; };\n"
+      "void main() {\n"
+      "  if (gid >= rund_control_args[rund_dispatch.tile_count * 4u + 3u]) "
+      "{ return; }\n";
   if (!controlled.ok || controlled.source_text.size() != controlled_upper ||
       controlled.source_text_upper_bytes != controlled_upper ||
-      controlled.source_text.find(expected_binding) == std::string::npos ||
+      controlled.source_text != expected_controlled ||
       controlled.source_text.find(
           vulkan_controlled_map_source_detail::ControlledGuard) ==
           std::string::npos ||

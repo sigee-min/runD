@@ -1,15 +1,25 @@
+#include "../../adapter/error.hpp"
+#include "../../buffer/access.hpp"
+
 #include "state.hpp"
 
 #include "../../../kernel/reset/stats.hpp"
 #include "../../../kernel/telemetry.hpp"
 #include "../../command.hpp"
+#include "../../command/resources.hpp"
+#include "prepare/record.hpp"
+#include "residency/generated_indirect/internal.hpp"
+#include "residency/local.hpp"
+#include "residency/mode.hpp"
 #include "telemetry.hpp"
 #include "trace.hpp"
 
 #include <rund/counter.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <limits>
 
 namespace rund::node::accel::detail {
 
@@ -25,12 +35,16 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
     return;
   }
   VulkanPipeline *const pipeline = claim.owner;
-  if (pipeline->dispatch_count != 0u) {
+  const std::uint64_t dispatch_count = pipeline->submitted_dispatch_count;
+  const std::uint64_t control_count = pipeline->submitted_control_count;
+  const std::uint64_t reset_count = pipeline->submitted_reset_count;
+  const std::uint64_t reset_bytes = pipeline->submitted_reset_bytes;
+  if (dispatch_count != 0u) {
     std::lock_guard lock{pipeline->adapter->mutex};
     const bool trace_active = pipeline->trace_active;
     pipeline->trace_active = false;
     result.pipeline.submitted = true;
-    result.pipeline.control_command_count = pipeline->control.command_count;
+    result.pipeline.control_command_count = control_count;
     if (result.check.ok && trace_active) {
       result.check = FoldVulkanPipelineDispatchTrace(*pipeline, result.stats);
     }
@@ -50,9 +64,10 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
         ProjectTelemetry(result.pipeline.control, result.stats);
         ObserveVulkanProfile(*pipeline, result);
         ::rund::detail::counter::Accumulate(pipeline->adapter->dispatch_count,
-                                            pipeline->dispatch_count);
+                                            dispatch_count);
       }
     }
+    (void)vulkan_generated_indirect_detail::finish(*pipeline, result);
     if (pipeline->transfer.ready) {
       const bool transferred =
           result.check.ok && pipeline->transfer.input_staged;
@@ -69,18 +84,29 @@ void CompleteVulkanPipeline(void *const raw, KernelResult result) noexcept {
       }
     }
   }
-  result.stats.run.work.dispatch_count =
-      result.check.ok ? pipeline->dispatch_count : 0u;
-  SetResetStats(result.stats, result.check.ok, pipeline->reset_count,
-                pipeline->reset_bytes);
+  if (dispatch_count != 0u && !result.check.ok &&
+      pipeline->residency != nullptr &&
+      vulkan_residency_detail::is_graph_direct(pipeline->residency->mode)) {
+    // The native submit was accepted, so a completion-side check failure may
+    // have followed a device write. Keep the retained per-local command
+    // owners quarantined and make the terminal explicitly Unknown; only
+    // pre-submit failures leave through SubmitPreparedVulkanPipeline's
+    // synchronous Cancel path.
+    result.terminal = NativeTerminal::UnknownMayWrite;
+    pipeline->residency->quarantined.store(true, std::memory_order_release);
+    pipeline->adapter->residency_quarantined.store(true,
+                                                   std::memory_order_release);
+  }
+  result.stats.run.work.dispatch_count = result.check.ok ? dispatch_count : 0u;
+  SetResetStats(result.stats, result.check.ok, reset_count, reset_bytes);
   result.stats.run.work.command_submit_count =
-      pipeline->dispatch_count == 0u
-          ? 0u
-          : result.stats.run.work.command_submit_count;
-  result.stats.run.work.command_capacity =
-      pipeline->dispatch_count == 0u ? 0u : 1u;
-  result.stats.run.work.command_inflight_peak =
-      pipeline->dispatch_count == 0u ? 0u : 1u;
+      dispatch_count == 0u ? 0u : result.stats.run.work.command_submit_count;
+  result.stats.run.work.command_capacity = dispatch_count == 0u ? 0u : 1u;
+  result.stats.run.work.command_inflight_peak = dispatch_count == 0u ? 0u : 1u;
+  pipeline->submitted_dispatch_count = 0u;
+  pipeline->submitted_control_count = 0u;
+  pipeline->submitted_reset_count = 0u;
+  pipeline->submitted_reset_bytes = 0u;
   claim.completion(claim.user, result);
 }
 
@@ -113,10 +139,21 @@ SeedPreparedVulkanPipelineGeneration(const std::shared_ptr<void> &prepared,
   if (!ValidVulkanPipeline(pipeline)) {
     return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
   }
+  const std::uint64_t expected_control_generation =
+      static_cast<std::uint64_t>(generation) + 1u;
   std::scoped_lock lock{pipeline->submission.mutex, pipeline->adapter->mutex};
+  // Only generated graph terminals consume this non-wrapping expectation.
+  // Ordinary transactional preparation intentionally seeds UINT32_MAX: its
+  // first stride-two Open wraps the native u32 control to public generation 1.
+  if (pipeline->residency != nullptr &&
+      vulkan_residency_detail::owns(pipeline->residency->mode) &&
+      expected_control_generation > std::numeric_limits<std::uint32_t>::max()) {
+    return rund::AccelCheck{false, "accel_kernel_pipeline_invalid"};
+  }
   if (pipeline->submission.active()) {
     return rund::AccelCheck{false, "compute_pipeline_busy"};
   }
+  pipeline->expected_control_generation = expected_control_generation;
   if (pipeline->dispatch_count == 0u) {
     return rund::AccelCheck{true, "ok"};
   }
@@ -127,14 +164,15 @@ SeedPreparedVulkanPipelineGeneration(const std::shared_ptr<void> &prepared,
              : rund::AccelCheck{false, "accel_vulkan_memory_unavailable"};
 }
 
-rund::AccelCheck
-SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
-                             const KernelCompletion completion_fn,
-                             void *const user, const KernelTiming timing,
-                             const PipelineSubmitMode) noexcept {
+rund::AccelCheck SubmitPreparedVulkanPipeline(
+    const std::shared_ptr<void> &prepared, const KernelCompletion completion_fn,
+    void *const user, const KernelTiming timing, const PipelineSubmitMode mode,
+    const std::span<const std::uint32_t> locals) noexcept {
   auto *const pipeline = static_cast<VulkanPipeline *>(prepared.get());
   if (!ValidVulkanPipeline(pipeline) || completion_fn == nullptr ||
-      user == nullptr) {
+      user == nullptr ||
+      (mode == PipelineSubmitMode::Standard && !locals.empty()) ||
+      (mode == PipelineSubmitMode::Residency && locals.empty())) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
   submission::State<VulkanPipeline> &state = pipeline->submission;
@@ -143,15 +181,61 @@ SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
   }
   bool submitted = false;
   const char *failure_reason = "compute_pipeline_busy";
+  std::array<VkCommandBuffer, PreparedPipelineStepCapacity + 2u>
+      selected_commands{};
+  std::size_t selected_command_count = 0u;
+  vulkan_generated_indirect_detail::Plan generated_plan{};
   {
     std::lock_guard lock{pipeline->adapter->mutex};
-    if (pipeline->transfer.ready && !pipeline->transfer.input_staged) {
+    pipeline->submitted_dispatch_count = 0u;
+    pipeline->submitted_control_count = 0u;
+    pipeline->submitted_reset_count = 0u;
+    pipeline->submitted_reset_bytes = 0u;
+    if (mode == PipelineSubmitMode::Residency) {
+      rund::AccelCheck selected{};
+      if (timing == KernelTiming::Dispatch || pipeline->transfer.ready) {
+        selected = {false, "accel_vulkan_pipeline_selection_unavailable"};
+      } else {
+        selected = vulkan_generated_indirect_detail::select(
+            *pipeline, locals,
+            std::span<VkCommandBuffer>{selected_commands.data(),
+                                       selected_commands.size()},
+            selected_command_count, pipeline->submitted_dispatch_count,
+            pipeline->submitted_control_count, generated_plan);
+        if (selected.ok && !generated_plan.generated) {
+          selected = BuildVulkanResidencySubmission(
+              *pipeline, locals, selected_commands, selected_command_count,
+              pipeline->submitted_dispatch_count,
+              pipeline->submitted_control_count,
+              pipeline->submitted_reset_count, pipeline->submitted_reset_bytes);
+        }
+      }
+      if (!selected.ok) {
+        failure_reason = selected.reason;
+      } else {
+        submitted = SubmitVulkanExternal(
+            *pipeline->adapter,
+            std::span<const VkCommandBuffer>{selected_commands.data(),
+                                             selected_command_count},
+            pipeline->residency->prefix.fence, CompleteVulkanPipeline, &state,
+            timing == KernelTiming::Submission);
+        if (!submitted) {
+          failure_reason = VulkanLastError(pipeline->adapter);
+        } else {
+          vulkan_generated_indirect_detail::commit(*pipeline, generated_plan);
+        }
+      }
+    } else if (pipeline->transfer.ready && !pipeline->transfer.input_staged) {
       failure_reason = "accel_vulkan_transfer_invalid";
     } else if (pipeline->transfer.ready && timing == KernelTiming::Dispatch) {
       failure_reason = "compute_telemetry_trace_unavailable";
     } else if (pipeline->dispatch_count == 0u) {
       submitted = true;
     } else if (timing == KernelTiming::Dispatch) {
+      pipeline->submitted_dispatch_count = pipeline->dispatch_count;
+      pipeline->submitted_control_count = pipeline->control.command_count;
+      pipeline->submitted_reset_count = pipeline->reset_count;
+      pipeline->submitted_reset_bytes = pipeline->reset_bytes;
       const rund::AccelCheck traced =
           EnsureVulkanPipelineDispatchTrace(*pipeline);
       rund::AccelCheck encoded = traced;
@@ -181,6 +265,10 @@ SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
         }
       }
     } else {
+      pipeline->submitted_dispatch_count = pipeline->dispatch_count;
+      pipeline->submitted_control_count = pipeline->control.command_count;
+      pipeline->submitted_reset_count = pipeline->reset_count;
+      pipeline->submitted_reset_bytes = pipeline->reset_bytes;
       submitted = SubmitVulkanExternal(
           *pipeline->adapter, pipeline->command.buffer, pipeline->command.fence,
           CompleteVulkanPipeline, &state, timing == KernelTiming::Submission);
@@ -198,6 +286,7 @@ SubmitPreparedVulkanPipeline(const std::shared_ptr<void> &prepared,
   }
   return rund::AccelCheck{true, "ok"};
 }
+
 #endif
 
 } // namespace rund::node::accel::detail

@@ -1,3 +1,4 @@
+#include "../state/assembly.hpp"
 #include "resource.hpp"
 
 #include "contract.hpp"

@@ -24,6 +24,12 @@ RUND_CPU_SIMD_RUN(const PreparedRun &prepared,
     return RejectRun(prepared, "cpu_simd_tile_count_invalid");
   }
 
+  if (prepared.affine.valid && view.reads[0u].stride == sizeof(Scalar) &&
+      view.writes[0u].stride == sizeof(Scalar)) {
+    const LoopCount count = ExecuteAffine(prepared.affine, view,
+                                          invocation.begin, invocation.count);
+    return AcceptRun(prepared, count.tiles, count.vectors, count.tails);
+  }
   Values values(memory.values, memory.wide, memory.wide_valid);
   ExecuteOnce(prepared, view, values);
   if (!values) {

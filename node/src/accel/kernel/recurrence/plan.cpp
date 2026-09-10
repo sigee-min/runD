@@ -1,7 +1,8 @@
 #include "plan.hpp"
 
-#include "../backend/template_plan.hpp"
+#include "../backend/template/identity.hpp"
 #include "../plan/local.hpp"
+#include "../step/map/stride.hpp"
 #include "source.hpp"
 
 #include <kernel/core/checked.hpp>

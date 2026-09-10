@@ -3,7 +3,7 @@
 #include "../../plan/validation.hpp"
 #include "../../resident/window/admission/runtime/windows.hpp"
 #include "../../sequence/input/window.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../buffer/resident/model.hpp"
 #include "../cached/pipeline.hpp"
 #include "../kernel.hpp"
@@ -68,6 +68,8 @@ struct VulkanMapTemplateResources final {
   VulkanCollectivePipeline *check_pipeline{};
 };
 
+enum class VulkanMapMode : std::uint8_t { Direct, Generated };
+
 struct VulkanMapEncodeResources {
   VulkanAdapter *adapter = nullptr;
   std::shared_ptr<const VulkanMapTemplateResources> prepared{};
@@ -90,9 +92,24 @@ struct VulkanMapEncodeResources {
   ScopedBuffer control_args{};
   VulkanCollectivePipeline *control_pipeline = nullptr;
   VkDescriptorSet control_descriptor = VK_NULL_HANDLE;
+  VulkanCollectivePipeline *generated_control_pipeline = nullptr;
+  VkDescriptorSet generated_control_descriptor = VK_NULL_HANDLE;
   VulkanCollectivePipeline *check_pipeline = nullptr;
   VkDescriptorSet check_descriptor = VK_NULL_HANDLE;
   VulkanStatus control_status{};
+  VulkanMapMode mode{VulkanMapMode::Direct};
+  VulkanBuffer generated_gate_binding{};
+  VulkanBuffer generated_summary_binding{};
+  std::uint64_t generated_owner{};
+  std::uint64_t generated_plan{};
+  std::uint64_t generated_token{};
+  std::uint64_t generated_run{};
+  std::uint32_t generated_slot{};
+  std::uint32_t generated_stride{};
+  std::uint32_t generated_first_control_generation{};
+  std::uint32_t generated_control_generation_stride{};
+  std::uint64_t generated_first_descriptor_generation{};
+  std::uint64_t generated_descriptor_generation_stride{};
 
   [[nodiscard]] bool controlled() const noexcept {
     return control.has_count() || control.has_predicate() ||
@@ -121,8 +138,9 @@ void DestroyVulkanMapEncodeResources(void *raw);
     const rund::kernel::ResidentBufferRef &ref,
     const rund::kernel::ComputeDispatchWindow &window, VkDeviceSize &offset,
     VkDeviceSize &range, const char *&reason) noexcept;
-[[nodiscard]] bool ValidateVulkanMapHistoryOutputs(
-    const VulkanMapEncodeResources &map, const char *&reason) noexcept;
+[[nodiscard]] bool
+ValidateVulkanMapHistoryOutputs(const VulkanMapEncodeResources &map,
+                                const char *&reason) noexcept;
 #endif
 
 } // namespace rund::node::accel::detail

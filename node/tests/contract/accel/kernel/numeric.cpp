@@ -1,6 +1,7 @@
 #include <accel/device.hpp>
 
 #include "cpu/local.hpp"
+#include "spectrum/local.hpp"
 #include "test/assert.hpp"
 
 #include <node/accel/pick.hpp>
@@ -20,9 +21,6 @@ NumericAlgebraRejectsOversizeShape(const rund::AccelDevice &pick);
 [[nodiscard]] bool BackendRunsSolve(const rund::AccelDevice &pick);
 [[nodiscard]] bool BackendRunsFactorReuseSolve(const rund::AccelDevice &pick);
 [[nodiscard]] bool AvailableBackendsRunSolveNatively();
-[[nodiscard]] bool BackendRunsSpectrum(const rund::AccelDevice &pick);
-[[nodiscard]] bool SpectrumRejectsInvalidShape(const rund::AccelDevice &pick);
-[[nodiscard]] bool AvailableBackendsRunSpectrumNatively();
 [[nodiscard]] bool MetalNumericSourcesUseParallelTopology();
 [[nodiscard]] bool VulkanNumericSourcesUseParallelTopology();
 

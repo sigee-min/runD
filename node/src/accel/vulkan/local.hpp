@@ -3,7 +3,7 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include "adapter/api.hpp"
+#include "adapter/state.hpp"
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -29,6 +29,8 @@ inline constexpr const char *kVulkanDriverPropertiesExtension =
 struct VulkanInstancePick {
   rund::AccelCheck check{};
   VkInstance instance = VK_NULL_HANDLE;
+  std::uint32_t api_version = VK_API_VERSION_1_1;
+  std::uint64_t persistent_stream_submit_capacity{};
 };
 
 struct VulkanAdapterPick {
@@ -39,7 +41,9 @@ struct VulkanAdapterPick {
 [[nodiscard]] rund::AccelDevice PickWithVulkanSdk();
 [[nodiscard]] VulkanInstancePick CreateVulkanDiscoveryInstance();
 [[nodiscard]] VulkanAdapterPick
-PickVulkanAdapterFromInstance(VkInstance instance);
+PickVulkanAdapterFromInstance(VkInstance instance,
+                              std::uint32_t instance_api_version,
+                              std::uint64_t persistent_stream_submit_capacity);
 [[nodiscard]] rund::AccelDevice
 AccelDeviceFromVulkanAdapter(const std::shared_ptr<VulkanAdapter> &adapter);
 

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+#include "../../adapter/access.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 

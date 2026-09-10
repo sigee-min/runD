@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../kernel/backend/template_plan.hpp"
+#include "../../../kernel/backend/template/arithmetic.hpp"
 
 #include <cstdint>
 #include <vector>

@@ -1,9 +1,10 @@
 #include "source.hpp"
+#include "../../../kernel/backend/source/storage.hpp"
 
 #include "../control.hpp"
 
 #include "../../../../hash/fnv.hpp"
-#include "../../../kernel/backend/phase_source.hpp"
+#include "../../../kernel/backend/phase/source.hpp"
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 
@@ -114,6 +115,8 @@ void main() {
       if (control[1] == 0u) {
         control[2] = 0xffffffffu;
         control[3] = p.declared_step_count;
+      } else if (control[2] == 0xffffffffu) {
+        control[3] = 0u;
       } else {
         control[3] = control[2];
       }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../adapter/error.hpp"
+
 #include "admit.hpp"
 
 namespace rund::node::accel::detail {

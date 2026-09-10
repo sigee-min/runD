@@ -1,5 +1,5 @@
 #include "../io.hpp"
-#include "../../reactor/platform.hpp"
+#include "../../reactor/platform/handle.hpp"
 
 namespace rund::node {
 namespace {

@@ -1,3 +1,4 @@
+#include "../../state/assembly.hpp"
 #include "local.hpp"
 
 #include "../arena.hpp"
@@ -9,7 +10,7 @@
 #include "../../../backend.hpp"
 #include "../../../buffer/local.hpp"
 #include "../../../cpu/run/state.hpp"
-#include "../../../device/residency_pool.hpp"
+#include "../../../device/residency/pool.hpp"
 #include "../../../job/local.hpp"
 #include "../../../memory/arena.hpp"
 #include "../../../status.hpp"
@@ -106,32 +107,67 @@ finalize_pipeline_plan(const PipelineBuildState &build,
   }
   if (build.residency.pages != nullptr) {
     const residency::ResidencyPlan &pages = *build.residency.pages;
-    const residency::StreamPlan &stream = pages.stream();
     std::uint64_t combined_page_bytes = 0u;
-    std::uint64_t expected_staging_bytes = 0u;
+    std::uint64_t host_input_bytes = 0u;
+    std::uint64_t host_output_bytes = 0u;
+    std::uint64_t expected_host_storage_bytes = 0u;
+    const bool direct = build.residency.stage == PipelineResidencyStage::Direct;
+    const bool graph = build.residency.stage == PipelineResidencyStage::Graph;
+    const std::uint64_t page_count =
+        direct ? pages.stream().page_count() : pages.tiled_graph().page_count();
+    const std::uint64_t frame_capacity =
+        direct ? pages.stream().frame_capacity()
+               : pages.tiled_graph().frame_capacity();
+    const std::uint64_t epoch_count = direct
+                                          ? pages.stream().epoch_count()
+                                          : pages.tiled_graph().epoch_count();
     if (!pages.identity() || build.residency.pool == nullptr ||
+        (direct != pages.streamed()) || (graph != pages.graph_tiled()) ||
         build.residency.logical_bytes == 0u ||
         build.residency.input_page_bytes == 0u ||
         build.residency.output_page_bytes == 0u ||
-        !kernel::checked::add(build.residency.input_page_bytes,
-                              build.residency.output_page_bytes,
-                              combined_page_bytes) ||
-        !kernel::checked::mul(combined_page_bytes, build.residency.frame_count,
-                              expected_staging_bytes) ||
+        (direct && !kernel::checked::add(build.residency.input_page_bytes,
+                                         build.residency.output_page_bytes,
+                                         combined_page_bytes)) ||
+        (graph &&
+         (!residency::graph_pool_footprint(
+              *build.residency.pool, pages.tiled_graph().physical_classes(),
+              combined_page_bytes) ||
+          combined_page_bytes != pages.page_bytes())) ||
+        (build.device->backend != Backend::Cpu &&
+         (!kernel::checked::mul(
+              build.residency.pool->layout.input_page_bytes,
+              build.residency.pool->layout.host_frame_capacity,
+              host_input_bytes) ||
+          !kernel::checked::mul(
+              host_input_bytes,
+              build.residency.pool->layout.graph_host_input_count,
+              host_input_bytes) ||
+          !kernel::checked::mul(
+              build.residency.pool->layout.output_page_bytes,
+              build.residency.pool->layout.host_output_frame_capacity,
+              host_output_bytes) ||
+          !kernel::checked::add(host_input_bytes, host_output_bytes,
+                                expected_host_storage_bytes) ||
+          !kernel::checked::mul(expected_host_storage_bytes,
+                                residency::Pool::BankCount,
+                                expected_host_storage_bytes))) ||
         combined_page_bytes != pages.page_bytes() ||
-        build.residency.pool->staging == nullptr ||
-        build.residency.pool->staging_bytes != expected_staging_bytes ||
+        (build.device->backend != Backend::Cpu &&
+         build.residency.pool->host_storage == nullptr) ||
+        build.residency.pool->host_storage_bytes !=
+            expected_host_storage_bytes ||
         build.residency.resident_bytes == 0u ||
         build.residency.frame_count == 0u ||
-        build.residency.frame_count != stream.frame_capacity() ||
+        build.residency.frame_count != frame_capacity ||
         build.residency.first_step > build.steps.size() ||
         build.residency.frame_count >
             build.steps.size() - build.residency.first_step) {
       return Status::fail(Reason::PipelineCapacity);
     }
-    // The Device-global Pool owns and admits its host staging and resident
-    // Buffers once. A Pipeline retains a shared reference but must not reserve
-    // or report those same bytes as Pipeline-private preparation.
+    // The Device-global Pool owns and admits its Host/Device frames once. CPU
+    // frame owners are executable directly; accelerators additionally own the
+    // bounded Host supply image. A Pipeline retains only a shared reference.
     plan.residency = build.residency;
     if (build.device->backend == Backend::Vulkan) {
       std::uint64_t input_arena_bytes = 0u;
@@ -160,10 +196,10 @@ finalize_pipeline_plan(const PipelineBuildState &build,
     }
     summary.residency.logical_bytes = build.residency.logical_bytes;
     summary.residency.page_bytes = pages.page_bytes();
-    summary.residency.page_count = stream.page_count();
-    summary.residency.frame_capacity = stream.frame_capacity();
+    summary.residency.page_count = page_count;
+    summary.residency.frame_capacity = frame_capacity;
     summary.residency.resident_bytes = build.residency.resident_bytes;
-    summary.residency.epoch_count = stream.epoch_count();
+    summary.residency.epoch_count = epoch_count;
     summary.residency.identity_hi = pages.identity().hi;
     summary.residency.identity_lo = pages.identity().lo;
   }

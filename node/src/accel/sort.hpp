@@ -18,11 +18,6 @@ struct MetalAdapter;
 struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
-[[nodiscard]] rund::AccelCheck
-ExecuteMetalSort(const rund::AccelDevice &pick,
-                 const rund::kernel::SortDesc &desc,
-                 const rund::kernel::SortPlan &plan,
-                 rund::kernel::ComputeDomain domain, const SortBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalSort(
     const rund::AccelDevice &pick, const rund::kernel::SortDesc &desc,
     const rund::kernel::SortPlan &plan, rund::kernel::ComputeDomain domain,
@@ -34,10 +29,6 @@ EncodeMetalSort(MetalAdapter &adapter, const std::shared_ptr<void> &resources,
 [[nodiscard]] rund::AccelCheck
 FinishMetalSort(MetalAdapter &adapter, const std::shared_ptr<void> &resources);
 
-[[nodiscard]] rund::AccelCheck ExecuteVulkanSort(
-    const rund::AccelDevice &pick, const rund::kernel::SortDesc &desc,
-    const rund::kernel::SortPlan &plan, rund::kernel::ComputeDomain domain,
-    const SortBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanSort(
     const rund::AccelDevice &pick, const rund::kernel::SortDesc &desc,
     const rund::kernel::SortPlan &plan, rund::kernel::ComputeDomain domain,

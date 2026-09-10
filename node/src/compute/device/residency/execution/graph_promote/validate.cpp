@@ -1,0 +1,53 @@
+#include "internal.hpp"
+
+#include <algorithm>
+
+namespace rund::compute::detail::residency {
+
+AuthorityResult GraphPromoteOwner::validate_graph_promote_group(
+    const std::span<execution::GraphForecast> forecasts,
+    const TiledGraphInvocation &invocation, const std::uint64_t batch,
+    const std::size_t stage, const std::uint64_t destination_token,
+    graph_promote_detail::Group &group) const noexcept {
+  group = {};
+  if (forecasts.empty() ||
+      forecasts.size() > execution::GraphPromoteSourceCapacity ||
+      destination_token == 0u) {
+    return AuthorityResult{.failure = AuthorityFailure::Invalid};
+  }
+  group.owner = forecasts.front().plan_owner_;
+  group.source_count = forecasts.size();
+  for (std::size_t index = 0u; index < forecasts.size(); ++index) {
+    const execution::GraphForecast &forecast = forecasts[index];
+    const auto pages = forecast.pages();
+    if (!forecast || forecast.owner_ != &authority_ || !forecast.terminalled_ ||
+        !forecast.completion_ ||
+        forecast.terminal_ != execution::TerminalKind::Known ||
+        forecast.completion_may_write_ ||
+        forecast.token_ == destination_token || group.owner == nullptr ||
+        forecast.plan_owner_.get() != group.owner.get() || pages.empty()) {
+      return AuthorityResult{.failure = AuthorityFailure::Invalid};
+    }
+    const std::uint32_t resource = pages.front().use.resource;
+    if (resource == 0u ||
+        std::any_of(pages.begin(), pages.end(),
+                    [resource](const auto page) {
+                      return page.use.resource != resource;
+                    }) ||
+        std::find(group.resources.begin(), group.resources.begin() + index,
+                  resource) != group.resources.begin() + index ||
+        !graph_promote_detail::validate_projection(
+            group.owner, forecast, invocation, batch, stage, resource,
+            group.projections[index]) ||
+        (index != 0u && group.projections[index].epoch.ordinal !=
+                            group.projections.front().epoch.ordinal)) {
+      return AuthorityResult{.failure = AuthorityFailure::Invalid};
+    }
+    group.resources[index] = resource;
+    group.pages[index] = pages;
+    group.tokens[index] = forecast.token_;
+  }
+  return AuthorityResult{.failure = AuthorityFailure::None};
+}
+
+} // namespace rund::compute::detail::residency

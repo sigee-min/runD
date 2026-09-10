@@ -13,61 +13,6 @@ FindManyGroupByTimerWaitId(std::vector<ReactorManyGroup> &groups,
   return nullptr;
 }
 
-bool Scheduler::WakeReactorManyGroupFromWait(const ReactorWait &wait,
-                                             const ReasonCode code,
-                                             const ReactorEvent events,
-                                             const bool store_event) noexcept {
-  TaskRecord *const record = state_->Find(wait.task_id);
-  if (record == nullptr || record->wait_source_id == 0u) {
-    return false;
-  }
-  ReactorManyGroup *const group = ReactorManyFindGroup(
-      state_->reactor.reactor_many_groups, record->wait_source_id);
-  if (group == nullptr) {
-    return false;
-  }
-
-  if (group->completed) {
-    if (!store_event || code != ReasonCode::Ok) {
-      return true;
-    }
-  }
-
-  const std::span<const ReactorManyRequest> requests =
-      ReactorManyRequests(state_->reactor.reactor_many_requests, *group);
-  if (requests.size() != group->request_count) {
-    return false;
-  }
-
-  if (store_event) {
-    const ReactorManyRequest *const request =
-        ReactorManyFindRequest(requests, wait.wait_id);
-    if (request != nullptr) {
-      ReactorManyEventSlotsAppend(
-          *group, *request, events, code,
-          state_->reactor.reactor_many_event_slots);
-    }
-  }
-
-  if (group->completed) {
-    return true;
-  }
-
-  bool cleanup_ok = true;
-  const std::uint64_t group_id = group->group_id;
-  cleanup_ok = ReactorCleanupWait(
-      *this, ReactorCleanupRequest{.wait_id = wait.wait_id,
-                                   .group_id = group_id,
-                                   .reason = code,
-                                   .timeout_cleanup =
-                                       ReactorTimeoutCleanupPolicy::IfPresent,
-                                   .remove_ready_backlog = true,
-                                   .cleanup_siblings = true,
-                                   .events = events,
-                                   .store_event = false});
-  return cleanup_ok;
-}
-
 bool Scheduler::WakeReactorManyTimeout(const TimerWait &wait) noexcept {
   ReactorManyGroup *const group = FindManyGroupByTimerWaitId(
       state_->reactor.reactor_many_groups, wait.wait_id);

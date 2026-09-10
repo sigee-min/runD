@@ -5,10 +5,12 @@
 #include "../../../resident/result.hpp"
 #include "../../../resident/usage.hpp"
 #include "../../../resident/validation.hpp"
-#include "../../adapter/api.hpp"
+#include "../../adapter/access.hpp"
+#include "../../adapter/error.hpp"
 #include "../../command.hpp"
 #include "../../status.hpp"
 #include "../create/api.hpp"
+#include "create.hpp"
 #include "../local.hpp"
 #include "../transfer/range.hpp"
 #include "pool.hpp"
@@ -27,6 +29,7 @@ namespace rund::node::accel::detail {
 VulkanResidentBufferResult
 CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
                            const ResidentDesc &desc, const bool zero_initialize,
+                           const BackendBufferMemory memory,
                            const std::uint64_t exact_storage_bytes) {
   if (!VulkanPickOwnsAdapter(pick)) {
     return RejectResident<VulkanResidentBufferResult>(
@@ -67,14 +70,18 @@ CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
     return RejectResident<VulkanResidentBufferResult>(
         "accel_vulkan_resident_id_unavailable");
   }
-  reused = TakeVulkanResidentStorage(*adapter, storage_bytes,
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, buffer,
-                                     exact_storage_bytes);
+  const VulkanMemoryUse memory_use =
+      memory == BackendBufferMemory::HostVisiblePreferred
+          ? VulkanMemoryUse::ResidentHost
+          : VulkanMemoryUse::Resident;
+  reused = TakeVulkanResidentStorage(
+      *adapter, storage_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, memory_use,
+      buffer, exact_storage_bytes);
   if (reused) {
     ::rund::detail::counter::Accumulate(adapter->buffer_reuse_hit_count, 1u);
   } else if (!CreateFreshVulkanBuffer(*adapter, storage_bytes,
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                                      VulkanMemoryUse::Resident, buffer)) {
+                                      memory_use, buffer)) {
     return RejectResident<VulkanResidentBufferResult>(VulkanLastError(adapter));
   }
   if (exact_storage_bytes != 0u &&
@@ -92,7 +99,7 @@ CreateVulkanResidentBuffer(const rund::AccelDevice &pick,
       (!EnsureVulkanCommandResources(*adapter) ||
        !BeginVulkanCommand(*adapter) ||
        !ResetVulkanStatus(adapter->command_buffer, buffer, storage_bytes) ||
-       !SubmitVulkanCommand(*adapter, false))) {
+       !SubmitVulkanTransferCommand(*adapter))) {
     RetireVulkanResidentStorage(*adapter, buffer);
     return RejectResident<VulkanResidentBufferResult>(VulkanLastError(adapter));
   }

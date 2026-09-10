@@ -209,6 +209,7 @@ rund::AccelCheck MetalPipelineBuild::Allocate(std::shared_ptr<void> &prepared,
       .phase = 1u,
       .state_count = pipeline->state_count,
   };
+  pipeline->control_generation_stride = status.generation_stride;
 
   return rund::AccelCheck{true, "ok"};
 }

@@ -1,6 +1,8 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/expression/model.hpp>
+#include <rund/compute/fixed.hpp>
 namespace rund::compute::detail {
 [[nodiscard]] std::shared_ptr<ExprState> make_expr();
 [[nodiscard]] ExprRef input(const std::shared_ptr<ExprState> &state, Type type,

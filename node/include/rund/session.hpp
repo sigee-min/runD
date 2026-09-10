@@ -30,11 +30,13 @@ struct Access;
 
 namespace compute {
 template <class> class Job;
+template <class> class VirtualPipeline;
 class Request;
 class Pipeline;
 namespace detail {
 struct JobState;
 struct PipelineState;
+struct VirtualPipelineState;
 struct SessionDeviceAccess;
 } // namespace detail
 } // namespace compute
@@ -207,6 +209,9 @@ public:
 
   template <class Signature>
   [[nodiscard]] compute::Request compute(compute::Job<Signature> &job) noexcept;
+  template <class Signature>
+  [[nodiscard]] compute::Request
+  compute(compute::VirtualPipeline<Signature> &pipeline) noexcept;
   [[nodiscard]] compute::Request compute(compute::Pipeline &pipeline) noexcept;
 
   [[nodiscard]] Snapshot snapshot() const;
@@ -235,9 +240,10 @@ private:
   [[nodiscard]] Trace take_trace();
   [[nodiscard]] compute::Request
   compute_job(std::shared_ptr<compute::detail::JobState> job) noexcept;
-  [[nodiscard]] compute::Request
-  compute_pipeline(std::shared_ptr<compute::detail::PipelineState> pipeline)
-      noexcept;
+  [[nodiscard]] compute::Request compute_pipeline(
+      std::shared_ptr<compute::detail::PipelineState> pipeline) noexcept;
+  [[nodiscard]] compute::Request compute_virtual(
+      std::shared_ptr<compute::detail::VirtualPipelineState> pipeline) noexcept;
   void emit(telemetry::Event &&event) noexcept;
 
   std::unique_ptr<State> state_;

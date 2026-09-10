@@ -11,7 +11,7 @@ namespace {
 template <class Mark>
 [[nodiscard]] bool
 plan_expression_groups(const std::span<const ExprRef> expressions,
-                       const std::uint16_t live_outputs, MapLivePlan &map_plan,
+                       const std::uint16_t live_outputs, StepLivePlan &map_plan,
                        std::vector<ExpressionGroupPlan> &plans,
                        Mark &&mark_input) {
   map_plan.expression_begin = plans.size();
@@ -91,7 +91,7 @@ plan_expression_groups(const std::span<const ExprRef> expressions,
 
 [[nodiscard]] Status
 plan_liveness(const FlowState &flow, std::vector<bool> &needed,
-              std::vector<bool> &keep, std::vector<MapLivePlan> &map_plans,
+              std::vector<bool> &keep, std::vector<StepLivePlan> &map_plans,
               std::vector<ExpressionGroupPlan> &expression_plans,
               std::size_t &live_steps) {
   const auto valid_value = [&](const std::uint32_t value) {
@@ -116,7 +116,7 @@ plan_liveness(const FlowState &flow, std::vector<bool> &needed,
   try {
     needed.assign(flow.values.size() + 1u, false);
     keep.assign(flow.steps.size(), false);
-    map_plans.assign(flow.steps.size(), MapLivePlan{});
+    map_plans.assign(flow.steps.size(), StepLivePlan{});
   } catch (const std::bad_alloc &) {
     return Status::fail(Reason::GraphCapacity);
   }
@@ -176,7 +176,7 @@ plan_liveness(const FlowState &flow, std::vector<bool> &needed,
           map_outputs.begin(), map_outputs.end(),
           [&](const std::uint32_t output) { return needed[output]; });
       if (live) {
-        MapLivePlan &map_plan = map_plans[index];
+        StepLivePlan &map_plan = map_plans[index];
         for (std::size_t output = 0u; output < map_outputs.size(); ++output) {
           if (!needed[map_outputs[output]]) {
             continue;
@@ -227,6 +227,22 @@ plan_liveness(const FlowState &flow, std::vector<bool> &needed,
             (scan->count != 0u && !require(scan->count))) {
           return Status::fail(Reason::GraphBindingInvalid);
         }
+      }
+    } else if (const auto *filter = std::get_if<FilterStep>(&step)) {
+      if (!valid_value(filter->input) || !valid_value(filter->selected) ||
+          !valid_value(filter->rejected) || !valid_value(filter->values) ||
+          !valid_value(filter->count)) {
+        return Status::fail(Reason::GraphBindingInvalid);
+      }
+      StepLivePlan &plan = map_plans[index];
+      plan.live_outputs = (needed[filter->values] ? live_bit(0u) : 0u) |
+                          (needed[filter->count] ? live_bit(1u) : 0u);
+      live = plan.live_outputs != 0u;
+      if (((plan.live_outputs & live_bit(0u)) != 0u &&
+           (!require(filter->input) || !require(filter->rejected))) ||
+          ((plan.live_outputs & live_bit(1u)) != 0u &&
+           !require(filter->selected))) {
+        return Status::fail(Reason::GraphBindingInvalid);
       }
     } else {
       const auto &primitive = std::get<FlowPrimitive>(step);

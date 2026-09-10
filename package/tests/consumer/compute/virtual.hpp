@@ -109,8 +109,8 @@ inline int VirtualResidency() {
       *program, *input, *output,
       ResidencyConfig{.device_resident_bytes = frame_capacity * page_elements *
                                                sizeof(std::int32_t) * 4u,
-                      .host_staging_bytes = frame_capacity * page_elements *
-                                            sizeof(std::int32_t) * 4u});
+                      .host_resident_bytes = frame_capacity * page_elements *
+                                             sizeof(std::int32_t) * 4u});
   if (!prepared) {
     return 5;
   }

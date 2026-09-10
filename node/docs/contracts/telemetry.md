@@ -397,6 +397,21 @@ runtime contracts prove Metal and Vulkan standalone and Pipeline Trace
 capability, exact dispatch/sample parity, backend submission topology, cold
 failure retry, warm-zero allocation, and result-hash parity.
 
+The Node `runtime.telemetry.detail` contract has one ordered dispatcher and
+three compiled evidence owners: `telemetry/findings.cpp` owns the public Sink,
+error-text, bounded-finding, and allocation-free description laws;
+`telemetry/basic.cpp` owns Basic callback lifecycle, reentry, exception
+containment, and Detail projection parity; `telemetry/trace.cpp` owns CPU
+Job/Pipeline/collective dispatch sampling and Basic/Detail clock-read counts.
+`telemetry/local.hpp` declares only those owners and contains no contract body.
+
+The replay telemetry parity contract keeps its public dispatcher at
+`runtime/task/replay/telemetry/parity.cpp`. Its
+`parity/{support,parity,failure}.cpp` owners separately hold the shared replay
+event protocol, Basic/Detail parity projection, and callback
+exception/reentry/sink-failure contracts; the local seam contains only
+observer/value declarations.
+
 Performance evidence follows the single
 [telemetry overhead method](../../../docs/reference/performance/method.md#telemetry-overhead-method)
 and reports the measured Detail delta rather than hiding it. Passing semantic

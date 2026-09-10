@@ -2,7 +2,7 @@
 
 #include "../kernel/bindings/range.hpp"
 #include "../primitive/shape.hpp"
-#include "../range_aggregate/execution.hpp"
+#include "../range_aggregate/model/plan.hpp"
 
 #include <kernel/program/compute/window/plan.hpp>
 

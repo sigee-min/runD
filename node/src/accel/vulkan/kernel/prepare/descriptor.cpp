@@ -1,3 +1,5 @@
+#include "../../adapter/error.hpp"
+
 #include "local.hpp"
 
 #include <kernel/core/checked.hpp>

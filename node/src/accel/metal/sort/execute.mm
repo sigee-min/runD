@@ -186,43 +186,4 @@ rund::AccelCheck EncodeMetalSort(MetalAdapter &adapter,
 #endif
 }
 
-rund::AccelCheck ExecuteMetalSort(const rund::AccelDevice &pick,
-                                  const rund::kernel::SortDesc &desc,
-                                  const rund::kernel::SortPlan &plan,
-                                  const rund::kernel::ComputeDomain domain,
-                                  const SortBinds &bindings) {
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-  auto *const adapter = static_cast<MetalAdapter *>(pick.backend.context);
-  if (!MetalPickOwnsAdapter(pick) || adapter == nullptr ||
-      adapter->queue == nullptr) {
-    return rund::AccelCheck{false, "accel_metal_unavailable"};
-  }
-  std::shared_ptr<void> resources{};
-  const rund::AccelCheck prepare =
-      PrepareMetalSort(pick, desc, plan, domain, bindings, resources);
-  if (!prepare.ok) {
-    return prepare;
-  }
-  CommandRun command{};
-  const rund::AccelCheck open = OpenCommand(*adapter, command);
-  if (!open.ok) {
-    return open;
-  }
-  const rund::AccelCheck encode =
-      EncodeMetalSort(*adapter, resources, (__bridge void *)command.encoder);
-  const rund::AccelCheck submit = FinishCommand(*adapter, command, encode);
-  if (!submit.ok) {
-    return submit;
-  }
-  return FinishMetalSort(*adapter, resources);
-#else
-  (void)pick;
-  (void)desc;
-  (void)plan;
-  (void)domain;
-  (void)bindings;
-  return rund::AccelCheck{false, "accel_metal_unavailable"};
-#endif
-}
-
 } // namespace rund::node::accel::detail

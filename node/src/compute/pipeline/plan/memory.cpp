@@ -1,3 +1,4 @@
+#include "../state/assembly.hpp"
 #include "memory/local.hpp"
 
 #include <memory>

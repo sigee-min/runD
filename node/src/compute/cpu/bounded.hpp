@@ -2,7 +2,8 @@
 
 #include "../status.hpp"
 #include "../type.hpp"
-#include "state.hpp"
+#include "state/arena.hpp"
+#include "state/collective.hpp"
 #include "view.hpp"
 
 #include <cstring>

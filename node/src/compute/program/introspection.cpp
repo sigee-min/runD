@@ -1,9 +1,11 @@
+#include "../device/state.hpp"
 #include "output.hpp"
 #include "range.hpp"
 #include "state.hpp"
 
 #include "../backend.hpp"
 #include "../cpu/graph.hpp"
+#include "../cpu/state/program.hpp"
 
 #include <rund/compute/graph/info.hpp>
 #include <rund/compute/program/range.hpp>

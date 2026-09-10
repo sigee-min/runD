@@ -81,10 +81,6 @@ MakeTimerDeadline(std::chrono::nanoseconds duration) const noexcept;
 CopyReactorManyEvents(std::uint64_t group_id,
                       std::span<::rund::net::ready::Event> out,
                       std::uint32_t *copied) noexcept;
-[[nodiscard]] bool WakeReactorManyGroupFromWait(const ReactorWait &wait,
-                                                ReasonCode code,
-                                                ReactorEvent events,
-                                                bool store_event) noexcept;
 [[nodiscard]] bool CancelReadySetWaitGroups(::rund::net::ready::Set set,
                                             ReasonCode code) noexcept;
 [[nodiscard]] int TimerBoundIoPollTimeoutMs() const noexcept;

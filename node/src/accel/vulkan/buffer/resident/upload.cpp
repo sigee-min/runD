@@ -2,6 +2,7 @@
 #include <accel/device.hpp>
 
 #include "batch/local.hpp"
+#include "transfer.hpp"
 
 #include <array>
 #include <span>

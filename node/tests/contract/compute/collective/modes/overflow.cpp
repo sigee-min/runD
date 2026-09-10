@@ -77,8 +77,40 @@ CheckInclusiveOverflow(const rund::compute::Backend backend,
             return values.segmented_scan(segments, Scan::InclusiveSum);
           })
           .compile();
-  return scan && segmented &&
-         SameFailure(*scan, backend, "inclusive-overflow",
+  if (!scan || !segmented) {
+    return false;
+  }
+  if constexpr (std::is_unsigned_v<T>) {
+    std::array<T, 512u> boundary{};
+    boundary[255u] = Maximum<T>();
+    auto valid = scan->resident(boundary);
+    if (!valid || !valid->run()) {
+      return false;
+    }
+    const auto values = valid->read();
+    if (!values || values->size() != boundary.size()) {
+      return false;
+    }
+    for (std::size_t i = 0u; i < boundary.size(); ++i) {
+      if ((*values)[i] != (i < 255u ? Zero<T>() : Maximum<T>())) {
+        return false;
+      }
+    }
+    // Local wrap can disappear from the modulo block total. Test it
+    // independently of the cross-block carry, with a fresh resident owner.
+    for (const auto positions :
+         {std::pair{0u, 1u}, std::pair{254u, 255u},
+          std::pair{256u, 257u}, std::pair{0u, 511u}}) {
+      boundary.fill(Zero<T>());
+      boundary[positions.first] = Maximum<T>();
+      boundary[positions.second] = Small<T>();
+      if (!SameFailure(*scan, backend, "inclusive-unsigned-wrap-boundary",
+                       "compute_scan_sum_overflow", scan_reference, boundary)) {
+        return false;
+      }
+    }
+  }
+  return SameFailure(*scan, backend, "inclusive-overflow",
                      "compute_scan_sum_overflow", scan_reference, input) &&
          SameFailure(*segmented, backend, "segmented-inclusive-overflow",
                      "compute_segmented_scan_sum_overflow", segmented_reference,

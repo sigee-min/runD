@@ -116,7 +116,8 @@ inline void AppendMetalWordStoreBody(std::string &out,
 }
 
 inline void AppendMetalHelpers(std::string &out, const ParsedIR &parsed,
-                               const ArtifactKey &key) {
+                               const ArtifactKey &key,
+                               const bool emit_param_helpers = true) {
   AppendMetalLoadBody(out, key.scalar, "device", MetalLoadFunction(key.scalar));
   AppendMetalWordLoadBody(out, key.scalar);
   if (key.scalar == ComputeScalar::Lane64) {
@@ -129,8 +130,10 @@ inline void AppendMetalHelpers(std::string &out, const ParsedIR &parsed,
       }
     }
   }
-  AppendMetalLoadBody(out, key.scalar, "constant",
-                      MetalParamLoadFunction(key.scalar));
+  if (emit_param_helpers) {
+    AppendMetalLoadBody(out, key.scalar, "constant",
+                        MetalParamLoadFunction(key.scalar));
+  }
   AppendMetalStoreBody(out, key.scalar);
   AppendMetalWordStoreBody(out, key.scalar);
   AppendMetalStoreBody(out, key.scalar == ComputeScalar::Lane64

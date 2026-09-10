@@ -1,7 +1,7 @@
 #include "local.hpp"
 
 #include "../../support.hpp"
-#include "src/accel/kernel/prepared.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
 #include "src/accel/vulkan/command/ring.hpp"
 #include "src/compute/device/state.hpp"
 #include "src/compute/job/state.hpp"

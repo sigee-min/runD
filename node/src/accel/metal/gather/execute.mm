@@ -142,42 +142,4 @@ rund::AccelCheck EncodeMetalGather(MetalAdapter &adapter,
 #endif
 }
 
-rund::AccelCheck ExecuteMetalGather(const rund::AccelDevice &pick,
-                                    const rund::kernel::GatherDesc &desc,
-                                    const rund::kernel::GatherPlan &plan,
-                                    const GatherBinds &bindings) {
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-  auto *const adapter = static_cast<MetalAdapter *>(pick.backend.context);
-  if (!MetalPickOwnsAdapter(pick) || adapter == nullptr ||
-      adapter->queue == nullptr) {
-    return rund::AccelCheck{false, "accel_metal_unavailable"};
-  }
-  std::shared_ptr<void> resources{};
-  const rund::AccelCheck prepare =
-      PrepareMetalGather(pick, desc, plan, bindings, resources);
-  if (!prepare.ok) {
-    return prepare;
-  }
-
-  CommandRun command{};
-  const rund::AccelCheck open = OpenCommand(*adapter, command);
-  if (!open.ok) {
-    return open;
-  }
-  const rund::AccelCheck encode =
-      EncodeMetalGather(*adapter, resources, (__bridge void *)command.encoder);
-  const rund::AccelCheck submit = FinishCommand(*adapter, command, encode);
-  if (!submit.ok) {
-    return submit;
-  }
-  return FinishMetalGather(*adapter, resources);
-#else
-  (void)pick;
-  (void)desc;
-  (void)plan;
-  (void)bindings;
-  return rund::AccelCheck{false, "accel_metal_unavailable"};
-#endif
-}
-
 } // namespace rund::node::accel::detail

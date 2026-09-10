@@ -2,6 +2,7 @@
 
 #include <accel/check.hpp>
 
+#include "../../command/dispatch.hpp"
 #include "state.hpp"
 
 #include <algorithm>

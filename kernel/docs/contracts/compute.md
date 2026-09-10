@@ -29,6 +29,22 @@ owners. Kernel Program and Compute verification share one allocation
 instrumentation object target, so the split does not create a second allocator
 implementation or duplicate its compilation.
 
+The Compute metadata contract keeps `metadata.cpp` as its ordered dispatcher.
+`metadata/resources.cpp` owns parsed-node resource classification and field
+semantics; `metadata/surface.cpp` owns valid execution-metadata and resource-
+summary projections; `metadata/rejection.cpp` owns malformed, unsupported, and
+hash-failure reasons; `metadata/identity.cpp` owns required-input and uniform-
+read identity; and `metadata/retention.cpp` owns retained string/vector
+storage accounting. Their shared declarations live in the narrow
+`metadata/local.hpp` seam.
+
+DSL node construction has one deduplication authority in
+`dsl/context/node.cpp`, which owns only `append_node` and `find_node`.
+`node/input.cpp`, `node/operation.cpp`, and `node/constant.cpp` own their
+respective binding-read, unary/binary/ternary, and typed constant/index
+admission families; all feed the same BuildContext node table and never retain
+a parallel IR.
+
 Compute contract tests follow the same owner split as the public contract:
 thin routers call focused owners for DSL identity, fixed-op construction,
 escape safety, fusion planning, fused IR build, backend lowering, runtime
@@ -37,11 +53,28 @@ are split under `/kernel/tests/contract/program/compute/lowering/` by
 canonical byte helpers, forged IR builders, fixed nonlinear helpers, text
 helpers, and focused operation-builder owners under `lowering/ops/`
 (`basic`, `expanded`, `fixed/{scalar,bit,arithmetic}`, and name-stress builders).
+
+Runtime binding validation has one ordered coordinator in
+`src/program/compute/binding/validation.cpp`. Its compiled leaves own the
+shared checked span/shape rules (`helpers.cpp`), input projection
+(`input.cpp`), output-mode and output projection (`output.cpp`), and resident
+buffer extent/usage validation (`resident.cpp`). The coordinator preserves the
+public rejection precedence across structural, input, parameter, and output
+checks; the declarations-only local seam owns no binding or obligation state.
+DSL identity follows that boundary as well: `dsl/identity.cpp` owns only the
+ordered public dispatcher and final undeclared-capture surface check;
+`identity/basic.cpp` owns canonical/hash/binding-mode identity, and
+`identity/fixed.cpp` owns fixed-format, quantization, and precision-policy
+identity.
 DSL fixed-op contracts are split under `dsl/ops/fixed/` by scalar and predicate
 coverage, bit and shift coverage, and nonlinear division, reciprocal, and root
 coverage. Fixed saturating and multiply arithmetic contracts are split under
 `fixed/arithmetic/` by DSL admission, backend lowering, malformed IR rejection,
 and fused ternary operand remapping.
+Backend helper-emission reachability is likewise compiled by semantic family:
+`emission/reachability/integer.cpp` owns signed/unsigned divide and saturation
+helpers, `fixed.cpp` owns selected fixed-lane helpers and source-size bounds,
+and the root `reachability.cpp` preserves only their public fail-fast order.
 Core DSL wrappers for construction, unary ops, arithmetic, constants, primitive
 bounds, select, and comparisons are owner-local under `dsl/functions/core/`;
 core bounds split order and interval owners; select branches and comparisons use focused value helpers. Range bounds and predicates,

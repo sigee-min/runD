@@ -13,6 +13,7 @@ struct TaskState;
 
 enum class TerminalPhase : std::uint8_t {
   Open,
+  Running,
   Cancelled,
   Finishing,
   Complete,
@@ -33,6 +34,8 @@ enum class CancelClaim : std::uint8_t {
 
 [[nodiscard]] FinishClaim
 ClaimFinish(std::atomic<TerminalPhase> &phase) noexcept;
+[[nodiscard]] bool
+ClaimVirtualStart(std::atomic<TerminalPhase> &phase) noexcept;
 [[nodiscard]] CancelClaim
 RequestCancel(std::atomic<TerminalPhase> &phase) noexcept;
 void MarkComplete(std::atomic<TerminalPhase> &phase) noexcept;

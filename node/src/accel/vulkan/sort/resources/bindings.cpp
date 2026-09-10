@@ -1,3 +1,5 @@
+#include "../../adapter/error.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 

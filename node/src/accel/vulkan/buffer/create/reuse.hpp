@@ -1,5 +1,6 @@
 #pragma once
 
+#include "memory.hpp"
 #include "../local.hpp"
 #include "../pool.hpp"
 #include <rund/counter.hpp>
@@ -14,20 +15,22 @@ TakeReusableVulkanBuffer(VulkanAdapter &adapter, const VkDeviceSize bytes,
                          const VulkanMemoryUse use, VulkanBuffer &buffer,
                          const std::uint64_t exact_storage_bytes = 0u) {
   const VkBufferUsageFlags effective_usage =
-      use == VulkanMemoryUse::Resident
+      use == VulkanMemoryUse::Resident || use == VulkanMemoryUse::ResidentHost
           ? usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT
           : usage;
   auto best = adapter.reusable_buffers.end();
   for (auto it = adapter.reusable_buffers.begin();
        it != adapter.reusable_buffers.end(); ++it) {
-    if (it->usage != effective_usage || it->memory_use != use ||
+    if (!VulkanBufferMemoryReady(*it, use) ||
+        it->usage != effective_usage ||
         (exact_storage_bytes != 0u &&
          it->allocated_bytes != exact_storage_bytes) ||
-        it->bytes < bytes) {
+        it->capacity_bytes < bytes) {
       continue;
     }
-    if (best == adapter.reusable_buffers.end() || it->bytes < best->bytes) {
+    if (best == adapter.reusable_buffers.end() ||
+        it->capacity_bytes < best->capacity_bytes) {
       best = it;
     }
   }
@@ -42,6 +45,7 @@ TakeReusableVulkanBuffer(VulkanAdapter &adapter, const VkDeviceSize bytes,
                                      buffer.allocated_bytes);
   }
   adapter.reusable_buffers.erase(best);
+  buffer.bytes = bytes;
   ::rund::detail::counter::Accumulate(adapter.buffer_reuse_hit_count, 1u);
   return true;
 }

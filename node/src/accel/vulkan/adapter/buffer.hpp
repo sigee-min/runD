@@ -15,6 +15,7 @@ struct VulkanAdapter;
 enum class VulkanMemoryUse : std::uint8_t {
   Staging,
   Resident,
+  ResidentHost,
   Device,
   Scratch,
 };
@@ -34,6 +35,8 @@ struct VulkanBuffer {
   // distinct. Pool selection uses bytes; memory authorities use
   // allocated_bytes.
   VkDeviceSize bytes = 0u;
+  // Immutable VkBufferCreateInfo::size retained across logical reuse.
+  VkDeviceSize capacity_bytes = 0u;
   VkDeviceSize allocated_bytes = 0u;
   VkBufferUsageFlags usage = 0u;
   VkMemoryPropertyFlags memory_flags = 0u;

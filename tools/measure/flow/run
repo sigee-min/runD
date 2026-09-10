@@ -44,7 +44,7 @@ sh "$root/tools/internal/measure/prepare" "$root" "$build" \
   "$root/tools/measure/flow"
 
 samples="$build/samples.tsv"
-compiler=$(perl "$root/tools/internal/measure/compiler" "$build")
+compiler=$(perl "$root/tools/internal/toolchain/compiler" "$build")
 python3 "$root/tools/measure/flow/frontend.py" \
   "$compiler" "$prefix/include" \
   "$root/tools/measure/flow/minimal.cpp" \

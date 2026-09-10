@@ -6,6 +6,9 @@
 #include <accel/kernel/evidence.hpp>
 #include <accel/runtime.hpp>
 
+#include <cstdint>
+#include <span>
+
 namespace rund::node::accel::detail::prepared {
 
 void Accumulate(EvidenceCounts &counts, const RunState &state) noexcept;
@@ -24,5 +27,10 @@ BatchEvidence(const rund::AccelContext &context, rund::RuntimeStats stats,
 PipelineEvidence(const rund::AccelContext &context,
                  const PipelineState &pipeline,
                  const KernelResult &backend) noexcept;
+
+[[nodiscard]] PreparedPipelineEvidence
+PipelineEvidence(const rund::AccelContext &context,
+                 const PipelineState &pipeline, const KernelResult &backend,
+                 std::span<const std::uint32_t> selected_steps) noexcept;
 
 } // namespace rund::node::accel::detail::prepared

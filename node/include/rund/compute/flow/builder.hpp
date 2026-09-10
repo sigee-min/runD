@@ -1,5 +1,6 @@
 #pragma once
 
+#include <rund/compute/cache.hpp>
 #include <rund/compute/flow/bound.hpp>
 #include <rund/compute/flow/bounded.hpp>
 #include <rund/compute/flow/deferred.hpp>
@@ -86,6 +87,16 @@ private:
 [[nodiscard]] inline FlowBuilder on(const Device &device) noexcept {
   return FlowBuilder{device.state_};
 }
+[[nodiscard]] inline FlowBuilder on(const Device &device,
+                                    const ProgramCache &cache) noexcept {
+  if (device.state_ == nullptr ||
+      !detail::cache_matches_device(cache.state_, device.state_)) {
+    return FlowBuilder{device.state_,
+                       std::shared_ptr<detail::ProgramCacheState>{}};
+  }
+  return FlowBuilder{device.state_, cache.state_};
+}
+
 template <detail::ComputeValue T>
 Flow<T(T)> detail::FlowFactory::make(const Target target,
                                      const std::span<const T> input) {

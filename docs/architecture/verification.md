@@ -36,6 +36,28 @@ bytes.
 
 ## Development Loop
 
+### Pull Request Gates
+
+`.github/workflows/ci.yml` runs on pull requests, main-branch pushes, merge
+groups, and manual dispatch. Its stable gates reuse the public verification
+operators instead of maintaining a CI-only test selection:
+
+- Linux CPU/source contracts: the complete Debug matrix and explicit
+  unavailable-platform contracts with Clang 18 on Ubuntu 24.04.
+- Linux installed SDK consumer: the Release and external-consumer matrix with
+  GCC 13 and the LLVM/Clang 18 tooling tuple.
+- Static site build and checks: locked dependency installation, dependency
+  audit, production build, and public-release consistency checks.
+
+Jobs run with read-only repository permissions and retain diagnostic artifacts
+even on failure. Linux build and test concurrency are bounded independently.
+These gates validate Linux source and installed consumption; they do not
+promote Linux to a supported binary release or claim physical GPU parity.
+Native Darwin ARM64 CPU/Metal/MoltenVK, sanitizer, leak, and performance
+acceptance still requires the corresponding source-bound local evidence.
+The workflow defines check names; configuring them as required branch checks
+is repository-host administration, separate from the checked-in workflow.
+
 The default and `--match` routes reuse `.cache/dev`. Their configuration stamp
 covers profile, focus, verification tags, configure helpers, normalized Node
 source topology, CMake identity, and the live cache. When the stamp matches,
@@ -136,6 +158,18 @@ Every route packet stores:
 - sealed source identity, including revision and worktree bytes;
 - route, generator, compiler, host, selection, and pass/fail result;
 - raw CTest or workload output required by that route.
+
+Every configured route resolves its compiler from `CMakeCache.txt` through
+`tools/internal/toolchain/compiler`, including Debug, sanitizers, platform,
+Release, artifact, and leak verification. Ambient `CXX` is not evidence of
+which compiler built the selected targets. Packets retain the configured
+compiler path, executable SHA-256, and the captured `--version` output in
+`compiler-version.txt` with its own SHA-256. Missing compiler identity prevents
+packet publication; `unknown` is not a successful verification context.
+Status validation checks these identities and the local host before accepting
+ordinary or measurement evidence. It never executes a compiler path read from
+a packet. The stored version output describes the recording context; the
+sealed SDK producer tuple remains the owner of full artifact compatibility.
 
 A passing measurement packet additionally seals its raw-log name and SHA-256,
 `baseline.log` name and SHA-256, selected profile, and compared metric count.

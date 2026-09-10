@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../../sort.hpp"
-#include "../../adapter/api.hpp"
+#include "../../adapter/state.hpp"
 #include "../../collective/pipeline.hpp"
 #include "../../descriptor/binding.hpp"
 #include "../../status.hpp"

@@ -3,10 +3,9 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
-#include "../../kernel/backend/template_plan.hpp"
 #include "../../kernel/reset/model.hpp"
 #include "../../kernel/submission.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../command.hpp"
 #include "../command/model.hpp"
 #include "../kernel.hpp"
@@ -20,11 +19,13 @@
 #include <type_traits>
 #include <vector>
 
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+#include "local/resources.hpp"
+#endif
+
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
-#include "local/resources.hpp"
-
 struct VulkanKernelContext {
   VulkanAdapter *adapter = nullptr;
 };

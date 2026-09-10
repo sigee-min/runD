@@ -2,13 +2,16 @@
 
 #include "../../allocation.hpp"
 #include "src/compute/program/cache.hpp"
+#include "src/compute/program/cache/state.hpp"
 
 #include <condition_variable>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <new>
 #include <thread>
 
 namespace {
@@ -89,26 +92,77 @@ using Cached =
   return hit && !built && node_compute_allocation::Count() == 0u;
 }
 
-[[nodiscard]] bool allocation_failure_leaves_no_entry() {
+[[nodiscard]] bool borrowed_builder_does_not_copy_or_allocate() {
   auto state = cache(1u);
-  if (state == nullptr) {
+  if (state == nullptr) { return false; }
+  const auto owner = program();
+  constexpr Fingerprint key{.hi = 9u, .lo = 1u};
+  struct Builder final {
+    std::array<std::uint64_t, 64u> payload{};
+    std::shared_ptr<rund::compute::detail::ProgramState> owner;
+    std::size_t calls{};
+    explicit Builder(decltype(owner) value) : owner(std::move(value)) {}
+    Builder(const Builder &) = delete;
+    Builder(Builder &&) = delete;
+    Cached operator()() { ++calls; ++payload[0]; return Cached::success(owner); }
+  };
+  Builder builder{owner};
+  const auto miss = rund::compute::detail::cached_program(state, key, builder);
+  if (!miss || miss.value() != owner || builder.calls != 1u) { return false; }
+  node_compute_allocation::Start();
+  node_compute_allocation::FailNext();
+  const auto hit = rund::compute::detail::cached_program(state, key, builder);
+  const auto temporary = rund::compute::detail::cached_program(
+      state, key, Builder{owner});
+  node_compute_allocation::ClearFailure();
+  node_compute_allocation::Stop();
+  if (!hit || !temporary || hit.value() != owner || temporary.value() != owner ||
+      builder.calls != 1u || node_compute_allocation::Count() != 0u) {
     return false;
   }
-  constexpr Fingerprint key{.hi = 4u, .lo = 1u};
-  node_compute_allocation::FailNext();
-  const auto failed = rund::compute::detail::cached_program(
-      state, key, [] { return Cached::success(program()); });
-  {
-    std::lock_guard lock{state->mutex};
-    if (failed ||
-        failed.reason() != rund::compute::Reason::ProgramCacheCapacity ||
-        !state->entries.empty() || state->misses != 0u ||
-        state->ready_count != 0u) {
+  state->clear_ready();
+  const auto fresh = rund::compute::detail::cached_program(
+      state, key, [token = std::make_unique<unsigned>(7u), owner]() mutable {
+        return *token == 7u ? Cached::success(owner)
+                           : Cached::fail(rund::compute::Reason::ProgramCompileException);
+      });
+  if (!fresh || fresh.value() != owner) { return false; }
+  state->clear_ready();
+  const auto capacity = rund::compute::detail::cached_program(
+      state, key, []() -> Cached { throw std::bad_alloc{}; });
+  const auto exception = rund::compute::detail::cached_program(
+      state, key, []() -> Cached { throw 7u; });
+  return !capacity && !exception &&
+         capacity.reason() == rund::compute::Reason::ProgramCapacity &&
+         exception.reason() == rund::compute::Reason::ProgramCompileException &&
+         state->entries.empty();
+}
+
+[[nodiscard]] bool allocation_failure_leaves_no_entry() {
+  // Walk every allocation boundary through the first successful admission,
+  // including index node and initial bucket allocation on this implementation.
+  for (std::uint64_t allowed = 0u; allowed < 16u; ++allowed) {
+    auto state = cache(1u);
+    if (state == nullptr) { return false; }
+    const auto owner = program();
+    constexpr Fingerprint key{.hi = 4u, .lo = 1u};
+    bool built = false;
+    const auto build = [&] { built = true; return Cached::success(owner); };
+    node_compute_allocation::FailAfter(allowed);
+    const auto result = rund::compute::detail::cached_program(state, key, build);
+    node_compute_allocation::ClearFailure();
+    if (result) {
+      return allowed != 0u && built && result.value() == owner &&
+             state->misses == 1u && state->ready_count == 1u;
+    }
+    if (built || result.reason() != rund::compute::Reason::ProgramCacheCapacity ||
+        !state->entries.empty() || state->misses != 0u || state->ready_count != 0u) {
       return false;
     }
+    const auto retry = rund::compute::detail::cached_program(state, key, build);
+    if (!retry || retry.value() != owner) { return false; }
   }
-  return static_cast<bool>(rund::compute::detail::cached_program(
-      state, key, [] { return Cached::success(program()); }));
+  return false;
 }
 
 [[nodiscard]] bool clear_keeps_pending() {
@@ -168,6 +222,35 @@ using Cached =
   return exact;
 }
 
+[[nodiscard]] bool collisions_preserve_full_identity() {
+  constexpr std::size_t count = 64u;
+  auto state = cache(count);
+  if (state == nullptr) { return false; }
+  std::array<std::shared_ptr<rund::compute::detail::ProgramState>, count> owners;
+  std::array<Fingerprint, count> keys;
+  const rund::compute::detail::FingerprintHash hash;
+  for (std::size_t i = 0; i < count; ++i) {
+    keys[i] = {.hi = i, .lo = i - 0x9e3779b97f4a7c15ull};
+    if (hash(keys[i]) != 0u) { return false; }
+    owners[i] = program();
+    const auto result = rund::compute::detail::cached_program(
+        state, keys[i], [&] { return Cached::success(owners[i]); });
+    if (!result || result.value() != owners[i]) { return false; }
+  }
+  // Growth rehashes membership; neither identity nor LRU stores an iterator.
+  for (std::size_t i = count; i-- > 0u;) {
+    const auto result = rund::compute::detail::cached_program(
+        state, keys[i], [] { return Cached::fail(rund::compute::Reason::ProgramCompileException); });
+    if (!result || result.value() != owners[i]) { return false; }
+  }
+  node_compute_allocation::Start();
+  state->clear_ready();
+  node_compute_allocation::Stop();
+  return node_compute_allocation::Count() == 0u && state->entries.empty() &&
+         state->ready_count == 0u && state->oldest == nullptr &&
+         state->newest == nullptr && state->misses == count && state->hits == count;
+}
+
 } // namespace
 
 int RunComputeProgramCacheIndexContract() {
@@ -183,5 +266,7 @@ int RunComputeProgramCacheIndexContract() {
   if (!clear_keeps_pending()) {
     return 4;
   }
+  if (!collisions_preserve_full_identity()) { return 5; }
+  if (!borrowed_builder_does_not_copy_or_allocate()) { return 6; }
   return 0;
 }

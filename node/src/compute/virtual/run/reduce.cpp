@@ -1,5 +1,6 @@
 #include "reduce.hpp"
 
+#include "../../device/residency/pool.hpp"
 #include "../../pipeline/run/clock.hpp"
 #include "../backing.hpp"
 
@@ -128,12 +129,13 @@ Status consume_virtual_reduction(const VirtualRunProjection &run,
   if (!run.reduction || lease.bindings.empty()) {
     return Status::fail(Reason::PipelineInvalid);
   }
-  for (const residency::CacheBinding binding : lease.bindings) {
-    if (binding.frame >= run.frame_capacity) {
+  for (const residency::CacheBinding &binding : lease.bindings) {
+    const std::byte *const frame =
+        virtual_resident_output_frame(run, binding.frame);
+    if (frame == nullptr) {
       return Status::fail(Reason::PipelineInvalid);
     }
-    const Status status = merge(
-        reduction, run.output_stage + binding.frame * run.output_page_bytes);
+    const Status status = merge(reduction, frame);
     if (!status) {
       return status;
     }

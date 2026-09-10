@@ -1,5 +1,7 @@
 #pragma once
 
+#include <rund/compute/abi/primitive.hpp>
+
 #include "../state.hpp"
 
 #include <accel/graph/node.hpp>

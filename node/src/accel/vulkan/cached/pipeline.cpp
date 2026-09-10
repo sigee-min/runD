@@ -7,6 +7,7 @@
 #include "../shader/module.hpp"
 #include "pipeline/compute.hpp"
 #include "pipeline/descriptor.hpp"
+#include "../shader/api.hpp"
 #include <rund/counter.hpp>
 
 #include <new>

@@ -13,14 +13,11 @@ inline void EncodeMetalReducePass(const MetalReduceCommandState &state,
       static_cast<NSUInteger>(state.reduce->plan.block_size);
   [state.encoder setBuffer:(read_partial ? state.partial : state.input)
                     offset:(read_partial ? state.partial_offset
-                                         : state.input_offset)
-                   atIndex:0u];
+                                         : state.input_offset)atIndex:0u];
   [state.encoder setBuffer:state.partial
                     offset:state.partial_offset
                    atIndex:1u];
-  [state.encoder setBuffer:state.output
-                    offset:state.output_offset
-                   atIndex:2u];
+  [state.encoder setBuffer:state.output offset:state.output_offset atIndex:2u];
   [state.encoder setBuffer:state.status offset:0u atIndex:3u];
   [state.encoder setBytes:&params length:sizeof(params) atIndex:4u];
   if (state.logical_count != nil) {
@@ -28,9 +25,18 @@ inline void EncodeMetalReducePass(const MetalReduceCommandState &state,
                       offset:state.logical_count_offset
                      atIndex:5u];
   }
-  [state.encoder
-       dispatchThreadgroups:MTLSizeMake(static_cast<NSUInteger>(next), 1u, 1u)
-      threadsPerThreadgroup:MTLSizeMake(block_size, 1u, 1u)];
+  const bool extrema = state.reduce->plan.op == rund::kernel::ReduceOp::Min ||
+                       state.reduce->plan.op == rund::kernel::ReduceOp::Max;
+  // One SIMD group owns one logical reduction block. Full physical groups
+  // pack that many independent blocks without shared storage or barriers.
+  const NSUInteger simd_width = [state.pipeline threadExecutionWidth];
+  const NSUInteger blocks_per_group =
+      extrema ? (block_size / simd_width + (block_size % simd_width != 0u))
+              : 1u;
+  const NSUInteger groups = static_cast<NSUInteger>(
+      next / blocks_per_group + (next % blocks_per_group != 0u));
+  [state.encoder dispatchThreadgroups:MTLSizeMake(groups, 1u, 1u)
+                threadsPerThreadgroup:MTLSizeMake(block_size, 1u, 1u)];
 }
 #endif
 

@@ -74,6 +74,22 @@ set_tests_properties(tools.build-measure PROPERTIES
   TIMEOUT 30)
 rund_test_route(tools.build-measure NO_BUILD_TARGETS)
 
+# Native private headers are meaningful only when both Node native component
+# object contexts participate in this configured graph.  The contract itself
+# derives all compiler arguments from this tree's compile database.
+if(TARGET node-object-accel-vulkan AND TARGET node-object-accel-metal)
+  add_test(
+    NAME tools.native-headers
+    COMMAND "${rund_build_measure_python}"
+            "${CMAKE_SOURCE_DIR}/tools/internal/header/contract.py"
+            --root "${CMAKE_SOURCE_DIR}"
+            --build "${CMAKE_BINARY_DIR}")
+  set_tests_properties(tools.native-headers PROPERTIES
+    LABELS "rund_tools;rund_contract"
+    TIMEOUT 600)
+  rund_test_route(tools.native-headers NO_BUILD_TARGETS)
+endif()
+
 add_test(
   NAME tools.build-ctest-selection
   COMMAND "${CMAKE_COMMAND}"

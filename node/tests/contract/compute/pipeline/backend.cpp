@@ -2,6 +2,8 @@
 
 #include "../../target/selection.hpp"
 
+#include <cstdio>
+
 namespace rund_node_test_pipeline {
 
 [[nodiscard]] int
@@ -18,6 +20,9 @@ CheckBackend(const Backend backend,
       rund::compute::open(rund::node::test_contract::target_for(backend, 2u));
 #endif
   if (!device) {
+    std::fprintf(stderr, "pipeline backend open=%u reason=%u\n",
+                 static_cast<unsigned>(backend),
+                 static_cast<unsigned>(device.reason()));
     return 1;
   }
   if (const int repetitions = CheckSealedRepetitions(

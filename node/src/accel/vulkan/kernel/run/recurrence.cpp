@@ -1,6 +1,8 @@
 #include "../../../kernel/backend/execute.hpp"
-#include "../../../kernel/backend/template_plan.hpp"
+#include "../../../kernel/backend/source/storage.hpp"
+#include "../../../kernel/backend/template/arithmetic.hpp"
 #include "../../../kernel/recurrence/plan.hpp"
+#include "../../../kernel/step/map/stride.hpp"
 #include "../../../kernel/status.hpp"
 #include "../../../resident/window/admission/runtime/windows.hpp"
 
@@ -12,7 +14,7 @@
 #include "../../kernel.hpp"
 #include "../../map/api.hpp"
 #include "../../map/local.hpp"
-#include "../../map/source_upper.hpp"
+#include "../../map/source/upper.hpp"
 #include "../../numeric/source.hpp"
 #include "../../numeric/state.hpp"
 #include "../../partition/local.hpp"
@@ -32,7 +34,7 @@
 #include "../pipeline/recurrence.hpp"
 #include "../pipeline/source.hpp"
 #include "../pipeline/state.hpp"
-#include "../reset_source.hpp"
+#include "../reset/source.hpp"
 
 #include "../../../primitive/block.hpp"
 #include "../../../sort/block/vulkan.hpp"

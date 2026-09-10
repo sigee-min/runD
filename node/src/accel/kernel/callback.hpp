@@ -4,6 +4,7 @@
 #include <accel/runtime.hpp>
 
 #include "status.hpp"
+#include "terminal.hpp"
 
 #include <cstdint>
 
@@ -24,6 +25,7 @@ struct KernelResult final {
   rund::AccelCheck check{};
   rund::RuntimeStats stats{};
   PreparedPipelineBackendEvidence pipeline{};
+  NativeTerminal terminal{NativeTerminal::Known};
 };
 
 using KernelCompletion = void (*)(void *, KernelResult) noexcept;

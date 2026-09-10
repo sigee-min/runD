@@ -189,7 +189,7 @@ void append_command(MetalCapture &capture, const MetalGrid kind,
         .threads = threads,
         .indirect_offset = indirect_offset,
         .kind = kind,
-        .owner = capture.owner,
+        .declared_step = capture.declared_step,
     };
     capture.commands.push_back(std::move(command));
   } catch (...) {

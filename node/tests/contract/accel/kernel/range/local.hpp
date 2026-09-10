@@ -1,7 +1,10 @@
 #pragma once
 
-#include "src/accel/range_aggregate/execution.hpp"
+#include "src/accel/range_aggregate/execution/control.hpp"
+#include "src/accel/range_aggregate/execution/projection.hpp"
+#include "src/accel/range_aggregate/execution/run.hpp"
 #include "src/accel/range_aggregate/plan.hpp"
+#include "src/accel/range_aggregate/plan/build.hpp"
 
 #include <cassert>
 #include <limits>
@@ -9,15 +12,18 @@
 
 namespace node_accel_contract::range {
 
+// Static checks evaluate the single production implementation. Runtime checks
+// exercise the compiled entry point, so both execution forms retain coverage.
+[[nodiscard]] constexpr rund::node::accel::detail::RangePlan
+ContractPlanRange(const rund::node::accel::detail::RangeShape &shape,
+                  const rund::node::accel::detail::RangeCaps &caps) noexcept {
+  return std::is_constant_evaluated()
+             ? rund::node::accel::detail::BuildRangePlan(shape, caps)
+             : rund::node::accel::detail::PlanRange(shape, caps);
+}
+
 inline constexpr std::uint8_t kAllCandidates =
-    rund::node::accel::detail::RangeSupportBit(
-        rund::node::accel::detail::RangeSupport::Direct) |
-    rund::node::accel::detail::RangeSupportBit(
-        rund::node::accel::detail::RangeSupport::SharedHalo) |
-    rund::node::accel::detail::RangeSupportBit(
-        rund::node::accel::detail::RangeSupport::PrefixDifference) |
-    rund::node::accel::detail::RangeSupportBit(
-        rund::node::accel::detail::RangeSupport::BlockPrefixSuffix);
+    rund::node::accel::detail::kRangeKnownSupportMask;
 
 [[nodiscard]] constexpr std::optional<rund::node::accel::detail::RangeTraits>
 MaybeTraits(const rund::node::accel::detail::RangeOp operation,
@@ -120,6 +126,8 @@ Support(const rund::node::accel::detail::RangePath path) noexcept {
     return RangeSupport::SharedHalo;
   case RangePath::PrefixDifference:
     return RangeSupport::PrefixDifference;
+  case RangePath::TiledDifference:
+    return RangeSupport::TiledDifference;
   case RangePath::BlockPrefixSuffix:
     return RangeSupport::BlockPrefixSuffix;
   }
@@ -160,6 +168,8 @@ PlanSourceVariant(const rund::node::accel::detail::RangeSource backend,
       path == RangePath::SharedHalo ? static_cast<rund::kernel::u64>(
                                           width + 2u * shared_radius_capacity) *
                                           element_bytes
+      : path == RangePath::TiledDifference
+          ? static_cast<rund::kernel::u64>(2u * width) * element_bytes
       : path == RangePath::PrefixDifference
           ? static_cast<rund::kernel::u64>(width) * element_bytes
           : 0u;
@@ -175,7 +185,7 @@ PlanSourceVariant(const rund::node::accel::detail::RangeSource backend,
   if (!capabilities.has_value()) {
     return RangePlan::rejected("compute_range_aggregate_capabilities_invalid");
   }
-  const RangePlan plan = PlanRange(shape, *capabilities);
+  const RangePlan plan = ContractPlanRange(shape, *capabilities);
   return plan.ok() && plan.candidate().disposition() == path
              ? plan
              : RangePlan::rejected(

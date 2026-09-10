@@ -27,6 +27,30 @@ A registry cannot keep a dead buffer alive, a transfer cannot extend adapter
 ownership onto the completion thread, and a native buffer cannot be reused or
 destroyed before its last GPU use.
 
+Metal's runtime pool has one compiled owner for each transition. `pool.mm`
+selects scratch or reusable allocation, while `pool/create.mm`,
+`pool/select.mm`, and `pool/release.mm` respectively own native creation,
+best-fit reuse, and return-to-pool policy. Their headers are declarations only;
+including a pool header cannot instantiate a second allocation authority.
+
+The common backend resource surface has one physical owner per transition:
+`backend/resource.cpp` creates authenticated public buffers;
+`backend/resource/upload.cpp` owns scalar and batched upload dispatch;
+`backend/resource/download.cpp` owns ordered download outcomes, overlap gates,
+and scalar fallback; and `backend/resource/access.cpp` owns copy, lookup, Host
+views, and statistics. `backend/resource/support.cpp` is the sole compiled
+owner of route, public-buffer, and resident-view validation shared by those
+operations; its private `local.hpp` contains declarations only.
+
+Metal resident downloads have the same single-owner boundary:
+`metal/buffer/resident/download.mm` owns scalar download and optional payload
+hashing; `metal/buffer/resident/view.mm` owns private borrowed Host read/write
+views; and `metal/buffer/resident/batch/download.mm` owns the
+`MetalDownloadPlan`, inline/overflow scratch selection, ordered outcomes, and
+batched readback counters. Each is one direct translation unit, including its
+SDK-unavailable definition; no resident download facade or second batch plan
+authority is compiled.
+
 Metal and Vulkan registry rows store type-erased public-owner and native-buffer
 lifetime tokens. Lookup code therefore does not depend on either backend's
 private owner layout. It locks both weak tokens while holding the resident
@@ -43,6 +67,30 @@ release needs only the resident lock. This makes recursive adapter-lock
 acquisition structurally impossible. Vulkan's fixed resident pool makes final
 storage release allocation-free and chooses the smallest compatible
 usage-class allocation that satisfies the requested byte extent.
+
+Vulkan independently retains one optional temporal timeline owner beneath the
+adapter. Vulkan 1.2 core support is preferred; a pre-1.2 physical device must
+expose and enable `VK_KHR_timeline_semaphore`, and both paths require the
+timeline feature bit. The owner creates two timeline semaphores at cold adapter
+construction, one for each direction, and destroys both before the logical
+device.
+Host signals the `ready` semaphore and the queue waits it; the queue signals
+the distinct `done` semaphore and Host waits it. The owner admits one
+generation at a time and issues contiguous counter values tagged by that
+generation, so stale-generation reuse, counter overflow, and the device's
+maximum timeline-value difference fail closed. Counter observation and Host
+waits are bounded; these values are evidence, not a second scheduler. Missing
+capability reports `compute_backend_unsupported`. This owner is foundation
+only and is not yet a Compute residency-DAG consumer.
+
+The timeline implementation is physically direct-owned by
+`node/src/accel/vulkan/timeline/owner/`: `validation.cpp` owns capability,
+function-pointer, and value-bound checks; `lifecycle.cpp` owns physical feature
+query and semaphore reset; `generation.cpp` owns generation lifecycle;
+`point.cpp` owns point and Host-ready signaling; `submit.cpp` owns single-batch
+submission; `batch.cpp` owns bounded/stream batch lowering; and `observe.cpp`
+owns waits and counter reads. `internal.hpp` contains declarations only. The
+`VulkanTimelineOwner` in `owner.hpp` remains the sole mutable state authority.
 Metal resident preparation holds its adapter lock once while resolving the
 complete ordered input/output set, rather than revalidating a synthetic Device
 and reacquiring the same lock for every binding. Forged identifiers,
@@ -187,6 +235,16 @@ No borrowed buffer can enter this path. Command-buffer completion therefore
 precedes the last possible release of every encoded pipeline, buffer, and
 parameter owner by construction rather than by an API fallback.
 
+Metal prepared-kernel ownership is compiled by boundary: the root
+`kernel/prepared.mm` façade projects traffic; `kernel/prepared/reset.mm` owns
+the reset shader and reset-resource proof; `prepare.mm` owns cold resource
+preparation and lifecycle publication; `run.mm` owns synchronous execution;
+`submit.mm` owns asynchronous admission, encoding, and queue publication; and
+`completion.mm` owns submission `Take` and terminal trace, reset-stat, and
+completion projection. `prepared/local.hpp` is declarations-only; the
+`MetalKernelResources` graph, submission state, reset proof, and telemetry each
+retain one authority.
+
 Metal Pipeline cold capture has one producer-owned binding-prefix contract.
 Operation manifests publish their maximum non-guard argument index plus one;
 View, status, telemetry, window, publication, and recurrence control encoders
@@ -199,6 +257,15 @@ Encoder calls outside the frozen prefix fail closed, and appends cannot grow
 beyond those reservations. No current Pipeline encoder authors dynamic threadgroup-memory
 bindings, so no host threadgroup snapshot or ICB replay owner is retained.
 
+Metal Pipeline separates value ABI from retained state: `metal/kernel/pipeline/abi.hpp`
+exposes the seven GPU parameter records and their layout assertions, while
+`pipeline/state.hpp` owns the sole retained sequence and submission state and
+retains the capture-binding assertion. The ABI header is value-only: it carries
+no native handles, locks, or submission lifetime. State consumers include it
+directly. The field schemas and host/Metal projection contract are owned by
+[Native ABI Boundaries](../abi.md), including unchanged shader bytes and
+field-level native roundtrip verification.
+
 Metal kernel planning and execution have seven implementation owners under
 `metal/kernel/run/`: `manifest` owns step control shape and completed manifest
 assembly; `source_recipe` owns emitted-source recipes and cold dependency
@@ -210,11 +277,54 @@ template identity. The shared Map-memory and aligned-parameter helpers are
 owner-local headers used only by those projections. Every implementation owner
 is registered as a direct translation unit.
 
+Metal nested-aggregate shader source has one materialization boundary in
+`metal/kernel/pipeline/aggregate/source.cpp`. Its compiled fragments are
+disjoint: `source/common.cpp` owns the preamble, ABI structs, and shared
+helpers; `source/reduce.cpp` owns the reduce kernel; and `source/finalize.cpp`
+owns the finalize kernel. The root emits them in the fixed order preamble,
+shared phase contract, common, reduce, finalize. No fragment re-emits an ABI,
+kernel name, source hash, or capacity authority, and each fragment is a direct
+translation unit rather than a textual implementation include.
+
+Metal runtime Map control has one declarations-and-ABI header,
+`runtime/map/control.hpp`, and three direct implementation owners.
+`control/artifact.mm` owns controlled-artifact splicing, check hashing, and
+bounds-check artifact materialization; `control/pipeline.mm` owns the
+control-source upper/materialization and named control-pipeline cache;
+`control/prepare.mm` owns route-specific control-buffer/config preparation.
+`map/prepare.hpp` consumes these declarations while retaining template and
+route admission. No control source, hash, pipeline, or preparation authority
+is duplicated in the header or in the Map route owner.
+
 Vulkan kernel planning and execution use responsibility owners under
-`vulkan/kernel/run/`. `manifest/step` owns exact per-primitive source recipes
-and cold dependencies, while `manifest/capture` owns physical dispatch,
-status, and telemetry cardinality. `structure/route` owns per-route and
-template capacity projection, while `structure/pipeline` owns aggregate
+`vulkan/kernel/run/`. `manifest/step` is the ordered per-kind dispatcher;
+`manifest/map`, `manifest/scan`, `manifest/reduction`, `manifest/sort`,
+`manifest/collective`, `manifest/scatter`, `manifest/range`, and
+`manifest/numeric` own disjoint
+primitive source recipes, descriptor counts, and cold dependencies, while
+`manifest/capture` owns physical dispatch, status, and telemetry cardinality.
+The dispatcher and leaves preserve one `PreparedBackendManifest` and one
+completion path; no leaf owns a second source or capacity policy.
+The authority contract suite keeps its manifest proof at the same boundary:
+`tests/contract/accel/kernel/authority/manifest.cpp` coordinates the checked
+prepared projection, publication shape, and dimensional-control cases;
+`manifest/vulkan.cpp` owns physical command layout and transactional capacity
+failure; and `manifest/metal.cpp` owns the exact cold source/dependency
+manifest cases. These are independent compiled owners over the one manifest
+model, with no duplicated source tables or expected-capacity authority.
+The matching Map authority contracts are similarly direct-owned:
+`tests/contract/accel/kernel/authority/map.cpp` coordinates program/runtime
+template identity and word-class partitioning; `map/source.cpp` owns exact
+binding specialization and source-capacity checks; and `map/guard.cpp` owns
+pipeline-guard and controlled-source checks. The three cases observe the
+canonical Map emitters and do not reproduce source or binding schemas.
+`structure/route.cpp` owns the public sealed-shape planning sequence,
+`structure/route/step.cpp` owns primitive-specific route/template capacity,
+and `structure/route/capture.cpp` owns reset/View auxiliary capture capacity.
+Their local seam is declarations-only and all three update the same
+`PreparedKernelRouteReservation`; no second route or capacity authority is
+retained, while
+`structure/pipeline` owns aggregate
 Pipeline command, descriptor, parameter, and native-memory bounds.
 `recurrence` owns recurrence reservation; `memory` observes retained template
 storage; `prepare`, `execute`, and `submit` own their lifecycle boundaries;
@@ -222,14 +332,40 @@ and `identity` owns template equality. The owner-local `route` and `storage`
 headers hold the two shared projections, and every implementation owner is
 registered as a direct translation unit.
 
+Cross-backend template planning is a common compiled boundary under
+`kernel/backend/template/`. `model` retains only `BackendShape` and its typed
+step-planner declaration; `arithmetic` owns checked add/product, `source`
+owns the Map emitter-derived source upper, and the three `identity` owners
+preserve plan/layout/template equality and Map specialization fingerprints.
+The `reservation` owners separately account primitive passes, private-run
+capacity, and public Program capacity. These owners retain the exact hash,
+alignment, source-upper, overflow, and reservation formulas used by both
+Metal and Vulkan; no backend includes a planning implementation header.
+
 Vulkan prepared-kernel construction is partitioned under
 `vulkan/kernel/prepare/`. `template` owns program-template identity, cache
-matching, and ordered assembly; `materialize` owns immutable primitive
-pipeline acquisition; `descriptor` owns dependency normalization and native
-descriptor-capacity reservation; and `step` owns View lowering plus route and
-warm-step preparation. Their source-private `local` interface carries only the
-typed construction facts shared by those directly compiled owners. Shader
+matching, and ordered assembly; `materialize.cpp` owns request validation,
+single-owner construction, capture-count projection, and final readiness;
+`materialize/numeric.cpp` owns fixed numeric pipeline acquisition,
+`materialize/scan.cpp` owns Scan and Partition stage acquisition,
+`materialize/range.cpp` owns Stencil and Window stage acquisition, and
+`materialize/collective.cpp` owns the remaining collective stage acquisition.
+`descriptor` owns dependency normalization and native descriptor-capacity
+reservation; and `step` owns View lowering plus route and warm-step
+preparation. Their source-private `local` and `materialize/internal.hpp`
+interfaces carry declarations only; the four materialization leaves mutate the
+one `VulkanKernelImmutablePipelines` owner supplied by the coordinator. Shader
 source bytes and artifact identity remain inputs to this construction graph.
+
+The cold Vulkan prepared-resource boundary is coordinated in
+`vulkan/kernel/prepared.cpp`. Its declarations-only `prepared/local.hpp`
+interface assigns reset collection/proof plus reset binding and descriptor
+preparation to `prepared/reset.cpp`, descriptor-lease capacity preparation to
+`prepared/descriptor.cpp`, lock-protected command/trace/resource destruction
+to `prepared/destruction.cpp`, and final retained-memory/traffic projection to
+`prepared/memory.cpp`. The root remains the ordered validator and coordinator;
+these owners share the one `VulkanKernelResources` state and preserve the same
+SDK-on and loader-unavailable SDK-off behavior.
 
 Metal Pipeline command storage has one device-calibrated size-class authority.
 On the first opening of an exact nonzero Metal `registryID`, a locked fixed
@@ -338,17 +474,20 @@ handoff. `stats_from_evidence()` is the sole conversion from that handoff to
 public `compute::Stats`.
 
 The common prepared implementation is physically owned by
-`kernel/prepared/{run,batch,pipeline,completion,evidence}.cpp`, with immutable
+`kernel/prepared/{run,batch,pipeline,completion,evidence}.cpp` and the
+`kernel/prepared/completion/residency/` leaves, with immutable
 run and Pipeline state in `model.hpp`. Preparation performs the complete kernel
 admission once. A warm submit compares the supplied Context with that frozen
 admission in constant time and does not re-admit or traverse the Kernel graph.
 The prepared state retains the admitted kernel owner through
 `KernelExecution`; it does not keep a second `AccelKernel` owner mirror.
-`completion.cpp` is the only common submit and completion authority for both
-Jobs and Pipelines. Release/acquire ordering on the stack-owned completion flag
-makes all projected evidence visible to the synchronous waiter even when a
-backend completes inline; testing the flag before blocking prevents a lost
-wakeup.
+`completion.cpp` is the common ordinary Run/Pipeline submit and completion
+authority; `completion/residency/{control,stream,stream_lifecycle,terminal,
+validation,window}.cpp` own the prepared residency Window/Stream control,
+stream, terminal, validation, and lifecycle boundaries. Release/
+acquire ordering on the stack-owned completion flag makes all projected
+evidence visible to the synchronous waiter even when a backend completes
+inline; testing the flag before blocking prevents a lost wakeup.
 
 Metal and Vulkan Scan lowerings share one fixed physical width of 128 lanes.
 For logical block size `B`, lane `l` owns the contiguous interval
@@ -602,6 +741,22 @@ the single control read. Source byte length and FNV identity are contract-tested
 at the source owner and bind all five implementation owners to one shader,
 cache key, and result authority.
 
+The Vulkan control Open prefix clears the reason; the admission gate runs
+after that prefix and is the sole producer of admission failure. Word 23
+remains reserved zero, not a second admission channel. At Final, a failure
+without a declared failing step (`failed_step == PreparedPipelineNoStep`)
+publishes `verified_prefix == 0`, rather than copying the sentinel into the
+prefix count. A rejected gate therefore retains a canonical Known failure
+while its zeroed indirect payload and terminal suffix drain.
+
+Controlled Vulkan Map specialization uses ordinary GLSL newline bytes for its
+entry, declaration, and guard fragments. Source-size counting and insertion
+consume the same fragments, but the contract fixture supplies independent
+GLSL text and an exact expected result: reusing replacement needles to build
+both sides would hide a malformed escaped-newline fragment. The resident
+indexed-read contract additionally executes invalid and valid indices on each
+available backend, proving no output write on rejection and exact retry data.
+
 Metal Pipeline status metadata separates canonical entry order from status
 source policy. For `Q` canonical status entries and `C` source bindings, one
 eight-byte entry row stores only `(source ordinal, absolute raw word)`, while one
@@ -614,6 +769,14 @@ sources, allocates the `Q` entry rows exactly once, and fills them in canonical
 declaration order. The device reducer still selects the first nonzero canonical
 entry and projects its source's declared step; the packed control ABI and
 failure ordering do not change.
+
+The Metal operation-status projection surface is an include-only umbrella at
+`metal/kernel/ops/status.hpp`. `status/common.hpp` owns checked binding-row
+construction, `status/controlled.hpp` owns Map and Range control telemetry,
+`status/collective.hpp` owns Scan, segmented, Sort, Partition, and Reduce
+projection, and `status/data.hpp` owns Compact, Gather, Histogram, and Scatter
+projection. Each operation reads its retained resource owner directly; no
+second status table or telemetry state is materialized by the header split.
 
 Sort key/value ping-pong storage, radix tables and indirect arguments; scan
 totals; reduction partials; partition masks, offsets, and totals; segmented
@@ -670,6 +833,14 @@ cache hits, descriptor work, buffer allocation/reuse, dispatches, submissions,
 kernel samples, and readback time remain diagnostic and do not enter semantic
 identity.
 
+The context transfer bridge is compiled by responsibility: the root
+`context/transfer.cpp` retains only the public Upload/Download API bridge;
+`context/transfer/route.cpp` owns host-view and route projection,
+`upload.cpp`, `download.cpp`, and `copy.cpp` own their corresponding admitted
+batch operations, and `pipeline.cpp` owns prepared-Pipeline transfer. All
+leaves consume the shared admission and backend resource primitives, so range,
+owner, status, counter, and timing projection remain single-owner semantics.
+
 Vulkan projects the immutable `command_capacity`, observed
 `command_inflight_peak`, and saturating `command_capacity_rejections` through
 the same RuntimeStats, AccelEvidence, and public `compute::Stats` path.
@@ -688,6 +859,21 @@ dependency-bound payload copy out of the publication critical section without
 allowing its bytes or `readback_ns` to cross a reset epoch.
 
 ## Verification
+
+Metal artifact Pipeline lookup and publication have one compiled owner in
+`metal/pipeline/artifact/cache.mm`. Both operations hold the adapter mutex and
+use the same locked artifact identity lookup, including cache-hit accounting.
+`artifact/compile.mm` owns native compilation and private function-name
+construction; `metal/pipeline.mm` owns preparation, cache lookup, compilation,
+and publication order. Consumers include declarations, never implementation
+headers, so DeviceVSM and ordinary Map materialization share these exact owners.
+
+Metal Map encode-resource destruction is private to
+`metal/runtime/map/prepare/resources.mm`, the owner that constructs the retained
+resource pointer and installs its deleter. Header consumers cannot define a
+second destructor symbol or acquire ownership through an aggregate lifetime
+header. The same deleter releases the parameter, control argument, control
+parameter, and control status buffers before destroying the resource record.
 
 `accel.backend-runtime` verifies ring capacity, non-wrapping sequence order,
 counter saturation, quiescent epoch reset, host-readback/reset exclusion,
@@ -709,3 +895,16 @@ stability. Backend availability is proved separately by required selection and
 installed product contracts. `accel.kernel-core` verifies that allocation and
 length exceptions are the complete backend capacity class and that an
 unexpected exception retains its original propagation.
+
+The `accel.backend-runtime` case is dispatched by
+`node/tests/contract/accel/backend/runtime/dispatcher.cpp`. `support.cpp`
+owns shared counter saturation/equality and backend picking; `admission.cpp`,
+`command.cpp`, `cpu.cpp`, `metal.cpp`, and `vulkan.cpp` own token, command,
+and per-backend counter contracts; `readback.cpp` owns host-readback epoch and
+destruction cases; `tier.cpp` owns Vulkan memory-tier and transfer checks; and
+`runtime/runtime.cpp` owns the final Metal/Vulkan staged-runtime checks. The dispatcher
+preserves the original eleven-check order and failure short-circuiting.
+The staged statistics implementations have one compiled owner each in
+`tests/contract/accel/{metal,vulkan}/stats/run.cpp`; their headers expose only
+declarations. The readback lifetime cohort does not include or instantiate
+unrelated staged statistics tests.

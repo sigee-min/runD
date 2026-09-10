@@ -9,7 +9,7 @@
 namespace rund::compute::detail::residency {
 
 bool ProjectRange(const ByteRange &range, const std::uint64_t page_bytes,
-                  std::vector<PageUse> &uses) noexcept {
+                  std::vector<PageDemand> &uses) noexcept {
   if (range.resource == 0u || page_bytes == 0u || range.bytes == 0u) {
     return false;
   }
@@ -28,9 +28,19 @@ bool ProjectRange(const ByteRange &range, const std::uint64_t page_bytes,
     uses.reserve(uses.size() +
                  static_cast<std::size_t>(last_page - first_page + 1u));
     for (std::uint64_t page = first_page;; ++page) {
-      uses.push_back(PageUse{
+      const std::uint64_t page_start = page * page_bytes;
+      const std::uint64_t dirty_offset =
+          writes(range.access) && page == first_page ? range.offset - page_start
+                                                     : 0u;
+      const std::uint64_t last_page_byte =
+          std::min(page_bytes - 1u, end - page_start);
+      uses.push_back(PageDemand{
           .key = PageKey{.resource = range.resource, .page = page},
           .access = range.access,
+          .dirty = writes(range.access)
+                       ? DirtyRange{.offset = dirty_offset,
+                                    .bytes = last_page_byte - dirty_offset + 1u}
+                       : DirtyRange{},
       });
       if (page == last_page) {
         break;
@@ -44,7 +54,7 @@ bool ProjectRange(const ByteRange &range, const std::uint64_t page_bytes,
 
 bool ProjectWindow(const WindowFootprint &footprint,
                    const std::uint64_t page_bytes,
-                   DemandEpoch &epoch) noexcept {
+                   FootprintEpoch &epoch) noexcept {
   if (footprint.input_resource == 0u || footprint.output_resource == 0u ||
       footprint.input_resource == footprint.output_resource ||
       footprint.input_elements == 0u || footprint.output_count == 0u ||
@@ -102,7 +112,7 @@ bool ProjectWindow(const WindowFootprint &footprint,
 }
 
 bool ProjectScan(const ScanFootprint &footprint, const std::uint64_t page_bytes,
-                 std::vector<DemandEpoch> &epochs) noexcept {
+                 std::vector<FootprintEpoch> &epochs) noexcept {
   if (footprint.input_resource == 0u || footprint.output_resource == 0u ||
       footprint.partial_resource == 0u ||
       footprint.input_resource == footprint.output_resource ||
@@ -130,7 +140,8 @@ bool ProjectScan(const ScanFootprint &footprint, const std::uint64_t page_bytes,
           !kernel::checked::mul(count, footprint.element_bytes, bytes)) {
         return false;
       }
-      DemandEpoch local{.node = 0u, .tile = static_cast<std::uint32_t>(tile)};
+      FootprintEpoch local{.node = 0u,
+                           .tile = static_cast<std::uint32_t>(tile)};
       if (!ProjectRange(ByteRange{.resource = footprint.input_resource,
                                   .access = Access::Read,
                                   .offset = offset,
@@ -150,7 +161,7 @@ bool ProjectScan(const ScanFootprint &footprint, const std::uint64_t page_bytes,
       }
       epochs.push_back(std::move(local));
     }
-    DemandEpoch prefix{.node = 1u};
+    FootprintEpoch prefix{.node = 1u};
     if (!ProjectRange(ByteRange{.resource = footprint.partial_resource,
                                 .access = Access::ReadWrite,
                                 .bytes = tile_count * footprint.element_bytes},
@@ -162,7 +173,8 @@ bool ProjectScan(const ScanFootprint &footprint, const std::uint64_t page_bytes,
       const std::uint64_t first = tile * footprint.tile_elements;
       const std::uint64_t count =
           std::min(footprint.tile_elements, footprint.element_count - first);
-      DemandEpoch uniform{.node = 2u, .tile = static_cast<std::uint32_t>(tile)};
+      FootprintEpoch uniform{.node = 2u,
+                             .tile = static_cast<std::uint32_t>(tile)};
       if (!ProjectRange(ByteRange{.resource = footprint.output_resource,
                                   .access = Access::ReadWrite,
                                   .offset = first * footprint.element_bytes,

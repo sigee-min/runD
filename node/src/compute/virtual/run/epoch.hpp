@@ -10,6 +10,7 @@ namespace rund::compute::detail {
 
 struct VirtualReduction;
 struct VirtualScan;
+struct VirtualRunTransaction;
 
 struct VirtualEpochResult final {
   Status status{Status::success()};
@@ -23,6 +24,7 @@ execute_virtual_epoch(VirtualPipelineState &state, VirtualBacking &input,
                       std::uint64_t epoch,
                       std::array<bool, 2u> &prefetch_pending, Stats &stats,
                       ::rund::node::hash_detail::Fnv &output_hash,
-                      VirtualReduction *reduction, VirtualScan *scan) noexcept;
+                      VirtualReduction *reduction, VirtualScan *scan,
+                      VirtualRunTransaction *transaction = nullptr) noexcept;
 
 } // namespace rund::compute::detail

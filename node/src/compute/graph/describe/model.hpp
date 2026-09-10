@@ -28,6 +28,21 @@ validate_bindings(const graph::Info &info,
 
 [[nodiscard]] Status build_nodes(const GraphState &state, Draft &draft);
 
+void append_access(graph::Info &info, graph::Node &node,
+                   std::uint32_t resource, resource::AccessMode mode);
+[[nodiscard]] Status build_map_node(
+    const GraphState &state, const MapStep &map, Draft &draft,
+    graph::Node &info, std::vector<kernel::GraphBufferRef> &refs,
+    kernel::GraphNode &canonical, resource_detail::MemoryNode &memory);
+[[nodiscard]] Status build_scan_node(
+    const GraphState &state, const ScanStep &scan, Draft &draft,
+    graph::Node &info, std::vector<kernel::GraphBufferRef> &refs,
+    kernel::GraphNode &canonical, resource_detail::MemoryNode &memory);
+[[nodiscard]] Status build_primitive_node(
+    const GraphState &state, const GraphPrimitive &primitive, Draft &draft,
+    graph::Node &info, std::vector<kernel::GraphBufferRef> &refs,
+    kernel::GraphNode &canonical, resource_detail::MemoryNode &memory);
+
 [[nodiscard]] Status build_hazards(graph::Info &info);
 
 [[nodiscard]] Description

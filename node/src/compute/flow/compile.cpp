@@ -1,3 +1,4 @@
+#include "../../../include/rund/compute/abi/device.hpp"
 #include "plan/graph.hpp"
 #include "plan/state.hpp"
 #include "recipe.hpp"
@@ -64,7 +65,7 @@ compile_flow(const std::shared_ptr<FlowState> &flow) {
 
   std::vector<bool> needed;
   std::vector<bool> keep;
-  std::vector<MapLivePlan> map_plans;
+  std::vector<StepLivePlan> map_plans;
   std::vector<ExpressionGroupPlan> expression_plans;
   std::size_t live_steps = 0u;
   const Status planned = plan_liveness(*flow, needed, keep, map_plans,
@@ -89,11 +90,11 @@ compile_flow(const std::shared_ptr<FlowState> &flow) {
   }
 
   const std::shared_ptr<DeviceState> device = std::move(opened).value();
-  if (flow->cache != nullptr && flow->cache->device != device) {
+  if (flow->cache != nullptr && !cache_matches_device(flow->cache, device)) {
     return fail_flow(Reason::ProgramCacheDeviceMismatch);
   }
   auto candidate =
-      materialize_graph(flow, device, step_order, map_recipes, skipped);
+      materialize_graph(flow, device, step_order, map_plans, map_recipes, skipped);
   const bool has_fusion =
       std::any_of(map_recipes.begin(), map_recipes.end(),
                   [](const MapRecipe &map) { return map.fused; }) ||
@@ -107,7 +108,7 @@ compile_flow(const std::shared_ptr<FlowState> &flow) {
     graph = std::move(candidate).value();
   } else {
     auto baseline =
-        materialize_graph(flow, device, step_order, baseline_recipes);
+        materialize_graph(flow, device, step_order, map_plans, baseline_recipes);
     if (!baseline) {
       return fail_flow(baseline.reason());
     }

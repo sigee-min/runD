@@ -54,6 +54,42 @@ void RecordMetalCommandSubmitWaitNs(MetalAdapter &adapter,
       adapter.stats.runtime.run.time.command_submit_wait_ns, elapsed_ns);
 }
 
+void RecordMetalCommandSubmit(MetalAdapter &adapter) {
+  std::lock_guard<std::mutex> lock{adapter.mutex};
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.work.command_submit_count, 1u);
+}
+
+void RecordMetalCommandSubmitWaitOnlyNs(MetalAdapter &adapter,
+                                        const std::uint64_t elapsed_ns) {
+  std::lock_guard<std::mutex> lock{adapter.mutex};
+  ::rund::detail::counter::Accumulate(
+      adapter.stats.runtime.run.time.command_submit_wait_ns, elapsed_ns);
+}
+
+std::uint64_t BeginMetalResidencyCommand(MetalAdapter &adapter) noexcept {
+  const std::uint64_t active = adapter.residency_command_active.fetch_add(
+                                   1u, std::memory_order_acq_rel) +
+                               1u;
+  std::uint64_t peak =
+      adapter.residency_command_peak.load(std::memory_order_acquire);
+  while (peak < active && !adapter.residency_command_peak.compare_exchange_weak(
+                              peak, active, std::memory_order_acq_rel,
+                              std::memory_order_acquire)) {
+  }
+  return active;
+}
+
+bool EndMetalResidencyCommand(MetalAdapter &adapter) noexcept {
+  const std::uint64_t active =
+      adapter.residency_command_active.fetch_sub(1u, std::memory_order_acq_rel);
+  if (active != 0u) {
+    return true;
+  }
+  adapter.residency_command_active.store(0u, std::memory_order_release);
+  return false;
+}
+
 std::uint64_t RecordMetalComputeKernelSeconds(MetalAdapter &adapter,
                                               const double start_seconds,
                                               const double end_seconds) {

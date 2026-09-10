@@ -3,6 +3,15 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../../../numeric.hpp"
+#include "../../../../kernel/backend/run.hpp"
+#include "../../../../kernel/preparation.hpp"
+
+#include <memory>
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+namespace rund::node::accel::detail {
+
 [[nodiscard]] inline rund::AccelCheck
 PrepareVulkanTransformStep(const rund::AccelDevice &pick, const BoundStep &step,
                            const KernelPreparationMode mode,
@@ -71,3 +80,7 @@ PrepareVulkanSpectrumStep(const rund::AccelDevice &pick, const BoundStep &step,
              : PrepareVulkanSpectrum(pick, active->desc, active->plan,
                                      *bindings, mode, resources, pipelines);
 }
+
+} // namespace rund::node::accel::detail
+
+#endif

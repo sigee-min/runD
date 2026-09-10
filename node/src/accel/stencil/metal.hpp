@@ -4,7 +4,7 @@
 #include <accel/device.hpp>
 
 #include "../kernel/bindings/range.hpp"
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/plan.hpp"
 #include <kernel/program/compute/stencil/model.hpp>
 
 #include <memory>

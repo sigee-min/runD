@@ -125,15 +125,15 @@ using namespace rund::node::accel::detail;
       RangeCaps::gpu(RangeSource::Metal, 0x80u, 256u, 4u, 32768u, 1u,
                      std::numeric_limits<u64>::max(), kAllCandidates);
   const RangePlan unavailable =
-      PlanRange(Shape(RangeOp::Sum, 1u, 1u), RangeCaps::unavailable());
+      ContractPlanRange(Shape(RangeOp::Sum, 1u, 1u), RangeCaps::unavailable());
   constexpr u64 maximum_u32_count = std::numeric_limits<u64>::max() / 4u;
   constexpr std::uint8_t direct_block =
       RangeSupportBit(RangeSupport::Direct) |
       RangeSupportBit(RangeSupport::BlockPrefixSuffix);
-  const RangePlan overflowing_block =
-      PlanRange(Shape(RangeOp::Minimum, maximum_u32_count, maximum_u32_count),
-                Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
-                    std::numeric_limits<u64>::max(), direct_block));
+  const RangePlan overflowing_block = ContractPlanRange(
+      Shape(RangeOp::Minimum, maximum_u32_count, maximum_u32_count),
+      Gpu(RangeSource::Metal, kRangeWidth64Bit, 64u, 0u, 0u,
+          std::numeric_limits<u64>::max(), direct_block));
   constexpr u64 vulkan_input = std::numeric_limits<u32>::max() / 2u;
   constexpr u64 vulkan_window = 2u * vulkan_input + 1u;
   constexpr u64 vulkan_padding = vulkan_window - 1u;
@@ -141,9 +141,9 @@ using namespace rund::node::accel::detail;
       RangeOp::Minimum, RangeBoundary::Clip, vulkan_input, 2u, vulkan_window,
       vulkan_input + vulkan_padding - 1u, vulkan_padding);
   const RangePlan vulkan_span_fallback =
-      PlanRange(oversized_vulkan_span,
-                Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
-                    std::numeric_limits<u32>::max(), direct_block));
+      ContractPlanRange(oversized_vulkan_span,
+                        Gpu(RangeSource::Vulkan, kRangeWidth64Bit, 64u, 0u, 0u,
+                            std::numeric_limits<u32>::max(), direct_block));
   rund::kernel::u128 ignored = 0u;
   return !invalid_operation.has_value() && !invalid_domain.has_value() &&
          !invalid_law.has_value() && !invalid_shape.has_value() &&

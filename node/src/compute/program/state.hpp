@@ -1,7 +1,9 @@
 #pragma once
 
-#include "../cpu/state.hpp"
-#include "../device/state.hpp"
+#include <rund/compute/abi/resource.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/fixed.hpp>
+#include <rund/compute/status.hpp>
 
 #include <accel/kernel/run/binding.hpp>
 #include <accel/kernel/value.hpp>
@@ -19,7 +21,9 @@
 
 namespace rund::compute::detail {
 
+struct CpuGraphProgram;
 struct JobState;
+struct GraphState;
 
 enum class GraphBindSource : unsigned char {
   Input,
@@ -63,6 +67,8 @@ struct RunCache final {
 };
 
 struct ProgramState final {
+  ProgramState() noexcept;
+  ~ProgramState() noexcept;
   std::shared_ptr<DeviceState> device;
   std::string name;
   std::size_t count{};
@@ -85,6 +91,10 @@ struct ProgramState final {
   std::vector<GraphRunBinding> graph_bindings;
   std::unique_ptr<AccelProgram> accel;
   std::unique_ptr<CpuGraphProgram> cpu_graph;
+  // Graph compilation is the seal point. The first cache-miss Program owns
+  // the immutable canonical source used by execution-slice lowering; cache
+  // hits reuse this exact owner instead of reconstructing policy metadata.
+  std::shared_ptr<const GraphState> canonical_graph;
   graph::Info graph_info;
   RunCache cache;
 

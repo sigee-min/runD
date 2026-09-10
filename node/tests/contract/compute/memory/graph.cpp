@@ -1,3 +1,5 @@
+#include "../../../../src/compute/cpu/state/program.hpp"
+#include "graph/local.hpp"
 #include "model.hpp"
 
 #include <node/runtime/compute/access.hpp>
@@ -5,8 +7,6 @@
 #include "../../../../src/compute/cpu/graph.hpp"
 #include "../../../../src/compute/cpu/run/state.hpp"
 #include "../../../../src/compute/flow/state.hpp"
-#include "../../../../src/compute/job/state.hpp"
-#include "../../../../src/compute/job/view.hpp"
 #include "../../../../src/compute/memory/cpu.hpp"
 #include "../../../../src/compute/program/state.hpp"
 
@@ -20,63 +20,6 @@
 namespace rund_node_memory_contract {
 
 namespace {
-
-[[nodiscard]] int CheckViewRequirements(
-    const std::shared_ptr<rund::compute::detail::ProgramState> &program) {
-  using namespace rund::compute;
-  using namespace rund::compute::detail;
-  const auto first = plan_cpu_view_transfer_requirements(program);
-  const auto second = plan_cpu_view_transfer_requirements(program);
-  if (!first || !second || *first != *second ||
-      first->program != program.get() || !first->inputs.empty() ||
-      first->outputs != std::vector<std::uint32_t>{0u}) {
-    return 1;
-  }
-  constexpr std::array<JobBufferView, 1u> strided_input{{
-      {.count = 4u, .stride = 2u, .element_bytes = 4u, .alignment = 4u},
-  }};
-  constexpr std::array<JobBufferView, 1u> strided_output{{
-      {.offset = 1u,
-       .count = 4u,
-       .stride = 3u,
-       .element_bytes = 4u,
-       .alignment = 4u},
-  }};
-  const auto first_route =
-      plan_cpu_view_transfers(program, strided_input, strided_output, &*first);
-  constexpr std::array<JobBufferView, 1u> dense_input{{
-      {.count = 4u, .stride = 1u, .element_bytes = 4u, .alignment = 4u},
-  }};
-  constexpr std::array<JobBufferView, 1u> dense_output{{
-      {.count = 4u, .stride = 1u, .element_bytes = 4u, .alignment = 4u},
-  }};
-  const auto second_route =
-      plan_cpu_view_transfers(program, dense_input, dense_output, &*first);
-  if (!first_route || !second_route || !first_route->inputs.empty() ||
-      first_route->outputs.size() != 1u || first_route->bytes != 16u ||
-      !second_route->inputs.empty() || !second_route->outputs.empty() ||
-      second_route->bytes != 0u) {
-    return 2;
-  }
-  CpuViewTransferRequirements forged = *first;
-  forged.outputs.push_back(0u);
-  const auto duplicate =
-      plan_cpu_view_transfers(program, strided_input, strided_output, &forged);
-  forged = *first;
-  forged.outputs.front() = 1u;
-  const auto out_of_range =
-      plan_cpu_view_transfers(program, strided_input, strided_output, &forged);
-  forged = *first;
-  ++forged.graph_hash;
-  const auto wrong_graph =
-      plan_cpu_view_transfers(program, strided_input, strided_output, &forged);
-  return !duplicate && !out_of_range && !wrong_graph &&
-                 duplicate.reason() == Reason::PipelineInvalid &&
-                 out_of_range.reason() == Reason::PipelineInvalid &&
-                 wrong_graph.reason() == Reason::PipelineInvalid
-             ? 0
-             : 3;
-}
 
 [[nodiscard]] int CheckStoragePreflight(
     const std::shared_ptr<rund::compute::detail::ProgramState> &program,
@@ -321,20 +264,9 @@ namespace {
 
 int CheckCpuGraphStorageFormula() {
   using namespace rund::compute;
-  constexpr std::array<std::uint32_t, 4u> first_input{1u, 2u, 3u, 4u};
-  constexpr std::array<std::uint32_t, 4u> second_input{4u, 3u, 2u, 1u};
-  constexpr std::uint64_t bytes = first_input.size() * sizeof(std::uint32_t);
-  constexpr std::uint64_t internal_values = 1u;
-  constexpr std::uint64_t external_values = 2u;
-  constexpr std::uint64_t input_values = 1u;
-  constexpr std::uint64_t output_values = external_values - input_values;
-  constexpr std::uint64_t concurrent_jobs = 2u;
-  constexpr std::uint64_t cached_run =
-      (input_values + output_values + internal_values) * bytes;
-  constexpr std::uint64_t per_job =
-      (2u * input_values + output_values + internal_values) * bytes;
-  constexpr std::uint64_t total_physical =
-      cached_run + concurrent_jobs * per_job;
+  constexpr std::uint64_t bytes =
+      graph_detail::FirstInput.size() * sizeof(std::uint32_t);
+  constexpr std::uint64_t cached_run = 3u * bytes;
 
   auto device = open(Target::cpu(2u));
   if (!device) {
@@ -344,7 +276,7 @@ int CheckCpuGraphStorageFormula() {
   {
     auto program =
         on(*device)
-            .input<std::uint32_t>(first_input.size())
+            .input<std::uint32_t>(graph_detail::FirstInput.size())
             .map("memory-graph-map", [](auto value) { return value + 1u; })
             .scan(Scan::InclusiveSum)
             .compile();
@@ -363,7 +295,8 @@ int CheckCpuGraphStorageFormula() {
         program_state->cpu_graph->runtime == nullptr) {
       return 9;
     }
-    if (const int view_requirements = CheckViewRequirements(program_state);
+    if (const int view_requirements =
+            graph_detail::CheckViewRequirements(program_state);
         view_requirements != 0) {
       return 40 + view_requirements;
     }
@@ -403,7 +336,8 @@ int CheckCpuGraphStorageFormula() {
     }
     auto primitive_program =
         on(*device)
-            .map<std::uint32_t>("storage-plan-primitive", first_input.size(),
+            .map<std::uint32_t>("storage-plan-primitive",
+                                graph_detail::FirstInput.size(),
                                 [](auto value) { return value; })
             .sort()
             .compile();
@@ -454,7 +388,7 @@ int CheckCpuGraphStorageFormula() {
         before_cache.tile.current == 0u) {
       return 11;
     }
-    auto first_run = program->run(first_input);
+    auto first_run = program->run(graph_detail::FirstInput);
     MemoryStats after_cache{};
     const bool after_cache_allocation_free = ReadMemory(*program, after_cache);
     MemoryStats cache_run_snapshot_stats{};
@@ -471,7 +405,7 @@ int CheckCpuGraphStorageFormula() {
         device->memory().host.current != baseline + cached_run) {
       return 12;
     }
-    auto second_run = program->run(second_input);
+    auto second_run = program->run(graph_detail::SecondInput);
     MemoryStats second_cache{};
     const bool second_cache_allocation_free =
         ReadMemory(*program, second_cache);
@@ -486,78 +420,10 @@ int CheckCpuGraphStorageFormula() {
         device->memory().host.current != baseline + cached_run) {
       return 13;
     }
-    auto first = program->resident(first_input);
-    auto second = program->resident(second_input);
-    if (!first || !second) {
-      return 4;
-    }
-    const std::shared_ptr<detail::JobState> first_state =
-        detail::JobAccess::state(*first);
-    const std::shared_ptr<detail::JobState> second_state =
-        detail::JobAccess::state(*second);
-    if (first_state == nullptr || second_state == nullptr) {
-      return 14;
-    }
-    MemoryStats first_memory{};
-    MemoryStats second_memory{};
-    const bool first_memory_allocation_free = ReadMemory(*first, first_memory);
-    const bool second_memory_allocation_free =
-        ReadMemory(*second, second_memory);
-    MemoryStats first_snapshot_stats{};
-    MemoryStats second_snapshot_stats{};
-    const SnapshotAccounting first_snapshot =
-        SnapshotMemory(*first, first_snapshot_stats);
-    const SnapshotAccounting second_snapshot =
-        SnapshotMemory(*second, second_snapshot_stats);
-    if (first_state->cpu == nullptr || second_state->cpu == nullptr ||
-        !first_memory_allocation_free || !second_memory_allocation_free ||
-        !first_snapshot.complete || !second_snapshot.complete ||
-        !first_snapshot.valid || !second_snapshot.valid ||
-        !first_snapshot.allocation_free || !second_snapshot.allocation_free ||
-        first_snapshot.metadata_entries != 1u ||
-        second_snapshot.metadata_entries != 1u ||
-        first_snapshot.tile_entries != 1u ||
-        second_snapshot.tile_entries != 1u ||
-        first_snapshot.internal_entries != 1u ||
-        second_snapshot.internal_entries != 1u ||
-        !SameStats(first_memory, first_snapshot_stats) ||
-        !SameStats(second_memory, second_snapshot_stats) ||
-        first_memory.tile.current == 0u || second_memory.tile.current == 0u) {
-      return 15;
-    }
-    const PhysicalInternal first_internal = PhysicalInternalMemory(*first);
-    const PhysicalInternal second_internal = PhysicalInternalMemory(*second);
-    if (!first_internal.complete || !second_internal.complete ||
-        first_internal.count != 1u || second_internal.count != 1u ||
-        first_internal.bytes != internal_values * bytes ||
-        second_internal.bytes != internal_values * bytes ||
-        first_memory.resident.current != per_job ||
-        second_memory.resident.current != per_job ||
-        device->memory().host.current != baseline + total_physical) {
-      return 5;
-    }
-    if (!first->run() || !second->run()) {
-      return 6;
-    }
-    const MemoryStats first_warm_memory = first->memory();
-    const MemoryStats second_warm_memory = second->memory();
-    if (first_warm_memory.host.current != first_memory.host.current ||
-        second_warm_memory.host.current != second_memory.host.current ||
-        first_warm_memory.tile.current != first_memory.tile.current ||
-        second_warm_memory.tile.current != second_memory.tile.current) {
-      return 16;
-    }
-    const auto first_output = first->read();
-    const auto second_output = second->read();
-    const Stats first_stats = first->stats();
-    const Stats second_stats = second->stats();
-    if (!first_output || !second_output ||
-        *first_output != std::vector<std::uint32_t>{2u, 5u, 9u, 14u} ||
-        *second_output != std::vector<std::uint32_t>{5u, 9u, 12u, 14u} ||
-        first_stats.graph_hash == 0u || second_stats.graph_hash == 0u ||
-        first_stats.graph_hash != second_stats.graph_hash ||
-        first_stats.output_hash == 0u || second_stats.output_hash == 0u) {
-      return 7;
+    if (const int resident =
+            graph_detail::CheckResidentJobMemory(*program, *device, baseline);
+        resident != 0) {
+      return resident;
     }
   }
   return device->memory().host.current == baseline ? 0 : 8;

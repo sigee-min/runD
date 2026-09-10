@@ -3,6 +3,10 @@ list(APPEND NODE_SOURCES
   src/accel/backend/catalog.cpp
   src/accel/backend/match.cpp
   src/accel/backend/resource.cpp
+  src/accel/backend/resource/access.cpp
+  src/accel/backend/resource/download.cpp
+  src/accel/backend/resource/support.cpp
+  src/accel/backend/resource/upload.cpp
   src/accel/backend/token.cpp
   src/accel/buffer/create.cpp
   src/accel/buffer/resident.cpp
@@ -66,6 +70,10 @@ list(APPEND NODE_SOURCES
   src/accel/graph/fusion/plan.cpp
   src/accel/graph/fusion/policy.cpp
   src/accel/graph/step.cpp
+  src/accel/graph/step/assembly.cpp
+  src/accel/graph/step/dispatch.cpp
+  src/accel/graph/step/map_semantic.cpp
+  src/accel/graph/map_semantic/u64_add.cpp
   src/accel/graph/token/admission.cpp
   src/accel/graph/token/reject.cpp
   src/accel/graph/token/mint.cpp
@@ -78,6 +86,17 @@ list(APPEND NODE_SOURCES
   src/accel/partition/shape.cpp
   src/accel/kernel.cpp
   src/accel/kernel/backend/run.cpp
+  src/accel/kernel/backend/run/bindings.cpp
+  src/accel/kernel/backend/run/map.cpp
+  src/accel/kernel/backend/run/state.cpp
+  src/accel/kernel/backend/template/arithmetic.cpp
+  src/accel/kernel/backend/template/source.cpp
+  src/accel/kernel/backend/template/identity_plan.cpp
+  src/accel/kernel/backend/template/identity_map.cpp
+  src/accel/kernel/backend/template/identity_template.cpp
+  src/accel/kernel/backend/template/reservation_pass.cpp
+  src/accel/kernel/backend/template/reservation_run.cpp
+  src/accel/kernel/backend/template/reservation_program.cpp
   src/accel/kernel/bindings/source.cpp
   src/accel/kernel/bindings/compact.cpp
   src/accel/kernel/bindings/factor.cpp
@@ -103,15 +122,179 @@ list(APPEND NODE_SOURCES
   src/accel/kernel/plan/step.cpp
   src/accel/kernel/prepared/batch.cpp
   src/accel/kernel/prepared/completion.cpp
+  src/accel/kernel/prepared/completion/residency/validation.cpp
+  src/accel/kernel/prepared/completion/residency/terminal.cpp
+  src/accel/kernel/prepared/completion/residency/window.cpp
+  src/accel/kernel/prepared/completion/residency/stream.cpp
+  src/accel/kernel/prepared/completion/residency/stream_lifecycle.cpp
+  src/accel/kernel/prepared/completion/residency/control.cpp
   src/accel/kernel/prepared/evidence.cpp
-  src/accel/kernel/prepared/pipeline.cpp
+  src/accel/kernel/prepared/pipeline/limit.cpp
+  src/accel/kernel/prepared/pipeline/limit/route.cpp
+  src/accel/kernel/prepared/pipeline/limit/finalize.cpp
+  src/accel/kernel/prepared/pipeline/runtime_plan.cpp
+  src/accel/kernel/prepared/pipeline/backend.cpp
+  src/accel/kernel/prepared/pipeline/demand.cpp
+  src/accel/kernel/prepared/pipeline/expand.cpp
+  src/accel/kernel/prepared/pipeline/materialize.cpp
+  src/accel/kernel/prepared/pipeline/materialize/validation.cpp
+  src/accel/kernel/prepared/pipeline/materialize/reservation.cpp
+  src/accel/kernel/prepared/pipeline/materialize/state.cpp
+  src/accel/kernel/prepared/pipeline/materialize/finalize.cpp
+  src/accel/kernel/prepared/pipeline/recurrence.cpp
+  src/accel/kernel/prepared/pipeline/registry/budget.cpp
+  src/accel/kernel/prepared/pipeline/registry/cache.cpp
+  src/accel/kernel/prepared/pipeline/registry/memory.cpp
+  src/accel/kernel/prepared/pipeline/registry/state.cpp
+  src/accel/kernel/prepared/pipeline/registry/transaction.cpp
+  src/accel/kernel/prepared/pipeline/reservation.cpp
+  src/accel/kernel/prepared/pipeline/runtime.cpp
+  src/accel/kernel/prepared/pipeline/structure/identity.cpp
+  src/accel/kernel/prepared/pipeline/structure/recurrence_routes.cpp
+  src/accel/kernel/prepared/pipeline/structure/recurrence_templates.cpp
+  src/accel/kernel/prepared/pipeline/structure/counts.cpp
+  src/accel/kernel/prepared/pipeline/structure/projection.cpp
+  src/accel/kernel/prepared/persistent/availability.cpp
+  src/accel/kernel/prepared/persistent/preparation.cpp
   src/accel/kernel/prepared/run.cpp
-  src/accel/kernel/scratch.cpp
+  src/accel/kernel/prepared/schedule.cpp
+  src/accel/kernel/prepared/schedule/validation.cpp
+  src/accel/kernel/prepared/schedule/completion.cpp
+  src/accel/kernel/prepared/schedule/preparation.cpp
+  src/accel/kernel/prepared/schedule/control.cpp
+  src/accel/kernel/prepared/service_free_direct.cpp
+  src/accel/kernel/residency/sliding.cpp
+  src/accel/kernel/residency/sliding/admission.cpp
+  src/accel/kernel/residency/sliding/completion.cpp
+  src/accel/kernel/residency/sliding/failure.cpp
+  src/accel/kernel/residency/sliding/final.cpp
+  src/accel/kernel/residency/sliding/projection.cpp
+  src/accel/kernel/residency/sliding/pump.cpp
+  src/accel/kernel/residency/sliding/returned.cpp
+  src/accel/kernel/residency/sliding/service.cpp
+  src/accel/kernel/residency/sliding/state.cpp
+  src/accel/kernel/residency/sliding/submission.cpp
+  src/accel/kernel/residency/service_free_direct/projection.cpp
+  src/accel/kernel/residency/device_vsm/source.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/io.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/metal/binding.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/metal/chained.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/metal/fixed.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/metal/page_ring.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/validation.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/vulkan/binding.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/vulkan/fixed.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/vulkan/chained.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_pointwise/vulkan/body.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/helpers.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/digest.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/validation.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/build.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/vulkan/loads.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/vulkan/stage.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/vulkan/entry.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/metal/loads.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/metal/stage.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_resident/metal/entry.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/metal/additive.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/metal/extreme.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/validation.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/vulkan/additive.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/vulkan/extreme.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/wavefront/model.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/wavefront/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_reduce/wavefront/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_scan.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_scan/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/graph_map_scan/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce/metal/additive.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce/metal/extreme.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce/vulkan/additive.cpp
+  src/accel/kernel/residency/device_vsm/source/reduce/vulkan/extreme.cpp
+  src/accel/kernel/residency/device_vsm/source/scan.cpp
+  src/accel/kernel/residency/device_vsm/source/scan/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/scan/u32/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/scan/u32/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/scan/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/typed_map/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/typed_map/scalar/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/typed_map/scalar/validation.cpp
+  src/accel/kernel/residency/device_vsm/source/typed_map/scalar/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/typed_map/validation.cpp
+  src/accel/kernel/residency/device_vsm/source/typed_map/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/metal.cpp
+  src/accel/kernel/residency/device_vsm/source/vulkan.cpp
+  src/accel/kernel/residency/device_vsm/source/window.cpp
+  src/accel/kernel/residency/device_vsm/source/window/identity.cpp
+  src/accel/kernel/residency/device_vsm/source/window/validation.cpp
+  src/accel/kernel/residency/device_vsm/source/window/lifecycle.cpp
+  src/accel/kernel/residency/device_vsm/source/window/map.cpp
+  src/accel/kernel/residency/device_vsm/source/window/metal/emission.cpp
+  src/accel/kernel/residency/device_vsm/source/window/metal/ring.cpp
+  src/accel/kernel/residency/device_vsm/source/window/metal/entry.cpp
+  src/accel/kernel/residency/device_vsm/source/window/metal_multipass.cpp
+  src/accel/kernel/residency/device_vsm/source/window/vulkan/emission.cpp
+  src/accel/kernel/residency/device_vsm/source/window/vulkan/ring.cpp
+  src/accel/kernel/residency/device_vsm/source/window/vulkan/entry.cpp
+  src/accel/kernel/residency/device_vsm/source/window/vulkan_multipass.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/type.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/identity.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/digest.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/root.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/owners.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/resources.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/stages.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/lifetime.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/tails.cpp
+  src/accel/kernel/residency/device_vsm/graph_resident/validation.cpp
+  src/accel/kernel/residency/device_vsm/projection.cpp
+  src/accel/kernel/residency/device_vsm/projection/candidate.cpp
+  src/accel/kernel/residency/device_vsm/projection/pipeline.cpp
+  src/accel/kernel/residency/device_vsm/projection/validate.cpp
+  src/accel/kernel/residency/device_vsm/projection/artifact.cpp
+  src/accel/kernel/residency/device_vsm/projection/reduce.cpp
+  src/accel/kernel/residency/device_vsm/projection/scan.cpp
+  src/accel/kernel/residency/device_vsm/projection/window.cpp
+  src/accel/kernel/residency/device_vsm/projection/window/basic.cpp
+  src/accel/kernel/residency/device_vsm/projection/window/map.cpp
+  src/accel/kernel/residency/device_vsm/projection/window/match.cpp
+  src/accel/kernel/residency/device_vsm/projection/window/pipeline.cpp
+  src/accel/kernel/residency/device_vsm/projection/window/step.cpp
+  src/accel/kernel/residency/device_vsm/preparation.cpp
+  src/accel/kernel/residency/device_vsm/terminal.cpp
+  src/accel/kernel/residency/device_vsm/validation/window.cpp
+  src/accel/kernel/residency/device_vsm/validation/collective.cpp
+  src/accel/kernel/residency/device_vsm/validation/topology.cpp
+  src/accel/kernel/residency/device_vsm/validation/proof.cpp
+  src/accel/kernel/residency/device_vsm/validation/request.cpp
+  src/accel/kernel/scratch/batch.cpp
+  src/accel/kernel/scratch/plan.cpp
+  src/accel/kernel/scratch/range.cpp
+  src/accel/kernel/scratch/requests.cpp
+  src/accel/kernel/scratch/validation.cpp
   src/accel/kernel/recurrence/build.cpp
-  src/accel/kernel/recurrence/aggregate.cpp
+  src/accel/kernel/recurrence/aggregate/build.cpp
+  src/accel/kernel/recurrence/aggregate/storage.cpp
+  src/accel/kernel/recurrence/aggregate/seed.cpp
+  src/accel/kernel/recurrence/aggregate/action.cpp
+  src/accel/kernel/recurrence/aggregate/fold.cpp
   src/accel/kernel/recurrence/match.cpp
   src/accel/kernel/recurrence/plan.cpp
-  src/accel/kernel/recurrence/source.cpp
+  src/accel/kernel/recurrence/source/parse.cpp
+  src/accel/kernel/recurrence/source/parse/bindings.cpp
+  src/accel/kernel/recurrence/source/parse/events.cpp
+  src/accel/kernel/recurrence/source/parse/search.cpp
+  src/accel/kernel/recurrence/source/capacity.cpp
+  src/accel/kernel/recurrence/source/materialize.cpp
   src/accel/kernel/reset/overlap.cpp
   src/accel/kernel/reset/proof.cpp
   src/accel/kernel/roundtrip/check.cpp
@@ -122,6 +305,9 @@ list(APPEND NODE_SOURCES
   src/accel/kernel/step/map/bindings.cpp
   src/accel/kernel/step/map/metadata.cpp
   src/accel/kernel/step/map/cpu.cpp
+  src/accel/kernel/step/map/stride/materialize.cpp
+  src/accel/kernel/step/map/stride/plan.cpp
+  src/accel/kernel/step/map/stride/upper.cpp
   src/accel/reduce/shape.cpp
   src/accel/resident/validation.cpp
   src/accel/scan/shape.cpp

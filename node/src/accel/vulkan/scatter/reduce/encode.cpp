@@ -1,5 +1,6 @@
 #include "model.hpp"
 
+#include "../../command/dispatch.hpp"
 #include "../../barrier.hpp"
 #include "../../collective/finish.hpp"
 

@@ -1,6 +1,7 @@
 #pragma once
 
-#include "../adapter/api.hpp"
+#include "../adapter/pipeline.hpp"
+#include "../adapter/state.hpp"
 #include <cstdint>
 
 namespace rund::node::accel::detail {

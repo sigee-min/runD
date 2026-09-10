@@ -124,6 +124,42 @@ Resident reduce runs do not stage host input and do not download output
 implicitly; only explicit upload/download calls affect user-facing transfer
 byte counters.
 
+### Metal extrema execution
+
+Metal Min/Max keeps the planned logical blocks, pass count, ascending input
+coverage, partial offsets, and terminal status contract. One SIMD group owns
+one logical block and walks its input with active-lane rank/count strides,
+then publishes one reduced value. No threadgroup shared storage or barrier is
+needed. For a physical threadgroup width `B = block_size` and the compiled
+pipeline's native SIMD width `S`, the encoder packs `ceil(B/S)` logical blocks
+per physical threadgroup and dispatches `ceil(logical_groups/ceil(B/S))`
+physical groups. The shader uses its matching `simdgroups_per_threadgroup`
+value, and excess SIMD groups return uniformly before accessing input/output.
+The native width is queried from the compiled pipeline, never guessed.
+
+Active-lane ranks and counts come from integer SIMD prefix/sum operations;
+partial SIMD groups and non-power-of-two block sizes use the same algorithm.
+For each logical block, the disjoint strides cover every input exactly once.
+There is no cross-workgroup polling or change to inter-pass ordering.
+
+For 32-bit values, signed or unsigned integer SIMD Min/Max preserves the declared
+domain. For 64-bit values, comparison uses the lexicographic pair `(h, l)`.
+Signed order maps the high word to `h xor 0x80000000`; unsigned order leaves it
+unchanged. First reduce the ordered high words, then reduce low words only
+among lanes whose high word won. Other lanes supply the Min/Max identity.
+Undoing the sign-bit mapping reconstructs the exact winning stored value.
+This needs no shader 64-bit SIMD intrinsic or floating-point conversion.
+Min/Max associativity and identity preserve the original tree result, including
+signed extremes and high-word ties. Sum and CountNonzero retain their exact
+wide arithmetic hierarchy unchanged. Vulkan retains its existing extrema tree.
+
+The generated Metal extrema kernel executes zero threadgroup barriers rather
+than `1 + ceil(log2(block_size))` and declares no threadgroup arrays instead of
+a 64-bit sum array plus a 32-bit overflow array. These are source operation and
+storage bounds, not a claim about physical GPU occupancy. Logical reduction
+scratch and pass counts remain unchanged; physical group counts reflect the
+packed dispatch in native command evidence.
+
 `compute.backend` covers Sum parity for `i32`, `u32`, `i64`, `u64`,
 `Fixed<1,31>`, and `Fixed<1,63>` on CPU, Metal, and Vulkan.
 `compute.flow-numeric-modes` covers `Fixed<16,16>` and `Fixed<20,44>`,

@@ -1,4 +1,7 @@
+#include "../device/state.hpp"
+#include "../../accel/kernel/prepared/interface/api.hpp"
 #include "../backend.hpp"
+#include "../backend/accel/diagnostic.hpp"
 #include "../stats.hpp"
 #include "../status.hpp"
 #include "state.hpp"
@@ -283,10 +286,20 @@ prepare_job_accel(const std::shared_ptr<JobState> &state,
       arena == nullptr ? nullptr : &state->views,
       arena == nullptr ? nullptr : &arena->binds,
       arena == nullptr ? nullptr : &arena->scratch);
-  return state->prepared.ok
-             ? Status::success()
-             : Status::fail(project_reason(state->prepared.reason,
-                                           Reason::LoweringInvalid));
+  const auto mode =
+      state->terminal == nullptr
+          ? node::accel::detail::KernelPreparationMode::PipelinePrivate
+          : node::accel::detail::KernelPreparationMode::Standalone;
+  const Reason projected =
+      state->prepared.ok
+          ? Reason::Ok
+          : project_reason(state->prepared.reason, Reason::LoweringInvalid);
+  accel_diagnostic::RecordPrepareRunProjection(
+      accel->context, state->program->accel->kernel, state->program->count,
+      bindings.size(), static_cast<std::uint32_t>(mode), state->prepared.ok,
+      state->prepared.ok ? nullptr : state->prepared.reason,
+      reason_message(projected).data());
+  return state->prepared.ok ? Status::success() : Status::fail(projected);
 }
 
 Result<RunState> run_job_accel(const std::shared_ptr<JobState> &state) {

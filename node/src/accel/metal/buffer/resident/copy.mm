@@ -180,7 +180,7 @@ BackendCopy CopyMetalResidentBuffers(const rund::AccelDevice &pick,
       }
       [encoder endEncoding];
       const rund::AccelCheck copied =
-          WaitCommand(*adapter, (__bridge void *)command);
+          WaitTransferCommand(*adapter, (__bridge void *)command);
       return BackendCopy{.check = copied, .command_submits = 1u};
     } catch (const std::bad_alloc &) {
       return BackendCopy{.check = {false, "accel_buffer_unavailable"}};

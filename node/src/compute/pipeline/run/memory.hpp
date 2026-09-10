@@ -23,7 +23,7 @@ struct PipelineMemoryView final {
 // Caller holds PipelineState::gate. The memory owner supplies one coherent
 // projection; public memory and Profile owners choose their output surface.
 [[nodiscard]] PipelineMemoryView pipeline_memory_view_locked(
-    const PipelineState &state,
-    std::span<PipelineStepProfile> profiles = {}) noexcept;
+    const PipelineState &state, std::span<PipelineStepProfile> profiles = {},
+    bool include_residency_pool_buffers = true) noexcept;
 
 } // namespace rund::compute::detail

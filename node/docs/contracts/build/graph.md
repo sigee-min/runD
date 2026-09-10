@@ -24,6 +24,17 @@ the installed `node` archive.
 No filename convention, test body, generated cache, or parallel table may
 infer any of these fields.
 
+When a semantic test is split, each compiled leaf must retain the original
+case membership in its owning `cmake/tests/sources/` manifest. Repeat's bounded and
+reset leaves belong only to `compute.pipeline`; the boundary-mode leaves
+belong only to `compute.boundary-modes`; and the Vulkan sliding terminal leaf
+belongs only to `compute.pipeline-vulkan-sliding-gate`. A shared declaration
+does not authorize compiling its implementation into unrelated focused cases.
+The Stencil match/backend cohort and its collective-surface caller belong to
+`accel.kernel-core` in `accel.cmake`. Keeping only the callees case-local while
+leaving their aggregate caller in every accelerator case breaks focused links;
+both ends of that case-local call edge must keep the same membership.
+
 ## Compilation Model
 
 Every selected-platform `node/src/**/*.cpp` or `node/src/**/*.mm` file belongs
@@ -137,6 +148,35 @@ stdio implementation exists.
 
 ## Dependency Boundaries
 
+Prepared Run, Pipeline and terminal evidence have independent value owners.
+Job storage includes the Run handle definition and does not import the
+prepared execution API. The obsolete `prepared.hpp` and `interface/base.hpp`
+aggregates are removed. The single `kernel/coordinate.hpp` owns the NoNode
+sentinel used by both handles and bound execution; it has no binding or
+residency dependencies. Callback signatures and Pipeline reservation values
+also have independent owners. Storage headers include those values directly;
+prepared execution API declarations belong only to execution consumers.
+Complete by-value evidence layouts are preserved.
+
+The former Compute `abi/model.hpp` aggregate is removed. State declarations,
+result schema traits, resource views, expression references, graph values,
+primitive vocabulary, logical ids and Flow control each have one support
+owner. Internal consumers include the values their own declarations or bodies
+use; no replacement all-model aggregate or compatibility alias is admitted.
+The direct SDK entries and their public type semantics remain unchanged.
+
+Program state retains only the declarations of its existing Device and CPU
+program pointer owners. Its compiled `program/lifetime.cpp` owns default
+construction and destruction with the complete CPU program definition visible.
+Consumers that inspect CPU program or Device fields include those storage
+owners directly; `program/state.hpp` does not re-export their definitions.
+The mutable CPU graph storage also keeps declarations for its immutable
+Program/runtime pointers; only CPU graph consumers include their definitions.
+Device storage includes value definitions rather than the device execution
+ABI. This partition preserves field order, initializers, pointer ownership and
+warm execution storage. No compatibility state aggregate or additional heap owner
+is admitted.
+
 Public schema edits keep their natural reverse dependency set. Private
 implementation edits must depend only on the leaf that owns the changed state
 or algorithm.
@@ -144,7 +184,8 @@ or algorithm.
 - `node/src/compute/type.hpp` solely owns private `Type` byte-width, validity,
   Kernel scalar-width, and arithmetic-domain projections. The functions are
   constexpr inline and every consumer includes the leaf directly.
-  `device/state.hpp` owns Device and Buffer storage only and does not
+  `device/state.hpp` owns Device storage and `buffer/state.hpp` owns Buffer
+  storage. Neither owner re-exports the other, and neither
   re-export type semantics. `map/compile` and `graph/build/primitive` consume
   `type_domain()` rather than retaining local domain switches.
 - `node/src/compute/exception.hpp` solely owns Compute's classification of
@@ -289,6 +330,34 @@ or algorithm.
   arena declaration. Recurrence-view comparison remains one inline owner in
   `plan/compare.hpp`; the projection and hash interfaces do not re-export the
   Pipeline state aggregate.
+- CPU preparation state is partitioned below
+  `node/src/compute/cpu/state/`: `map.hpp` owns Map programs, routes, and SIMD
+  counters; `collective.hpp` owns collective programs and runs;
+  `primitive.hpp` owns the typed primitive-scratch descriptors; `arena.hpp`
+  owns the single non-movable prepared mapping and its execution plan;
+  `binding.hpp` owns Job/Workspace slices; `program.hpp` owns the immutable
+  graph program; `storage.hpp` owns per-Program execution storage; and
+  `run.hpp` owns occurrence-specific route state and run control. The
+  compatibility `state.hpp` includes these leaves but declares no second
+  model, arena, or algorithm. Consumers that need one boundary include that
+  owner directly, while the existing facade remains an API compatibility
+  surface.
+- CPU prepared-arena behavior is partitioned below
+  `node/src/compute/cpu/prepared/`: `plan.cpp` owns execution-plan merge and
+  checked shape helpers, `layout.cpp` owns sealed offsets and payload
+  accounting, `materialize.cpp` owns construction, `lifetime.cpp` owns reverse
+  destruction, `access.cpp` owns bounded views and scratch claims, and
+  `factory.cpp` owns canonical plan revalidation and allocation. The local
+  `internal.hpp` contains only helper declarations; it owns no arena storage or
+  inline implementation.
+- CPU primitive scratch planning and materialization have one source owner per
+  family below `node/src/compute/cpu/scratch/`: range, sort, scatter (including
+  scatter-reduce), transform, factor, solve, and spectrum. The narrow
+  `scratch.cpp` dispatcher validates the sealed request and routes each shape;
+  no family implementation is duplicated there. `scratch/plan.hpp` owns only
+  the shared checked shape/count/object-accounting helpers, and all family
+  append paths consume the request's sealed `host_bytes` so allocation and
+  overflow behavior remains identical to the pre-split dispatcher.
 - `node/src/compute/program/output.hpp` is the narrow inline owner for logical
   output count and logical-to-physical index projection. Program
   introspection, cached execution, Job readback, and Pipeline planning consume
@@ -344,7 +413,7 @@ or algorithm.
   operation substrate, not by either backend. The `model.hpp` leaf under
   Gather, Histogram, Partition, Scatter, or Segmented contains the sole C++
   host type. Stencil and Window consume the primitive-neutral `RangeParams`
-  owner in `range_aggregate/execution.hpp`; each backend imports its owner
+  owner in `range_aggregate/execution/model.hpp`; each backend imports its owner
   directly. The admitted layouts are:
 
   | Model | Field offsets in bytes | Size | Alignment |
@@ -403,10 +472,13 @@ RUNTIME_PRODUCT (zero-object join)
          +--> CPU_COMPUTE --> CPU_SIMD
          +--> ACCEL_EXECUTION --> CPU_ACCEL --> CPU_SIMD
 
-CPU_COMPUTE --> TELEMETRY + WORKER_BACKEND
+CPU_COMPUTE --> RANGE_PLAN + TELEMETRY + WORKER_BACKEND
+CPU_ACCEL --> RANGE_PLAN
 RUNTIME_BASE --> NUMERIC + TELEMETRY + WORKER_BACKEND
 ```
 
+- `RANGE_PLAN` owns the single compiled backend-neutral Range planner, shared
+  by CPU Compute and CPU Accel without importing native backends.
 - `NUMERIC` owns numeric evidence encoding and validation.
 - `STORAGE` owns the public hierarchical Budget/Reservation implementation as
   one dependency leaf shared by Compute admission and Runtime storage users.
@@ -513,11 +585,14 @@ creates and releases its own resources. A leaf edit therefore compiles that
 leaf and relinks `node-runtime`; it does not recompile unrelated Host IO
 semantics or introduce another registry row.
 
-The Flow primitive semantic oracle belongs to the unlocked group. Its source
-edit and exact execution therefore cannot dirty, link, lock, or open the
-accelerator closure. Flow composition parity, collective parity, and boundary
-parity remain in the accelerator group as the single physical backend
-authorities.
+The Flow primitive semantic oracle belongs to the unlocked group. Its registered
+owner is `tests/contract/compute/flow/primitives/dispatcher.cpp`; projection,
+composition, indexed, scatter, bounded, group, and pool checks are direct leaves
+listed in the companion table, while `support.cpp` is the sole Target/tag
+declaration authority. Its source edit and exact execution therefore cannot
+dirty, link, lock, or open the accelerator closure. Flow composition parity,
+collective parity, and boundary parity remain in the accelerator group as the
+single physical backend authorities.
 
 Expression families live in separate implementation translation units.
 Shared result construction and oracles live below
@@ -695,10 +770,37 @@ uses the corresponding `execute.cpp` owners under the same split. Map uses its
 existing `finish.cpp` run owner because it has no standalone execute
 translation unit. Every native translation unit owns a distinct calculation
 or platform boundary; forwarding-only translation units are not admitted.
+Metal program-template admission remains in `metal/kernel/prepare.mm`; the
+primitive-kind to immutable native-pipeline projection is independently owned
+by `metal/kernel/prepare/primitive_pipelines.mm`, so adding a primitive does not
+expand the program-template coordinator or its dependency surface.
+
+Vulkan prepared-kernel materialization follows the same direct-owner rule:
+`vulkan/kernel/prepare/materialize.cpp` is the thin request and publication
+coordinator; `materialize/numeric.cpp`, `materialize/scan.cpp`,
+`materialize/range.cpp`, and `materialize/collective.cpp` own disjoint
+primitive-family acquisition. Their declarations-only `materialize/internal.hpp`
+seam passes the one `VulkanKernelImmutablePipelines` owner; it does not include
+an implementation file or introduce a second pipeline/capacity authority.
+
+Graph step construction follows the same one-owner rule. The thin
+`graph/step.cpp` facade preserves the public entry-point order and Map retained
+artifact emission; `graph/step/map_semantic.cpp` owns canonical Map-IR shape
+classification and recurrence-total proof, `graph/step/assembly.cpp` owns
+binding validation and retained-step assembly, and `graph/step/dispatch.cpp`
+owns capability-derived dispatch counting and checked original-count
+accumulation. Their narrow private headers carry declarations only; no backend
+or shader source copies graph-step semantics or dispatch policy.
 
 The CPU SIMD `32/run.cpp` and `64/run.cpp` files are distinct compiled numeric
 owners: each instantiates the shared executor under a different storage-width
 configuration.
+
+The numeric product contract keeps fixed-format, hashing, and integer-failure
+coverage in `tests/contract/compute/numeric.cpp`; cross-tile worker-width Scan
+parity is a separate compiled contract in `numeric/scan_parity.cpp`. The latter
+owns its typed oracle and observations rather than exposing template bodies
+through a shared test header.
 
 For a same-suite profile cohort of size `k`, cold case-owner work is
 `Theta(k)` and a changed retained owner still relinks the shared executable;
@@ -719,6 +821,31 @@ from both. A live but dirty object may still carry a depfile from its last
 compile; zero target dirtiness is therefore required before a
 materialized row is treated as a warm graph observation.
 
+## Compute declaration boundary
+
+`compute/backend.hpp` owns the DeviceOps function-pointer table, not the
+implementation of Device storage or native execution/preparation. Its
+residency and virtual operation tables follow the same rule. Types used only
+in signatures are declared; callback aliases and by-value table members use
+their narrow owners. Device state, native registry, native run planning and
+residency control definitions are included directly by the implementation
+that accesses them. No aggregate compatibility include restores the old edge.
+
+The ProgramCache call boundary exposes cached compilation and Device binding
+validation without its hash index, condition variables or LRU layout. Those
+remain in the cache state owner and its semantic tests. Editing cache state
+therefore does not invalidate Flow or graph compilation through that call
+boundary. Its small callable-binding template passes a borrowed context to one
+compiled cache implementation, without the owning `std::function` machinery.
+The cache implementation does not include the Program execution-state definition:
+shared ownership and identity need no access to that layout. The cached `on` entry lives inline beside the other FlowBuilder entries and
+uses the one compiled Device/cache binding validator declared by the cache
+surface. The old out-of-line `on` definition is removed, so cache membership,
+publication and eviction no longer parse the public Flow template surface.
+No extra translation unit or compatibility entry is retained.
+Build improvement evidence compares actual depfile reverse edges
+and compiler frontend time; source-file count is not a development-loop metric.
+
 ## ABI And Toolchain
 
 The installed STATIC library is `node`. It exposes the Node include boundary,
@@ -726,6 +853,14 @@ C++20, public Accel/Kernel and dynamic-loader linkage, private math linkage,
 and selected native backend dependencies. Native definitions, SDK headers, and
 compiler usage apply only to their Metal or Vulkan OBJECT component.
 Internal archives never repeat external links already owned by their SCC root.
+
+The `tools.native-headers` CTest route is registered when both Node native
+OBJECT components participate in the configured graph. It derives compiler
+contexts from that tree's `compile_commands.json`, not a mirrored source list.
+Its standalone SDK-on/off and two-translation-unit link checks are specified by
+[Native ABI Boundaries](../accel/abi.md). It has no product build target and
+does not execute a native device. CPU-only or Node-disabled profiles do not
+register a check whose native compiler contexts are absent.
 
 Verification profiles require Ninja and reject a missing driver or non-Ninja
 tree. CMake and direct builds use the repository Ninja owner, so graph, depfile,
@@ -755,3 +890,26 @@ the complete `runtime/platform/unavailable/` implementation, which links the
 portable product and reports unsupported operations. The forced-unavailable
 configuration exercises that same owner on Unix. Vulkan may be disabled
 without changing source ownership.
+
+## Metal Range source boundary
+
+Range source generation consumes the backend-neutral Range execution model and
+its declaration-only source interface. Native resource and adapter definitions
+belong to the encoding/preparation owners; shader source edits do not restore
+that implementation import through `range/local.hpp`. Both sizing and string
+emission execute the same recipes. Block preparation geometry is shared by the
+planner and frozen/resident stage projection through `range_aggregate/model/block.hpp`.
+
+## Range planner compilation boundary
+
+`range_aggregate/plan.hpp` declares the runtime entry point; `plan.cpp` in
+RANGE_PLAN is its only compiled production owner. The dependency-free RANGE_PLAN
+SCC is shared by CPU_COMPUTE and CPU_ACCEL, so CPU-only links do not import native
+backends or the complete accelerator core. Candidate enumeration,
+cost evaluation and deterministic selection live once in `plan/build.hpp`.
+Production consumers include the declaration, never the implementation leaves.
+This replaces the transitively instantiated inline planner: editing a cost
+recipe recompiles its owner, not every graph, device and pipeline consumer.
+Range static contracts evaluate `BuildRangePlan`; runtime contracts call the
+compiled `PlanRange` through a test-only constant-evaluation selector. Both
+execute the same algorithm. The test selector has no product visibility.

@@ -2,7 +2,9 @@
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
+#include "../adapter/error.hpp"
 #include "../local.hpp"
+#include "../runtime/execute.hpp"
 
 namespace rund::node::accel::detail {
 
@@ -10,7 +12,6 @@ namespace rund::node::accel::detail {
 rund::AccelDevice
 AccelDeviceFromVulkanAdapter(const std::shared_ptr<VulkanAdapter> &adapter) {
   std::shared_ptr<void> owner = adapter;
-  adapter->owner_token = owner;
   return rund::AccelDevice{
       .check = rund::AccelCheck{true, "ok"},
       .api = rund::AccelApi::Vulkan,

@@ -1,3 +1,6 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+
 #include "../kernel/artifact.hpp"
 #include "local.hpp"
 
@@ -182,7 +185,8 @@ RangeCaps VulkanRangeCaps(const rund::AccelDevice &pick) noexcept {
       RangeSupportBit(RangeSupport::Direct) |
           RangeSupportBit(RangeSupport::SharedHalo) |
           RangeSupportBit(RangeSupport::PrefixDifference) |
-          RangeSupportBit(RangeSupport::BlockPrefixSuffix));
+          RangeSupportBit(RangeSupport::BlockPrefixSuffix) |
+          RangeSupportBit(RangeSupport::TiledDifference));
   return capabilities.value_or(RangeCaps::unavailable());
 #else
   (void)pick;

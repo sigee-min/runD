@@ -9,6 +9,7 @@
 #include <rund/compute/virtual.hpp>
 
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <memory>
 
@@ -45,12 +46,15 @@ namespace {
                rund::compute::PreparationEvidenceSource::OwnerLocal &&
            reused_stats.pipeline.preparation_evidence ==
                rund::compute::PreparationEvidenceSource::OwnerLocal &&
-           cold_stats.pipeline_compiles != 0u &&
-           cold_stats.pipeline_cache_hits == 0u &&
+           // The two physical banks are prepared by the same owner: the
+           // first compiles and the second consumes that exact native cache
+           // entry. A later VirtualPipeline reuses it for both banks.
+           cold_stats.pipeline_compiles == 1u &&
+           cold_stats.pipeline_cache_hits == 1u &&
            cold_stats.shader_compile_ns != 0u &&
            cold_stats.pipeline_create_ns != 0u &&
            reused_stats.pipeline_compiles == 0u &&
-           reused_stats.pipeline_cache_hits != 0u &&
+           reused_stats.pipeline_cache_hits == 2u &&
            reused_stats.shader_compile_ns == 0u &&
            reused_stats.pipeline_create_ns == 0u;
   }
@@ -102,12 +106,12 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
       virtual_pipeline(*program, *input, *short_output, ResidencyConfig{});
   auto zero_pages = virtual_pipeline(
       *program, *input, *output,
-      ResidencyConfig{.device_resident_bytes = 1u, .host_staging_bytes = 1u});
+      ResidencyConfig{.device_resident_bytes = 1u, .host_resident_bytes = 1u});
   auto excessive_pages = virtual_pipeline(
       *program, *input, *output,
       ResidencyConfig{
           .device_resident_bytes = std::numeric_limits<std::uint64_t>::max(),
-          .host_staging_bytes = std::numeric_limits<std::uint64_t>::max()});
+          .host_resident_bytes = std::numeric_limits<std::uint64_t>::max()});
   if (same_owner || same_owner.reason() != Reason::PipelineInvalid ||
       same_backing || same_backing.reason() != Reason::PipelineInvalid ||
       wrong_shape || wrong_shape.reason() != Reason::PrimitiveUnsupported ||
@@ -128,7 +132,10 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
     return 6;
   }
   const Stats &stats = preparation->execution();
+  const MemoryStats &memory = preparation->memory();
   const ResidencyStats &residency = stats.pipeline.residency;
+  constexpr std::uint64_t HostFrameBytes =
+      2u * FrameCapacity * ResidencyPageBytes;
   if (plan.residency.logical_bytes != LogicalBytes * 2u ||
       plan.residency.logical_bytes <= plan.residency.resident_bytes ||
       plan.residency.page_bytes != ResidencyPageBytes ||
@@ -144,7 +151,25 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
       residency.frame_capacity != FrameCapacity ||
       residency.resident_frames_peak != 0u ||
       residency.plan_identity_hi != plan.residency.identity_hi ||
-      residency.plan_identity_lo != plan.residency.identity_lo) {
+      residency.plan_identity_lo != plan.residency.identity_lo ||
+      memory.host.current < HostFrameBytes ||
+      memory.host.budget < HostFrameBytes) {
+    std::fprintf(
+        stderr,
+        "virtual prepare residency backend=%u host=%llu/%llu staging=%llu "
+        "plan=%llu/%llu/%llu/%llu stats=%llu/%llu/%llu/%llu\n",
+        static_cast<unsigned>(backend),
+        static_cast<unsigned long long>(memory.host.current),
+        static_cast<unsigned long long>(memory.host.budget),
+        static_cast<unsigned long long>(memory.staging.current),
+        static_cast<unsigned long long>(plan.residency.logical_bytes),
+        static_cast<unsigned long long>(plan.residency.page_bytes),
+        static_cast<unsigned long long>(plan.residency.page_count),
+        static_cast<unsigned long long>(plan.residency.frame_capacity),
+        static_cast<unsigned long long>(residency.logical_bytes),
+        static_cast<unsigned long long>(residency.page_bytes),
+        static_cast<unsigned long long>(residency.page_count),
+        static_cast<unsigned long long>(residency.frame_capacity));
     return 6;
   }
 
@@ -166,6 +191,29 @@ int CheckProductPrepare(const rund::compute::Backend backend) {
              : Result<telemetry::Profile>::fail(Reason::ProfileInvalid);
   if (!reused || !reused_preparation ||
       !exact_preparation_evidence(backend, *preparation, *reused_preparation)) {
+    if (reused_preparation) {
+      const Stats &cold = preparation->execution();
+      const Stats &warm = reused_preparation->execution();
+      std::fprintf(
+          stderr,
+          "virtual prepare cold compile=%llu hit=%llu shader=%llu create=%llu "
+          "alloc=%llu reuse=%llu evidence=%u; reused compile=%llu hit=%llu "
+          "shader=%llu create=%llu alloc=%llu reuse=%llu evidence=%u\n",
+          static_cast<unsigned long long>(cold.pipeline_compiles),
+          static_cast<unsigned long long>(cold.pipeline_cache_hits),
+          static_cast<unsigned long long>(cold.shader_compile_ns),
+          static_cast<unsigned long long>(cold.pipeline_create_ns),
+          static_cast<unsigned long long>(cold.buffer_allocations),
+          static_cast<unsigned long long>(cold.buffer_reuses),
+          static_cast<unsigned>(cold.pipeline.preparation_evidence),
+          static_cast<unsigned long long>(warm.pipeline_compiles),
+          static_cast<unsigned long long>(warm.pipeline_cache_hits),
+          static_cast<unsigned long long>(warm.shader_compile_ns),
+          static_cast<unsigned long long>(warm.pipeline_create_ns),
+          static_cast<unsigned long long>(warm.buffer_allocations),
+          static_cast<unsigned long long>(warm.buffer_reuses),
+          static_cast<unsigned>(warm.pipeline.preparation_evidence));
+    }
     return 7;
   }
   const BackingFacts input_facts = input_backing->facts();

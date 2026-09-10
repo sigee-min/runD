@@ -2,7 +2,7 @@
 
 #include "../../compact.hpp"
 #include "../../primitive/block.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../barrier.hpp"
 #include "../buffer/resident/model.hpp"
 #include "../collective/pipeline.hpp"

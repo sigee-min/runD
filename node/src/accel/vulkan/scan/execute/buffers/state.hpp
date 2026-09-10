@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../../adapter/error.hpp"
+#include "../../../buffer/access.hpp"
+
 #include <accel/check.hpp>
 
 #include "../../local.hpp"

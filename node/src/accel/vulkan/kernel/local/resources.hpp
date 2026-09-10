@@ -1,5 +1,32 @@
 #pragma once
 
+#include "../../adapter/pipeline.hpp"
+#include "../../buffer/resident/model.hpp"
+#include "../../map/api.hpp"
+#include "../manifest.hpp"
+#include "../ops/model.hpp"
+#include "../trace.hpp"
+#include "../view.hpp"
+
+#include "../../../kernel/backend/run.hpp"
+#include "../../../kernel/preparation.hpp"
+#include "../../../kernel/reset/model.hpp"
+#include "../../../kernel/storage.hpp"
+#include "../../../kernel/submission.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <type_traits>
+#include <vector>
+
+#if defined(RUND_NODE_HAVE_VULKAN_SDK)
+#include <vulkan/vulkan.h>
+
+namespace rund::node::accel::detail {
+
+struct VulkanAdapter;
+
 enum class VulkanKernelTemplateKind : std::uint8_t {
   Program,
   MapRecurrence,
@@ -129,3 +156,7 @@ struct VulkanKernelResources final {
     }
   }
 };
+
+} // namespace rund::node::accel::detail
+
+#endif

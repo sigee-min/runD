@@ -20,7 +20,7 @@
 #include <kernel/program/compute/transform/model.hpp>
 #include <kernel/program/compute/window/model.hpp>
 
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/plan.hpp"
 
 #include <type_traits>
 #include <utility>

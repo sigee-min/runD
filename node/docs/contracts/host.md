@@ -187,7 +187,8 @@ storage; it performs zero dynamic allocations and zero payload-size copies.
 - `/node/src/runtime/replay/surface/`
 - `/node/src/runtime/replay/input/plan.hpp`
 - `/node/src/runtime/task/scheduler/core/host.cpp`
-- `/node/src/runtime/task/scheduler/core/replay.cpp`
+- `/node/src/runtime/task/scheduler/core/replay/{helpers,capture,input}.cpp`
+- `/node/src/runtime/task/scheduler/core/replay/internal.hpp`
 - `/node/src/runtime/task/scheduler/core/time.cpp`
 - `/node/src/runtime/task/scheduler/timer.cpp`
 - `/node/src/runtime/task/scheduler/io.cpp`
@@ -232,7 +233,9 @@ Replay host source map:
 | `/node/src/runtime/replay/host/codec.cpp` | Standalone and embedded host binary encoding, count admission, delta/presence decoding, and event-hash validation. |
 | `/node/src/runtime/replay/host/diff.cpp` | Host replay event equality, first mismatch, field diff, and context windows. |
 | `/node/src/runtime/replay/host/payload/backend.hpp` | Private `Blob`, memory/spill backend, immutable `SpillGeneration` owner, read/append result, and storage report routing. |
-| `/node/src/runtime/replay/host/payload/backend/memory.cpp` | In-memory payload blob storage and backend facade routing. |
+| `/node/src/runtime/replay/host/payload/backend/blob.cpp` | Blob-level raw/RLE encode, decode, hash, and equality verification over the codec primitives. |
+| `/node/src/runtime/replay/host/payload/backend/memory.cpp` | In-memory payload blob storage, accounting, marks, rollback, and clear. |
+| `/node/src/runtime/replay/host/payload/backend.cpp` | Single memory/spill backend selection, transactional batch append/index rollback, reads, reports, archive load, and clear routing. It stores no parallel blob payload authority. |
 | `/node/src/runtime/replay/host/payload/backend/spill/generation.cpp` | Unique generation creation, lease-based stale-generation scavenging, immutable lifetime, and Budget reserve/commit/refund. |
 | `/node/src/runtime/replay/host/payload/backend/spill/segment.cpp` | One filesystem snapshot, exact allocation and headroom admission, fixed 41-byte little-endian header, and direct positioned segment I/O. |
 | `/node/src/runtime/replay/host/payload/backend/spill/store.cpp` | Transactional Spill append/rollback, lazy reads, decoded-cache routing, reports, archive-load cursor reconstruction, and clear. |

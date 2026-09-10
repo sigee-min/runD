@@ -1,6 +1,8 @@
+#include "../state/assembly.hpp"
 #include "arena.hpp"
 
 #include "../../backend.hpp"
+#include "../../backend/accel/diagnostic.hpp"
 #include "../../device/state.hpp"
 #include "../../memory/arena.hpp"
 #include "../../program/state.hpp"
@@ -54,8 +56,13 @@ plan_pipeline_scratch(const DeviceState &device,
         device.ops->plan_scratch(device, program->accel->kernel,
                                  accel->pick.caps.storage_alignment, page);
     if (!scratch.ok) {
-      return Status::fail(
-          project_reason(scratch.reason, Reason::LoweringInvalid));
+      const Reason projected =
+          project_reason(scratch.reason, Reason::LoweringInvalid);
+      accel_diagnostic::RecordScratchPlanProjection(
+          program->accel->kernel, false, scratch.reason,
+          reason_message(Reason::LoweringInvalid).data(),
+          reason_message(projected).data());
+      return Status::fail(projected);
     }
     payload_bytes = std::max(payload_bytes, scratch.payload_bytes);
     std::uint64_t expected_backing = 0u;
@@ -87,6 +94,7 @@ plan_pipeline_scratch(const DeviceState &device,
   if (page_count == 0u) {
     return Status::success();
   }
+  plan.scratch.reserve(page_count);
   for (std::size_t index = 0u; index < page_count; ++index) {
     const std::uint64_t bytes = index + 1u == page_count ? last_bytes : page;
     if (bytes % memory::Word != 0u ||

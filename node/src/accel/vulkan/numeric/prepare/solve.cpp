@@ -1,3 +1,5 @@
+#include "../../adapter/access.hpp"
+
 #include "../resource.hpp"
 #include "../source.hpp"
 #include "../../kernel/pipeline/template.hpp"

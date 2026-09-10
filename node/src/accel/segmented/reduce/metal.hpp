@@ -16,12 +16,6 @@ struct MetalPipelineStatusBindings;
 struct MetalKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
-ExecuteMetalSegmentedReduce(const rund::AccelDevice &pick,
-                            const rund::kernel::SegmentedReduceDesc &desc,
-                            const rund::kernel::SegmentedReducePlan &plan,
-                            rund::kernel::ComputeDomain domain,
-                            const SegmentedReduceBinds &bindings);
-[[nodiscard]] rund::AccelCheck
 PrepareMetalSegmentedReduce(const rund::AccelDevice &pick,
                             const rund::kernel::SegmentedReduceDesc &desc,
                             const rund::kernel::SegmentedReducePlan &plan,

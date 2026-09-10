@@ -3,6 +3,8 @@
 #include "../../../hash/fnv.hpp"
 #include "../../pipeline/local.hpp"
 
+#include <rund/compute/pipeline/runtime.hpp>
+
 #include <limits>
 
 namespace rund::compute::detail {
@@ -96,6 +98,7 @@ Status publish_virtual_run_evidence(VirtualPipelineState &state, Stats stats,
       increment(stats.pipeline.residency.allocation_free_runs);
     }
   }
+  stats.publication = pipeline_stats(state.pipeline).publication;
   state.stats = stats;
   state.phase = poison_pipeline ? VirtualPipelinePhase::Poisoned
                                 : VirtualPipelinePhase::Ready;

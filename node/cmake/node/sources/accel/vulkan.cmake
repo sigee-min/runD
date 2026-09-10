@@ -2,14 +2,27 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/kernel/run/execute.cpp
   src/accel/vulkan/kernel/run/identity.cpp
   src/accel/vulkan/kernel/run/manifest/capture.cpp
+  src/accel/vulkan/kernel/run/manifest/map.cpp
+  src/accel/vulkan/kernel/run/manifest/scan.cpp
+  src/accel/vulkan/kernel/run/manifest/reduction.cpp
+  src/accel/vulkan/kernel/run/manifest/sort.cpp
+  src/accel/vulkan/kernel/run/manifest/collective.cpp
+  src/accel/vulkan/kernel/run/manifest/scatter.cpp
+  src/accel/vulkan/kernel/run/manifest/range.cpp
+  src/accel/vulkan/kernel/run/manifest/numeric.cpp
   src/accel/vulkan/kernel/run/manifest/step.cpp
   src/accel/vulkan/kernel/run/memory.cpp
   src/accel/vulkan/kernel/run/prepare.cpp
   src/accel/vulkan/kernel/run/recurrence.cpp
   src/accel/vulkan/kernel/run/structure/pipeline.cpp
   src/accel/vulkan/kernel/run/structure/route.cpp
+  src/accel/vulkan/kernel/run/structure/route/step.cpp
+  src/accel/vulkan/kernel/run/structure/route/capture.cpp
   src/accel/vulkan/kernel/run/submit.cpp
   src/accel/vulkan/ops.cpp
+  src/accel/vulkan/ops/buffer.cpp
+  src/accel/vulkan/ops/control.cpp
+  src/accel/vulkan/ops/recurrence.cpp
   src/accel/vulkan/adapter/access.cpp
   src/accel/vulkan/buffer/access.cpp
   src/accel/vulkan/buffer/commitment.cpp
@@ -17,15 +30,28 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/buffer/pool.cpp
   src/accel/vulkan/buffer/resident/batch.cpp
   src/accel/vulkan/buffer/resident/batch/copy.cpp
-  src/accel/vulkan/buffer/resident/batch/download.cpp
+  src/accel/vulkan/buffer/resident/batch/sync.cpp
+  src/accel/vulkan/buffer/resident/batch/download/entry.cpp
+  src/accel/vulkan/buffer/resident/batch/download/encode.cpp
+  src/accel/vulkan/buffer/resident/batch/download/inline.cpp
+  src/accel/vulkan/buffer/resident/batch/download/batch.cpp
+  src/accel/vulkan/buffer/resident/batch/download/completion.cpp
+  src/accel/vulkan/buffer/resident/batch/download/lifecycle.cpp
   src/accel/vulkan/buffer/resident/batch/upload.cpp
+  src/accel/vulkan/buffer/resident/batch/upload/encode.cpp
+  src/accel/vulkan/buffer/resident/batch/upload/overlap.cpp
+  src/accel/vulkan/buffer/resident/batch/upload/preserve.cpp
   src/accel/vulkan/buffer/resident/create.cpp
   src/accel/vulkan/buffer/resident/download.cpp
   src/accel/vulkan/buffer/resident/lookup.cpp
   src/accel/vulkan/buffer/resident/upload.cpp
+  src/accel/vulkan/buffer/resident/view.cpp
   src/accel/vulkan/buffer/stats.cpp
   src/accel/vulkan/command.cpp
+  src/accel/vulkan/command/capture.cpp
+  src/accel/vulkan/command/dispatch.cpp
   src/accel/vulkan/command/resources.cpp
+  src/accel/vulkan/command/timestamp.cpp
   src/accel/vulkan/completion.cpp
   src/accel/vulkan/completion/service.cpp
   src/accel/vulkan/collective/pipeline.cpp
@@ -42,7 +68,6 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/gather/source.cpp
   src/accel/vulkan/histogram/descriptor.cpp
   src/accel/vulkan/histogram/encode.cpp
-  src/accel/vulkan/histogram/execute.cpp
   src/accel/vulkan/histogram/finish.cpp
   src/accel/vulkan/histogram/pipeline.cpp
   src/accel/vulkan/histogram/resources.cpp
@@ -57,9 +82,27 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/pick/result.cpp
   src/accel/vulkan/pick/run.cpp
   src/accel/vulkan/timestamp.cpp
+  src/accel/vulkan/timeline/owner/validation.cpp
+  src/accel/vulkan/timeline/owner/lifecycle.cpp
+  src/accel/vulkan/timeline/owner/generation.cpp
+  src/accel/vulkan/timeline/owner/point.cpp
+  src/accel/vulkan/timeline/owner/submit.cpp
+  src/accel/vulkan/timeline/owner/batch.cpp
+  src/accel/vulkan/timeline/owner/observe.cpp
   src/accel/vulkan/cached/pipeline.cpp
+  src/accel/vulkan/map/source/control.cpp
+  src/accel/vulkan/map/source/upper/check.cpp
+  src/accel/vulkan/map/source/upper/control.cpp
+  src/accel/vulkan/map/source/upper/controlled.cpp
+  src/accel/vulkan/map/source/upper/generated.cpp
+  src/accel/vulkan/map/admission.cpp
   src/accel/vulkan/map/descriptor.cpp
-  src/accel/vulkan/map/finish.cpp
+  src/accel/vulkan/map/encode/control.cpp
+  src/accel/vulkan/map/finish/lifecycle.cpp
+  src/accel/vulkan/map/finish/template.cpp
+  src/accel/vulkan/map/finish/route.cpp
+  src/accel/vulkan/map/finish/encode.cpp
+  src/accel/vulkan/map/finish/observation.cpp
   src/accel/vulkan/map/host/buffer.cpp
   src/accel/vulkan/map/resident.cpp
   src/accel/vulkan/numeric/base.cpp
@@ -70,7 +113,6 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/numeric/prepare/spectrum.cpp
   src/accel/vulkan/numeric/prepare/transform.cpp
   src/accel/vulkan/numeric/run/encode.cpp
-  src/accel/vulkan/numeric/run/execute.cpp
   src/accel/vulkan/numeric/run/status.cpp
   src/accel/vulkan/numeric/source/factor.cpp
   src/accel/vulkan/numeric/source/matrix.cpp
@@ -97,8 +139,91 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/kernel/batch.cpp
   src/accel/vulkan/kernel/pipeline/evidence.cpp
   src/accel/vulkan/kernel/pipeline/prepare.cpp
-  src/accel/vulkan/kernel/pipeline/prepare/record.cpp
-  src/accel/vulkan/kernel/pipeline/recurrence.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/capacity.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/allocation.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/description.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/dispatch.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/publication.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/capture.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/residency.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record/describe.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record/recipe.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record/encode.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record/encode/entry.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record/encode/evidence.cpp
+  src/accel/vulkan/kernel/pipeline/prepare/record/accounting.cpp
+  src/accel/vulkan/kernel/pipeline/residency/materialize.cpp
+  src/accel/vulkan/kernel/pipeline/residency/selection.cpp
+  src/accel/vulkan/kernel/pipeline/residency/plan.cpp
+  src/accel/vulkan/kernel/pipeline/residency/status.cpp
+  src/accel/vulkan/kernel/pipeline/residency/graph_direct.cpp
+  src/accel/vulkan/kernel/pipeline/residency/graph_direct/bindings.cpp
+  src/accel/vulkan/kernel/pipeline/residency/graph_direct/execution.cpp
+  src/accel/vulkan/kernel/pipeline/residency/graph_direct/map.cpp
+  src/accel/vulkan/kernel/pipeline/residency/graph_direct/reduce.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/admission/graph.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/admission/entry.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/admission/sequence.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/admission/match.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/admission/map.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/map_record.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/resources/map.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/resources/graph.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/resources/sequence.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/resources/lifecycle.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/lifecycle.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/record.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/record/graph.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/record/sequence.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/submit_commit.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/submit_plan.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/status/diagnostic.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/status/projection.cpp
+  src/accel/vulkan/kernel/pipeline/residency/generated_indirect/status/terminal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/native.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/execution.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/prepare.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/prepare/owner.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/prepare/validation.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/prepare/graph.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/rearm.cpp
+  src/accel/vulkan/kernel/pipeline/residency/device_vsm/submit.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/acknowledgement.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/capability.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/diagnostics.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/failure.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/final.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/lookup.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/materialize.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/preparation.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/signal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/state.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/submission.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/submission/continuation.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/submission/initial.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/submission/lifecycle.cpp
+  src/accel/vulkan/kernel/pipeline/residency/persistent/wait.cpp
+  src/accel/vulkan/kernel/pipeline/residency/schedule/entry.cpp
+  src/accel/vulkan/kernel/pipeline/residency/schedule/submission.cpp
+  src/accel/vulkan/kernel/pipeline/residency/schedule/signal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/schedule/terminal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/schedule/cleanup.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/capability.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/descriptor.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/diagnostic.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/prepare.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/queue.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/record.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/shader.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/submit.cpp
+  src/accel/vulkan/kernel/pipeline/residency/sliding/terminal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/submit/entry.cpp
+  src/accel/vulkan/kernel/pipeline/residency/submit/signal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/submit/terminal.cpp
+  src/accel/vulkan/kernel/pipeline/residency/submit/abort.cpp
+  src/accel/vulkan/kernel/pipeline/recurrence/validation.cpp
+  src/accel/vulkan/kernel/pipeline/recurrence/template.cpp
+  src/accel/vulkan/kernel/pipeline/recurrence/prepare.cpp
   src/accel/vulkan/kernel/pipeline/run.cpp
   src/accel/vulkan/kernel/pipeline/source.cpp
   src/accel/vulkan/kernel/pipeline/state.cpp
@@ -110,18 +235,38 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/kernel/pipeline/trace/fold.cpp
   src/accel/vulkan/kernel/pipeline/trace/record.cpp
   src/accel/vulkan/kernel/publish.cpp
+  src/accel/vulkan/kernel/publish/source.cpp
+  src/accel/vulkan/kernel/publish/encode.cpp
+  src/accel/vulkan/kernel/publish/accounting.cpp
   src/accel/vulkan/kernel/copy.cpp
-  src/accel/vulkan/kernel/window.cpp
+  src/accel/vulkan/kernel/window/entry.cpp
+  src/accel/vulkan/kernel/window/resources.cpp
+  src/accel/vulkan/kernel/window/descriptors.cpp
+  src/accel/vulkan/kernel/window/encode.cpp
+  src/accel/vulkan/kernel/window/lifecycle.cpp
+  src/accel/vulkan/kernel/window/source.cpp
   src/accel/vulkan/kernel/prepared.cpp
+  src/accel/vulkan/kernel/prepared/runtime.cpp
+  src/accel/vulkan/kernel/prepared/reset.cpp
+  src/accel/vulkan/kernel/prepared/descriptor.cpp
+  src/accel/vulkan/kernel/prepared/destruction.cpp
+  src/accel/vulkan/kernel/prepared/memory.cpp
   src/accel/vulkan/kernel/trace/fold.cpp
   src/accel/vulkan/kernel/trace/record.cpp
   src/accel/vulkan/scratch.cpp
   src/accel/vulkan/kernel/finish.cpp
   src/accel/vulkan/kernel/prepare/descriptor.cpp
   src/accel/vulkan/kernel/prepare/materialize.cpp
+  src/accel/vulkan/kernel/prepare/numeric.cpp
+  src/accel/vulkan/kernel/prepare/scan.cpp
+  src/accel/vulkan/kernel/prepare/range.cpp
+  src/accel/vulkan/kernel/prepare/collective.cpp
   src/accel/vulkan/kernel/prepare/step.cpp
   src/accel/vulkan/kernel/prepare/template.cpp
   src/accel/vulkan/kernel/view.cpp
+  src/accel/vulkan/kernel/view/source.cpp
+  src/accel/vulkan/kernel/view/commands.cpp
+  src/accel/vulkan/kernel/view/accounting.cpp
   src/accel/vulkan/reduce/descriptor.cpp
   src/accel/vulkan/reduce/execute.cpp
   src/accel/vulkan/reduce/finish.cpp
@@ -170,10 +315,13 @@ list(APPEND NODE_SOURCES
   src/accel/vulkan/segmented/pipeline.cpp
   src/accel/vulkan/segmented/source.cpp
   src/accel/vulkan/segmented/reduce/encode.cpp
-  src/accel/vulkan/segmented/reduce/execute.cpp
   src/accel/vulkan/segmented/reduce/finish.cpp
   src/accel/vulkan/segmented/reduce/pipeline.cpp
   src/accel/vulkan/segmented/reduce/prepare.cpp
+  src/accel/vulkan/segmented/reduce/source/classify.cpp
+  src/accel/vulkan/segmented/reduce/source/prefix.cpp
+  src/accel/vulkan/segmented/reduce/source/scatter.cpp
+  src/accel/vulkan/segmented/reduce/source/reduce.cpp
   src/accel/vulkan/segmented/reduce/source.cpp
   src/accel/vulkan/sort/execute.cpp
   src/accel/vulkan/sort/finish.cpp

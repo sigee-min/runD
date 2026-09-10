@@ -73,44 +73,4 @@ rund::AccelCheck EncodeMetalWindow(MetalAdapter &adapter,
   return check;
 }
 
-rund::AccelCheck ExecuteMetalWindow(const rund::AccelDevice &pick,
-                                    const rund::kernel::WindowDesc &desc,
-                                    const rund::kernel::WindowPlan &plan,
-                                    const RangeBinds &bindings,
-                                    const RangePlan &range) {
-#if defined(__APPLE__) && defined(RUND_NODE_HAVE_METAL_SDK)
-  auto *const adapter = static_cast<MetalAdapter *>(pick.backend.context);
-  if (!MetalPickOwnsAdapter(pick) || adapter == nullptr ||
-      adapter->queue == nullptr) {
-    return rund::AccelCheck{false, "accel_metal_unavailable"};
-  }
-  std::shared_ptr<void> resources{};
-  const rund::AccelCheck prepare =
-      PrepareMetalWindow(pick, desc, plan, bindings, range, nullptr, resources);
-  if (!prepare.ok) {
-    return prepare;
-  }
-
-  CommandRun command{};
-  const rund::AccelCheck open = OpenCommand(*adapter, command);
-  if (!open.ok) {
-    return open;
-  }
-  const rund::AccelCheck encode =
-      EncodeMetalWindow(*adapter, resources, (__bridge void *)command.encoder);
-  const rund::AccelCheck submit = FinishCommand(*adapter, command, encode);
-  if (!submit.ok) {
-    return submit;
-  }
-  return FinishMetalWindow(*adapter, resources);
-#else
-  (void)pick;
-  (void)desc;
-  (void)plan;
-  (void)bindings;
-  (void)range;
-  return rund::AccelCheck{false, "accel_metal_unavailable"};
-#endif
-}
-
 } // namespace rund::node::accel::detail

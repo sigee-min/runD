@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../range_aggregate/execution.hpp"
-#include "../adapter/api.hpp"
+#include "../../range_aggregate/execution/projection.hpp"
+#include "../adapter/state.hpp"
 #include "../barrier.hpp"
 #include "../buffer/resident/model.hpp"
 #include "../collective/pipeline.hpp"

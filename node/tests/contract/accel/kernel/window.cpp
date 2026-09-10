@@ -21,6 +21,7 @@
 
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 namespace node_accel_contract {
@@ -213,12 +214,15 @@ RunsPaddedDirectWindow(const rund::AccelDevice &pick,
   return download.ok && downloaded == expected;
 }
 
-template <typename T>
+template <typename T, std::size_t InputCount = 257u,
+          std::size_t WindowSize = 129u>
 [[nodiscard]] bool RunsBlockWindow(const rund::AccelDevice &pick,
                                    const rund::kernel::WindowOp op,
                                    const rund::kernel::WindowElement element,
-                                   const rund::kernel::ComputeDomain domain) {
-  constexpr std::size_t kInputCount = 257u;
+                                   const rund::kernel::ComputeDomain domain,
+                                   const rund::kernel::WindowBoundary boundary =
+                                       rund::kernel::WindowBoundary::Clip) {
+  constexpr std::size_t kInputCount = InputCount;
   constexpr std::size_t kOutputCount = 65u;
   std::array<T, kInputCount> input{};
   for (std::size_t index = 0u; index < input.size(); ++index) {
@@ -226,22 +230,37 @@ template <typename T>
         static_cast<rund::kernel::i64>((index * 37u + 11u) % 211u);
     input[index] = static_cast<T>(std::is_signed_v<T> ? value - 105 : value);
   }
+  if constexpr (sizeof(T) == 8u) {
+    for (std::size_t index = 0u; index < input.size(); ++index) {
+      input[index] = static_cast<T>(
+          (static_cast<rund::kernel::u64>(index) * 0x9e3779b97f4a7c15ull) ^
+          0xa5a5a5a55a5a5a5aull);
+    }
+  }
+  input.front() = std::numeric_limits<T>::lowest();
+  input.back() = std::numeric_limits<T>::max();
   const rund::kernel::WindowDesc desc{
       .op = op,
       .element = element,
-      .boundary = rund::kernel::WindowBoundary::Clip,
+      .boundary = boundary,
       .domain = domain,
       .input_count = input.size(),
       .output_count = kOutputCount,
-      .window_size = 129u,
+      .window_size = WindowSize,
       .stride = 2u,
-      .pad_left = 64u,
+      .pad_left = WindowSize / 2u,
   };
   const rund::kernel::WindowPlan plan = rund::kernel::PlanWindow(desc);
   std::array<T, kOutputCount> expected{};
   const rund::kernel::WindowResult reference = [&]() {
     if constexpr (std::is_same_v<T, rund::kernel::i32>) {
       return rund::kernel::ReferenceWindowI32(input.data(), expected.data(),
+                                              plan);
+    } else if constexpr (std::is_same_v<T, rund::kernel::i64>) {
+      return rund::kernel::ReferenceWindowI64(input.data(), expected.data(),
+                                              plan);
+    } else if constexpr (std::is_same_v<T, rund::kernel::u32>) {
+      return rund::kernel::ReferenceWindowU32(input.data(), expected.data(),
                                               plan);
     } else {
       return rund::kernel::ReferenceWindowU64(input.data(), expected.data(),
@@ -333,7 +352,16 @@ template <typename T>
                    RunsBlockWindow<rund::kernel::u64>(
                        pick, rund::kernel::WindowOp::Max,
                        rund::kernel::WindowElement::U64,
-                       rund::kernel::ComputeDomain::U64)
+                       rund::kernel::ComputeDomain::U64) &&
+                   RunsBlockWindow<rund::kernel::i64, 259u, 513u>(
+                       pick, rund::kernel::WindowOp::Min,
+                       rund::kernel::WindowElement::U64,
+                       rund::kernel::ComputeDomain::I64,
+                       rund::kernel::WindowBoundary::Clamp) &&
+                   RunsBlockWindow<rund::kernel::u32, 259u, 513u>(
+                       pick, rund::kernel::WindowOp::Max,
+                       rund::kernel::WindowElement::U32,
+                       rund::kernel::ComputeDomain::U32)
              : primitive::PickUnavailableReasonIsPrecise(pick, api);
 }
 

@@ -2,7 +2,8 @@
 #include <accel/device.hpp>
 
 #include "../../backend/match.hpp"
-#include "../adapter/api.hpp"
+#include "../runtime/execute.hpp"
+#include "access.hpp"
 namespace rund::node::accel::detail {
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)

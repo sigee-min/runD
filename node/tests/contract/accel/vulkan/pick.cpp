@@ -24,7 +24,7 @@ namespace node_accel_contract {
          pick.caps.api == rund::kernel::ComputeApi::Vulkan &&
          std::string_view{pick.caps.reason} == "ok" &&
          pick.caps.device_bytes > 0u &&
-         pick.caps.staging_bytes >= vulkan::kOneMiB &&
+         pick.caps.staging_bytes >= 1024u * 1024u &&
          pick.caps.max_window_tiles >=
              rund::kernel::compute_lowering_detail::kVulkanMapWidth &&
          pick.caps.subgroup_width >= 1u && static_cast<bool>(pick.backend) &&

@@ -13,6 +13,7 @@
 #include "src/accel/metal/scan/source.hpp"
 #include "src/accel/metal/sort/source.hpp"
 #include "src/accel/scan/prefix.hpp"
+#include "src/accel/source/hash.hpp"
 #include "src/accel/scan/shape.hpp"
 #include "src/accel/scatter/reduce/status.hpp"
 #include "src/accel/segmented/status.hpp"
@@ -199,6 +200,11 @@ namespace {
 
 [[nodiscard]] bool ScanSourceIsCanonical() {
   const std::string metal = rund::node::accel::detail::MetalScanSource();
+  // Stage ownership changes must not silently invalidate native source keys.
+  if (metal.size() != 15960u ||
+      rund::node::accel::detail::SourceHash(metal) != 10312601048820643852ull) {
+    return false;
+  }
   const std::string width_declaration =
       "constant uint kScanWidth = " +
       std::to_string(rund::node::accel::detail::kScanPrefixWorkgroupWidth) +

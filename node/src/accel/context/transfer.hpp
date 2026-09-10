@@ -27,6 +27,7 @@ struct DownloadEntry final {
   std::uint64_t bytes = 0u;
   std::uint64_t offset = 0u;
   std::uint64_t *payload_hash = nullptr;
+  DownloadRangeOutcome *outcome = nullptr;
 };
 
 struct CopyEntry final {
@@ -48,14 +49,55 @@ struct AccelTransfer final {
   std::uint64_t buffer_reuses{};
   std::uint64_t command_submits{};
   std::uint64_t readback_ns{};
+  std::uint64_t confirmed_bytes{};
+  std::uint64_t ordered_prefix{};
+  std::uint64_t first_failed{};
   bool staging_reused{};
   bool payload_hash_valid{};
+  bool first_failed_valid{};
 };
 
 struct AccelCopy final {
   rund::AccelCheck check{};
   std::uint64_t command_submits{};
 };
+
+struct AccelHostView final {
+  const std::byte *data = nullptr;
+  std::uint64_t bytes = 0u;
+
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return data != nullptr && bytes != 0u;
+  }
+};
+
+struct AccelHostWriteView final {
+  std::byte *data = nullptr;
+  std::uint64_t bytes = 0u;
+
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return data != nullptr && bytes != 0u;
+  }
+};
+
+// Read-only projection of one exact resident transfer route. This performs no
+// upload, native submit, or backend mutation.
+[[nodiscard]] UploadRoute
+ProjectAccelBufferRoute(const rund::AccelContext &,
+                        const rund::AccelBuffer &) noexcept;
+
+// Pipeline-private, timing-free projection of a backend-proven stable
+// read-only Host view. Reading remains illegal until the native terminal.
+[[nodiscard]] AccelHostView
+ReadAccelBuffer(const rund::AccelContext &context,
+                const rund::AccelBuffer &buffer) noexcept;
+
+// Pipeline-private, timing-free projection of a backend-proven stable
+// writable Host view. This authenticates the complete Buffer capability, not
+// the caller's mutation range or Authority token.
+[[nodiscard]] AccelHostWriteView
+WriteAccelBuffer(const rund::AccelContext &context,
+                 const rund::AccelBuffer &buffer) noexcept;
 
 [[nodiscard]] AccelTransfer
 DownloadAccelBufferMeasured(const rund::AccelContext &context,

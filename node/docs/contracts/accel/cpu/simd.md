@@ -23,10 +23,16 @@ Their C++ source authority is split into focused entrypoints and owners under
 - `vector/contract.cpp`: vector-law contract entrypoint
 - `vector.cpp`: vector-law owner router
 - `vector/fixed/{lane32,lane64}.hpp` plus
-  `vector/{tail,strided,plan}.hpp` and `vector/write/multiple.hpp`: fixed lane 32
+  `vector/{tail,strided}.hpp` and `vector/write/multiple.hpp`: fixed lane 32
   full-vector, fixed_lane64 full-vector, fixed_lane32 tail-chunk, strided and
-  multi-write binding evidence, plus frozen executor-selector and scratch-capacity
-  evidence
+  multi-write binding evidence
+- `vector/plan/layout.hpp`: `PreparedInstruction` ABI/packing and scratch
+  equations
+- `vector/plan/support.cpp`: independent physical-slot lower-bound oracle
+- `vector/plan/{selectors,scratch,commit,validation}.cpp`: ordered executor
+  selector, integer-scratch, commit-demand, and stable-prefix/edge scenario
+  owners
+- `vector/plan.cpp`: ordered plan-contract dispatcher
 - `dsl/basic.cpp`: hash, noise, normalization, range, mask,
   tolerance, piecewise, and polynomial DSL helper contract entrypoint
 - `dsl/geometry.cpp`: vector, squared metric, metric, projection,
@@ -261,6 +267,16 @@ For `L` SIMD lanes, Fixed execution requests exactly
 `P*sizeof(uint8_t) + P*sizeof(ValueVec) + P*L*sizeof(WideScalar) +
 alignof(ValueVec) - 1`. `ValueVec` size is a multiple of `WideScalar`
 alignment, so the first aligned plane also aligns every following plane.
+The shared arithmetic executor is an ordered, implementation-free umbrella:
+`simd/run/body/arithmetic/{wide,binary,divide,comparison,unary}.hpp`
+respectively own wide fixed-format projection, binary arithmetic, checked
+division, ordering/select, and unary instruction bodies. The macro-specialized
+Fixed executor is physically divided under
+`simd/run/body/fixed/`: `base.hpp` owns stored-bit, quantization, division, and
+square-root primitives; `arithmetic.hpp` owns saturating and fixed arithmetic
+instruction bodies; and `transcendental.hpp` owns canonical conversion and
+transcendental instruction bodies. The adjacent `fixed.hpp` is an ordered
+umbrella only and introduces no state or alternate numeric authority.
 Non-Fixed
 execution has neither a 128-bit materialization plane nor its validity plane
 and requests exactly `P*sizeof(ValueVec) + alignof(ValueVec) - 1`. The
@@ -337,12 +353,12 @@ executor changes.
 Node's CPU graph executor admits and projects a primitive exactly once in
 `compute/cpu/run/primitive.cpp`: it resolves the frozen binding range into an
 eight-entry stack view, validates each byte range, dispatches one primitive,
-and projects its stable reason. Algebraic kernels are compiled separately in
-`compute/cpu/run/primitive/algebra.cpp`; that leaf owns Stencil, Transform,
-Matrix, Factor, Solve, and Spectrum execution and their semantic-status
-projection. `execute.cpp` owns reset only. No inline implementation header or
-second port resolver remains, so changing an algebraic reference does not
-reparse or rebuild reset execution and does not add an allocation, payload
+and projects its stable reason. Algebraic kernels are compiled separately under
+`compute/cpu/run/primitive/algebra/`, with one owner each for Stencil, Window,
+Transform, Matrix, Factor, Solve, and Spectrum; `algebra/support.cpp` records
+semantic failures once. `execute.cpp` owns reset only. No inline implementation
+header or second port resolver remains, so changing an algebraic reference does
+not reparse or rebuild reset execution and does not add an allocation, payload
 copy, workload threshold, or alternate calculation order.
 
 The CPU implementation includes only the authority needed by that executor.
@@ -359,3 +375,26 @@ schema with the cross-backend inventory. Every table accessor has one caller.
 CPU/backend identity and output parity are contract-test concerns. Performance
 claims require a focused measurement made from the current revision; they are
 not emitted by the normal semantic suite.
+
+## Prepared modular affine execution
+
+Integer one-read/one-write maps composed solely of Param, Constant, Read,
+Add, Sub, Mul/MulWrap and a final Write may seal `PreparedAffineRun` at cold
+preparation. Each SSA value is represented as `a*x+b` in the scalar-width
+modular ring. Addition/subtraction combine coefficients; multiplication is
+admitted only when at least one operand has zero x coefficient. Physical-slot
+reuse is handled by snapshotting both operand forms before the destination
+assignment. All instructions must be supported, including otherwise dead
+instructions, and the sole Write must be last. A retained unused Index is
+allowed; any use of its value declines affine execution, and the existing
+logical-offset overflow check still runs.
+
+For dense scalar-width bindings, the warm runner executes a SIMD multiply/add
+without per-IR-operation dispatch or intermediate value commits. Full vectors
+and tails preserve the original per-vector read-before-write order. Existing
+scratch/invocation validation and vector/tail counter equations remain intact.
+Strided bindings use the existing instruction runner. Fixed-point arithmetic,
+non-affine products, indexed/uniform reads, multiple outputs and width-changing
+writes keep the existing runner: their rounding, aliasing or ordering contracts
+are not rewritten as modular arithmetic. Coefficients use unsigned arithmetic;
+low-width projection preserves modulo 2^32/2^64 overflow exactly.

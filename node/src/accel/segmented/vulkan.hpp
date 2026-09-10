@@ -15,10 +15,6 @@ namespace rund::node::accel::detail {
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck ExecuteVulkanSegmentedScan(
-    const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
-    const rund::kernel::SegmentedScanPlan &plan,
-    rund::kernel::ComputeDomain domain, const SegmentedScanBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanSegmentedScan(
     const rund::AccelDevice &pick, const rund::kernel::SegmentedScanDesc &desc,
     const rund::kernel::SegmentedScanPlan &plan,

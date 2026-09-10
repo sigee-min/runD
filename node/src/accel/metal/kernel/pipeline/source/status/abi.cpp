@@ -1,61 +1,19 @@
 #include "source.hpp"
 
-namespace rund::node::accel::detail::metal_pipeline_status_source {
+#include "../../abi/source/begin.def"
 
-std::string_view preamble() noexcept {
-  return R"rundmetal(
-#include <metal_stdlib>
-using namespace metal;
-)rundmetal";
-}
+namespace {
 
-std::string_view abi() noexcept {
-  return R"rundmetal(
-struct StatusSource {
-  uint encoding;
-  uint declared_step;
-  uint policy0;
-  uint policy1;
-  uint policy2;
-  uint policy3;
-  uint limit_low;
-  uint limit_high;
-  uint raw_offset;
-  uint telemetry;
-  uint indirect_dispatch_count;
-  uint work_item_count_low;
-  uint work_item_count_high;
-  uint failed_outer_window;
-  uint failed_inner_iteration;
-  uint failed_nested_phase;
-};
-
-struct StatusEntry {
-  uint source;
-  uint raw;
-};
-
-struct ResetMeta {
-  uint raw_offset;
-  uint reset;
-};
-
-struct StatusParams {
-  uint reset_range_count;
-  uint status_count;
-  uint reset_word_count;
-  uint declared_step_count;
-  uint invalid_reason;
-  uint generation_stride;
-  uint source_count;
-  uint phase;
-  uint window_state;
-  uint window_stop;
-  uint window_inner_advance;
-  uint state_count;
-};
-
-struct PipelineControl {
+// Keep PipelineControl, ResidentState, and StepControl as raw production
+// source.  Only the seven selected parameter records are projected from the
+// shared schemas below.
+inline constexpr char MetalPipelineAbi[] =
+    "\n"
+#include "../../abi/schema/source.def"
+#include "../../abi/schema/entry.def"
+#include "../../abi/schema/reset.def"
+#include "../../abi/schema/status.def"
+    R"rundmetal(struct PipelineControl {
   uint generation;
   uint reason;
   uint failed_step;
@@ -78,41 +36,10 @@ struct PipelineControl {
   ulong skipped_inner_iteration_count;
 };
 
-struct PublishParams {
-  ulong count;
-  ulong source_offset_words[3];
-  ulong source_stride_words[3];
-  ulong target_offset_words;
-  ulong target_stride_words;
-  uint element_words;
-  uint declared_step_count;
-  uint state;
-  uint final;
-  uint stop;
-  uint maximum;
-  uint tile;
-  uint outer;
-  uint kind;
-  ulong count_offset_words;
-};
-
-struct WindowParams {
-  ulong count_offset_words;
-  ulong terminal_offset_words[3];
-  uint maximum;
-  uint tile;
-  uint iteration;
-  uint expected;
-  uint state;
-  uint has_terminal;
-  uint phase;
-  uint declared_step;
-  uint overflow_reason;
-  uint inner_bound;
-  uint inner_advance;
-};
-
-struct ResidentState {
+)rundmetal"
+#include "../../abi/schema/publish.def"
+#include "../../abi/schema/window.def"
+    R"rundmetal(struct ResidentState {
   uint current;
   uint stopped;
 };
@@ -136,6 +63,22 @@ struct StepControl {
 };
 
 )rundmetal";
+
+} // namespace
+
+#include "../../abi/source/end.def"
+
+namespace rund::node::accel::detail::metal_pipeline_status_source {
+
+std::string_view preamble() noexcept {
+  return R"rundmetal(
+#include <metal_stdlib>
+using namespace metal;
+)rundmetal";
+}
+
+std::string_view abi() noexcept {
+  return std::string_view{MetalPipelineAbi, sizeof(MetalPipelineAbi) - 1u};
 }
 
 } // namespace rund::node::accel::detail::metal_pipeline_status_source

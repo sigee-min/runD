@@ -1,11 +1,11 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+
 #include "../../command.hpp"
 #include "../../scope.hpp"
 
-#include <array>
 #include <memory>
-#include <span>
 #include <utility>
 
 namespace rund::node::accel::detail {
@@ -84,12 +84,6 @@ inline void EncodeVulkanBufferBarrier(
   return true;
 }
 
-[[nodiscard]] inline bool CopyVulkanBuffer(VulkanAdapter &adapter,
-                                           const VulkanCopy &copy) {
-  return EncodeVulkanBufferCopy(adapter, copy) &&
-         SubmitVulkanCommand(adapter, false);
-}
-
 [[nodiscard]] inline bool UploadVulkanCopy(
     VulkanAdapter &adapter, ScopedBuffer &&staging,
     VulkanBuffer &resident, const VkDeviceSize resident_offset,
@@ -107,87 +101,6 @@ inline void EncodeVulkanBufferBarrier(
   };
   return EncodeVulkanBufferCopy(adapter, copy) &&
          SubmitVulkanTransfer(adapter, staging.buffer, std::move(target));
-}
-
-[[nodiscard]] inline bool DownloadVulkanCopyRegions(
-    VulkanAdapter &adapter, const VulkanBuffer &resident, VulkanBuffer &staging,
-    std::span<const VkBufferCopy> regions);
-
-[[nodiscard]] inline bool DownloadVulkanCopy(
-    VulkanAdapter &adapter, const VulkanBuffer &resident,
-    const VkDeviceSize resident_offset, VulkanBuffer &staging,
-    const VkDeviceSize bytes) {
-  const VkBufferCopy region{
-      .srcOffset = resident_offset,
-      .dstOffset = 0u,
-      .size = bytes,
-  };
-  return DownloadVulkanCopyRegions(
-      adapter, resident, staging, std::span<const VkBufferCopy>{&region, 1u});
-}
-
-[[nodiscard]] inline bool DownloadVulkanCopyRegions(
-    VulkanAdapter &adapter, const VulkanBuffer &resident, VulkanBuffer &staging,
-    const std::span<const VkBufferCopy> regions) {
-  std::array<VkBufferMemoryBarrier, 2u> source_barriers{};
-  std::array<VkBufferMemoryBarrier, 2u> target_barriers{};
-  if (resident.buffer == VK_NULL_HANDLE ||
-      staging.buffer == VK_NULL_HANDLE || regions.empty() ||
-      regions.size() > source_barriers.size()) {
-    SetVulkanLastError(adapter, "accel_vulkan_transfer_invalid");
-    return false;
-  }
-  for (std::size_t index = 0u; index < regions.size(); ++index) {
-    const VkBufferCopy &region = regions[index];
-    if (region.size == 0u || region.srcOffset > resident.bytes ||
-        region.size > resident.bytes - region.srcOffset ||
-        region.dstOffset > staging.bytes ||
-        region.size > staging.bytes - region.dstOffset ||
-        ((region.srcOffset | region.dstOffset | region.size) & 3u) != 0u) {
-      SetVulkanLastError(adapter, "accel_vulkan_transfer_invalid");
-      return false;
-    }
-    source_barriers[index] = VkBufferMemoryBarrier{
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = resident.buffer,
-        .offset = region.srcOffset,
-        .size = region.size,
-    };
-    target_barriers[index] = VkBufferMemoryBarrier{
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = staging.buffer,
-        .offset = region.dstOffset,
-        .size = region.size,
-    };
-  }
-  if (!BeginVulkanCommand(adapter)) {
-    return false;
-  }
-  const std::uint32_t region_count =
-      static_cast<std::uint32_t>(regions.size());
-  vkCmdPipelineBarrier(
-      adapter.command_buffer,
-      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-          VK_PIPELINE_STAGE_TRANSFER_BIT,
-      VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, region_count,
-      source_barriers.data(), 0u, nullptr);
-  vkCmdCopyBuffer(adapter.command_buffer, resident.buffer, staging.buffer,
-                  region_count, regions.data());
-  vkCmdPipelineBarrier(adapter.command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_HOST_BIT, 0u, 0u, nullptr,
-                       region_count, target_barriers.data(), 0u, nullptr);
-  return SubmitVulkanCommand(adapter, false);
 }
 
 #endif

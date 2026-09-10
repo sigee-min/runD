@@ -1,6 +1,8 @@
 #pragma once
 
-#include "../local.hpp"
+#include "../../../range_aggregate/execution/projection.hpp"
+
+#include <string_view>
 
 namespace rund::node::accel::detail {
 
@@ -31,8 +33,12 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
     device )MSL";
   source += type;
   source += R"MSL(* scratch1 [[buffer(4)]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint group [[threadgroup_position_in_grid]]) {
+    uint group [[threadgroup_position_in_grid]],
+    uint physical_lane [[thread_index_in_simdgroup]],
+    uint simd_group [[simdgroup_index_in_threadgroup]],
+    uint simd_width [[threads_per_simdgroup]]) {
+  const uint lane = simd_prefix_exclusive_sum(1u);
+  const uint tid = simd_group * simd_width + lane;
   threadgroup )MSL";
   source += type;
   source += " scan[";
@@ -57,46 +63,54 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
         : )MSL";
   source += type;
   source += R"MSL((0);
-    scan[tid] = value;
+)MSL";
+  if (std::string_view{type} == "uint") {
+    source +=
+        R"MSL(    const uint local_prefix = simd_prefix_inclusive_sum(value);
+    const uint local_total = simd_sum(value);
+    if (lane == 0u) { scan[simd_group] = local_total; }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint offset = 1u; offset < )MSL";
-  (void)source.decimal(shape.width());
-  source += R"MSL(u; offset <<= 1u) {
-      const uint tree = (tid + 1u) * offset * 2u - 1u;
-      if (tree < )MSL";
-  (void)source.decimal(shape.width());
-  source += R"MSL(u) { scan[tree] += scan[tree - offset]; }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
     if (tid == 0u) {
-      if (params.stage_aux_count > 1ul) { scratch1[group] = scan[)MSL";
-  (void)source.decimal(shape.width() - 1u);
-  source += R"MSL(]; }
-      scan[)MSL";
-  (void)source.decimal(shape.width() - 1u);
-  source += R"MSL(] = )MSL";
-  source += type;
-  source += R"MSL((0);
+      uint offset = 0u;
+      const uint simd_groups = ()MSL";
+    (void)source.decimal(shape.width());
+    source += R"MSL(u + simd_width - 1u) / simd_width;
+      for (uint index = 0u; index < simd_groups; ++index) {
+        const uint total = scan[index];
+        scan[index] = offset;
+        offset += total;
+      }
+      if (params.stage_aux_count > 1ul) { scratch1[group] = offset; }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint offset = )MSL";
-  (void)source.decimal(shape.width() / 2u);
-  source += R"MSL(u; offset > 0u; offset >>= 1u) {
-      const uint tree = (tid + 1u) * offset * 2u - 1u;
-      if (tree < )MSL";
-  (void)source.decimal(shape.width());
-  source += R"MSL(u) {
-        const )MSL";
-  source += type;
-  source += R"MSL( prior = scan[tree - offset];
-        scan[tree - offset] = scan[tree];
-        scan[tree] += prior;
-      }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (active) { scratch0[i] = scan[tid] + value; }
+    if (active) { scratch0[i] = scan[simd_group] + local_prefix; }
     return;
+)MSL";
+  } else {
+    source +=
+        R"MSL(    const ulong local_prefix = rund_simd_prefix_u64(value);
+    const uint last = simd_max(physical_lane);
+    const ulong local_total = rund_simd_last_u64(local_prefix, last);
+    if (lane == 0u) { scan[simd_group] = local_total; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid == 0u) {
+      ulong offset = 0ul;
+      const uint simd_groups = ()MSL";
+    (void)source.decimal(shape.width());
+    source += R"MSL(u + simd_width - 1u) / simd_width;
+      for (uint index = 0u; index < simd_groups; ++index) {
+        const ulong total = scan[index];
+        scan[index] = offset;
+        offset += total;
+      }
+      if (params.stage_aux_count > 1ul) { scratch1[group] = offset; }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (active) { scratch0[i] = scan[simd_group] + local_prefix; }
+    return;
+)MSL";
   }
+  source += R"MSL(  }
   if (params.stage == )MSL";
   (void)source.decimal(MetalRangeStageValue(RangeStageKind::PrefixFixup));
   source += R"MSL(u) {
@@ -120,7 +134,17 @@ inline void AppendMetalPrefixDifferenceKernel(Sink &source,
   )MSL";
   source += type;
   source += R"MSL( value = scratch0[right];
-  if (left != 0ul) { value -= scratch0[left - 1ul]; }
+  const ulong right_group = right / )MSL";
+  (void)source.decimal(shape.width());
+  source += R"MSL(ul;
+  if (right_group != 0ul) { value += scratch1[right_group - 1ul]; }
+  if (left != 0ul) {
+    value -= scratch0[left - 1ul];
+    const ulong left_group = (left - 1ul) / )MSL";
+  (void)source.decimal(shape.width());
+  source += R"MSL(ul;
+    if (left_group != 0ul) { value -= scratch1[left_group - 1ul]; }
+  }
   )MSL";
   if (boundary == RangeBoundary::Clamp) {
     source += R"MSL(  const ulong left_missing =

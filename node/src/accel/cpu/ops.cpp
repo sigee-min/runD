@@ -2,7 +2,7 @@
 #include "../backend/buffer.hpp"
 #include "../backend/ops/table.hpp"
 #include "../backend/usage.hpp"
-#include "../range_aggregate/model.hpp"
+#include "../range_aggregate/model/capability.hpp"
 #include "buffer.hpp"
 #include "kernel/run.hpp"
 #include "local.hpp"
@@ -20,7 +20,8 @@ namespace {
 [[nodiscard]] rund::AccelDevice Pick(const bool) { return PickCpu(); }
 
 rund::Buffer Create(const rund::AccelDevice &pick, const rund::BufferDesc &desc,
-                    const BackendBufferInitialization, const std::uint64_t) {
+                    const BackendBufferInitialization,
+                    const BackendBufferMemory, const std::uint64_t) {
   CpuBufferResult created = CreateCpuResidentBuffer(pick, desc);
   return MakeBuffer(pick, desc, created.check, created.ref,
                     std::move(created.buffer), created.ref.bytes, false);

@@ -15,6 +15,10 @@ class FlowBuilder;
 
 namespace detail {
 struct ProgramCacheState;
+struct DeviceState;
+[[nodiscard]] bool
+cache_matches_device(const std::shared_ptr<ProgramCacheState> &cache,
+                     const std::shared_ptr<DeviceState> &device) noexcept;
 }
 
 class ProgramCache final {

@@ -50,7 +50,12 @@ set(NODE_TEST_TASK_RANDOM_TEST_SOURCES
   tests/contract/runtime/task/random.cpp)
 
 set(NODE_TEST_TASK_READY_QUEUE_TEST_SOURCES
-  tests/contract/runtime/task/ready/queue.cpp)
+  tests/contract/runtime/task/ready/queue.cpp
+  tests/contract/runtime/task/ready/queue/support.cpp
+  tests/contract/runtime/task/ready/queue/storage.cpp
+  tests/contract/runtime/task/ready/queue/continuation.cpp
+  tests/contract/runtime/task/ready/queue/reuse.cpp
+  tests/contract/runtime/task/ready/queue/failure.cpp)
 
 set(NODE_TEST_TASK_DEFAULT_RESOURCE_BUDGET_TEST_SOURCES
   tests/contract/runtime/task/resource/default.cpp)

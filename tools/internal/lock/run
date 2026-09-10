@@ -79,6 +79,11 @@ invalidate_slot() {
   esac
 }
 
+capability_digest() {
+  printf '%s' "$1" | cmake -E sha256sum - 2>/dev/null |
+    awk 'NR == 1 { print $1 }'
+}
+
 if [ "${1:-}" = "--held" ]; then
   if [ "$#" -ne 2 ]; then
     exit 1
@@ -99,41 +104,30 @@ if [ "${1:-}" = "--held-flat" ]; then
   held_lock=$2
   held_owner_file="$held_lock.owner"
   held_owner=${RUND_FLAT_LOCK_OWNER_PID:-}
+  held_capability=${RUND_FLAT_LOCK_CAPABILITY:-}
   if [ "${RUND_FLAT_LOCK_ACTIVE:-}" != "$held_lock" ] ||
-     [ "${RUND_FLAT_LOCK_OWNER_FILE:-}" != "$held_owner_file" ]; then
+     [ "${RUND_FLAT_LOCK_OWNER_FILE:-}" != "$held_owner_file" ] ||
+     [ -z "$held_capability" ]; then
     exit 1
   fi
   case "$held_owner" in
     '' | *[!0-9]*) exit 1 ;;
   esac
   read_token "$held_owner_file" || exit 1
+  held_record=$(cat "$held_owner_file" 2>/dev/null || true)
+  set -- $held_record
   if [ ! -f "$held_owner_file" ] ||
      [ "$observed_mode" != 600 ] ||
-     [ "$observed_links" != 1 ] ||
-     [ "$(cat "$held_owner_file" 2>/dev/null || true)" != "$held_owner" ]; then
+     [ "$observed_links" != 1 ] || [ "$#" -ne 2 ] ||
+     [ "$1" != "$held_owner" ]; then
     exit 1
   fi
-
-  held_ancestor=$PPID
-  held_found=false
-  held_depth=0
-  while [ "$held_ancestor" -gt 1 ] && [ "$held_depth" -lt 128 ]; do
-    if [ "$held_ancestor" = "$held_owner" ]; then
-      held_found=true
-      break
-    fi
-    held_parent=$(ps -o ppid= -p "$held_ancestor" 2>/dev/null || true)
-    set -- $held_parent
-    if [ "$#" -ne 1 ]; then
-      exit 1
-    fi
-    case "$1" in
-      '' | *[!0-9]*) exit 1 ;;
-    esac
-    held_ancestor=$1
-    held_depth=$((held_depth + 1))
-  done
-  if [ "$held_found" != true ]; then
+  held_digest=$2
+  case "$held_digest" in
+    *[!0-9a-f]*) exit 1 ;;
+  esac
+  if [ "${#held_digest}" -ne 64 ] ||
+     [ "$(capability_digest "$held_capability")" != "$held_digest" ]; then
     exit 1
   fi
 
@@ -252,12 +246,25 @@ if [ "$flat_scope" -eq 1 ]; then
     lock_parent=/
   fi
   [ -d "$lock_parent" ] || mkdir -p "$lock_parent"
+  capability_file=$(mktemp "$lock.capability.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+  RUND_FLAT_LOCK_CAPABILITY=${capability_file##*.capability.}
+  rm -f "$capability_file"
+  capability_hash=$(capability_digest "$RUND_FLAT_LOCK_CAPABILITY")
+  case "$capability_hash" in
+    *[!0-9a-f]*) exit 1 ;;
+  esac
+  if [ -z "$RUND_FLAT_LOCK_CAPABILITY" ] ||
+     [ "${#capability_hash}" -ne 64 ]; then
+    exit 1
+  fi
+  export RUND_FLAT_LOCK_CAPABILITY
   flat_command='
     owner=$1
     wait_started=$2
     active=$3
     owner_file=$4
-    shift 4
+    capability_hash=$5
+    shift 5
     case "$owner_file" in
       "$active.owner") ;;
       *) exit 1 ;;
@@ -274,7 +281,8 @@ if [ "$flat_scope" -eq 1 ]; then
       RUND_FLAT_LOCK_OWNER_FILE
     umask 077
     rm -f "$owner_file"
-    if ! printf "%s\n" "$RUND_FLAT_LOCK_OWNER_PID" >"$owner_file"; then
+    if ! printf "%s\t%s\n" "$RUND_FLAT_LOCK_OWNER_PID" \
+        "$capability_hash" >"$owner_file"; then
       rm -f "$owner_file"
       exit 1
     fi
@@ -301,19 +309,23 @@ if [ "$flat_scope" -eq 1 ]; then
     case "$lock_tool:$invoke_wait" in
       lockf:1)
         set -- -k "$lock" sh -c "$flat_command" rund-lock \
-          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+          "$owner" "$invoke_started" "$lock" "$lock.owner" \
+          "$capability_hash" "$@"
         ;;
       lockf:0)
         set -- -k -t 0 "$lock" sh -c "$flat_command" rund-lock \
-          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+          "$owner" "$invoke_started" "$lock" "$lock.owner" \
+          "$capability_hash" "$@"
         ;;
       flock:1)
         set -- -x -E 75 "$lock" sh -c "$flat_command" rund-lock \
-          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+          "$owner" "$invoke_started" "$lock" "$lock.owner" \
+          "$capability_hash" "$@"
         ;;
       flock:0)
         set -- -x -E 75 -n "$lock" sh -c "$flat_command" rund-lock \
-          "$owner" "$invoke_started" "$lock" "$lock.owner" "$@"
+          "$owner" "$invoke_started" "$lock" "$lock.owner" \
+          "$capability_hash" "$@"
         ;;
       *) return 1 ;;
     esac

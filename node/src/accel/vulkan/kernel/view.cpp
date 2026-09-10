@@ -2,22 +2,16 @@
 
 #include "../../kernel/backend/exception.hpp"
 #include "../../kernel/preparation.hpp"
-#include "../adapter/api.hpp"
-#include "../barrier.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/resident/create.hpp"
 #include "../buffer/resident/find.hpp"
-#include "../collective/pipeline.hpp"
 #include "../command.hpp"
 #include "../descriptor.hpp"
 #include "../resident/access.hpp"
-#include "pipeline/source_artifact.hpp"
+#include "view/internal.hpp"
 
-#include <kernel/program/compute/artifact.hpp>
-#include <kernel/program/compute/model.hpp>
-
-#include <algorithm>
 #include <limits>
 #include <mutex>
-#include <string>
 #include <utility>
 
 namespace rund::node::accel::detail {
@@ -25,85 +19,7 @@ namespace rund::node::accel::detail {
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 namespace {
 
-inline constexpr std::uint32_t kViewDescriptorCount = 2u;
-inline constexpr std::uint32_t kViewBlockSize = 256u;
-
-struct VulkanViewParams final {
-  std::uint64_t count{};
-  std::uint64_t source_offset_words{};
-  std::uint64_t source_stride_words{};
-  std::uint64_t target_offset_words{};
-  std::uint64_t target_stride_words{};
-  std::uint32_t element_words{};
-  std::uint32_t reserved{};
-};
-
-static_assert(sizeof(VulkanViewParams) == 48u);
-
-[[nodiscard]] constexpr std::string_view VulkanViewSource() noexcept {
-  return R"GLSL(#version 450
-#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-layout(local_size_x = 256) in;
-layout(push_constant) uniform Params {
-  uint64_t count;
-  uint64_t source_offset_words;
-  uint64_t source_stride_words;
-  uint64_t target_offset_words;
-  uint64_t target_stride_words;
-  uint element_words;
-  uint reserved;
-} params;
-layout(set = 0, binding = 0, std430) readonly buffer Source {
-  uint source_words[];
-};
-layout(set = 0, binding = 1, std430) buffer Target {
-  uint target_words[];
-};
-void main() {
-  const uint64_t group =
-      uint64_t(gl_WorkGroupID.x) +
-      uint64_t(gl_WorkGroupID.y) * uint64_t(gl_NumWorkGroups.x);
-  const uint64_t index =
-      group * uint64_t(gl_WorkGroupSize.x) +
-      uint64_t(gl_LocalInvocationID.x);
-  if (index >= params.count) { return; }
-  const uint64_t source = params.source_offset_words +
-                          index * params.source_stride_words;
-  const uint64_t target = params.target_offset_words +
-                          index * params.target_stride_words;
-  target_words[uint(target)] = source_words[uint(source)];
-  if (params.element_words == 2u) {
-    target_words[uint(target + 1ul)] = source_words[uint(source + 1ul)];
-  }
-}
-)GLSL";
-}
-
-} // namespace
-
-VulkanCollectivePipeline *AcquireVulkanViewPipeline(VulkanAdapter &adapter) {
-  const rund::kernel::ComputePlan pseudo{
-      .op_hash_hi = 0x7069706576696577ull,
-      .op_hash_lo = 0x636f707975333200ull,
-      .api = rund::kernel::ComputeApi::Vulkan,
-      .scalar = rund::kernel::ComputeScalar::Lane32,
-      .ok = true,
-      .reason = "ok",
-  };
-  const rund::kernel::LoweringArtifact artifact =
-      VulkanFixedSourceArtifact(VulkanViewSource());
-  if (!artifact.ok) {
-    return nullptr;
-  }
-  return AcquireVulkanCollectivePipeline(adapter, kViewDescriptorCount,
-                                         sizeof(VulkanViewParams), pseudo,
-                                         artifact);
-}
-
-namespace {
-
 [[nodiscard]] bool Strided(const rund::kernel::ResidentBufferRef &ref) {
-  // Stride cannot change the selected address set for zero or one element.
   return ref.count > 1u && ref.stride_bytes != ref.element_bytes;
 }
 
@@ -130,12 +46,11 @@ ResolveExternal(const rund::AccelDevice &pick,
   return result;
 }
 
-[[nodiscard]] VulkanResidentBufferResult
-ResolveDense(const rund::AccelDevice &pick, const std::uint64_t binding,
-             const rund::kernel::ResidentBufferRef &requested,
-             const KernelPreparationMode mode,
-             const KernelViewLayout *const views,
-             const RunBinds *const view_binds, bool &planned) {
+[[nodiscard]] VulkanResidentBufferResult ResolveDense(
+    const rund::AccelDevice &pick, const std::uint64_t binding,
+    const rund::kernel::ResidentBufferRef &requested,
+    const KernelPreparationMode mode, const KernelViewLayout *const views,
+    const RunBinds *const view_binds, bool &planned) {
   planned = views != nullptr || view_binds != nullptr;
   if (!planned) {
     if (IsPipelinePrivatePreparation(mode)) {
@@ -231,60 +146,7 @@ ResolveDense(const rund::AccelDevice &pick, const std::uint64_t binding,
   return true;
 }
 
-[[nodiscard]] rund::AccelCheck EncodeTransfers(const VulkanViewLowering &view,
-                                               const VkCommandBuffer command,
-                                               const bool inputs) {
-  if (view.transfers.empty()) {
-    return rund::AccelCheck{true, "ok"};
-  }
-  if (command == VK_NULL_HANDLE || view.pipeline == nullptr) {
-    return rund::AccelCheck{false, "accel_vulkan_command_unavailable"};
-  }
-  bool encoded = false;
-  BindVulkanPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                     view.pipeline->pipeline);
-  for (const VulkanViewTransfer &transfer : view.transfers) {
-    if (transfer.input != inputs) {
-      continue;
-    }
-    const std::uint64_t element_words =
-        transfer.element_bytes / sizeof(std::uint32_t);
-    const std::uint64_t stride_words =
-        transfer.stride_bytes / sizeof(std::uint32_t);
-    for (const ViewPage &page : transfer.pages) {
-      if (page.descriptor == VK_NULL_HANDLE || !page.grid.valid()) {
-        return rund::AccelCheck{false, "compute_resident_stride_invalid"};
-      }
-      BindVulkanDescriptors(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            view.pipeline->pipeline_layout, 0u, 1u,
-                            &page.descriptor, 0u, nullptr);
-      const VulkanViewParams params{
-          .count = page.count,
-          .source_offset_words =
-              transfer.input ? page.external_words : page.dense_words,
-          .source_stride_words = transfer.input ? stride_words : element_words,
-          .target_offset_words =
-              transfer.input ? page.dense_words : page.external_words,
-          .target_stride_words = transfer.input ? element_words : stride_words,
-          .element_words = static_cast<std::uint32_t>(element_words),
-      };
-      vkCmdPushConstants(command, view.pipeline->pipeline_layout,
-                         VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(params),
-                         &params);
-      DispatchVulkan(command, page.grid.x, page.grid.y, 1u);
-      encoded = true;
-    }
-  }
-  const bool closes_input_lifetime = !inputs && view.has_input;
-  if (encoded || closes_input_lifetime) {
-    EncodeVulkanComputeToComputeBarrier(command);
-  }
-  return rund::AccelCheck{true, "ok"};
-}
-
 } // namespace
-
-std::string_view VulkanViewSourceText() noexcept { return VulkanViewSource(); }
 
 rund::AccelCheck PrepareVulkanViewLowering(
     const rund::AccelDevice &pick, const BoundStep &source,
@@ -386,9 +248,10 @@ rund::AccelCheck PrepareVulkanViewLowering(
             !ViewAddressable(ref, range)) {
           return rund::AccelCheck{false, "compute_resident_stride_invalid"};
         }
-        const Grid grid = PlanGrid(range.count, kViewBlockSize,
-                                   view->adapter->max_dispatch_groups,
-                                   view->adapter->dispatch_rows);
+        const Grid grid =
+            PlanGrid(range.count, kVulkanViewBlockSize,
+                     view->adapter->max_dispatch_groups,
+                     view->adapter->dispatch_rows);
         if (!grid.valid()) {
           return rund::AccelCheck{false, "compute_resident_stride_invalid"};
         }
@@ -432,106 +295,11 @@ rund::AccelCheck PrepareVulkanViewLowering(
       return rund::AccelCheck{false, "compute_pipeline_capacity"};
     }
   }
-  if (!view->binds.valid() ||
-      !RebindBoundStep(source, view->binds, view->step)) {
+  if (!view->binds.valid() || !RebindBoundStep(source, view->binds, view->step)) {
     return rund::AccelCheck{false, "accel_kernel_run_invalid"};
   }
   out = std::move(view);
   return rund::AccelCheck{true, "ok"};
-}
-
-rund::AccelCheck
-PrepareVulkanViewCommands(VulkanAdapter &adapter,
-                          const std::shared_ptr<VulkanViewLowering> &view) {
-  if (view == nullptr || view->transfers.empty()) {
-    return rund::AccelCheck{true, "ok"};
-  }
-  const bool borrowed_pipeline = view->pipeline != nullptr;
-  if (!borrowed_pipeline) {
-    view->pipeline = AcquireVulkanViewPipeline(adapter);
-  }
-  if (view->pipeline == nullptr) {
-    return rund::AccelCheck{false, VulkanLastError(&adapter)};
-  }
-  const std::uint64_t descriptor_set_count = VulkanViewDispatchCount(view);
-  if (!borrowed_pipeline && !ReserveVulkanCollectiveDescriptorDemand(
-                                adapter, *view->pipeline, kViewDescriptorCount,
-                                descriptor_set_count)) {
-    return rund::AccelCheck{false, VulkanLastError(&adapter)};
-  }
-  for (VulkanViewTransfer &transfer : view->transfers) {
-    const VulkanBuffer *const external = transfer.external.device_buffer;
-    const VulkanBuffer *const dense = transfer.dense.device_buffer;
-    if (external == nullptr || dense == nullptr) {
-      return rund::AccelCheck{false, "accel_buffer_unavailable"};
-    }
-    const VulkanStorageBinding dense_binding =
-        VulkanStorageBindingFor(dense, transfer.dense.ref);
-    for (ViewPage &page : transfer.pages) {
-      if (!AcquireVulkanCollectiveDescriptorSet(adapter, *view->pipeline,
-                                                kViewDescriptorCount,
-                                                page.descriptor)) {
-        return rund::AccelCheck{false, VulkanLastError(&adapter)};
-      }
-      const VulkanStorageBinding external_binding{external, page.base_bytes,
-                                                  page.span_bytes};
-      const std::array<VulkanStorageBinding, kViewDescriptorCount> bindings{
-          transfer.input ? external_binding : dense_binding,
-          transfer.input ? dense_binding : external_binding};
-      if (!WriteVulkanStorageDescriptorSet(adapter, page.descriptor,
-                                           bindings)) {
-        return rund::AccelCheck{false, VulkanLastError(&adapter)};
-      }
-    }
-  }
-  return rund::AccelCheck{true, "ok"};
-}
-
-rund::AccelCheck
-EncodeVulkanViewInputs(const std::shared_ptr<VulkanViewLowering> &view,
-                       const VkCommandBuffer command) {
-  return view == nullptr ? rund::AccelCheck{true, "ok"}
-                         : EncodeTransfers(*view, command, true);
-}
-
-rund::AccelCheck
-EncodeVulkanViewOutputs(const std::shared_ptr<VulkanViewLowering> &view,
-                        const VkCommandBuffer command) {
-  return view == nullptr ? rund::AccelCheck{true, "ok"}
-                         : EncodeTransfers(*view, command, false);
-}
-
-PreparedMemory VulkanViewMemory(const std::shared_ptr<VulkanViewLowering> &view,
-                                const std::uint64_t budget,
-                                std::uint64_t &traffic) noexcept {
-  std::uint64_t bytes = 0u;
-  traffic = 0u;
-  if (view != nullptr) {
-    for (const VulkanViewTransfer &transfer : view->transfers) {
-      const std::uint64_t dense = transfer.count * transfer.element_bytes;
-      traffic = ::rund::detail::counter::SaturatingAdd(traffic, dense);
-      if (transfer.planned) {
-        continue;
-      }
-      bytes = bytes > std::numeric_limits<std::uint64_t>::max() - dense
-                  ? std::numeric_limits<std::uint64_t>::max()
-                  : bytes + dense;
-    }
-  }
-  return PreparedMemory{
-      .current = bytes, .peak = bytes, .cumulative = bytes, .budget = budget};
-}
-
-std::uint64_t VulkanViewDispatchCount(
-    const std::shared_ptr<VulkanViewLowering> &view) noexcept {
-  std::uint64_t count = 0u;
-  if (view != nullptr) {
-    for (const VulkanViewTransfer &transfer : view->transfers) {
-      count = ::rund::detail::counter::SaturatingAdd(
-          count, static_cast<std::uint64_t>(transfer.pages.size()));
-    }
-  }
-  return count;
 }
 
 #endif

@@ -66,3 +66,51 @@ not consume the output count buffer as a semantic result.
 Resident Histogram runs do not stage host input and do not download output
 implicitly; only explicit upload/download calls affect user-facing transfer
 byte counters.
+
+## Metal count ownership
+
+Cold preparation selects the count executable using the one
+`MetalHistogramLocal(bin_count)` predicate in `metal/histogram/local.hpp`.
+At most 256 bins use a threadgroup-local histogram; larger shapes use direct
+device counters with uniform-SIMD-cohort aggregation. The source recipe and
+named count-pipeline identities distinguish these modes. Both consume the
+same parameter/binding ABI and retain exactly the existing clear/count passes.
+The clear pipeline is shared rather than recompiled for a second count mode.
+The generic source is preprocessed without the local array or its barriers.
+
+For a local histogram, preparation/encoding admits
+
+```
+G = min(ceil(N / 256), 1024)
+```
+
+full physical threadgroups. Each thread walks `gid + k * threads_per_grid`;
+the native grid-size builtin is the stride authority. These disjoint walks
+cover every input once, with adjacent threads reading adjacent elements.
+Every group initializes the active bins of its declared 256-entry U32 atomic
+array, synchronizes,
+counts only valid bin indices, synchronizes again, then adds each nonzero
+local bin count to its device counter once. Padding threads participate in both
+barriers. Invalid bins publish the same error status while the complete group
+continues through the barriers.
+
+For each bin, the device-atomic count is at most `G`, independent of how many
+inputs collide there. Across all bins it is at most `G * B`; input reads and
+local atomic increments remain `N`. The 1 KiB declared threadgroup array is a
+temporary locality tradeoff, not additional retained device scratch. Histogram
+admission bounds `N <= UINT32_MAX`, so every local count and every intermediate
+nonnegative device count is at most `N`; grouping cannot introduce overflow.
+
+For a large histogram, a live SIMD cohort whose valid indices all name the
+same bin issues one atomic add of its active-lane count. A broadcast from the first active lane and SIMD vote
+prove equality; prefix/sum operations elect one active lane and count the
+cohort, including partial tails and lanes surviving invalid-bin rejection.
+Mixed cohorts keep one device increment per valid input. This preserves exact
+integer counts without assuming a fixed hardware SIMD width, allocating a
+global partial matrix, adding passes, or changing failure reasons.
+
+Tests cover the 256/257-bin boundary, one-bin contention, mixed/uniform SIMD
+cohorts, the capped-grid stride boundary, partial tails, invalid bins at both
+ends, and repeated clear/count runs with all bins checked against a host oracle.
+The source and atomic bounds above are algorithm evidence; measured latency
+and host-specific limitations belong to `/docs/reference/performance`.

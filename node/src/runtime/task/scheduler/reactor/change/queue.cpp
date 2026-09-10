@@ -4,7 +4,7 @@
 #include <cstddef>
 
 #include "../../../../reactor/diagnostics.hpp"
-#include "../../../../reactor/platform.hpp"
+#include "../../../../reactor/platform/registration.hpp"
 #include "../model.hpp"
 #include "../stats.hpp"
 

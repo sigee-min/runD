@@ -6,6 +6,8 @@ The current package version is `1.0.8`. CMake install rules in
 `cmake/root/package.cmake` own the installed prefix. Candidate routes add only
 sealed source and artifact identity before archiving.
 The checked-in package identity may advance while it is still a candidate.
+This identity is not a public download claim; the public installer and hosted
+artifact remain owned by the published-release boundary.
 Public download and support pages move only after the matching archive,
 checksum, and verifier are hosted by the separate publication authority.
 The installed external consumer under `package/tests/consumer` owns package

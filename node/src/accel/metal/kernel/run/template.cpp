@@ -1,5 +1,5 @@
 #include "../../../kernel/backend/execute.hpp"
-#include "../../../kernel/backend/template_plan.hpp"
+#include "../../../kernel/backend/template/identity.hpp"
 #include "../../kernel.hpp"
 
 namespace rund::node::accel::detail {

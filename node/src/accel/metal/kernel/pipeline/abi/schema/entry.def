@@ -1,0 +1,4 @@
+RUND_METAL_ABI_BEGIN(MetalPipelineStatusEntryMeta, StatusEntry)
+RUND_METAL_ABI_U32(source, 0u, 0u)
+RUND_METAL_ABI_U32(raw, 0u, 4u)
+RUND_METAL_ABI_END(MetalPipelineStatusEntryMeta, StatusEntry, 8u, 4u)

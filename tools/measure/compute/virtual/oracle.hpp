@@ -25,6 +25,7 @@ void Seed(std::span<std::int32_t> values) noexcept;
 [[nodiscard]] bool
 ExactProfile(const ::rund::compute::telemetry::Profile &profile,
              const ::rund::compute::PipelinePlan &plan, Backend backend,
-             std::size_t active_count, std::uint32_t sampled_runs) noexcept;
+             std::size_t active_count, std::uint32_t sampled_runs,
+             bool persistent_product, bool resident_backing) noexcept;
 
 } // namespace rund::measure::compute::virtual_residency

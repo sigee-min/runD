@@ -1,7 +1,7 @@
 #pragma once
 
-#include <rund/task/status.hpp>
 #include <rund/session.hpp>
+#include <rund/task/status.hpp>
 #include <rund/telemetry/event.hpp>
 
 #include <cstddef>
@@ -16,7 +16,7 @@ struct ScopeEvidence;
 namespace runtime_detail {
 struct ComputeHostState;
 struct RuntimeAccess;
-}
+} // namespace runtime_detail
 } // namespace rund::node
 
 namespace rund::replay::detail::scope {
@@ -28,6 +28,7 @@ class Timing;
 
 namespace rund::compute::detail {
 struct JobState;
+struct VirtualPipelineState;
 } // namespace rund::compute::detail
 
 namespace rund::node {
@@ -131,6 +132,8 @@ private:
   compute_job(std::shared_ptr<compute::detail::JobState> job) noexcept;
   [[nodiscard]] ::rund::compute::Request compute_pipeline(
       std::shared_ptr<compute::detail::PipelineState> pipeline) noexcept;
+  [[nodiscard]] ::rund::compute::Request compute_virtual(
+      std::shared_ptr<compute::detail::VirtualPipelineState> pipeline) noexcept;
   [[nodiscard]] ::rund::compute::Request
   compute_operation(std::shared_ptr<void> operation,
                     const void *operations) noexcept;

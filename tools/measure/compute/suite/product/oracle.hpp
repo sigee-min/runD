@@ -97,6 +97,8 @@ rolling_min_oracle(const std::span<const std::uint32_t> input,
     return "shared";
   case RangeKind::Prefix:
     return "prefix";
+  case RangeKind::Tiled:
+    return "tiled";
   case RangeKind::Block:
     return "block";
   }

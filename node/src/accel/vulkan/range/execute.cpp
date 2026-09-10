@@ -1,8 +1,14 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+#include "../buffer/create.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
 #include "../../kernel/backend/run.hpp"
 #include "../../kernel/scratch.hpp"
+#include "../../range_aggregate/execution/control.hpp"
 #include "../buffer/resident/batch.hpp"
 #include "../kernel/pipeline/template.hpp"
 #include "../scratch.hpp"

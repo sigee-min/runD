@@ -17,7 +17,7 @@ Implementation authority:
 - `/node/src/accel/metal/window/`
 - `/node/src/accel/vulkan/window/`
 - `/node/include/rund/compute/flow/stage/{window,pool}.hpp`
-- `/node/src/compute/cpu/run/primitive/algebra.cpp`
+- `/node/src/compute/cpu/run/primitive/algebra/window.cpp`
 - `/node/src/compute/cpu/scratch.{hpp,cpp}`
 
 Verification authority:
@@ -26,8 +26,12 @@ Verification authority:
 - `/node/tests/contract/accel/kernel/cpu/window.cpp`
 - `/node/tests/contract/accel/kernel/window.cpp`
 - `/node/tests/contract/compute/collective/modes/core.cpp`
-- `/node/tests/contract/compute/collective/modes/bounded.cpp`
-- `/node/tests/contract/compute/memory/scratch.cpp`
+- `/node/tests/contract/compute/collective/modes/bounded/plan.cpp`
+- `/node/tests/contract/compute/collective/modes/bounded/resident.cpp`
+- `/node/tests/contract/compute/collective/modes/bounded/aggregate.cpp`
+- `/node/tests/contract/compute/collective/modes/bounded/window.cpp`
+- `/node/tests/contract/compute/collective/modes/bounded/dispatcher.cpp`
+- `/node/tests/contract/compute/memory/scratch/`
 
 ## Semantic and graph law
 

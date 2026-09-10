@@ -17,11 +17,6 @@ struct MetalKernelImmutablePipelines;
 struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck
-ExecuteMetalCompact(const rund::AccelDevice &pick,
-                    const rund::kernel::CompactDesc &desc,
-                    const rund::kernel::CompactPlan &plan,
-                    const CompactBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareMetalCompact(const rund::AccelDevice &pick,
                                         const rund::kernel::CompactDesc &desc,
                                         const rund::kernel::CompactPlan &plan,
@@ -35,11 +30,6 @@ ExecuteMetalCompact(const rund::AccelDevice &pick,
 [[nodiscard]] rund::AccelCheck FinishMetalCompact(MetalAdapter &adapter,
                                        const std::shared_ptr<void> &resources);
 
-[[nodiscard]] rund::AccelCheck
-ExecuteVulkanCompact(const rund::AccelDevice &pick,
-                     const rund::kernel::CompactDesc &desc,
-                     const rund::kernel::CompactPlan &plan,
-                     const CompactBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanCompact(
     const rund::AccelDevice &pick, const rund::kernel::CompactDesc &desc,
     const rund::kernel::CompactPlan &plan,

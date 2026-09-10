@@ -13,6 +13,7 @@
 #include <kernel/program/compute/spectrum/reference.hpp>
 
 #include "primitive/local.hpp"
+#include "spectrum/local.hpp"
 #include "test/compute/fixed.hpp"
 #include <node/accel/context.hpp>
 #include <node/accel/pick.hpp>
@@ -443,66 +444,6 @@ template <typename Value, std::size_t Rows>
              pick, rund::kernel::SpectrumOp::Eigen) &&
          RunSpectrumVectors<rund::kernel::i64, 3u>(
              pick, rund::kernel::SpectrumOp::SVD);
-}
-
-[[nodiscard]] bool SpectrumRejectsInvalidShape(const rund::AccelDevice &pick) {
-  namespace fix = node_accel_contract::primitive;
-  auto context = rund::node::accel::OpenAccel(pick);
-  if (!context.check.ok) {
-    return false;
-  }
-  auto input = rund::node::accel::CreateAccelBuffer(
-      context, fix::BufferDesc(rund::BufferUsage::ReadOnly,
-                               sizeof(rund::kernel::i32), 6u));
-  auto values = rund::node::accel::CreateAccelBuffer(
-      context, fix::BufferDesc(rund::BufferUsage::WriteOnly,
-                               sizeof(rund::kernel::i32), 2u));
-  auto status = rund::node::accel::CreateAccelBuffer(
-      context, fix::BufferDesc(rund::BufferUsage::WriteOnly,
-                               sizeof(rund::kernel::u32), 1u));
-  const std::array<rund::AccelGraphBufferRef, 3u> refs{
-      rund::AccelRead(input, "matrix"), rund::AccelWrite(values, "values"),
-      rund::AccelWrite(status, "status")};
-  const std::array<rund::AccelGraphNode, 1u> nodes{
-      rund::AccelSpectrum(
-          refs.data(), refs.size(),
-          rund::kernel::SpectrumDesc{
-              .op = rund::kernel::SpectrumOp::Eigen,
-              .domain = rund::kernel::SpectrumDomain::SymmetricReal,
-              .vectors = rund::kernel::SpectrumVectors::ValuesOnly,
-              .rows = 2u,
-              .cols = 3u,
-              .max_iterations = 8u}),
-  };
-  const auto kernel = rund::node::accel::CompileAccelKernel(
-      context, rund::AccelGraph{
-                   .nodes = nodes.data(),
-                   .node_count = nodes.size(),
-                   .scalar = rund::kernel::ComputeScalar::Lane32,
-                   .domain = rund::kernel::ComputeDomain::Fixed,
-                   .fixed_format = test::FixedFormatForLane(
-                       rund::kernel::ComputeScalar::Lane32),
-               });
-  return !kernel.check.ok;
-}
-
-[[nodiscard]] bool AvailableBackendsRunSpectrumNatively() {
-  namespace fix = node_accel_contract::primitive;
-  for (const rund::AccelApi api :
-       {rund::AccelApi::Metal, rund::AccelApi::Vulkan}) {
-    const rund::AccelDevice pick =
-        rund::node::accel::PickAccel(fix::Policy(api));
-    if (!pick.check.ok) {
-      continue;
-    }
-    if (pick.api == rund::AccelApi::Cpu) {
-      return false;
-    }
-    if (!BackendRunsSpectrum(pick)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 } // namespace node_accel_contract

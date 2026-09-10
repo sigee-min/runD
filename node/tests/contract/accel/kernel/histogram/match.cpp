@@ -16,7 +16,10 @@
 
 #include "local.hpp"
 #include "test/compute/fixed.hpp"
+#include <algorithm>
 #include <node/accel/context.hpp>
+#include <span>
+#include <vector>
 
 namespace node_accel_contract::histogram {
 namespace {
@@ -28,10 +31,9 @@ struct Resources {
   rund::AccelKernel kernel{};
 };
 
-template <std::size_t N>
 [[nodiscard]] Resources
 BuildResources(const rund::AccelDevice &pick,
-               const std::array<rund::kernel::u32, N> &bins,
+               const std::span<const rund::kernel::u32> bins,
                const rund::kernel::u64 bin_count) {
   namespace fix = node_accel_contract::primitive;
   Resources out{};
@@ -99,33 +101,39 @@ Bindings(Resources &resources) {
           }};
 }
 
-template <std::size_t N, std::size_t B>
 [[nodiscard]] bool Matches(const rund::AccelDevice &pick,
-                           const std::array<rund::kernel::u32, N> &bins,
-                           const std::array<rund::kernel::u32, B> &expected) {
+                           const std::span<const rund::kernel::u32> bins,
+                           const std::span<const rund::kernel::u32> expected,
+                           const std::size_t repeats = 1u) {
   Resources resources = BuildResources(pick, bins, expected.size());
   if (!resources.kernel.check.ok) {
     return false;
   }
   const auto bindings = Bindings(resources);
-  const rund::AccelEvidence evidence =
-      rund::node::accel::RunAccelKernel(resources.context, resources.kernel,
-                                        rund::AccelRun{
-                                            .bindings = bindings.data(),
-                                            .binding_count = bindings.size(),
-                                            .tile_count = bins.size(),
-                                            .fresh_evidence = true,
-                                        });
-  if (!evidence.outcome.ok ||
-      evidence.run.transfer.host_to_device_bytes != 0u ||
-      evidence.run.transfer.device_to_host_bytes != 0u) {
-    return false;
+  for (std::size_t repeat = 0u; repeat < repeats; ++repeat) {
+    const rund::AccelEvidence evidence =
+        rund::node::accel::RunAccelKernel(resources.context, resources.kernel,
+                                          rund::AccelRun{
+                                              .bindings = bindings.data(),
+                                              .binding_count = bindings.size(),
+                                              .tile_count = bins.size(),
+                                              .fresh_evidence = true,
+                                          });
+    if (!evidence.outcome.ok ||
+        evidence.run.transfer.host_to_device_bytes != 0u ||
+        evidence.run.transfer.device_to_host_bytes != 0u) {
+      return false;
+    }
+    std::vector<rund::kernel::u32> downloaded(expected.size());
+    const rund::AccelCheck download = rund::node::accel::DownloadAccelBuffer(
+        resources.context, resources.counts, downloaded.data(),
+        downloaded.size() * sizeof(downloaded[0]));
+    if (!download.ok ||
+        !std::equal(downloaded.begin(), downloaded.end(), expected.begin())) {
+      return false;
+    }
   }
-  std::array<rund::kernel::u32, B> downloaded{};
-  const rund::AccelCheck download = rund::node::accel::DownloadAccelBuffer(
-      resources.context, resources.counts, downloaded.data(),
-      downloaded.size() * sizeof(downloaded[0]));
-  return download.ok && downloaded == expected;
+  return true;
 }
 
 } // namespace
@@ -143,6 +151,52 @@ bool MatchesParallelU32(const rund::AccelDevice &pick) {
   }
   const std::array<rund::kernel::u32, 4u> expected{33u, 32u, 32u, 32u};
   return Matches(pick, bins, expected);
+}
+
+bool MatchesContentionAndTail(const rund::AccelDevice &pick) {
+  for (const std::size_t bin_count : {1u, 4u, 255u, 256u, 257u, 4096u}) {
+    // Cross the capped grid once, with an incomplete final SIMD group.
+    const std::size_t count = bin_count <= 256u ? 262147u : 1027u;
+    std::vector<rund::kernel::u32> bins(count);
+    std::vector<rund::kernel::u32> expected(bin_count);
+    for (const bool hot : {false, true}) {
+      std::fill(expected.begin(), expected.end(), 0u);
+      for (std::size_t i = 0u; i < bins.size(); ++i) {
+        // Mix uniform SIMD cohorts with nonuniform cohorts on the large path.
+        bins[i] = hot || (i / 32u) % 3u == 0u
+                      ? static_cast<rund::kernel::u32>(bin_count - 1u)
+                      : static_cast<rund::kernel::u32>(i % bin_count);
+        ++expected[bins[i]];
+      }
+      if (!Matches(pick, bins, expected, 3u)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool RejectsPartialCohort(const rund::AccelDevice &pick) {
+  for (const auto bin_count : {4u, 257u}) {
+    std::array<rund::kernel::u32, 259u> bins{};
+    bins[0u] = bin_count;
+    bins.back() = bin_count;
+    Resources resources = BuildResources(pick, bins, bin_count);
+    if (!resources.kernel.check.ok) {
+      return false;
+    }
+    const auto bindings = Bindings(resources);
+    const auto evidence = rund::node::accel::RunAccelKernel(
+        resources.context, resources.kernel,
+        rund::AccelRun{.bindings = bindings.data(),
+                       .binding_count = bindings.size(),
+                       .tile_count = bins.size(),
+                       .fresh_evidence = true});
+    if (!primitive::EvidenceReason(evidence, "compute_histogram_bin_invalid")) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool RejectsOutOfRangeBin(const rund::AccelDevice &pick) {

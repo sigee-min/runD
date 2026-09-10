@@ -4,10 +4,15 @@
 
 namespace rund::compute::detail::accel_backend {
 
-[[nodiscard]] Status allocate_buffer(DeviceState &device, BufferState &buffer,
-                                     std::size_t scalar_bytes,
-                                     std::size_t count, bool zero_initialize,
-                                     std::uint64_t exact_storage_bytes);
+[[nodiscard]] Status project_buffer_view(const BufferState &owner,
+                                         BufferState &view);
+
+[[nodiscard]] Status
+allocate_buffer(DeviceState &device, BufferState &buffer,
+                std::size_t scalar_bytes, std::size_t count,
+                bool zero_initialize,
+                node::accel::detail::BackendBufferMemory memory,
+                std::uint64_t exact_storage_bytes);
 
 [[nodiscard]] std::uint64_t
 buffer_storage_bytes(const DeviceState &device,
@@ -31,5 +36,17 @@ download_pipeline_transfer(PipelineState &pipeline, void *data,
 
 [[nodiscard]] Status
 prepare_pipeline_residency(PipelineState &pipeline) noexcept;
+
+[[nodiscard]] Status
+prepare_residency_selection(PipelineState &pipeline) noexcept;
+
+[[nodiscard]] Status prepare_residency_execution(
+    const DeviceState &,
+    std::span<const node::accel::detail::PreparedKernelPipeline *const>,
+    residency::execution::Owner &) noexcept;
+
+[[nodiscard]] Status
+run_service_free_direct_product(const std::shared_ptr<PipelineState> &,
+                                bool &selected) noexcept;
 
 } // namespace rund::compute::detail::accel_backend

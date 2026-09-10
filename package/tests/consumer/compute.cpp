@@ -3,7 +3,7 @@
 
 #include "compute/backend.hpp"
 #include "compute/batch.hpp"
-#include "compute/contracts.hpp"
+#include "compute/contracts/status.hpp"
 #include "compute/fixed.hpp"
 #include "compute/flow.hpp"
 #include "compute/flow/primitives.hpp"

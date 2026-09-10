@@ -1,8 +1,12 @@
+#include "../../adapter/error.hpp"
+#include "../../buffer/access.hpp"
+#include "../../buffer/create.hpp"
+
 #include "model.hpp"
 #include "source.hpp"
 
 #include "../lease.hpp"
-#include "../pipeline/source_artifact.hpp"
+#include "../pipeline/source/artifact.hpp"
 
 #if defined(RUND_NODE_HAVE_VULKAN_SDK)
 

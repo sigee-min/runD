@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../buffer/resident/batch.hpp"
 #include "../collective/pipeline.hpp"
 #include "../descriptor.hpp"

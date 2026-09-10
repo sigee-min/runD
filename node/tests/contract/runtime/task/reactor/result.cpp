@@ -1,3 +1,4 @@
+#include "../../../../../src/runtime/reactor/platform/lifecycle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/handle.hpp"
 #include "../../../../../src/runtime/reactor/readiness/mask.hpp"
 #include "../../../../../src/runtime/task/scheduler/reactor/backend.hpp"

@@ -22,8 +22,28 @@
 
 namespace node_accel_contract {
 
+template <std::size_t N>
+[[nodiscard]] bool InclusiveScanCarries(const rund::AccelDevice &pick) {
+  std::array<rund::kernel::u64, N> input{};
+  for (std::size_t i = 0u; i < N; ++i) {
+    input[i] = (static_cast<rund::kernel::u64>(i % 5u) << 32u) | 0xffffffffull;
+  }
+  for (const rund::kernel::u64 block : {31u, 127u, 128u, 129u, 256u}) {
+    if (!InclusiveScanMatchesReference(
+            pick, rund::kernel::ComputeScalar::Lane64,
+            rund::kernel::ScanElement::U64, input, nullptr, block)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 inline bool BackendRunsInclusiveScan(const rund::AccelDevice &pick) {
-  return InclusiveScanMatchesReference<rund::kernel::u32>(
+  return InclusiveScanCarries<255u>(pick) &&
+         InclusiveScanCarries<256u>(pick) &&
+         InclusiveScanCarries<257u>(pick) &&
+         InclusiveScanCarries<1025u>(pick) &&
+         InclusiveScanMatchesReference<rund::kernel::u32>(
              pick, rund::kernel::ComputeScalar::Lane32,
              rund::kernel::ScanElement::U32,
              std::array<rund::kernel::u32, 8u>{1u, 1u, 2u, 3u, 5u, 8u, 13u,

@@ -33,7 +33,42 @@ target_sources(rund_package_compute_consumer
     compute/flow/primitives/program.cpp
     compute/flow/primitives/record.cpp
     compute/flow/primitives/surface.cpp)
+target_sources(rund_package_compute_consumer
+  PRIVATE
+    compute/contracts/status.cpp
+    compute/contracts/fixed.cpp
+    compute/contracts/graph.cpp
+    compute/contracts/pipeline.cpp
+    compute/contracts/flow.cpp)
+target_sources(rund_package_compute_consumer
+  PRIVATE
+    compute/fixed/dispatcher.cpp
+    compute/fixed/arithmetic.cpp
+    compute/fixed/multiplication.cpp
+    compute/fixed/policy.cpp
+    compute/fixed/rejection.cpp
+    compute/fixed/rescale.cpp)
+target_sources(rund_package_compute_consumer
+  PRIVATE
+    compute/graph/services/dispatcher.cpp
+    compute/graph/services/session.cpp
+    compute/graph/services/resource.cpp
+    compute/graph/services/graph.cpp
+    compute/graph/services/execution.cpp)
 rund_add_consumer(rund_package_pipeline_consumer example/pipeline.cpp 0 general)
+target_sources(rund_package_pipeline_consumer
+  PRIVATE
+    example/pipeline/surface.cpp
+    example/pipeline/numeric.cpp
+    example/pipeline/inputs.cpp
+    example/pipeline/bounded.cpp
+    example/pipeline/session.cpp
+    example/pipeline/alias.cpp
+    example/pipeline/recurrence.cpp
+    example/pipeline/feedback.cpp
+    example/pipeline/window.cpp
+    example/pipeline/checkpoint.cpp
+    example/pipeline/nested.cpp)
 rund_add_consumer(rund_package_device_program_consumer
                   example/device/program.cpp 0 accel)
 target_sources(rund_package_device_program_consumer
@@ -49,7 +84,13 @@ target_sources(rund_package_blackbox_consumer
     blackbox/cluster.cpp
     blackbox/math.cpp
     blackbox/network.cpp
-    blackbox/replay.cpp)
+    blackbox/replay.cpp
+    blackbox/replay/model.cpp
+    blackbox/replay/record.cpp
+    blackbox/replay/codec.cpp
+    blackbox/replay/scenario.cpp
+    blackbox/replay/checkpoint.cpp
+    blackbox/replay/history.cpp)
 rund_add_consumer(rund_package_replay_consumer example/replay.cpp 0 general)
 rund_add_consumer(rund_package_scenario_consumer example/scenario.cpp 0 general)
 rund_add_consumer(rund_package_checkpoint_consumer example/checkpoint.cpp 0 general)

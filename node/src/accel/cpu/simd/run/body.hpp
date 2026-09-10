@@ -11,5 +11,6 @@
 #include "body/fixed.hpp"
 #include "body/executor.hpp"
 #include "body/plan/execute.hpp"
+#include "body/plan/affine.hpp"
 #include "body/run.hpp"
 // clang-format on

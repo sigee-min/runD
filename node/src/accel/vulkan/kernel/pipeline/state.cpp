@@ -24,7 +24,10 @@ VulkanPipeline::~VulkanPipeline() {
   }
   DestroyCommand(adapter->device, trace.command);
   DestroyVulkanPipelineTransfer(*this);
-  record.reset();
+  residency.reset();
+  // The recipe may hold the last prepared-kernel owner. Its deleter takes
+  // adapter->mutex independently, so let member destruction release it only
+  // after this lock and the recorded native commands have been destroyed.
   recurrence.reset();
   transducers.clear();
   DestroyVulkanWindow(window);
@@ -45,10 +48,12 @@ rund::AccelCheck FailVulkanPipeline(std::shared_ptr<VulkanPipeline> &pipeline,
   }
   DestroyCommand(pipeline->adapter->device, pipeline->trace.command);
   DestroyVulkanPipelineTransfer(*pipeline);
-  pipeline->record.reset();
+  pipeline->residency.reset();
   DestroyCommand(pipeline->adapter->device, pipeline->command);
   pipeline->adapter = nullptr;
-  pipeline.reset();
+  // The preparation caller still holds submission.mutex and adapter->mutex.
+  // Keep the failed object (including that mutex and retained kernel owners)
+  // alive until its preparation scope unwinds after the lock guard.
   return rund::AccelCheck{false, reason};
 }
 

@@ -18,6 +18,8 @@ CreateBackendBuffer(const std::shared_ptr<PickToken> &token,
                     const rund::BufferDesc &desc,
                     BackendBufferInitialization initialization =
                         BackendBufferInitialization::Zeroed,
+                    BackendBufferMemory memory =
+                        BackendBufferMemory::DeviceLocal,
                     std::uint64_t exact_storage_bytes = 0u);
 
 [[nodiscard]] rund::AccelCheck
@@ -64,6 +66,16 @@ CopyBackendBuffers(const std::shared_ptr<PickToken> &token,
 LookupBackendBuffer(const std::shared_ptr<PickToken> &token,
                     const rund::kernel::ResidentBufferRef &requested,
                     const std::shared_ptr<void> &handle);
+
+[[nodiscard]] BackendHostView
+ReadBackendBuffer(const std::shared_ptr<PickToken> &token,
+                  const rund::kernel::ResidentBufferRef &requested,
+                  const std::shared_ptr<void> &handle) noexcept;
+
+[[nodiscard]] BackendHostWriteView
+WriteBackendBuffer(const std::shared_ptr<PickToken> &token,
+                   const rund::kernel::ResidentBufferRef &requested,
+                   const std::shared_ptr<void> &handle) noexcept;
 
 [[nodiscard]] rund::RuntimeStats
 ReadBackendStats(const std::shared_ptr<PickToken> &token);

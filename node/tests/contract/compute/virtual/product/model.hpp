@@ -20,11 +20,25 @@ constexpr std::size_t EpochCount =
 constexpr std::size_t WarmRuns = 60u;
 constexpr std::size_t TotalRuns = WarmRuns + 1u;
 constexpr std::size_t TotalPages = TotalRuns * PageCount;
-constexpr std::size_t TotalBackingReadCalls = TotalPages;
+constexpr std::size_t WarmCacheHits = 3u;
+constexpr std::size_t WarmPageIns = PageCount - WarmCacheHits;
+constexpr std::size_t WarmBackingReadBytes =
+    ElementPageBytes + 3u * sizeof(std::int32_t);
+// The coherent Direct window retains one global Host cache and two fixed
+// Device banks. Their union covers this five-page warm working set, so both
+// Device page-ins are cache supplies and Persistent reads are zero.
+constexpr std::size_t CoherentWarmBackingReadBytes = 0u;
+constexpr std::size_t TotalBackingReadCalls =
+    PageCount + WarmRuns * WarmPageIns;
+constexpr std::size_t CoherentTotalBackingReadCalls = PageCount;
 constexpr std::size_t TotalBackingWriteCalls = TotalPages;
-constexpr std::size_t TotalBackingReadBytes = TotalRuns * LogicalBytes;
+constexpr std::size_t TotalBackingReadBytes =
+    LogicalBytes + WarmRuns * WarmBackingReadBytes;
+constexpr std::size_t CoherentTotalBackingReadBytes = LogicalBytes;
 constexpr std::size_t TotalBackingWriteBytes = TotalRuns * LogicalBytes;
-constexpr std::size_t FinalBackingReadBytes = LogicalBytes;
+constexpr std::size_t FinalBackingReadBytes = WarmBackingReadBytes;
+constexpr std::size_t CoherentFinalBackingReadBytes =
+    CoherentWarmBackingReadBytes;
 constexpr std::size_t FinalBackingWriteBytes = LogicalBytes;
 constexpr std::size_t FinalPhysicalTransferBytes = PageCount * ElementPageBytes;
 constexpr std::byte TailPoison{0xa5};

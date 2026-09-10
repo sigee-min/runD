@@ -13,7 +13,7 @@ namespace {
 
 [[nodiscard]] bool in_flight_success_restores_ready_capacity() {
   constexpr std::size_t capacity = 3u;
-  constexpr std::size_t width = 12u;
+  constexpr std::size_t width = 32u;
   auto device = rund::compute::detail::open_cpu(1u);
   if (!device) {
     return false;

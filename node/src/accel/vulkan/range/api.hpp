@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../range_aggregate/model.hpp"
+#include "../../range_aggregate/model/capability.hpp"
 
 #include <accel/device.hpp>
 

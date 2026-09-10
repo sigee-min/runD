@@ -18,11 +18,6 @@ struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
-ExecuteMetalPartition(const rund::AccelDevice &pick,
-                      const rund::kernel::PartitionDesc &desc,
-                      const rund::kernel::PartitionPlan &plan,
-                      const PartitionBinds &bindings);
-[[nodiscard]] rund::AccelCheck
 PrepareMetalPartition(const rund::AccelDevice &pick,
                       const rund::kernel::PartitionDesc &desc,
                       const rund::kernel::PartitionPlan &plan,
@@ -37,11 +32,6 @@ PrepareMetalPartition(const rund::AccelDevice &pick,
 FinishMetalPartition(MetalAdapter &adapter,
                      const std::shared_ptr<void> &resources);
 
-[[nodiscard]] rund::AccelCheck
-ExecuteVulkanPartition(const rund::AccelDevice &pick,
-                       const rund::kernel::PartitionDesc &desc,
-                       const rund::kernel::PartitionPlan &plan,
-                       const PartitionBinds &bindings);
 [[nodiscard]] rund::AccelCheck
 PrepareVulkanPartition(const rund::AccelDevice &pick,
                        const rund::kernel::PartitionDesc &desc,

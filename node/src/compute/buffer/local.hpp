@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../include/rund/compute/abi/resource.hpp"
+
 #include "../backend.hpp"
 #include "../device/state.hpp"
 
@@ -38,6 +40,22 @@ make_input_binding_buffer(const std::shared_ptr<DeviceState> &device, Type type,
 make_planned_input_binding_buffer(const std::shared_ptr<DeviceState> &device,
                                   Type type, std::size_t count,
                                   std::uint64_t exact_storage_bytes);
+
+// Virtual-residency physical Input/Output banks may prefer one coherent Host
+// view on unified adapters. Ordinary Pipeline, workspace, intermediate, and
+// control storage never consumes this allocation intent.
+[[nodiscard]] Result<std::shared_ptr<BufferState>>
+make_planned_residency_buffer(const std::shared_ptr<DeviceState> &device,
+                              Type type, std::size_t count,
+                              std::uint64_t exact_storage_bytes);
+
+// Creates a semantic typed view over one already-accounted physical Buffer.
+// The view owns no allocation or Device meter; it retains the canonical root
+// BufferState and reuses the same CPU byte owner or accelerator resident
+// capability. The requested logical extent must equal the root byte extent.
+[[nodiscard]] Result<std::shared_ptr<BufferState>>
+make_physical_buffer_view(const std::shared_ptr<BufferState> &owner, Type type,
+                          std::size_t count);
 
 [[nodiscard]] Result<std::shared_ptr<BufferState>>
 make_workspace_buffer(const std::shared_ptr<DeviceState> &device,

@@ -1,10 +1,13 @@
 #pragma once
 
 #include "step.hpp"
-#include "../cpu/state.hpp"
+#include "../cpu/state/map.hpp"
 
 #include <kernel/program/compute/dsl.hpp>
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/abi/expression/model.hpp>
+#include <rund/compute/fixed.hpp>
+#include <rund/compute/status.hpp>
 
 #include <cstdint>
 #include <memory>

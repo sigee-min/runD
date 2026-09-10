@@ -1,5 +1,7 @@
 #pragma once
 
+#include "state/assembly.hpp"
+
 #include "state.hpp"
 
 #include <rund/compute/pipeline/shape.hpp>

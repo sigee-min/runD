@@ -1,14 +1,19 @@
 #pragma once
 
-#include "state.hpp"
+#include "state/map.hpp"
 
-#include <rund/compute/abi/model.hpp>
+#include "../status.hpp"
+
+#include <rund/compute/abi/state.hpp>
+#include <rund/compute/status.hpp>
 
 #include <memory>
 #include <span>
 
 namespace rund::compute::detail {
 
+struct BufferState;
+struct DeviceState;
 struct JobBufferView;
 
 [[nodiscard]] Status

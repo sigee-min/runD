@@ -34,9 +34,10 @@ Status publish_cpu_pipeline(PipelineState &state) noexcept {
     CpuView source{};
     CpuView target{};
     const Status selected = resolve_cpu_pipeline_publication_view(
-        state, terminal->sources[control.final], source);
+        cpu_pipeline_publication_context(state),
+        terminal->sources[control.final], source);
     const Status targeted = resolve_cpu_pipeline_publication_view(
-        state, terminal->target.view, target);
+        cpu_pipeline_publication_context(state), terminal->target.view, target);
     if (!selected || !targeted ||
         source.footprint.count != target.footprint.count ||
         source.footprint.width != target.footprint.width) {
@@ -98,8 +99,8 @@ Status publish_cpu_pipeline_window(PipelineState &state,
     }
 
     CpuView count{};
-    const Status count_ready =
-        resolve_cpu_pipeline_publication_view(state, control.count, count);
+    const Status count_ready = resolve_cpu_pipeline_publication_view(
+        cpu_pipeline_publication_context(state), control.count, count);
     if (!count_ready || count.data == nullptr || count.footprint.count != 1u ||
         count.footprint.width != sizeof(std::uint32_t)) {
       return Status::fail(Reason::PipelineInvalid);
@@ -124,10 +125,10 @@ Status publish_cpu_pipeline_window(PipelineState &state,
 
     CpuView source{};
     CpuView target{};
-    const Status source_ready =
-        resolve_cpu_pipeline_publication_view(state, planned->source, source);
+    const Status source_ready = resolve_cpu_pipeline_publication_view(
+        cpu_pipeline_publication_context(state), planned->source, source);
     const Status target_ready = resolve_cpu_pipeline_publication_view(
-        state, planned->target.view, target);
+        cpu_pipeline_publication_context(state), planned->target.view, target);
     if (!source_ready || !target_ready || source.data == nullptr ||
         target.data == nullptr || source.footprint.count != control.tile ||
         source.footprint.width != planned->source.identity.element_bytes ||

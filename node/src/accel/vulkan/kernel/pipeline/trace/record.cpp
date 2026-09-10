@@ -2,6 +2,7 @@
 
 #include "../prepare/record.hpp"
 
+#include "../../../command/timestamp.hpp"
 #include "../../../command/resources.hpp"
 #include "../../../runtime/timestamp.hpp"
 

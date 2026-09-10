@@ -88,6 +88,12 @@ test dependency or alternate production authority.
 different failure reasons and requires the same lowest logical task failure;
 it also verifies mixed leaf/coroutine batches leave coroutine suspension on the
 individual quantum path.
+Its physical test ownership mirrors those contracts: `queue/storage.cpp` owns
+the queue model and leaf-order check, `queue/continuation.cpp` owns ready/task
+capacity continuation pressure, `queue/reuse.cpp` owns index reuse and batch
+metrics, and `queue/failure.cpp` owns canonical failure selection. Shared
+coroutine probes live in the single compiled owner `queue/support.cpp`; the
+top-level `queue.cpp` only sequences these independently meaningful checks.
 `runtime.task.coroutine-frame` and `runtime.task.result` separately prove arena
 and completion-cell reuse so a regression can be localized to its owner. The
 result owner also proves zero warm allocations for value publication and

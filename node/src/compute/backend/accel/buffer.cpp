@@ -1,8 +1,11 @@
+#include "../../device/state.hpp"
+#include "../../buffer/state.hpp"
 #include "local.hpp"
 
 #include "../../../accel/backend/token.hpp"
 #include "../../../accel/context/local.hpp"
 #include "../../status.hpp"
+#include "../../type.hpp"
 
 #include <accel/context/buffer.hpp>
 #include <accel/context/buffer/descriptor.hpp>
@@ -11,9 +14,33 @@
 
 namespace rund::compute::detail::accel_backend {
 
+Status project_buffer_view(const BufferState &owner, BufferState &view) {
+  const AccelDeviceState *const device =
+      owner.device == nullptr ? nullptr : accel_device(*owner.device);
+  const AccelBufferState *const source = accel_buffer(owner);
+  if (device == nullptr || source == nullptr || view.device != owner.device ||
+      view.bytes != owner.bytes ||
+      view.physical_bytes != owner.physical_bytes) {
+    return Status::fail(Reason::BufferCapacity);
+  }
+  auto projected = node::accel::detail::ProjectAccelBufferView(
+      device->context, source->buffer,
+      rund::AccelBufferDesc{.scalar_width_bytes = type_bytes(view.type),
+                            .count = view.count,
+                            .usage = source->buffer.usage});
+  if (!projected) {
+    return Status::fail(
+        project_reason(projected.reason, Reason::BufferCapacity));
+  }
+  view.storage.emplace<AccelBufferState>(
+      AccelBufferState{.buffer = std::move(projected)});
+  return Status::success();
+}
+
 Status allocate_buffer(DeviceState &device, BufferState &buffer,
                        const std::size_t scalar_bytes, const std::size_t count,
                        const bool zero_initialize,
+                       const node::accel::detail::BackendBufferMemory memory,
                        const std::uint64_t exact_storage_bytes) {
   const AccelDeviceState *const accel = accel_device(device);
   if (accel == nullptr) {
@@ -30,7 +57,7 @@ Status allocate_buffer(DeviceState &device, BufferState &buffer,
           zero_initialize
               ? node::accel::detail::BackendBufferInitialization::Zeroed
               : node::accel::detail::BackendBufferInitialization::FullOverwrite,
-          exact_storage_bytes);
+          memory, exact_storage_bytes);
   if (!created.check.ok) {
     return Status::fail(
         project_reason(created.check.reason, Reason::BufferCapacity));

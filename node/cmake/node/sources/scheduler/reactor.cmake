@@ -44,6 +44,11 @@ list(APPEND NODE_SOURCES
   src/runtime/task/scheduler/reactor/record.cpp
   src/runtime/task/scheduler/reactor/registration.cpp
   src/runtime/task/scheduler/reactor/registry.cpp
+  src/runtime/task/scheduler/reactor/registry/batch.cpp
+  src/runtime/task/scheduler/reactor/registry/lookup.cpp
+  src/runtime/task/scheduler/reactor/registry/operations.cpp
+  src/runtime/task/scheduler/reactor/registry/search.cpp
+  src/runtime/task/scheduler/reactor/registry/wait.cpp
   src/runtime/task/scheduler/reactor/scratch.cpp
   src/runtime/task/scheduler/reactor/state.cpp
   src/runtime/task/scheduler/reactor/stats.cpp

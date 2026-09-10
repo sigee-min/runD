@@ -2,7 +2,7 @@
 
 #include "../../segmented/model.hpp"
 #include "../../segmented/vulkan.hpp"
-#include "../adapter/api.hpp"
+#include "../adapter/state.hpp"
 #include "../barrier.hpp"
 #include "../collective/chunk.hpp"
 #include "../collective/pipeline.hpp"

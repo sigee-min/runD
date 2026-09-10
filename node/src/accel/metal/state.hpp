@@ -1,12 +1,14 @@
 #pragma once
 
 #include "adapter.hpp"
+#include "../kernel/fault/domain.hpp"
 #include "kernel/pipeline/icb.hpp"
 #include "stats.hpp"
 #include <accel/device.hpp>
 #include <kernel/program/compute/artifact.hpp>
 #include <kernel/program/compute/model.hpp>
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -73,6 +75,10 @@ struct MetalAdapter {
   std::weak_ptr<void> owner_token{};
   std::shared_ptr<void> device{};
   std::shared_ptr<void> queue{};
+  // One adapter-owned MTL4 execution queue shared by every prepared residency
+  // command owner. Per-Pipeline allocators, command buffers, and exact
+  // generation terminals remain independent to preserve bank overlap.
+  std::shared_ptr<void> residency_queue{};
   // Immutable device-capability calibration. A successful exact-registry
   // measurement is reused from the process cache and is never charged to an
   // individual Pipeline owner.
@@ -80,6 +86,9 @@ struct MetalAdapter {
   rund::kernel::ComputeCaps caps{};
   rund::AccelBackendInfo info{};
   std::mutex mutex{};
+  // Linearizes native residency acceptance with UnknownMayWrite quarantine.
+  // It owns no scheduling policy; Authority has already selected the locals.
+  std::mutex residency_terminal_gate{};
   std::condition_variable host_readback_cv{};
   std::size_t active_host_readbacks = 0u;
   std::vector<MetalPipeline> pipelines{};
@@ -92,9 +101,17 @@ struct MetalAdapter {
   MetalRuntimeStats stats{};
   MetalMemoryStats memory{};
   const char *last_error = "ok";
+  std::array<char, 1024u> last_error_detail{};
   std::atomic<bool> fault_source_library_publish_once{false};
   std::atomic<bool> fault_named_pipeline_publish_once{false};
-  std::atomic<bool> fault_device_lost_once{false};
+  DeviceLossFault device_loss_fault{};
+  std::atomic<bool> fault_download_once{false};
+  mutable std::atomic<bool> fault_host_read_once{false};
+  mutable std::atomic<bool> fault_host_write_once{false};
+  std::atomic<bool> fault_residency_terminal_once{false};
+  std::atomic<bool> residency_quarantined{false};
+  std::atomic<std::uint64_t> residency_command_active{};
+  std::atomic<std::uint64_t> residency_command_peak{};
   std::atomic<bool> fault_trace_unavailable_once{false};
   std::atomic<bool> fault_trace_resolve_device_lost_once{false};
 
@@ -105,6 +122,8 @@ struct MetalAdapter {
 };
 
 void SetMetalLastError(MetalAdapter &adapter, const char *reason) noexcept;
+void SetMetalLastErrorDetail(MetalAdapter &adapter,
+                             const char *reason) noexcept;
 [[nodiscard]] const char *MetalLastError(void *context) noexcept;
 
 } // namespace rund::node::accel::detail

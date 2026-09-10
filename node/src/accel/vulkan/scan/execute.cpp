@@ -1,3 +1,8 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+#include "../buffer/create.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
@@ -174,60 +179,6 @@ rund::AccelCheck EncodeVulkanScanBuffers(VulkanAdapter &adapter,
   (void)adapter;
   (void)resources;
   (void)command_buffer_handle;
-  return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
-#endif
-}
-
-rund::AccelCheck ExecuteVulkanScan(const rund::AccelDevice &pick,
-                                   const rund::kernel::ScanDesc &desc,
-                                   const rund::kernel::ScanPlan &plan,
-                                   const rund::kernel::ComputeDomain domain,
-                                   const ScanBinds &bindings) {
-#if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  auto *const adapter = CheckedVulkanAdapter(pick);
-  if (adapter == nullptr) {
-    return rund::AccelCheck{false, "accel_vulkan_unavailable"};
-  }
-  std::lock_guard<std::mutex> lock{adapter->mutex};
-  SetVulkanLastError(*adapter, "ok");
-  if (!ScanShapeOk(desc, plan) || !ScanResidentShapeOk(plan, bindings)) {
-    SetVulkanLastError(*adapter, "compute_scan_invalid");
-    return rund::AccelCheck{false, "compute_scan_invalid"};
-  }
-  VulkanResidentBufferResult input{};
-  VulkanResidentBufferResult output{};
-  VulkanResidentBufferResult logical_count{};
-  VulkanResidentReq reqs[] = {
-      {bindings.input, bindings.input_handle, &input},
-      {bindings.output, bindings.output_handle, &output}};
-  LookupVulkanResidentBatch(pick, reqs, "compute_resident_id_invalid");
-  if (bindings.logical_count_handle != nullptr) {
-    VulkanResidentReq count[] = {{bindings.logical_count,
-                                  bindings.logical_count_handle,
-                                  &logical_count}};
-    LookupVulkanResidentBatch(pick, count, "compute_resident_id_invalid");
-  } else {
-    logical_count = input;
-  }
-  if (!input.check.ok || !output.check.ok || !logical_count.check.ok ||
-      input.device_buffer == nullptr || output.device_buffer == nullptr ||
-      logical_count.device_buffer == nullptr) {
-    const char *const reason =
-        !input.check.ok ? input.check.reason
-                        : (!output.check.ok ? output.check.reason
-                                            : logical_count.check.reason);
-    SetVulkanLastError(*adapter, reason);
-    return rund::AccelCheck{false, reason};
-  }
-  return ExecuteVulkanScanBuffers(*adapter, desc, plan, domain,
-                                  *input.device_buffer, *output.device_buffer,
-                                  true, *logical_count.device_buffer);
-#else
-  (void)pick;
-  (void)desc;
-  (void)plan;
-  (void)domain;
-  (void)bindings;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
 #endif
 }

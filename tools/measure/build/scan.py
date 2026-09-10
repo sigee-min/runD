@@ -365,7 +365,7 @@ def measure(root: Path, build: Path, target: str, samples: int) -> list[str]:
                     root / f"node/include/rund/compute/abi/{name}.hpp"
                 ).resolve()
                 for name in (
-                    "model",
+                    "resource",
                     "device",
                     "expression",
                     "job",
@@ -431,7 +431,7 @@ def measure(root: Path, build: Path, target: str, samples: int) -> list[str]:
             "leaf:sessioncompute",
             "leaf:computebackend",
             "leaf:computeops",
-            "leaf:computeabi:model",
+            "leaf:computeabi:resource",
             "leaf:computeabi:device",
             "leaf:computeabi:expression",
             "leaf:computeabi:job",

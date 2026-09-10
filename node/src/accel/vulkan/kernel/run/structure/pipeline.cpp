@@ -1,5 +1,6 @@
 #include "../../../../kernel/backend/execute.hpp"
-#include "../../../../kernel/backend/template_plan.hpp"
+#include "../../../../kernel/backend/source/storage.hpp"
+#include "../../../../kernel/backend/template/arithmetic.hpp"
 #include "../../../../kernel/recurrence/plan.hpp"
 #include "../../../../kernel/status.hpp"
 #include "../../../../resident/window/admission/runtime/windows.hpp"
@@ -12,7 +13,7 @@
 #include "../../../kernel.hpp"
 #include "../../../map/api.hpp"
 #include "../../../map/local.hpp"
-#include "../../../map/source_upper.hpp"
+#include "../../../map/source/upper.hpp"
 #include "../../../numeric/source.hpp"
 #include "../../../numeric/state.hpp"
 #include "../../../partition/local.hpp"
@@ -33,7 +34,8 @@
 #include "../../pipeline/recurrence.hpp"
 #include "../../pipeline/source.hpp"
 #include "../../pipeline/state.hpp"
-#include "../../reset_source.hpp"
+#include "../../reset/source.hpp"
+#include "../../window/source.hpp"
 
 #include "../../../../primitive/block.hpp"
 #include "../../../../sort/block/vulkan.hpp"
@@ -92,6 +94,22 @@ namespace rund::node::accel::detail {
   std::uint64_t record_host = 0u;
   if (!VulkanPipelineRecordHostBytes(reservation, record_host) ||
       !add(host, record_host)) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
+  const bool selection_upper =
+      !has_windows && reservation.backend_publication_count == 0u &&
+      reservation.backend_profile_step_count == 0u &&
+      reservation.nested_group_count == 0u &&
+      reservation.map_recurrence.group_count == 0u &&
+      reservation.map_recurrence.history_group_count == 0u &&
+      reservation.authored_entry_count != 0u &&
+      reservation.authored_entry_count <= PreparedPipelineStepCapacity;
+  std::uint64_t selection_host = 0u;
+  if (selection_upper &&
+      (!product(reservation.authored_entry_count, sizeof(VulkanResidencyStep),
+                selection_host) ||
+       !add(selection_host, sizeof(VulkanResidencySelection)) ||
+       !add(host, selection_host))) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};
   }
   std::uint64_t bytes = 0u;
@@ -267,9 +285,17 @@ namespace rund::node::accel::detail {
       static_cast<std::uint64_t>(reservation.backend_profile_step_count != 0u) +
       (has_windows ? 4u : 0u);
   reservation.backend_native_object_count = 3u;
+  std::uint64_t selection_native_objects =
+      selection_upper ? reservation.authored_entry_count : 0u;
+  if (selection_upper &&
+      (!add(selection_native_objects, 2u) ||
+       !product(selection_native_objects, 3u, selection_native_objects))) {
+    return rund::AccelCheck{false, "compute_pipeline_capacity"};
+  }
   if (!add(reservation.backend_native_object_count,
            reservation.backend_native_buffer_count) ||
       !add(reservation.backend_native_object_count, pipeline_cache_native) ||
+      !add(reservation.backend_native_object_count, selection_native_objects) ||
       (reservation.backend_query_count != 0u &&
        !add(reservation.backend_native_object_count, 1u))) {
     return rund::AccelCheck{false, "compute_pipeline_capacity"};

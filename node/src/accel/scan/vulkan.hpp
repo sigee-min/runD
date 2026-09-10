@@ -16,10 +16,6 @@ struct VulkanBuffer;
 struct VulkanStatus;
 struct VulkanKernelImmutablePipelines;
 
-[[nodiscard]] rund::AccelCheck ExecuteVulkanScan(
-    const rund::AccelDevice &pick, const rund::kernel::ScanDesc &desc,
-    const rund::kernel::ScanPlan &plan, rund::kernel::ComputeDomain domain,
-    const ScanBinds &bindings);
 [[nodiscard]] rund::AccelCheck PrepareVulkanScan(
     const rund::AccelDevice &pick, const rund::kernel::ScanDesc &desc,
     const rund::kernel::ScanPlan &plan, rund::kernel::ComputeDomain domain,

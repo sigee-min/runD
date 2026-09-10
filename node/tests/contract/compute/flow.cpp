@@ -11,6 +11,11 @@ int RunComputeFlowContract() {
   if (const int device = rund_node_flow_contract::CheckDevice(); device != 0) {
     return 100 + device;
   }
+  if (const int slices =
+          rund_node_flow_contract::CheckPointwiseReduceSlices(backends);
+      slices != 0) {
+    return 110 + slices;
+  }
   if (const int backend =
           rund_node_flow_contract::CheckBackendContracts(backends);
       backend != 0) {

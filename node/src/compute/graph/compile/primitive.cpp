@@ -1,3 +1,4 @@
+#include "../../cpu/state/program.hpp"
 #include "local.hpp"
 
 #include "../../../accel/range_aggregate/plan.hpp"

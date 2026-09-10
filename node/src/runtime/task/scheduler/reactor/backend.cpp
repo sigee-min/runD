@@ -1,6 +1,6 @@
 #include "backend.hpp"
 
-#include "../../../reactor/platform.hpp"
+#include "../../../reactor/platform/lifecycle.hpp"
 #include "apply/policy.hpp"
 #include "backlog.hpp"
 #include "change/queue.hpp"

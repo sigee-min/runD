@@ -71,6 +71,11 @@ void accumulate_pipeline(PipelineStats &total,
       std::max(total.prepared_command_count, epoch.prepared_command_count);
   total.sampled_runs = std::max(total.sampled_runs, epoch.sampled_runs);
   total.clean_runs = std::max(total.clean_runs, epoch.clean_runs);
+  add(total.residency.window_handoff_count,
+      epoch.residency.window_handoff_count);
+  add(total.residency.window_batch_count, epoch.residency.window_batch_count);
+  add(total.residency.window_queue_call_count,
+      epoch.residency.window_queue_call_count);
   add(total.claim_ns, epoch.claim_ns);
   add(total.control_ns, epoch.control_ns);
 }
@@ -140,6 +145,29 @@ Status accumulate_virtual_epoch(Stats &total, const Stats &epoch) noexcept {
   add(total.host_write_bytes, epoch.host_write_bytes);
   accumulate_publication(total.publication, epoch.publication);
   accumulate_pipeline(total.pipeline, epoch.pipeline);
+  return Status::success();
+}
+
+Status
+accumulate_virtual_graph_stage(Stats &total, const Stats &stage,
+                               const std::uint64_t graph_identity) noexcept {
+  if (graph_identity == 0u) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  Stats projected = stage;
+  projected.graph_hash = 0u;
+  const std::uint64_t prior_identity = total.graph_hash;
+  total.graph_hash = 0u;
+  const Status accumulated = accumulate_virtual_epoch(total, projected);
+  if (!accumulated) {
+    total.graph_hash = prior_identity;
+    return accumulated;
+  }
+  if (prior_identity != 0u && prior_identity != graph_identity) {
+    total.graph_hash = prior_identity;
+    return Status::fail(Reason::PipelineInvalid);
+  }
+  total.graph_hash = graph_identity;
   return Status::success();
 }
 

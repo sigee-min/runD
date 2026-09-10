@@ -23,6 +23,9 @@ namespace rund::node::accel::detail {
   append(static_cast<std::uint8_t>(shape.boundary()));
   append(execution.element_bytes());
   append(static_cast<std::uint8_t>(shape.count()));
+  if (execution.candidate() == RangePath::BlockPrefixSuffix) {
+    append(shape.stride() == 1u);
+  }
   key.pop_back();
   return key;
 }

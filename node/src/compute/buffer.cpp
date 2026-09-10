@@ -1,3 +1,5 @@
+#include "../../include/rund/compute/abi/resource.hpp"
+#include "buffer/state.hpp"
 #include "backend.hpp"
 #include "buffer/local.hpp"
 #include "device/state.hpp"
@@ -46,7 +48,9 @@ void record_buffer(DeviceState &device, const std::uint64_t logical_bytes,
 make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
                  const std::size_t count,
                  const BufferInitialization initialization,
-                 const std::uint64_t exact_storage_bytes = 0u) {
+                 const std::uint64_t exact_storage_bytes = 0u,
+                 const node::accel::detail::BackendBufferMemory memory =
+                     node::accel::detail::BackendBufferMemory::DeviceLocal) {
   if (device == nullptr) {
     return Result<std::shared_ptr<BufferState>>::fail(Reason::DeviceInvalid);
   }
@@ -77,8 +81,8 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
         std::memset(raw, 0, byte_count);
       }
       buffer->storage.emplace<CpuBufferState>(CpuBufferState{
-          .data = std::unique_ptr<std::byte, AlignedDelete>(
-              static_cast<std::byte *>(raw)),
+          .data = std::shared_ptr<std::byte>(static_cast<std::byte *>(raw),
+                                             AlignedDelete{}),
           .bytes = byte_count,
       });
       buffer->physical_bytes = byte_count;
@@ -89,9 +93,10 @@ make_buffer_impl(const std::shared_ptr<DeviceState> &device, const Type type,
     if (device->ops == nullptr || device->ops->allocate == nullptr) {
       return Result<std::shared_ptr<BufferState>>::fail(Reason::DeviceInvalid);
     }
-    const Status allocated = device->ops->allocate(
-        *device, *buffer, bytes, count,
-        initialization == BufferInitialization::Zeroed, exact_storage_bytes);
+    const Status allocated =
+        device->ops->allocate(*device, *buffer, bytes, count,
+                              initialization == BufferInitialization::Zeroed,
+                              memory, exact_storage_bytes);
     if (!allocated) {
       return Result<std::shared_ptr<BufferState>>::fail(allocated.reason());
     }
@@ -163,6 +168,72 @@ make_planned_input_binding_buffer(const std::shared_ptr<DeviceState> &device,
   return make_buffer_impl(device, type, count,
                           BufferInitialization::FullOverwrite,
                           exact_storage_bytes);
+}
+
+Result<std::shared_ptr<BufferState>>
+make_planned_residency_buffer(const std::shared_ptr<DeviceState> &device,
+                              const Type type, const std::size_t count,
+                              const std::uint64_t exact_storage_bytes) {
+  return make_buffer_impl(
+      device, type, count, BufferInitialization::FullOverwrite,
+      exact_storage_bytes,
+      node::accel::detail::BackendBufferMemory::HostVisiblePreferred);
+}
+
+Result<std::shared_ptr<BufferState>>
+make_physical_buffer_view(const std::shared_ptr<BufferState> &owner,
+                          const Type type, const std::size_t count) {
+  const std::size_t width = type_bytes(type);
+  std::size_t bytes = 0u;
+  if (owner == nullptr || owner->device == nullptr || width == 0u ||
+      !size::multiply(count, width, bytes) || bytes != owner->bytes ||
+      owner->physical_bytes < owner->bytes) {
+    return Result<std::shared_ptr<BufferState>>::fail(Reason::BufferCapacity);
+  }
+  try {
+    auto view = std::make_shared<BufferState>();
+    view->device = owner->device;
+    view->type = type;
+    view->count = count;
+    view->bytes = bytes;
+    view->physical_bytes = owner->physical_bytes;
+    view->physical_owner =
+        owner->physical_owner == nullptr ? owner : owner->physical_owner;
+    if (const CpuBufferState *const cpu = cpu_buffer(*owner); cpu != nullptr) {
+      if (cpu->data == nullptr || cpu->bytes != bytes) {
+        return Result<std::shared_ptr<BufferState>>::fail(
+            Reason::BufferCapacity);
+      }
+      view->storage.emplace<CpuBufferState>(
+          CpuBufferState{.data = cpu->data, .bytes = cpu->bytes});
+    } else if (const AccelBufferState *const accel = accel_buffer(*owner);
+               accel != nullptr) {
+      if (!accel->buffer || accel->buffer.byte_extent != bytes) {
+        return Result<std::shared_ptr<BufferState>>::fail(
+            Reason::BufferCapacity);
+      }
+      if (accel->buffer.scalar_width_bytes == width &&
+          accel->buffer.count == count) {
+        view->storage.emplace<AccelBufferState>(
+            AccelBufferState{.buffer = accel->buffer});
+      } else {
+        const DeviceOps *const ops = owner->device->ops;
+        if (ops == nullptr || ops->project_buffer_view == nullptr) {
+          return Result<std::shared_ptr<BufferState>>::fail(
+              Reason::BufferCapacity);
+        }
+        const Status projected = ops->project_buffer_view(*owner, *view);
+        if (!projected) {
+          return Result<std::shared_ptr<BufferState>>::fail(projected.reason());
+        }
+      }
+    } else {
+      return Result<std::shared_ptr<BufferState>>::fail(Reason::BufferCapacity);
+    }
+    return Result<std::shared_ptr<BufferState>>::success(std::move(view));
+  } catch (const std::bad_alloc &) {
+    return Result<std::shared_ptr<BufferState>>::fail(Reason::BufferCapacity);
+  }
 }
 
 Result<std::shared_ptr<BufferState>>

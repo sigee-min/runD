@@ -1,0 +1,12 @@
+// Included only while projecting an ABI schema into production MSL source.
+#define RUND_METAL_ABI_BEGIN(host, gpu) "struct " #gpu " {\n"
+#define RUND_METAL_ABI_U32(name, initial, offset) "  uint " #name ";\n"
+#define RUND_METAL_ABI_U64(name, initial, offset) "  ulong " #name ";\n"
+#define RUND_METAL_ABI_ARRAY64(name, count, offset)                           \
+  "  ulong " #name "[" #count "];\n"
+#define RUND_METAL_ABI_POLICIES(host_name, gpu0, gpu1, gpu2, gpu3, offset)     \
+  "  uint " #gpu0 ";\n"                                                      \
+  "  uint " #gpu1 ";\n"                                                      \
+  "  uint " #gpu2 ";\n"                                                      \
+  "  uint " #gpu3 ";\n"
+#define RUND_METAL_ABI_END(host, gpu, size, alignment) "};\n\n"

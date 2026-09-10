@@ -1,5 +1,8 @@
 #pragma once
 
+#include <rund/compute/abi/graph/model.hpp>
+#include <rund/compute/abi/primitive.hpp>
+
 #include "../model.hpp"
 
 #include <accel/graph/node.hpp>

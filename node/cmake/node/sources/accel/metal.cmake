@@ -4,11 +4,16 @@ list(APPEND NODE_SOURCES
   src/accel/metal/buffer/commitment.mm
   src/accel/metal/buffer/ownership.cpp
   src/accel/metal/buffer/pool.mm
+  src/accel/metal/buffer/pool/create.mm
+  src/accel/metal/buffer/pool/release.mm
+  src/accel/metal/buffer/pool/select.mm
   src/accel/metal/buffer/resident/batch.cpp
+  src/accel/metal/buffer/resident/batch/download.mm
   src/accel/metal/buffer/resident/copy.mm
   src/accel/metal/buffer/resident/create.mm
   src/accel/metal/buffer/resident/download.mm
   src/accel/metal/buffer/resident/lookup.mm
+  src/accel/metal/buffer/resident/view.mm
   src/accel/metal/buffer/resident/upload.mm
   src/accel/metal/buffer/stats.cpp
   src/accel/metal/pick.mm
@@ -20,7 +25,6 @@ list(APPEND NODE_SOURCES
   src/accel/metal/gather/finish.mm
   src/accel/metal/gather/source.cpp
   src/accel/metal/histogram/encode.mm
-  src/accel/metal/histogram/execute.mm
   src/accel/metal/histogram/finish.mm
   src/accel/metal/histogram/pipeline.mm
   src/accel/metal/histogram/resources.mm
@@ -30,8 +34,15 @@ list(APPEND NODE_SOURCES
   src/accel/metal/partition/finish.mm
   src/accel/metal/partition/source.cpp
   src/accel/metal/pipeline.mm
+  src/accel/metal/pipeline/artifact/cache.mm
+  src/accel/metal/pipeline/artifact/compile.mm
   src/accel/metal/pipeline/cache.cpp
   src/accel/metal/kernel/prepared.mm
+  src/accel/metal/kernel/prepared/reset.mm
+  src/accel/metal/kernel/prepared/prepare.mm
+  src/accel/metal/kernel/prepared/run.mm
+  src/accel/metal/kernel/prepared/submit.mm
+  src/accel/metal/kernel/prepared/completion.mm
   src/accel/metal/kernel/trace/counter.mm
   src/accel/metal/kernel/trace/encoder.mm
   src/accel/metal/kernel/trace/fold.mm
@@ -44,22 +55,107 @@ list(APPEND NODE_SOURCES
   src/accel/metal/kernel/batch/plan.mm
   src/accel/metal/kernel/pipeline/capture.mm
   src/accel/metal/kernel/pipeline/prepare.mm
-  src/accel/metal/kernel/pipeline/run.mm
+  src/accel/metal/kernel/pipeline/run/entry.mm
+  src/accel/metal/kernel/pipeline/run/terminal.mm
+  src/accel/metal/kernel/pipeline/run/window.mm
   src/accel/metal/kernel/pipeline/source.cpp
   src/accel/metal/kernel/pipeline/status.mm
   src/accel/metal/kernel/pipeline/stub.cpp
   src/accel/metal/kernel/pipeline/aggregate/admit.mm
   src/accel/metal/kernel/pipeline/aggregate/prepare.mm
   src/accel/metal/kernel/pipeline/aggregate/source.cpp
-  src/accel/metal/kernel/pipeline/prepare/admit.mm
+  src/accel/metal/kernel/pipeline/aggregate/source/common.cpp
+  src/accel/metal/kernel/pipeline/aggregate/source/reduce.cpp
+  src/accel/metal/kernel/pipeline/aggregate/source/finalize.cpp
+  src/accel/metal/kernel/pipeline/prepare/admit/aggregate.mm
+  src/accel/metal/kernel/pipeline/prepare/admit/entry.mm
+  src/accel/metal/kernel/pipeline/prepare/admit/recurrence.mm
+  src/accel/metal/kernel/pipeline/prepare/admit/resources.mm
+  src/accel/metal/kernel/pipeline/prepare/admit/routes.mm
+  src/accel/metal/kernel/pipeline/prepare/admit/validation.mm
+  src/accel/metal/kernel/pipeline/prepare/spatial_window/proof/diagnostics.mm
+  src/accel/metal/kernel/pipeline/prepare/spatial_window/proof/geometry.mm
+  src/accel/metal/kernel/pipeline/prepare/spatial_window/proof/bindings.mm
+  src/accel/metal/kernel/pipeline/prepare/spatial_window/proof/admission.mm
+  src/accel/metal/kernel/pipeline/prepare/spatial_window/proof/validation.mm
   src/accel/metal/kernel/pipeline/prepare/allocate.mm
   src/accel/metal/kernel/pipeline/prepare/capture.mm
   src/accel/metal/kernel/pipeline/prepare/describe.mm
-  src/accel/metal/kernel/pipeline/prepare/finalize.mm
-  src/accel/metal/kernel/pipeline/prepare/program.mm
+  src/accel/metal/kernel/pipeline/prepare/describe/aggregate.mm
+  src/accel/metal/kernel/pipeline/prepare/describe/capacity.mm
+  src/accel/metal/kernel/pipeline/prepare/describe/templates.mm
+  src/accel/metal/kernel/pipeline/prepare/describe/occurrences.mm
+  src/accel/metal/kernel/pipeline/prepare/describe/profile.mm
+  src/accel/metal/kernel/pipeline/prepare/describe/packing.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/capture.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/projection/entry.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/projection/identity.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/projection/ranges.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/projection/windows.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/native.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/owner.mm
+  src/accel/metal/kernel/pipeline/prepare/finalize/entry.mm
+  src/accel/metal/kernel/pipeline/prepare/program/recurrence.mm
+  src/accel/metal/kernel/pipeline/prepare/program/window.mm
+  src/accel/metal/kernel/pipeline/prepare/program/entry_prepare.mm
+  src/accel/metal/kernel/pipeline/prepare/program/body.mm
+  src/accel/metal/kernel/pipeline/prepare/program/status.mm
+  src/accel/metal/kernel/pipeline/prepare/program/publication.mm
+  src/accel/metal/kernel/pipeline/prepare/program/entry.mm
   src/accel/metal/kernel/pipeline/prepare/telemetry.mm
-  src/accel/metal/kernel/pipeline/residency/materialize.mm
+  src/accel/metal/kernel/pipeline/residency/materialize/cleanup.mm
+  src/accel/metal/kernel/pipeline/residency/materialize/commit.mm
+  src/accel/metal/kernel/pipeline/residency/materialize/query.mm
+  src/accel/metal/kernel/pipeline/residency/materialize/stage.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/execution.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/prepare/owner.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/prepare/validation.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/prepare/resources.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/prepare/record.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/prepare/entry.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/rearm.mm
+  src/accel/metal/kernel/pipeline/residency/device_vsm/submit.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/diagnostics.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/encode.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/failure.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/final.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/validation/issue.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/validation/role.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/validation/request.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/validation/identity.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/validation/capability.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/validation.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/rearm.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/prepare/entry.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/signal.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/submit.mm
+  src/accel/metal/kernel/pipeline/residency/persistent/wait.mm
+  src/accel/metal/kernel/pipeline/residency/schedule/entry.mm
+  src/accel/metal/kernel/pipeline/residency/schedule/signal.mm
+  src/accel/metal/kernel/pipeline/residency/schedule/terminal.mm
+  src/accel/metal/kernel/pipeline/residency/schedule/cleanup.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/capability.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/descriptor.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/diagnostics.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/finalization.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/prepare.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/shader.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/admission.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/cancel.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/context.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/descriptor.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/encode.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/publication.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/queue.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/terminal.mm
+  src/accel/metal/kernel/pipeline/residency/sliding/submit/watchdog.mm
+  src/accel/metal/kernel/pipeline/residency/encode.mm
   src/accel/metal/kernel/pipeline/residency/submit.mm
+  src/accel/metal/kernel/pipeline/residency/window_submit/abort.mm
+  src/accel/metal/kernel/pipeline/residency/window_submit/prepare.mm
+  src/accel/metal/kernel/pipeline/residency/window_submit/signal.mm
+  src/accel/metal/kernel/pipeline/residency/window_submit/submit.mm
   src/accel/metal/kernel/pipeline/source/status/abi.cpp
   src/accel/metal/kernel/pipeline/source/status/advance.cpp
   src/accel/metal/kernel/pipeline/source/status/publish.cpp
@@ -71,15 +167,22 @@ list(APPEND NODE_SOURCES
   src/accel/metal/kernel/encode.mm
   src/accel/metal/kernel/finish.mm
   src/accel/metal/kernel/prepare.mm
+  src/accel/metal/kernel/prepare/primitive_pipelines.mm
   src/accel/metal/kernel/run/manifest.mm
-  src/accel/metal/kernel/run/source_recipe.mm
+  src/accel/metal/kernel/run/source/recipe.mm
   src/accel/metal/kernel/run/pipeline.mm
   src/accel/metal/kernel/run/recurrence.mm
   src/accel/metal/kernel/run/runtime.mm
   src/accel/metal/kernel/run/structure.mm
   src/accel/metal/kernel/run/template.cpp
-  src/accel/metal/kernel/template_memory.mm
-  src/accel/metal/kernel/view.mm
+  src/accel/metal/kernel/template/memory.mm
+  src/accel/metal/kernel/view/source.mm
+  src/accel/metal/kernel/view/validation.mm
+  src/accel/metal/kernel/view/binding.mm
+  src/accel/metal/kernel/view/projection.mm
+  src/accel/metal/kernel/view/lifecycle.mm
+  src/accel/metal/kernel/view/commands.mm
+  src/accel/metal/kernel/view/accounting.mm
   src/accel/metal/numeric/source.cpp
   src/accel/metal/numeric/32/source.cpp
   src/accel/metal/numeric/resource.mm
@@ -89,14 +192,24 @@ list(APPEND NODE_SOURCES
   src/accel/metal/numeric/prepare/spectrum.mm
   src/accel/metal/numeric/prepare/transform.mm
   src/accel/metal/numeric/run/encode.mm
-  src/accel/metal/numeric/run/execute.mm
   src/accel/metal/numeric/run/status.mm
   src/accel/metal/ops.cpp
+  src/accel/metal/ops/buffer.cpp
+  src/accel/metal/ops/control.cpp
+  src/accel/metal/ops/recurrence.cpp
   src/accel/metal/reduce/execute.mm
   src/accel/metal/reduce/finish.mm
   src/accel/metal/reduce/source.cpp
   src/accel/metal/runtime/execute.mm
   src/accel/metal/runtime/map.mm
+  src/accel/metal/runtime/map/prepare.mm
+  src/accel/metal/runtime/map/prepare/binding.mm
+  src/accel/metal/runtime/map/prepare/resources.mm
+  src/accel/metal/runtime/map/prepare/route.mm
+  src/accel/metal/runtime/map/prepare/template.mm
+  src/accel/metal/runtime/map/control/artifact.mm
+  src/accel/metal/runtime/map/control/pipeline.mm
+  src/accel/metal/runtime/map/control/prepare.mm
   src/accel/metal/runtime/resident/bindings.mm
   src/accel/metal/runtime/resident/windows.mm
   src/accel/metal/runtime/staged.mm
@@ -123,7 +236,6 @@ list(APPEND NODE_SOURCES
   src/accel/metal/scan/encode/buffers.mm
   src/accel/metal/scan/encode/flags.mm
   src/accel/metal/scan/encode/state.mm
-  src/accel/metal/scan/execute.mm
   src/accel/metal/scan/execute/buffers.mm
   src/accel/metal/scan/pipeline.mm
   src/accel/metal/scan/kernel.mm
@@ -135,10 +247,14 @@ list(APPEND NODE_SOURCES
   src/accel/metal/segmented/pipeline.mm
   src/accel/metal/segmented/source.cpp
   src/accel/metal/segmented/reduce/encode.mm
-  src/accel/metal/segmented/reduce/execute.mm
   src/accel/metal/segmented/reduce/finish.mm
   src/accel/metal/segmented/reduce/pipeline.mm
   src/accel/metal/segmented/reduce/prepare.mm
+  src/accel/metal/segmented/reduce/source/prelude.cpp
+  src/accel/metal/segmented/reduce/source/classify.cpp
+  src/accel/metal/segmented/reduce/source/prefix.cpp
+  src/accel/metal/segmented/reduce/source/scatter.cpp
+  src/accel/metal/segmented/reduce/source/reduce.cpp
   src/accel/metal/segmented/reduce/source.cpp
   src/accel/metal/sort/execute.mm
   src/accel/metal/sort/finish.mm

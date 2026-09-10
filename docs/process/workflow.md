@@ -38,6 +38,14 @@ verification, and closure in runD.
 - Update docs, tests, and implementation together when behavior or acceptance
   changes.
 
+## Continuous Integration
+
+The checked-in workflow is
+[`/.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Its gate names,
+platform boundary, toolchain tuple, diagnostic artifact policy, and native
+accelerator limits are owned by
+[Pull Request Gates](../architecture/verification.md#pull-request-gates).
+
 ## Performance Work
 
 Before a performance hard cut:

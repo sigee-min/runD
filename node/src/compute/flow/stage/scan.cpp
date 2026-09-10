@@ -1,4 +1,5 @@
 #include "../recipe.hpp"
+#include "filter.hpp"
 
 #include "../../expression/state.hpp"
 #include "../../type.hpp"
@@ -79,6 +80,9 @@ std::uint32_t flow_bounded_reduce_value(const std::shared_ptr<FlowState> &flow,
       input > flow->values.size() || count > flow->values.size()) {
     return 0u;
   }
+  if (const auto folded = fold_filter_sum(flow, input, count, operation)) {
+    return *folded;
+  }
   const FlowValue &value = flow->values[input - 1u];
   const FlowValue &logical = flow->values[count - 1u];
   if (logical.count != 1u ||
@@ -127,83 +131,6 @@ std::uint32_t flow_bounded_sort_value(const std::shared_ptr<FlowState> &flow,
                           indices ? Primitive::Argsort : Primitive::Sort, {})
              ? output
              : 0u;
-}
-
-BoundedIds flow_filter_masks(const std::shared_ptr<FlowState> &flow,
-                             const std::uint32_t input,
-                             const std::uint32_t selected,
-                             const std::uint32_t rejected) {
-  if (flow == nullptr || !flow->status || input == 0u || selected == 0u ||
-      rejected == 0u || input > flow->values.size() ||
-      selected > flow->values.size() || rejected > flow->values.size()) {
-    return {};
-  }
-  const FlowValue value = flow->values[input - 1u];
-  const FlowValue selected_value = flow->values[selected - 1u];
-  const FlowValue rejected_value = flow->values[rejected - 1u];
-  if (selected_value.type != rejected_value.type ||
-      selected_value.count != value.count ||
-      rejected_value.count != value.count) {
-    reject(*flow, Reason::GraphTypeMismatch);
-    return {};
-  }
-  const Type count_type =
-      type_bytes(selected_value.type) == sizeof(std::uint64_t) ? Type::U64
-                                                               : Type::U32;
-  const std::uint32_t count = append(*flow, count_type, 1u);
-  const std::uint32_t values =
-      append(*flow, value.type, value.count, value.fixed_format);
-  if (count == 0u || values == 0u) {
-    return {};
-  }
-  const std::array count_inputs{selected};
-  const std::array count_outputs{count};
-  if (!append_primitive(*flow, count_inputs, count_outputs, Primitive::Reduce,
-                        {.flag = true})) {
-    return {};
-  }
-  const std::array partition_inputs{rejected, input};
-  const std::array partition_outputs{values};
-  if (!append_primitive(*flow, partition_inputs, partition_outputs,
-                        Primitive::Partition, {})) {
-    return {};
-  }
-  flow->values[values - 1u].active = count;
-  flow->values[count - 1u].parent = flow->values[input - 1u].active;
-  return BoundedIds{values, count};
-}
-
-BoundedIds flow_filter_value(const std::shared_ptr<FlowState> &flow,
-                             const std::uint32_t input, ExprRef selected,
-                             ExprRef rejected) {
-  if (flow == nullptr || !flow->status || selected.state == nullptr ||
-      rejected.state == nullptr || !selected.state->status ||
-      !rejected.state->status || input == 0u || input > flow->values.size()) {
-    return {};
-  }
-  if (selected.type != rejected.type) {
-    reject(*flow, Reason::GraphTypeMismatch);
-    return {};
-  }
-  const std::array inputs{input};
-  const std::array masks{selected, rejected};
-  const ValueIds outputs = flow_map_multi(flow, inputs, "filter-flags", masks);
-  return outputs.size() == masks.size()
-             ? flow_filter_masks(flow, input, outputs[0u], outputs[1u])
-             : BoundedIds{};
-}
-
-BoundedIds flow_filter(const std::shared_ptr<FlowState> &flow, ExprRef selected,
-                       ExprRef rejected) {
-  if (flow == nullptr || !flow->status) {
-    return {};
-  }
-  const BoundedIds result = flow_filter_value(
-      flow, flow->output, std::move(selected), std::move(rejected));
-  if (result.values != 0u) {
-    flow->output = result.values;
-  }
-  return result;
 }
 
 } // namespace rund::compute::detail

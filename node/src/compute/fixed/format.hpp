@@ -1,6 +1,6 @@
 #pragma once
 
-#include <rund/compute/abi/model.hpp>
+#include <rund/compute/fixed.hpp>
 
 #include <kernel/program/compute/model.hpp>
 

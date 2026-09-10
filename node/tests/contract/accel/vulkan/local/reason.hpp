@@ -2,8 +2,6 @@
 
 #include <accel/device.hpp>
 
-#include "tile.hpp"
-
 #include <array>
 #include <string_view>
 

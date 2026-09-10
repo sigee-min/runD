@@ -1,7 +1,9 @@
 #include "../../../context/internal/support.hpp"
+#include "../../../kernel/backend/source/storage.hpp"
 #include "../../../kernel/backend/execute.hpp"
-#include "../../../kernel/backend/template_plan.hpp"
+#include "../../../kernel/backend/template/arithmetic.hpp"
 #include "../../../kernel/status.hpp"
+#include "../../../kernel/step/map/stride.hpp"
 
 #include "../../../sort/block/metal.hpp"
 #include "../../buffer/owner.hpp"
@@ -13,10 +15,10 @@
 #include "../../numeric/state.hpp"
 #include "../../partition/local.hpp"
 #include "../../pipeline/guard.hpp"
-#include "../../pipeline/source_recipe.hpp"
+#include "../../pipeline/source/recipe.hpp"
 #include "../../range/local.hpp"
 #include "../../reduce/local.hpp"
-#include "../../runtime/map/source_upper.hpp"
+#include "../../runtime/map/source/upper.hpp"
 #include "../../scan/local.hpp"
 #include "../../scan/source.hpp"
 #include "../../scatter/local.hpp"
@@ -27,8 +29,8 @@
 #include "../manifest.hpp"
 #include "../ops/prepare.hpp"
 #include "../pipeline/build.hpp"
-#include "../pipeline/identity_index.hpp"
-#include "map_memory.hpp"
+#include "../pipeline/identity/index.hpp"
+#include "map/memory.hpp"
 
 namespace rund::node::accel::detail {
 

@@ -24,10 +24,41 @@ set(compiler unknown)
 if(EXISTS "${cache}")
   file(STRINGS "${cache}" generator_line
     REGEX "^CMAKE_GENERATOR:INTERNAL=")
-  if(generator_line)
+  list(LENGTH generator_line generator_count)
+  if(generator_count EQUAL 1)
     string(REGEX REPLACE "^[^=]*=" "" generator "${generator_line}")
   endif()
 endif()
+
+execute_process(
+  COMMAND perl "${ROOT}/tools/internal/toolchain/compiler" "${BUILD}"
+  RESULT_VARIABLE compiler_status
+  OUTPUT_VARIABLE compiler
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_VARIABLE compiler_error)
+if(NOT compiler_status EQUAL 0 OR generator STREQUAL "unknown" OR
+   generator STREQUAL "")
+  file(REMOVE_RECURSE "${EVIDENCE_STAGING}")
+  message(FATAL_ERROR "verification compiler identity is unavailable: ${compiler_error}")
+endif()
+file(SHA256 "${compiler}" compiler_sha256)
+execute_process(
+  COMMAND "${compiler}" --version
+  RESULT_VARIABLE compiler_version_status
+  OUTPUT_VARIABLE compiler_version
+  ERROR_VARIABLE compiler_version_error
+  TIMEOUT 10)
+if(NOT compiler_version_status EQUAL 0 OR compiler_version STREQUAL "")
+  file(REMOVE_RECURSE "${EVIDENCE_STAGING}")
+  message(FATAL_ERROR "verification compiler version is unavailable: ${compiler_version_error}")
+endif()
+file(SHA256 "${compiler}" compiler_after_sha256)
+if(NOT compiler_sha256 STREQUAL compiler_after_sha256)
+  file(REMOVE_RECURSE "${EVIDENCE_STAGING}")
+  message(FATAL_ERROR "verification compiler changed during recording")
+endif()
+file(WRITE "${EVIDENCE_STAGING}/compiler-version.txt" "${compiler_version}")
+file(SHA256 "${EVIDENCE_STAGING}/compiler-version.txt" compiler_version_sha256)
 
 include("${ROOT}/tools/internal/source/manifest/adopt.cmake")
 set(revision "${source_revision}")
@@ -44,19 +75,11 @@ if(DEFINED LOG AND EXISTS "${LOG}")
   configure_file("${LOG}" "${EVIDENCE_STAGING}/${LOG_NAME}" COPYONLY)
 endif()
 
-set(toolchain_fields "")
+set(toolchain_fields
+  "compiler_sha256\t${compiler_sha256}\ncompiler_version_sha256\t${compiler_version_sha256}\n")
 set(artifact_fields "")
 set(proof_fields "")
 if(DEFINED PROOF_KIND)
-  execute_process(
-    COMMAND perl "${ROOT}/tools/internal/measure/compiler" "${BUILD}"
-    RESULT_VARIABLE compiler_status
-    OUTPUT_VARIABLE compiler
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-  if(NOT compiler_status EQUAL 0)
-    set(compiler unknown)
-  endif()
   foreach(required IN ITEMS PROOF PROOF_NAME PROOF_ROUTE PROOF_STATUS
                             PROOF_PROFILE PROOF_METRICS LOG LOG_NAME
                             WORKLOAD_STATUS WORKLOAD_EXIT PROFILE ARTIFACT)
@@ -74,9 +97,6 @@ if(DEFINED PROOF_KIND)
   endif()
   get_filename_component(artifact_name "${ARTIFACT}" NAME)
   file(SHA256 "${ARTIFACT}" artifact_sha256)
-  file(SHA256 "${compiler}" compiler_sha256)
-  string(APPEND toolchain_fields
-    "compiler_sha256\t${compiler_sha256}\n")
   string(APPEND artifact_fields
     "profile\t${PROFILE}\n"
     "artifact\t${artifact_name}\n"

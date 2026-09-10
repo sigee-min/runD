@@ -14,6 +14,13 @@
 namespace rund::node::accel::detail {
 
 inline constexpr rund::kernel::u32 kHistogramThreadgroupSize = 256u;
+inline constexpr rund::kernel::u32 kHistogramLocalBins = 256u;
+inline constexpr rund::kernel::u32 kHistogramLocalGroups = 1024u;
+
+[[nodiscard]] constexpr bool
+MetalHistogramLocal(const std::uint64_t bins) noexcept {
+  return bins <= kHistogramLocalBins;
+}
 
 struct MetalHistogramPipelines {
   std::shared_ptr<void> clear{};
@@ -30,9 +37,11 @@ struct MetalHistogramEncodeResources {
 };
 
 void DestroyMetalHistogramEncodeResources(void *raw);
-[[nodiscard]] std::string MetalHistogramSource();
-[[nodiscard]] std::uint64_t MetalHistogramSourceUpperBytes() noexcept;
+[[nodiscard]] std::string MetalHistogramSource(std::uint64_t bins);
+[[nodiscard]] std::uint64_t
+MetalHistogramSourceUpperBytes(std::uint64_t bins) noexcept;
 [[nodiscard]] bool CompileMetalHistogramPipelines(MetalAdapter &adapter,
+                                                  std::uint64_t bins,
                                                   MetalHistogramPipelines &out);
 
 } // namespace rund::node::accel::detail

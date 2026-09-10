@@ -1,12 +1,13 @@
 #pragma once
 
-#include <rund/compute/abi/device.hpp>
+#include <rund/compute/backend.hpp>
+#include <rund/compute/compile.hpp>
+#include <rund/compute/device/pipeline/memory.hpp>
+#include <rund/compute/status.hpp>
 #include <rund/storage.hpp>
 
-#include <accel/context/buffer.hpp>
 #include <accel/context/value.hpp>
 #include <accel/device.hpp>
-#include <node/accel/context.hpp>
 #include <node/runtime/backend.hpp>
 
 #include <atomic>
@@ -104,40 +105,6 @@ struct DeviceState final {
 initialize_device_state(DeviceState &state,
                         DevicePipelineMemoryLimit pipeline_memory) noexcept;
 
-struct AlignedDelete final {
-  void operator()(std::byte *const data) const noexcept { std::free(data); }
-};
-
-struct CpuBufferState final {
-  std::unique_ptr<std::byte, AlignedDelete> data;
-  std::size_t bytes{};
-};
-
-struct AccelBufferState final {
-  rund::AccelBuffer buffer;
-};
-
-struct BufferState final {
-  ~BufferState();
-
-  std::shared_ptr<DeviceState> device;
-  std::variant<CpuBufferState, AccelBufferState> storage;
-  Type type{Type::I32};
-  std::size_t count{};
-  std::size_t bytes{};
-  // Backend-published retained storage charge. This is not an OS/device
-  // physical-residency observation.
-  std::size_t physical_bytes{};
-  // True only after make_buffer_impl publishes both Device allocation meters.
-  // A rejected backend allocation may have populated the fields above, but it
-  // owns no public accounting and its destructor must not release any meter.
-  bool memory_accounted{};
-  std::uint32_t readers{};
-  bool writer{};
-  bool poisoned{};
-  std::uint64_t generation{};
-};
-
 void record_transfer(DeviceState &device, std::uint64_t bytes) noexcept;
 
 [[nodiscard]] inline CpuDeviceState *cpu_device(DeviceState &device) noexcept {
@@ -154,21 +121,6 @@ accel_device(DeviceState &device) noexcept {
 [[nodiscard]] inline const AccelDeviceState *
 accel_device(const DeviceState &device) noexcept {
   return std::get_if<AccelDeviceState>(&device.storage);
-}
-[[nodiscard]] inline CpuBufferState *cpu_buffer(BufferState &buffer) noexcept {
-  return std::get_if<CpuBufferState>(&buffer.storage);
-}
-[[nodiscard]] inline const CpuBufferState *
-cpu_buffer(const BufferState &buffer) noexcept {
-  return std::get_if<CpuBufferState>(&buffer.storage);
-}
-[[nodiscard]] inline AccelBufferState *
-accel_buffer(BufferState &buffer) noexcept {
-  return std::get_if<AccelBufferState>(&buffer.storage);
-}
-[[nodiscard]] inline const AccelBufferState *
-accel_buffer(const BufferState &buffer) noexcept {
-  return std::get_if<AccelBufferState>(&buffer.storage);
 }
 
 } // namespace rund::compute::detail

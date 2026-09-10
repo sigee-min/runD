@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../adapter/error.hpp"
+#include "../../buffer/create.hpp"
+
 #include "input.hpp"
 
 namespace rund::node::accel::detail {

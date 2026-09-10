@@ -66,6 +66,11 @@ is `/node/tests/contract/accel` and the registered cases under
   overflowing expression is evaluated before its predicate.
 - Prepared synchronous and asynchronous execution share the same owner and
   claim; concurrent reuse fails with `compute_job_busy`.
+- Vulkan controlled-Map source sizing has no executable umbrella header.
+  `map/source/upper/controlled.cpp`, `control.cpp`, `generated.cpp`, and
+  `check.cpp` respectively own artifact growth, control shader text, generated
+  admission shader text, and bounds-check shader sizing. `upper.hpp` contains
+  only the cross-TU declarations and the six controlled-artifact splice tokens.
 - Fake, Metal, and Vulkan execution consume one dispatch-window validator.
   The test backend cannot accept a partition, sequence projection, or resident
   full-range shape that a native backend rejects.
@@ -95,3 +100,19 @@ The focused owners are `accel.kernel-core`, `accel.kernel-numeric`,
 `accel.backend-fixed`, and `accel.backend-runtime`. Wider Compute parity lives
 in the Standalone Compute contracts; Runtime verifies scheduling integration
 without duplicating the numeric matrix.
+
+The Map-recurrence contract remains one `accel.kernel-core` case. Its semantic
+verification leaves are `kernel/recurrence/{nested_marker,geometry,history,plan,source}.cpp`;
+`kernel/recurrence/support.cpp` owns only the shared Fixture construction.
+The leaves follow the production source parse/emit/capacity/materialize and
+aggregate/plan boundaries, while `kernel/core.cpp` preserves their original
+fail-fast order.
+
+The nested aggregate proof has one common transient model in
+`kernel/recurrence/aggregate/internal.hpp`. Storage and program identity
+validation live in `aggregate/storage.cpp`; Seed shape and lineage validation
+live in `aggregate/seed.cpp`; Action scalar proof lives in
+`aggregate/action.cpp`; Fold and publication proof live in
+`aggregate/fold.cpp`; `aggregate/build.cpp` alone assembles the immutable
+`NestedAggregate` result. None of these leaves owns a second resident model or
+execution state.

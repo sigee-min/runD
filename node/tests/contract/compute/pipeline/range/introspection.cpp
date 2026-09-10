@@ -34,11 +34,15 @@ namespace rund_node_test_pipeline {
   std::array<RangeInfo, 2u> rows{};
   const RangeSnapshot full = program->ranges(rows);
   const RangeInfo frozen = rows[0u];
+  const bool physical =
+      backend == Backend::Cpu
+          ? frozen.kind == RangeKind::Prefix && frozen.stages == 2u &&
+                frozen.scratch_bytes != 0u
+          : frozen.kind == RangeKind::Tiled && frozen.stages == 1u &&
+                frozen.scratch_bytes == 0u;
   if (empty.written != 0u || empty.total != 1u || !empty.truncated() ||
-      full.written != 1u || full.total != 1u || full.truncated() ||
-      frozen.kind != RangeKind::Prefix || frozen.stages < 2u ||
-      frozen.shared_capacity != 0u || frozen.scratch_bytes == 0u ||
-      !frozen.source || !frozen.execution ||
+      full.written != 1u || full.total != 1u || full.truncated() || !physical ||
+      frozen.shared_capacity != 0u || !frozen.source || !frozen.execution ||
       (frozen.width != 64u && frozen.width != 128u && frozen.width != 256u)) {
     std::fprintf(stderr,
                  "pipeline range backend=%u empty=%zu/%zu full=%zu/%zu "

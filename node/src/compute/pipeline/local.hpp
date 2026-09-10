@@ -1,6 +1,9 @@
 #pragma once
 
+#include "../../accel/kernel/prepared/interface/evidence.hpp"
+
 #include "residency/authority.hpp"
+#include "residency/submission.hpp"
 #include "state.hpp"
 
 #include <kernel/dispatch/worker/backend.hpp>
@@ -9,10 +12,19 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <span>
 #include <utility>
 
 namespace rund::compute::detail {
+
+inline constexpr std::uint64_t PipelineNoGeneration =
+    std::numeric_limits<std::uint64_t>::max();
+
+namespace residency {
+struct EpochLease;
+}
 
 class TerminalObservation;
 
@@ -126,16 +138,31 @@ logical_step_index(const PipelineState &state,
 [[nodiscard]] Status
 consume_cpu_pipeline_step(PipelineState &state, std::size_t index,
                           Status execution = Status::success()) noexcept;
+// Read-only structural capability; payload writes are performed through the
+// selected Buffer owner, without granting Pipeline lifecycle mutation.
+struct CpuPipelinePublicationContext final {
+  std::span<const PipelineResource> resources;
+  std::span<const PipelinePublicationPlan> publications;
+  std::size_t step_count{};
+  bool alternate{};
+};
+[[nodiscard]] inline CpuPipelinePublicationContext
+cpu_pipeline_publication_context(const PipelineState &state) noexcept {
+  return {state.resources, state.publications, state.steps.size(),
+          state.transactional && state.attempt.parity != 0u};
+}
 [[nodiscard]] Status prepare_cpu_pipeline_window(PipelineState &state,
                                                  std::size_t index,
                                                  bool &active) noexcept;
-[[nodiscard]] Status prepare_cpu_pipeline_window(PipelineState &state,
-                                                 const PipelineStep &step,
-                                                 bool &active) noexcept;
-[[nodiscard]] Status resolve_cpu_pipeline_publication_view(
-    PipelineState &state, const PipelinePublicationViewPlan &planned,
-    CpuView &view) noexcept;
-void reset_cpu_resident(PipelineState &state) noexcept;
+[[nodiscard]] Status
+prepare_cpu_pipeline_window(const CpuPipelinePublicationContext &,
+                            PipelineWindows &, std::uint16_t window,
+                            std::uint32_t iteration, ControlStats &,
+                            bool &active) noexcept;
+[[nodiscard]] Status
+resolve_cpu_pipeline_publication_view(const CpuPipelinePublicationContext &,
+                                      const PipelinePublicationViewPlan &,
+                                      CpuView &) noexcept;
 [[nodiscard]] Status publish_cpu_pipeline(PipelineState &state) noexcept;
 [[nodiscard]] Status publish_cpu_pipeline_window(PipelineState &state,
                                                  std::uint16_t window,
@@ -150,7 +177,7 @@ void finish_pipeline_profile_step(PipelineState &state,
                                   std::size_t index) noexcept;
 void capture_cpu_pipeline_step(PipelineState &state, std::size_t index,
                                bool executed) noexcept;
-void capture_accel_pipeline_profile(
+bool capture_accel_pipeline_profile(
     PipelineState &state,
     const node::accel::detail::PreparedPipelineEvidence &evidence,
     bool row_identity_valid) noexcept;
@@ -161,9 +188,32 @@ pipeline_backend(const std::shared_ptr<PipelineState> &state) noexcept;
 pipeline_workers(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Stats
 pipeline_stats(const std::shared_ptr<PipelineState> &state) noexcept;
-[[nodiscard]] Status
-run_pipeline_with_mode(const std::shared_ptr<PipelineState> &state,
-                       node::accel::detail::PipelineSubmitMode mode) noexcept;
+// Projects Pipeline-private owners while leaving Pool-owned physical frame
+// buffers to the VirtualPipeline aggregate. This is an owner filter, not a
+// counter subtraction; every retained object is still measured once.
+[[nodiscard]] MemoryStats
+pipeline_private_memory(const std::shared_ptr<PipelineState> &state) noexcept;
+[[nodiscard]] Status run_residency_pipeline_lease(
+    const std::shared_ptr<PipelineState> &state, residency::EpochLease lease,
+    bool defer_generation = false,
+    std::uint64_t control_generation = PipelineNoGeneration,
+    std::uint8_t control_parity = 0u,
+    std::uint64_t publication_generation = PipelineNoGeneration,
+    std::uint8_t publication_parity = 0u) noexcept;
+// Accelerator asynchronous execution seam. Once called, `completion` is
+// invoked exactly once, either inline for admission/submission failure or from
+// the backend-native terminal callback. CPU continues to own the synchronous
+// worker path above.
+void submit_residency_pipeline_lease(
+    const std::shared_ptr<PipelineState> &state, residency::EpochLease lease,
+    ResidencyPipelineSubmission &submission,
+    ResidencyPipelineCompletion completion, void *user,
+    bool defer_generation = false,
+    std::uint64_t control_generation = PipelineNoGeneration,
+    std::uint8_t control_parity = 0u,
+    std::uint64_t publication_generation = PipelineNoGeneration,
+    std::uint8_t publication_parity = 0u) noexcept;
+
 [[nodiscard]] Status
 begin_pipeline_samples(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status
@@ -174,7 +224,9 @@ pipeline_profile(const std::shared_ptr<PipelineState> &state) noexcept;
 queue_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] Status start_pipeline(
     PipelineState &state,
-    PipelineClaimAuthority authority = PipelineClaimAuthority::Shared) noexcept;
+    PipelineClaimAuthority authority = PipelineClaimAuthority::Shared,
+    std::uint64_t control_generation = PipelineNoGeneration,
+    std::uint8_t control_parity = 0u) noexcept;
 [[nodiscard]] Status
 cancel_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] TerminalObservation
@@ -196,9 +248,6 @@ pipeline_job(const std::shared_ptr<PipelineState> &state,
 begin_pipeline_step(const std::shared_ptr<PipelineState> &state,
                     std::size_t index) noexcept;
 [[nodiscard]] Status
-complete_pipeline_step(const std::shared_ptr<PipelineState> &state,
-                       std::size_t index, Status result) noexcept;
-[[nodiscard]] Status
 initialize_cpu_pipeline_schedule(const std::shared_ptr<PipelineState> &state,
                                  CpuPipelineSchedule &schedule) noexcept;
 [[nodiscard]] CpuPipelineSelection
@@ -208,8 +257,6 @@ select_cpu_pipeline_step(const std::shared_ptr<PipelineState> &state,
 complete_cpu_pipeline_schedule_step(const std::shared_ptr<PipelineState> &state,
                                     CpuPipelineSchedule &schedule,
                                     Status result) noexcept;
-[[nodiscard]] Status
-complete_cpu_pipeline(const std::shared_ptr<PipelineState> &state) noexcept;
 [[nodiscard]] TerminalObservation
 complete_cpu_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
                                std::uint64_t frame_bytes,
@@ -228,9 +275,10 @@ complete_cpu_pipeline_terminal(const std::shared_ptr<PipelineState> &state,
     const std::shared_ptr<PipelineState> &state,
     node::accel::detail::PreparedPipelineEvidence &&evidence,
     std::uint64_t frame_bytes, bool capture_profile) noexcept;
-[[nodiscard]] Status seed_pipeline_generations(PipelineState &state,
-                                               std::uint64_t generation,
-                                               std::uint8_t parity) noexcept;
+[[nodiscard]] Status
+seed_pipeline_generations(PipelineState &state, std::uint64_t generation,
+                          std::uint8_t parity,
+                          Location *location = nullptr) noexcept;
 [[nodiscard]] bool rebase_failed_pipeline_generation(PipelineState &state,
                                                      bool submitted,
                                                      Reason failure) noexcept;

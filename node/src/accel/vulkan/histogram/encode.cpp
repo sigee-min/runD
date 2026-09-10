@@ -1,5 +1,7 @@
 #include <accel/check.hpp>
 
+#include "../adapter/error.hpp"
+#include "../command/dispatch.hpp"
 #include "local.hpp"
 
 namespace rund::node::accel::detail {

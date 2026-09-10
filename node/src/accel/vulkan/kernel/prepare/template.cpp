@@ -1,10 +1,14 @@
+#include "../../adapter/error.hpp"
+#include "../../adapter/access.hpp"
+
 #include "local.hpp"
 
 #include "../../../kernel/backend/exception.hpp"
-#include "../../../kernel/prepared/template_registry.hpp"
+#include "../../../kernel/backend/template/identity.hpp"
+#include "../../../kernel/prepared/template/registry.hpp"
 #include "../../map/local.hpp"
 #include "../ops/table.hpp"
-#include "../reset_source.hpp"
+#include "../reset/source.hpp"
 
 #include <kernel/core/checked.hpp>
 

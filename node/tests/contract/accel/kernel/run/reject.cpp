@@ -265,6 +265,11 @@ bool LogicalAliasAdmissionMatches(const ResidentRunFixture &fixture) {
 }
 
 bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
+  const auto fail = [&](const char *stage, const char *reason = "") {
+    std::fprintf(stderr, "indexed boundary backend=%u stage=%s reason=%s\n",
+                 static_cast<unsigned>(context.api), stage, reason);
+    return false;
+  };
   constexpr std::array<rund::kernel::i64, 6u> source{10, 20, 30, 40, 50, 60};
   constexpr std::array<rund::kernel::u32, 4u> invalid{5u, 6u, 3u, 0u};
   constexpr std::array<rund::kernel::u32, 4u> valid{5u, 1u, 3u, 0u};
@@ -295,12 +300,12 @@ bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
       !rund::node::accel::UploadAccelBuffer(context, output_buffer,
                                             sentinel.data(), sizeof(sentinel))
            .ok) {
-    return false;
+    return fail("buffers-and-upload");
   }
 
   const rund::compute_dsl::ComputeOp op = BuildIndexedOp();
   if (!op.ok()) {
-    return false;
+    return fail("op");
   }
   std::array<rund::AccelGraphBufferRef, 3u> refs{
       rund::AccelRead(desc(rund::BufferUsage::ReadOnly, 8u, source.size()),
@@ -321,7 +326,7 @@ bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
                    .fixed_format = op.ir().fixed_format,
                });
   if (!kernel.check.ok) {
-    return false;
+    return fail("kernel", kernel.check.reason);
   }
   const std::array<rund::AccelRunBinding, 3u> bindings{
       rund::AccelRunBinding{.buffer = &source_buffer,
@@ -350,7 +355,7 @@ bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
                                               observed.data(), sizeof(observed))
            .ok ||
       observed != sentinel) {
-    return false;
+    return fail("rejection-and-no-write", rejected.outcome.reason);
   }
   if (!rund::node::accel::UploadAccelBuffer(context, index_buffer, valid.data(),
                                             sizeof(valid))
@@ -359,9 +364,9 @@ bool IndexedWriteBoundaryMatches(const rund::AccelContext &context) {
       !rund::node::accel::DownloadAccelBuffer(context, output_buffer,
                                               observed.data(), sizeof(observed))
            .ok) {
-    return false;
+    return fail("valid-retry");
   }
-  return observed == expected;
+  return observed == expected || fail("valid-output");
 }
 
 } // namespace node_accel_contract::kernel_case

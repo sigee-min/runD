@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../buffer/create.hpp"
+
 #include "../../../scan/prefix.hpp"
 #include "../local.hpp"
 

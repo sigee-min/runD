@@ -16,8 +16,8 @@ Implementation authority:
 - `/node/src/accel/stencil.hpp`
 - `/node/src/accel/range_aggregate/{model,plan}.hpp` as the sole
   algorithm/capability/cost selector
-- `/node/src/accel/range_aggregate/execution.hpp` as the generic `RangeParams`
-  host parameter ABI owner
+- `/node/src/accel/range_aggregate/execution/model.hpp` as the generic
+  `RangeParams` host parameter ABI owner
 - `/node/src/accel/stencil/range.hpp` as the sole Stencil-to-Range semantic
   projection owner
 - `/node/src/accel/stencil/bindings.{hpp,cpp}` as the resident binding and
@@ -38,7 +38,16 @@ Implementation authority:
 Verification authority:
 
 - `/node/tests/contract/accel/kernel/stencil.cpp`
-- `/node/tests/contract/accel/kernel/stencil/`
+- `/node/tests/contract/accel/kernel/stencil/match/` — `run.hpp` owns only the
+  templated direct/forced execution adapter; `basic.cpp`, `geometry.cpp`,
+  `numeric.cpp`, `range.cpp`, and `forced.cpp` each own their concrete match
+  cases exactly once. Backend callers include the stencil local declarations,
+  not this implementation header.
+- `/node/tests/contract/accel/kernel/stencil/backend/` — `common.cpp` owns
+  shared match/range-result helpers; `geometry.cpp`, `value.cpp`, and
+  `range.cpp` own backend geometry, value, and forced-range parity cases;
+  `metal.cpp` and `vulkan.cpp` own their capability/cache probes and required
+  backend sequences; `dispatcher.cpp` owns public dispatch ordering.
 - `/node/tests/contract/accel/kernel/range/`
 - `/node/tests/contract/accel/kernel/primitive/local.hpp`
 
@@ -89,10 +98,11 @@ The planner may select the following exact execution families:
 | --- | --- | --- |
 | Direct | Any admitted operation | One window stage |
 | SharedHalo | Any admitted operation when its exact halo fits | One window stage |
+| TiledDifference | Modulo-width Sum with lower modeled traffic | One tiled recurrence stage, no global scratch |
 | PrefixDifference | Modulo-width Sum | Prefix hierarchy, reverse fix-up, window output |
 | BlockPrefixSuffix | Min or Max | Block forward/backward construction, window output |
 
-`/node/docs/contracts/accel/range-aggregate.md` owns legality, cost formulas,
+`/node/docs/contracts/accel/range/aggregate.md` owns legality, cost formulas,
 candidate dominance, tie-breaking, and the large-radius `O(N)` proofs. The
 Stencil projection never ranks a second candidate set. `RangeExec` maps the
 selected plan to a backend workgroup width, per-stage dispatch shape,
@@ -115,6 +125,14 @@ expanded distinct input union exactly once; clamp endpoint duplicates are
 lane-private loaded values fanned into the required halo slots. PrefixDifference
 declares one width-sized scan array. Direct and BlockPrefixSuffix declare no
 dispatch-local shared array.
+
+The Virtual Window page contract uses `G=4,096` I32 elements. For the admitted
+Metal and Vulkan width `W=256`, one page is exactly sixteen workgroups. The
+measured radii `{1,8,32,128}` all select one SharedHalo stage with capacity
+`C=256`, `(256+2*256)*4 = 3,072` static shared bytes, and zero global scratch.
+The planner contract freezes these facts for both source families. This proves
+coalesced page/tile alignment and materialization elimination; it is not a
+wall-clock throughput claim.
 
 Metal validates the frozen width against the device dimension limit and the
 compiled pipeline total-thread limit. It validates modeled static shared bytes

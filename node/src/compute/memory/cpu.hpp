@@ -1,8 +1,11 @@
 #pragma once
 
+#include "../cpu/state/program.hpp"
+
 #include "../../accel/kernel/memory.hpp"
 #include "../cpu/graph.hpp"
-#include "../cpu/state.hpp"
+#include "../cpu/state/run.hpp"
+#include "../cpu/state/storage.hpp"
 #include "local.hpp"
 
 #include <rund/counter.hpp>

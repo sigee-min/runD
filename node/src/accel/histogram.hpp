@@ -18,11 +18,6 @@ struct VulkanAdapter;
 struct VulkanKernelImmutablePipelines;
 
 [[nodiscard]] rund::AccelCheck
-ExecuteMetalHistogram(const rund::AccelDevice &pick,
-                      const rund::kernel::HistogramDesc &desc,
-                      const rund::kernel::HistogramPlan &plan,
-                      const HistogramBinds &bindings);
-[[nodiscard]] rund::AccelCheck
 PrepareMetalHistogram(const rund::AccelDevice &pick,
                       const rund::kernel::HistogramDesc &desc,
                       const rund::kernel::HistogramPlan &plan,
@@ -37,11 +32,6 @@ PrepareMetalHistogram(const rund::AccelDevice &pick,
 FinishMetalHistogram(MetalAdapter &adapter,
                      const std::shared_ptr<void> &resources);
 
-[[nodiscard]] rund::AccelCheck
-ExecuteVulkanHistogram(const rund::AccelDevice &pick,
-                       const rund::kernel::HistogramDesc &desc,
-                       const rund::kernel::HistogramPlan &plan,
-                       const HistogramBinds &bindings);
 [[nodiscard]] rund::AccelCheck
 PrepareVulkanHistogram(const rund::AccelDevice &pick,
                        const rund::kernel::HistogramDesc &desc,

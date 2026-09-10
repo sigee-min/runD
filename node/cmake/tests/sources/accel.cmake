@@ -5,6 +5,12 @@ set(NODE_TEST_ACCEL_SURFACE_TEST_SOURCES
 set(NODE_TEST_ACCEL_CPU_SIMD_VECTOR_TEST_SOURCES
   tests/contract/accel/cpu/vector/contract.cpp
   tests/contract/accel/cpu/vector.cpp
+  tests/contract/accel/cpu/vector/plan.cpp
+  tests/contract/accel/cpu/vector/plan/support.cpp
+  tests/contract/accel/cpu/vector/plan/selectors.cpp
+  tests/contract/accel/cpu/vector/plan/scratch.cpp
+  tests/contract/accel/cpu/vector/plan/commit.cpp
+  tests/contract/accel/cpu/vector/plan/validation.cpp
 )
 
 set(NODE_TEST_ACCEL_CPU_SIMD_DSL_BASIC_TEST_SOURCES
@@ -69,9 +75,15 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/authority/claim.cpp
   tests/contract/accel/kernel/authority/failure.cpp
   tests/contract/accel/kernel/authority/manifest.cpp
+  tests/contract/accel/kernel/authority/manifest/vulkan.cpp
+  tests/contract/accel/kernel/authority/manifest/metal.cpp
   tests/contract/accel/kernel/authority/map.cpp
+  tests/contract/accel/kernel/authority/map/source.cpp
+  tests/contract/accel/kernel/authority/map/semantic.cpp
+  tests/contract/accel/kernel/authority/map/guard.cpp
   tests/contract/accel/kernel/authority/numeric.cpp
   tests/contract/accel/kernel/authority/phase.cpp
+  tests/contract/accel/kernel/authority/phase/source.cpp
   tests/contract/accel/kernel/authority/publication.cpp
   tests/contract/accel/kernel/authority/recipe.cpp
   tests/contract/accel/kernel/authority/route.cpp
@@ -99,12 +111,13 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/histogram.cpp
   tests/contract/accel/kernel/histogram/match.cpp
   tests/contract/accel/kernel/model.cpp
-  tests/contract/accel/kernel/metal/template_memory.cpp
+  tests/contract/accel/kernel/metal/template/memory.cpp
+  tests/contract/accel/kernel/metal/abi.cpp
   tests/contract/accel/kernel/partition.cpp
   tests/contract/accel/kernel/partition/compile.cpp
   tests/contract/accel/kernel/partition/fixture.cpp
   tests/contract/accel/kernel/partition/match.cpp
-  tests/contract/accel/kernel/range_aggregate.cpp
+  tests/contract/accel/kernel/range/aggregate.cpp
   tests/contract/accel/kernel/range/backend.cpp
   tests/contract/accel/kernel/range/cache.cpp
   tests/contract/accel/kernel/range/execution.cpp
@@ -115,8 +128,19 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/range/shared.cpp
   tests/contract/accel/kernel/range/source.cpp
   tests/contract/accel/kernel/reduce.cpp
-  tests/contract/accel/kernel/recurrence.cpp
-  tests/contract/accel/kernel/reset.cpp
+  tests/contract/accel/kernel/recurrence/nested_marker.cpp
+  tests/contract/accel/kernel/recurrence/geometry.cpp
+  tests/contract/accel/kernel/recurrence/history.cpp
+  tests/contract/accel/kernel/recurrence/plan.cpp
+  tests/contract/accel/kernel/recurrence/source.cpp
+  tests/contract/accel/kernel/recurrence/support.cpp
+  tests/contract/accel/kernel/reset/support.cpp
+  tests/contract/accel/kernel/reset/model.cpp
+  tests/contract/accel/kernel/reset/execution.cpp
+  tests/contract/accel/kernel/reset/projection.cpp
+  tests/contract/accel/kernel/reset/overlap.cpp
+  tests/contract/accel/kernel/reset/sealing.cpp
+  tests/contract/accel/kernel/reset/dispatcher.cpp
   tests/contract/accel/kernel/run.cpp
   tests/contract/accel/kernel/run/evidence.cpp
   tests/contract/accel/kernel/run/fixture.cpp
@@ -124,31 +148,81 @@ set(NODE_TEST_ACCEL_KERNEL_CORE_TEST_SOURCES
   tests/contract/accel/kernel/run/window.cpp
   tests/contract/accel/kernel/scatter.cpp
   tests/contract/accel/kernel/stencil.cpp
-  tests/contract/accel/kernel/stencil/backend.cpp
+  tests/contract/accel/kernel/stencil/match/basic.cpp
+  tests/contract/accel/kernel/stencil/match/geometry.cpp
+  tests/contract/accel/kernel/stencil/match/numeric.cpp
+  tests/contract/accel/kernel/stencil/match/range.cpp
+  tests/contract/accel/kernel/stencil/match/forced.cpp
+  tests/contract/accel/kernel/stencil/backend/common.cpp
+  tests/contract/accel/kernel/stencil/backend/geometry.cpp
+  tests/contract/accel/kernel/stencil/backend/value.cpp
+  tests/contract/accel/kernel/stencil/backend/range.cpp
+  tests/contract/accel/kernel/stencil/backend/metal.cpp
+  tests/contract/accel/kernel/stencil/backend/vulkan.cpp
+  tests/contract/accel/kernel/stencil/backend/dispatcher.cpp
   tests/contract/accel/kernel/stencil/bindings.cpp
+  tests/contract/accel/kernel/terminal.cpp
   tests/contract/accel/kernel/window.cpp
 )
 
 list(APPEND RUND_NODE_TEST_COMPANION_ROWS
+  "tests/contract/accel/kernel/metal/abi.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/collective/surface.cpp|accel.kernel-core"
+  "tests/contract/accel/cpu/vector/plan.cpp|accel.cpu-simd.vector"
+  "tests/contract/accel/cpu/vector/plan/support.cpp|accel.cpu-simd.vector"
+  "tests/contract/accel/cpu/vector/plan/selectors.cpp|accel.cpu-simd.vector"
+  "tests/contract/accel/cpu/vector/plan/scratch.cpp|accel.cpu-simd.vector"
+  "tests/contract/accel/cpu/vector/plan/commit.cpp|accel.cpu-simd.vector"
+  "tests/contract/accel/cpu/vector/plan/validation.cpp|accel.cpu-simd.vector"
+  "tests/contract/accel/kernel/recurrence/nested_marker.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/recurrence/geometry.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/recurrence/history.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/recurrence/plan.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/recurrence/source.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/backend.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/cache.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/capacity.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/claim.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/failure.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/manifest.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/manifest/vulkan.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/manifest/metal.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/map.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/map/source.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/map/semantic.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/map/guard.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/numeric.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/phase.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/authority/phase/source.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/publication.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/recipe.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/route.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/run.cpp|accel.kernel-core"
   "tests/contract/accel/kernel/authority/window.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/match/basic.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/match/geometry.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/match/numeric.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/match/range.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/match/forced.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/bindings.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/common.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/geometry.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/value.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/range.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/metal.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/vulkan.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/stencil/backend/dispatcher.cpp|accel.kernel-core"
+  "tests/contract/accel/kernel/spectrum/validation.cpp|accel.kernel-numeric"
+  "tests/contract/accel/kernel/factor/rejection.cpp|accel.kernel-numeric"
+  "tests/contract/accel/kernel/factor/execution.cpp|accel.kernel-numeric"
+  "tests/contract/accel/kernel/factor/dense.cpp|accel.kernel-numeric"
 )
 
 if(RUND_NODE_HAVE_METAL_SDK)
   set_source_files_properties(
-    tests/contract/accel/kernel/metal/template_memory.cpp
+    tests/contract/accel/kernel/metal/template/memory.cpp
+    tests/contract/accel/kernel/metal/abi.cpp
     PROPERTIES
       LANGUAGE OBJCXX
       COMPILE_DEFINITIONS RUND_NODE_HAVE_METAL_SDK=1
@@ -159,12 +233,15 @@ set(NODE_TEST_ACCEL_KERNEL_NUMERIC_TEST_SOURCES
   tests/contract/accel/kernel/numeric.cpp
   tests/contract/accel/kernel/numeric/metal.cpp
   tests/contract/accel/kernel/numeric/topology.cpp
-  tests/contract/accel/kernel/factor.cpp
+  tests/contract/accel/kernel/factor/rejection.cpp
+  tests/contract/accel/kernel/factor/execution.cpp
+  tests/contract/accel/kernel/factor/dense.cpp
   tests/contract/accel/kernel/matrix.cpp
   tests/contract/accel/kernel/solve.cpp
   tests/contract/accel/kernel/solve/raw.cpp
   tests/contract/accel/kernel/solve/reuse.cpp
   tests/contract/accel/kernel/spectrum.cpp
+  tests/contract/accel/kernel/spectrum/validation.cpp
   tests/contract/accel/kernel/transform.cpp
 )
 
@@ -176,7 +253,18 @@ set(NODE_TEST_ACCEL_CPU_KERNEL_TEST_SOURCES
 )
 
 set(NODE_TEST_ACCEL_BACKEND_RUNTIME_TEST_SOURCES
-  tests/contract/accel/backend/runtime.cpp
+  tests/contract/accel/backend/runtime/support.cpp
+  tests/contract/accel/backend/runtime/admission.cpp
+  tests/contract/accel/backend/runtime/command.cpp
+  tests/contract/accel/backend/runtime/cpu.cpp
+  tests/contract/accel/backend/runtime/metal.cpp
+  tests/contract/accel/backend/runtime/vulkan.cpp
+  tests/contract/accel/backend/runtime/readback.cpp
+  tests/contract/accel/backend/runtime/tier.cpp
+  tests/contract/accel/backend/runtime/runtime.cpp
+  tests/contract/accel/backend/runtime/dispatcher.cpp
+  tests/contract/accel/metal/stats/run.cpp
+  tests/contract/accel/vulkan/stats/run.cpp
   tests/contract/accel/buffer.cpp
   tests/contract/accel/buffer/backend.cpp
   tests/contract/accel/buffer/desc.cpp
@@ -199,6 +287,7 @@ set(NODE_TEST_ACCEL_BACKEND_WINDOW_TEST_SOURCES
 set(NODE_TEST_ACCEL_BACKEND_PICK_TEST_SOURCES
   tests/contract/accel/backend/pick.cpp
   tests/contract/accel/vulkan/pick.cpp
+  tests/contract/accel/vulkan/timeline.cpp
 )
 
 set(NODE_TEST_ACCEL_BACKEND_CORE_TEST_SOURCES

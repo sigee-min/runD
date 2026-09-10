@@ -27,21 +27,48 @@ set(KERNEL_PROGRAM_SOURCES
 
 set(KERNEL_COMPUTE_SOURCES
   src/program/compute/binding/validation.cpp
+  src/program/compute/binding/validation/helpers.cpp
+  src/program/compute/binding/validation/input.cpp
+  src/program/compute/binding/validation/output.cpp
+  src/program/compute/binding/validation/resident.cpp
   src/program/compute/dsl/build.cpp
   src/program/compute/dsl/context/format.cpp
   src/program/compute/dsl/context/model.cpp
   src/program/compute/dsl/context/node.cpp
+  src/program/compute/dsl/context/node/constant.cpp
+  src/program/compute/dsl/context/node/input.cpp
+  src/program/compute/dsl/context/node/operation.cpp
   src/program/compute/dsl/context/write.cpp
   src/program/compute/dsl/expression.cpp
   src/program/compute/dsl/operation.cpp
   src/program/compute/fusion.cpp
-  src/program/compute/graph/signature.cpp
+  src/program/compute/fusion/identity.cpp
+  src/program/compute/fusion/inspect.cpp
+  src/program/compute/fusion/policy.cpp
+  src/program/compute/graph/signature/support.cpp
+  src/program/compute/graph/signature/map.cpp
+  src/program/compute/graph/signature/scan.cpp
+  src/program/compute/graph/signature/sort.cpp
+  src/program/compute/graph/signature/indexed.cpp
+  src/program/compute/graph/signature/reduce.cpp
+  src/program/compute/graph/signature/window.cpp
+  src/program/compute/graph/signature/transform.cpp
+  src/program/compute/graph/signature/matrix.cpp
+  src/program/compute/graph/signature/spectrum.cpp
   src/program/compute/ir.cpp
   src/program/compute/lowering.cpp
-  src/program/compute/lowering/validate/domain.cpp
+  src/program/compute/lowering/parse/binding.cpp
+  src/program/compute/lowering/parse/entry.cpp
+  src/program/compute/lowering/parse/node.cpp
+  src/program/compute/lowering/parse/reader.cpp
+  src/program/compute/lowering/validate/binding.cpp
+  src/program/compute/lowering/validate/mask.cpp
+  src/program/compute/lowering/validate/write.cpp
+  src/program/compute/lowering/validate/propagate.cpp
   src/program/compute/lowering/validate/entry.cpp
   src/program/compute/lowering/validate/format.cpp
   src/program/compute/lowering/artifact/admission.cpp
+  src/program/compute/lowering/fusion/artifact.cpp
   src/program/compute/lowering/fusion/build.cpp
   src/program/compute/metadata.cpp
 )

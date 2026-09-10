@@ -1,0 +1,202 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-cpu-contracts:
+    name: Linux CPU/source contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CC: clang-18
+      CXX: clang++-18
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CTEST_PARALLEL_LEVEL: 2
+      LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
+      Clang_DIR: /usr/lib/llvm-18/lib/cmake/clang
+
+    steps:
+      - name: Check out the change
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the contract toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 \
+            cmake \
+            libclang-18-dev \
+            llvm-18 \
+            llvm-18-dev \
+            llvm-18-tools \
+            ninja-build \
+            util-linux
+
+      - name: Record the contract toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          ninja --version
+          clang++-18 --version
+          /usr/lib/llvm-18/bin/llvm-config --version
+          flock --version
+
+      - name: Run the complete Debug contract matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/check/run
+
+      - name: Verify the no-device platform boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/check/platform/unavailable
+
+      - name: Upload Linux contract evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-linux-contract-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .cache/evidence/**
+            .cache/dev/CMakeFiles/CMakeConfigureLog.yaml
+            .cache/dev/Testing/Temporary/LastTest.log
+            .cache/dev/Testing/Temporary/LastTestsFailed.log
+            .cache/platform-unavailable/platform-unavailable.tsv
+            .cache/platform-unavailable/CMakeFiles/CMakeConfigureLog.yaml
+            .cache/platform-unavailable/Testing/Temporary/LastTest.log
+            .cache/platform-unavailable/Testing/Temporary/LastTestsFailed.log
+
+  linux-sdk-consumer:
+    name: Linux installed SDK consumer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CC: gcc-13
+      CXX: g++-13
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CTEST_PARALLEL_LEVEL: 2
+      Clang_DIR: /usr/lib/llvm-18/lib/cmake/clang
+      LLVM_CONFIG: /usr/lib/llvm-18/bin/llvm-config
+      LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
+
+    steps:
+      - name: Check out the change
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the release toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            gcc-13 \
+            g++-13 \
+            clang-18 \
+            libclang-18-dev \
+            llvm-18 \
+            llvm-18-dev \
+            llvm-18-tools \
+            ninja-build \
+            util-linux
+
+      - name: Record the release toolchain tuple
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          ninja --version
+          gcc-13 --version
+          g++-13 --version
+          /usr/lib/llvm-18/bin/clang++ --version
+          /usr/lib/llvm-18/bin/llvm-config --version
+          flock --version
+
+      - name: Run the Release installed-SDK consumer gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/release/run
+
+      - name: Upload Linux SDK evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-linux-sdk-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .cache/evidence/**
+            .cache/release/CMakeFiles/CMakeConfigureLog.yaml
+            .cache/release/Testing/Temporary/LastTest.log
+            .cache/release/Testing/Temporary/LastTestsFailed.log
+
+  site-build-check:
+    name: Static site build and checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the change
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install the locked site toolchain
+        working-directory: site
+        run: npm ci
+
+      - name: Reject high-severity dependency findings
+        working-directory: site
+        run: npm audit --audit-level=high
+
+      - name: Build and verify the static site
+        working-directory: site
+        run: |
+          npm run build
+          npm run check
+
+      - name: Upload static site build output
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-site-dist-${{ github.run_id }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          path: site/dist

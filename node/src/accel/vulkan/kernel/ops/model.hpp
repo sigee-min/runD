@@ -4,7 +4,8 @@
 #include <accel/device.hpp>
 
 #include "../../../kernel/preparation.hpp"
-#include "../../adapter/api.hpp"
+#include "../../adapter/buffer.hpp"
+#include "../../adapter/state.hpp"
 #include "../../kernel.hpp"
 
 #include <array>

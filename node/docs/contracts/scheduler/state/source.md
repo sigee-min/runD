@@ -36,7 +36,7 @@ Public behavior is owned by the sibling scheduler contract pages.
   order lives in `node/runtime/replay/task/stats.hpp` and semantic-hash order in
   `node/runtime/replay/task/schema/semantic.def`; both reference current slots
   by name rather than physical index. Each compact physical slot has exactly
-  one public getter and at least one production owner reference.
+  one public getter.
   Source-only `stats/access.hpp` is the only authority that can materialize or
   read/write a snapshot by slot.
 - `state/storage/batch.hpp` owns commit-ticket sequencing and one fixed pending
@@ -55,11 +55,22 @@ Public behavior is owned by the sibling scheduler contract pages.
 - `state/task/index.cpp`, `state/ready/queue.cpp`, and `state/terminal.cpp` own
   task lookup, ready admission, and terminal/failure selection.
 - `state/record.hpp` and `core/record/` own deterministic logical evidence.
+  Within that boundary, `core/record/observation.cpp` owns scheduler
+  observation publication, `observation/host.cpp` owns canonical host-event
+  projection, capture hashing, retention, and replay comparison,
+  `observation/network.cpp` owns network-statistic classification,
+  `observation/payload.cpp` owns payload capacity and committed-payload
+  publication, and `observation/api.cpp` owns the public host-event bridges.
+  All leaves mutate the same mutex-protected `SchedulerState::evidence`; their
+  include-only local header introduces no second event or payload authority.
 
 ## Execution
 
 - `core/spawn.cpp` and `core/spawn/` own leaf/native-coroutine admission,
   record reuse, identity, budget validation, enqueue, and rejection cleanup.
+- `core/replay/` owns scheduler-facing canonical input mode, capture, replay,
+  source-range validation, and input accounting. `replay/internal.hpp` carries
+  only declarations for the shared poison/store/fingerprint primitives.
 - `task/context/switch.cpp` routes one task quantum to either native coroutine
   execution or a non-suspending leaf.
 - `task/context/switch/coroutine.cpp` resumes the scheduler-owned coroutine

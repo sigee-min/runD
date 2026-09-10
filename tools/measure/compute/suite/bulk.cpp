@@ -1,4 +1,9 @@
-#include "core.hpp"
+#include "bulk.hpp"
+#include "capture.hpp"
+#include "output.hpp"
+#include "reference.hpp"
+
+#include <cstdio>
 
 namespace rund::measure::compute {
 

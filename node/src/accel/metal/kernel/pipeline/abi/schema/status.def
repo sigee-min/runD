@@ -1,0 +1,20 @@
+RUND_METAL_ABI_BEGIN(MetalPipelineStatusParams, StatusParams)
+RUND_METAL_ABI_U32(reset_range_count, 0u, 0u)
+RUND_METAL_ABI_U32(status_count, 0u, 4u)
+RUND_METAL_ABI_U32(reset_word_count, 0u, 8u)
+RUND_METAL_ABI_U32(declared_step_count, 0u, 12u)
+RUND_METAL_ABI_U32(invalid_reason, 0u, 16u)
+RUND_METAL_ABI_U32(generation_stride, 0u, 20u)
+RUND_METAL_ABI_U32(source_count, 0u, 24u)
+RUND_METAL_ABI_U32(phase, 0u, 28u)
+// A nested status fold closes its ResidentState in the same dispatch that
+// selects the first failure. Non-nested folds retain the invalid sentinel.
+RUND_METAL_ABI_U32(window_state, std::numeric_limits<std::uint32_t>::max(), 32u)
+RUND_METAL_ABI_U32(window_stop, 0u, 36u)
+// A failing Fold has already completed its Action body. The reducer records
+// that proved work before closing the resident route; Seed/Action use zero.
+RUND_METAL_ABI_U32(window_inner_advance, 0u, 40u)
+// The prepared open dispatch resets this exact ResidentState prefix before
+// any recurrence-owned command can observe it.
+RUND_METAL_ABI_U32(state_count, 0u, 44u)
+RUND_METAL_ABI_END(MetalPipelineStatusParams, StatusParams, 48u, 4u)

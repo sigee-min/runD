@@ -38,6 +38,11 @@ PlanCommand(const CommandKind kind) noexcept {
   case CommandKind::ReusablePrimary:
     return CommandPlan{
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        // A bounded temporal window may place the same cold-recorded bank
+        // command at e and e+2 into one queue handoff.  The queue dependency
+        // prevents concurrent execution, but both instances are pending after
+        // vkQueueSubmit accepts the fixed array, so Vulkan requires this bit.
+        .begin_flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
         .fence_flags = VK_FENCE_CREATE_SIGNALED_BIT,
         .fenced = true,
         .valid = true,

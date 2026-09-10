@@ -10,6 +10,7 @@ decisions.
 | [Compute SDK](./compute.md) | Current public Compute API, cost boundaries, graph semantics, selection, and errors. |
 | [Compute Pipeline](../../node/docs/contracts/compute/pipeline.md) | Node-owned product contract for prepared declaration-ordered dependent Program execution over resident Buffers. |
 | [Performance](./performance/README.md) | Release measurement baseline, environment admission, and regression limits. |
+| [Virtual Performance](./performance/virtual/README.md) | Current-source VirtualPipeline procedure and bounded hardware-specific results. |
 | [Math](./math/README.md) | Math32/math64 contract and focused measurement routing. |
 | [Host](./host/README.md) | Host byte-identity measurements and platform evidence. |
 

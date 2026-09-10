@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../state/assembly.hpp"
+
 #include "../state.hpp"
 
 #include <memory>
@@ -32,5 +34,7 @@ make_pipeline_memory(const std::shared_ptr<DeviceState> &device,
                      const PipelineMemoryPlan &plan);
 [[nodiscard]] Status prepare_backend(PipelineState &state,
                                      Location &failure) noexcept;
+[[nodiscard]] Status
+validate_publication_job_bindings(const PipelineState &state) noexcept;
 
 } // namespace rund::compute::detail

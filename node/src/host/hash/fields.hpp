@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <string_view>
 
 namespace rund::node::host_detail {
 
@@ -86,20 +85,6 @@ public:
 
   constexpr void AppendBytes(const std::span<const std::byte> bytes) noexcept {
     state_.MixBytes(bytes);
-  }
-
-  constexpr void
-  AppendLengthPrefixedBytes(const std::span<const std::byte> bytes) noexcept {
-    AppendU64Le(static_cast<std::uint64_t>(bytes.size()));
-    AppendBytes(bytes);
-  }
-
-  constexpr void
-  AppendLengthPrefixedString(const std::string_view text) noexcept {
-    AppendU64Le(static_cast<std::uint64_t>(text.size()));
-    for (const char value : text) {
-      AppendByte(static_cast<std::byte>(static_cast<unsigned char>(value)));
-    }
   }
 
   [[nodiscard]] constexpr ::rund::StableHash Finish() const noexcept {

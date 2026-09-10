@@ -1,3 +1,7 @@
+#include "../adapter/error.hpp"
+#include "../adapter/access.hpp"
+#include "../buffer/access.hpp"
+
 #include <accel/check.hpp>
 #include <accel/device.hpp>
 
@@ -142,26 +146,6 @@ rund::AccelCheck EncodeVulkanPartition(VulkanAdapter &adapter,
   (void)resources;
   (void)command_buffer_raw;
   return rund::AccelCheck{false, "accel_vulkan_loader_unavailable"};
-#endif
-}
-
-rund::AccelCheck ExecuteVulkanPartition(const rund::AccelDevice &pick,
-                                        const rund::kernel::PartitionDesc &desc,
-                                        const rund::kernel::PartitionPlan &plan,
-                                        const PartitionBinds &bindings) {
-#if defined(RUND_NODE_HAVE_VULKAN_SDK)
-  return ExecuteVulkanCollective(
-      pick, desc, plan, bindings,
-      [](const rund::AccelDevice &device,
-         const rund::kernel::PartitionDesc &operation,
-         const rund::kernel::PartitionPlan &prepared,
-         const PartitionBinds &resident, std::shared_ptr<void> &resources) {
-        return PrepareVulkanPartition(device, operation, prepared, resident,
-                                      resources, nullptr);
-      },
-      EncodeVulkanPartition, FinishVulkanPartition);
-#else
-  return RejectVulkanCollectiveExecute(pick, desc, plan, bindings);
 #endif
 }
 

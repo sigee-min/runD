@@ -121,8 +121,17 @@ struct CpuSimdInvocation final {
   rund::kernel::u64 count = 0u;
 };
 
+// Coefficients in Z/(2^w), admitted only for one-read/one-write integer
+// expressions whose operations are all pure modular affine operations.
+struct PreparedAffineRun final {
+  rund::kernel::u64 multiplier{};
+  rund::kernel::u64 addend{};
+  bool valid{};
+};
+
 struct PreparedRun {
   std::vector<PreparedInstruction> instructions;
+  PreparedAffineRun affine{};
   std::size_t value_slot_count = 0u;
   std::size_t once_count = 0u;
   rund::kernel::u32 read_count = 0u;

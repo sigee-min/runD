@@ -16,6 +16,11 @@ file(MAKE_DIRECTORY "${fake_bin}")
 file(WRITE "${fake_bin}/cmake" [=[#!/bin/sh
 set -eu
 : "${RUND_CONFIGURE_CAPTURE:?}"
+if [ "$#" -eq 3 ] && [ "$1" = "-E" ] &&
+   [ "$2" = "sha256sum" ] && [ "$3" = "-" ]; then
+  : "${RUND_REAL_CMAKE:?}"
+  exec "$RUND_REAL_CMAKE" "$@"
+fi
 : > "$RUND_CONFIGURE_CAPTURE"
 for argument do
   printf '%s\n' "$argument" >> "$RUND_CONFIGURE_CAPTURE"
@@ -33,6 +38,7 @@ function(capture_profile profile build_type focus capture)
       "${CMAKE_COMMAND}" -E env
       "PATH=${fake_bin}:$ENV{PATH}"
       "RUND_CONFIGURE_CAPTURE=${capture}"
+      "RUND_REAL_CMAKE=${CMAKE_COMMAND}"
       sh "${ROOT}/tools/internal/configure/contracts"
       "${ROOT}" "${fixture}/${profile}" "${profile}" "${build_type}"
       "${focus}"
@@ -164,6 +170,7 @@ function(capture_platform vulkan capture)
       "${CMAKE_COMMAND}" -E env
       "PATH=${fake_bin}:$ENV{PATH}"
       "RUND_CONFIGURE_CAPTURE=${capture}"
+      "RUND_REAL_CMAKE=${CMAKE_COMMAND}"
       sh "${ROOT}/tools/internal/configure/contracts"
       "${ROOT}" "${fixture}/platform-${vulkan}" platform Debug
       runtime.platform-adapter "${vulkan}"

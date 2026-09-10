@@ -13,6 +13,7 @@
 #include "plan/local.hpp"
 #include "plan/prepare.hpp"
 #include "state.hpp"
+#include "run/memory/internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -256,6 +257,8 @@ prepare_pipeline(std::shared_ptr<PipelineBuildState> build) noexcept {
     if (!attached) {
       return Result<std::shared_ptr<PipelineState>>::fail(attached.reason());
     }
+    seal_pipeline_jobs(*state);
+    seal_pipeline_shared(*state);
     state->preparing = false;
     return Result<std::shared_ptr<PipelineState>>::success(std::move(state));
   } catch (const std::bad_alloc &) {

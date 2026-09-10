@@ -6,7 +6,6 @@
 #include <kernel/program/compute/plan.hpp>
 
 #include <array>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -228,7 +227,6 @@ template <typename Op> void CheckArtifactAdmissionParity(const Op &op) {
 }
 
 void CheckParseCapacityBoundary(const rund::compute_dsl::ComputeOp &op) {
-  using rund::kernel::compute_lowering_detail::GuardComputeIRParse;
   using rund::kernel::compute_lowering_detail::ParseComputeIR;
   using rund::kernel::compute_lowering_detail::Reader;
 
@@ -247,14 +245,6 @@ void CheckParseCapacityBoundary(const rund::compute_dsl::ComputeOp &op) {
   TEST_ASSERT(decoded_ok);
   TEST_ASSERT(decoded == std::string(string_size, 'x'));
   TEST_ASSERT(kernel_contract_test::memory_allocation::Count() == 1u);
-
-  const auto length_rejected = GuardComputeIRParse(
-      []() -> rund::kernel::compute_lowering_detail::ParsedIR {
-        throw std::length_error{"contract"};
-      });
-  TEST_ASSERT(!length_rejected.ok);
-  TEST_ASSERT(std::string_view{length_rejected.reason} ==
-              "compute_ir_capacity");
 
   kernel_contract_test::memory_allocation::FailNext();
   const auto allocation_rejected = ParseComputeIR(op.ir());

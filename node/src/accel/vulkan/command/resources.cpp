@@ -1,6 +1,7 @@
 #include "resources.hpp"
 
 #include "../command.hpp"
+#include "../adapter/error.hpp"
 
 namespace rund::node::accel::detail {
 

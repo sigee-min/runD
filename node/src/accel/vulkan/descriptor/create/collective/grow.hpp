@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../adapter/error.hpp"
+
 #include "capacity.hpp"
 #include "reuse.hpp"
 #include "../layout/sets.hpp"

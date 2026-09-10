@@ -2,7 +2,7 @@
 
 #include "../../../segmented/reduce/model.hpp"
 
-#include "../../adapter/api.hpp"
+#include "../../adapter/state.hpp"
 #include "../../collective/pipeline.hpp"
 #include "../../descriptor.hpp"
 #include "../../status.hpp"

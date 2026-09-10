@@ -2,8 +2,9 @@
 
 #include <node/runtime/compute/access.hpp>
 
-#include "src/accel/kernel/prepared.hpp"
+#include "src/accel/kernel/prepared/interface/api.hpp"
 #include "src/compute/pipeline/local.hpp"
+#include "src/compute/pipeline/run/evidence.hpp"
 #include "src/compute/pipeline/state.hpp"
 
 #include <memory>
@@ -23,6 +24,101 @@ static_assert(!std::is_default_constructible_v<CpuPipelineSelection>);
 static_assert(!std::is_copy_constructible_v<CpuPipelineSelection>);
 static_assert(std::is_nothrow_move_constructible_v<CpuPipelineSelection>);
 static_assert(!std::is_move_assignable_v<CpuPipelineSelection>);
+
+// Table-driven native evidence contract: no device or mutable Pipeline
+// required.
+[[nodiscard]] int CheckPipelineEvidenceDecision() {
+  using namespace rund::compute;
+  using namespace rund::compute::detail;
+  using namespace rund::node::accel::detail;
+  const PipelineEvidenceContext context{
+      .total_steps = 3u, .active_steps = 1u, .generation = 7u};
+  PreparedPipelineEvidence good{};
+  good.check = {true, "ok"};
+  good.shared.outcome.ok = true;
+  good.shared.run.work.command_submit_count = 1u;
+  good.active_step_count = 1u;
+  good.submitted = true;
+  good.control_observed = true;
+  good.control_valid = true;
+  good.control_byte_count = PreparedPipelineControlBytes;
+  good.control.generation = 8u;
+  good.control.failed_step = PreparedPipelineNoStep;
+  good.control.verified_prefix = 1u;
+  for (unsigned test = 0u; test != 7u; ++test) {
+    auto evidence = good;
+    Reason expected = Reason::Ok;
+    switch (test) {
+    case 1u:
+      evidence.control.generation = 7u;
+      expected = Reason::CompletionInvalid;
+      break;
+    case 2u:
+      evidence.control_byte_count = 0u;
+      expected = Reason::CompletionInvalid;
+      break;
+    case 3u:
+      evidence.active_step_count = 2u;
+      expected = Reason::CompletionInvalid;
+      break;
+    case 4u:
+      evidence.shared.run.work.command_submit_count = 3u;
+      expected = Reason::CompletionInvalid;
+      break;
+    case 5u:
+      evidence.terminal = NativeTerminal::UnknownMayWrite;
+      expected = Reason::DeviceLost;
+      break;
+    case 6u:
+      evidence.terminal = NativeTerminal::UnknownMayWrite;
+      evidence.submitted = false;
+      evidence.shared.run.work.command_submit_count = 0u;
+      expected = Reason::DeviceLost;
+      break;
+    default:
+      break;
+    }
+    const auto ordinary = decide_ordinary_pipeline_evidence(context, evidence);
+    const auto resident = decide_residency_pipeline_evidence(context, evidence);
+    for (const auto *decision : {&ordinary, &resident}) {
+      if (decision->outcome.status.reason() != expected ||
+          decision->outcome.failed_step.has_value()) {
+        return 1 + static_cast<int>(test);
+      }
+      if (expected == Reason::DeviceLost &&
+          (!decision->outcome.unknown_terminal() ||
+           !decision->outcome.writes_possible ||
+           !decision->outcome.publication_suppressed)) {
+        return 11 + static_cast<int>(test);
+      }
+    }
+  }
+  // Ordinary Metal profiling uses two queue submissions; Residency one.
+  auto timed = context;
+  timed.timed_metal = true;
+  good.shared.run.work.command_submit_count = 2u;
+  if (!decide_ordinary_pipeline_evidence(timed, good).outcome.status ||
+      decide_residency_pipeline_evidence(timed, good).outcome.status)
+    return 20;
+  // The Residency extent is local, not the full physical Pipeline extent.
+  good.shared.run.work.command_submit_count = 1u;
+  good.control.verified_prefix = 3u;
+  if (!decide_ordinary_pipeline_evidence(context, good).outcome.status ||
+      decide_residency_pipeline_evidence(context, good).outcome.status)
+    return 21;
+  PreparedPipelineEvidence empty{};
+  empty.check = {true, "ok"};
+  empty.shared.outcome.ok = true;
+  const auto no_work =
+      decide_ordinary_pipeline_evidence({.total_steps = 3u}, empty).outcome;
+  if (!no_work.status || no_work.submitted() || no_work.verified != 3u)
+    return 22;
+  empty.check = {false, "compute_backend_failed"};
+  const auto rejected = decide_ordinary_pipeline_evidence({}, empty).outcome;
+  if (rejected.status || rejected.submitted() || rejected.writes_possible)
+    return 23;
+  return 0;
+}
 
 [[nodiscard]] int CheckCpuPipelineSelectionContract() {
   const CpuPipelineSelection failed =
@@ -79,6 +175,9 @@ static_assert(!std::is_move_assignable_v<CpuPipelineSelection>);
 [[nodiscard]] int
 CheckUnknownCompletionProfileIdentity(rund::compute::Device &device,
                                       const Backend backend) {
+  if (const int decision = CheckPipelineEvidenceDecision(); decision != 0) {
+    return 100 + decision;
+  }
   if (const int selection = CheckCpuPipelineSelectionContract();
       selection != 0) {
     return 10 + selection;
@@ -140,7 +239,7 @@ CheckUnknownCompletionProfileIdentity(rund::compute::Device &device,
                  .outcome = {.ok = false, .reason = "compute_backend_failed"}},
       .check = {false, "compute_backend_failed"},
       .control = {.generation =
-                      static_cast<std::uint32_t>(state->attempt_generation),
+                      static_cast<std::uint32_t>(state->attempt.generation),
                   .reason = static_cast<std::uint32_t>(Reason::Ok),
                   .failed_step =
                       rund::node::accel::detail::PreparedPipelineNoStep,
@@ -169,6 +268,41 @@ CheckUnknownCompletionProfileIdentity(rund::compute::Device &device,
       profile->instrumentation_byte_count != 64u ||
       !ProfileMemoryReconciles(*profile, rows)) {
     return 4;
+  }
+  // Explicit UnknownMayWrite must never publish success, even when the
+  // backend check claims success and its submission counter is present.
+  auto lost_output = device.buffer<std::int32_t>(input.size());
+  if (!lost_output) {
+    return 5;
+  }
+  auto lost_pipeline = pipeline(device)
+                           .then(*program, read(*source), write(*lost_output))
+                           .prepare();
+  if (!lost_pipeline) {
+    return 5;
+  }
+  const auto &lost_state = detail::PipelineStateAccess::state(*lost_pipeline);
+  const auto generation = lost_state->publication->generation;
+  if (!detail::queue_pipeline(lost_state)) {
+    return 5;
+  }
+  rund::node::accel::detail::PreparedPipelineEvidence lost{};
+  lost.check = {true, "ok"};
+  lost.shared.outcome.ok = true;
+  lost.shared.run.work.command_submit_count = 1u;
+  lost.active_step_count = 1u;
+  lost.submitted = true;
+  lost.terminal = rund::node::accel::detail::NativeTerminal::UnknownMayWrite;
+  const Status quarantined =
+      detail::finish_pipeline_on(lost_state, std::move(lost));
+  if (quarantined.reason() != Reason::DeviceLost ||
+      !lost_state->control_poisoned ||
+      lost_state->phase != detail::PipelinePhase::Poisoned ||
+      lost_state->publication->generation != generation ||
+      !lost_state->publication->device_lost ||
+      lost_state->publication->attempt_active ||
+      detail::queue_pipeline(lost_state).reason() != Reason::DeviceLost) {
+    return 6;
   }
   return 0;
 #endif

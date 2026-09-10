@@ -3,7 +3,7 @@
 #include <rund/task/stats/slots.hpp>
 
 #include "../../../../host/net/registry/access.hpp"
-#include "../../../reactor/platform.hpp"
+#include "../../../reactor/platform/lifecycle.hpp"
 #include "../access.hpp"
 #include "../reactor/registry.hpp"
 #include "../reactor/scratch.hpp"

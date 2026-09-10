@@ -6,6 +6,12 @@
 
 namespace rund::node::accel::detail {
 
+// Reports the cold arbitrary-local retained selection stream independently of
+// the exact transfer-backed whole command owner.
+[[nodiscard]] rund::AccelCheck
+QueryVulkanPipelineResidency(const std::shared_ptr<void> &prepared,
+                             bool &supported) noexcept;
+
 [[nodiscard]] rund::AccelCheck PrepareVulkanPipelineTransfer(
     const std::shared_ptr<void> &prepared, const UploadRoute &upload,
     const DownloadRoute &download, std::uint64_t exact_storage_bytes) noexcept;

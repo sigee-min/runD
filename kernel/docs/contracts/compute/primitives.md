@@ -15,13 +15,15 @@ identity, and validation. General execution metadata does not include or expose
 that graph schema. The complete graph tree is internal and absent from the
 installed SDK; it is not a public router or a second schema authority.
 
-`graph/signature.hpp` is declarations-only. The six-owner Kernel Compute
-closure compiles signature construction once in `graph/signature.cpp`, which
-depends on primitive models rather than executable planners. A primitive plan
-or scheduling edit therefore cannot propagate through the graph schema into
-unrelated primitive consumers. Each Accel factory leaf includes only its own
-descriptor identity and planner; there is no aggregate primitive-node or
-descriptor-hash implementation hub.
+`graph/signature.hpp` is declarations-only. The Kernel Compute closure compiles
+signature construction once through the shared `graph/signature/support.cpp`
+value/validation helpers and semantic leaves: `map.cpp`, `scan.cpp`,
+`sort.cpp`, `indexed.cpp`, `reduce.cpp`, `window.cpp`, `transform.cpp`,
+`matrix.cpp`, and `spectrum.cpp`. These owners depend on primitive models rather
+than executable planners. A primitive plan or scheduling edit therefore cannot
+propagate through the graph schema into unrelated primitive consumers. Each
+Accel factory leaf includes only its own descriptor identity and planner; there
+is no aggregate primitive-node or descriptor-hash implementation hub.
 
 Every public graph primitive must expose the value kind, buffer role, scalar
 byte width, element count, matrix rows/columns, and batch count for each edge.
@@ -305,6 +307,14 @@ QR solve uses a separate `Q|R` factor payload; LU uses the pivot aux stream;
 Cholesky and QR require
 `PivotOp::None`.
 
+The template reference implementation is divided under
+`program/compute/solve/reference/`: `base.hpp` owns fixed-point/index/status
+helpers, `lu.hpp`, `cholesky.hpp`, and `qr.hpp` own their corresponding batch
+algorithms, and `execute.hpp` owns plan/buffer validation, batch dispatch,
+scratch ownership, and the four public entry points. The adjacent
+`reference.hpp` is only the stable compatibility include surface; it carries
+no second solve implementation.
+
 Data-dependent numeric failures are runtime status evidence, not admission
 rejection. Singular, non-SPD, pivot-underflow, and invalid-scaling batches are
 reported through the status output and result summary while dispatch itself
@@ -351,6 +361,14 @@ Solve rejection reasons are contract vocabulary:
 planning, and CPU-reference surface for spectral graph primitives. SVD and
 Eigen are primitive operations, not backends; backend choice remains node
 authority.
+
+The template reference implementation is divided under
+`program/compute/spectrum/reference/`: `base.hpp` owns fixed-point vector
+primitives, `jacobi.hpp` owns symmetric eigensolver iteration, `eigen.hpp` and
+`svd.hpp` own their batch algorithms, and `execute.hpp` owns validation,
+batch dispatch, scratch ownership, and the four public entry points. The
+adjacent `reference.hpp` is only the stable include surface; it carries no
+second numeric algorithm.
 
 The contract admits `SpectrumOp::SVD` and `SpectrumOp::Eigen`,
 `SymmetricReal` or `GeneralReal` domains, `None`, `ValuesOnly`, `Thin`, or
@@ -861,9 +879,11 @@ output: zero for Sum, numeric maximum for Min, and numeric minimum for Max.
 The native physical plan has three dispatches: one complete source preflight
 that writes two indirect commands, one parallel output/count-table identity
 initialization, and one fold. The preflight is one 256-lane workgroup: lane
-`t` scans source ordinals `t, t + 256, ...`, followed by an eight-stage shared
-minimum reduction. Its critical path is `O(ceil(N/256) + 8)` and its total work
-is `O(N)`. It adds no dispatch, scratch allocation, payload copy, or command
+`t` scans source ordinals `t, t + 256, ...`. Vulkan follows this with an
+eight-stage shared minimum reduction. Metal reduces within each live SIMD
+cohort, then merges non-identity minima into one threadgroup atomic word
+between two barriers. The critical path remains `O(ceil(N/256) + log(256))`
+and total work is `O(N)`. It adds no dispatch, scratch allocation, payload copy, or command
 submission to the three-pass plan. Count overflow takes precedence and skips
 all index reads; otherwise the shared minimum publishes the exact first
 invalid ordinal independently of lane scheduling. The control lane publishes
@@ -872,8 +892,10 @@ count. Planning caps input capacity at `UINT32_MAX`, matching the U32
 first-error ordinal and indirect-command ABI. Vulkan uses an explicit
 final-stride guard, so its U32 loop cannot wrap. On 32-bit carriers, wrapping
 Sum and signed/unsigned/Fixed Min/Max use
-one hardware atomic lane per active source. Addition modulo `2^32`, Min, and
-Max are associative and commutative, so arrival order cannot change the exact
+hardware atomic folds. Metal combines a uniform active SIMD cohort targeting
+one destination before issuing that destination's count and value atomics;
+nonuniform cohorts retain one count/value pair per source. Addition modulo
+`2^32`, Min, and Max are associative and commutative, so arrival order cannot change the exact
 result; contributor-count atomics derive the same conflict total independently
 of schedule. Fixed saturating Sum alone retains the strict source-ordinal fold
 because per-add saturation is non-associative. 64-bit carriers retain that

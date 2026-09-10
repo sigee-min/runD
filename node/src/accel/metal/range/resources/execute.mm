@@ -8,6 +8,7 @@
 #include "../../../kernel/backend/run.hpp"
 #include "../../../kernel/preparation.hpp"
 #include "../../../kernel/scratch.hpp"
+#include "../../../range_aggregate/execution/control.hpp"
 #include "../../../range_aggregate/plan.hpp"
 #include "../../pipeline/template.hpp"
 #include "../../scratch.hpp"

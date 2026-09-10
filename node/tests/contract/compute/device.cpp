@@ -1,3 +1,4 @@
+#include "../../../src/compute/buffer/state.hpp"
 #include <rund/compute.hpp>
 #include <rund/compute/abi/graph.hpp>
 

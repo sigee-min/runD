@@ -41,11 +41,11 @@ int CheckProductBackingConcurrency(const rund::compute::Backend backend) {
   auto forward = virtual_pipeline(
       *program, *left, *right,
       ResidencyConfig{.device_resident_bytes = ElementPageBytes * 4u,
-                      .host_staging_bytes = ElementPageBytes * 4u});
+                      .host_resident_bytes = ElementPageBytes * 4u});
   auto reverse = virtual_pipeline(
       *program, *right, *left,
       ResidencyConfig{.device_resident_bytes = ElementPageBytes * 4u,
-                      .host_staging_bytes = ElementPageBytes * 4u});
+                      .host_resident_bytes = ElementPageBytes * 4u});
   if (!forward || !reverse) {
     return 4;
   }

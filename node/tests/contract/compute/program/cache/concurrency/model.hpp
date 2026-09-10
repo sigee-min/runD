@@ -1,6 +1,7 @@
 #pragma once
 
 #include "src/compute/program/cache.hpp"
+#include "src/compute/program/cache/state.hpp"
 #include <rund/compute.hpp>
 
 #include <condition_variable>
@@ -20,8 +21,8 @@ using CacheEntries =
     decltype(rund::compute::detail::ProgramCacheState::entries);
 static_assert(std::is_same_v<typename CacheEntries::key_type,
                              rund::compute::graph::Fingerprint>);
-static_assert(std::is_empty_v<rund::compute::detail::FingerprintLess>);
-static_assert(!std::is_final_v<rund::compute::detail::FingerprintLess>);
+static_assert(std::is_empty_v<rund::compute::detail::FingerprintHash>);
+static_assert(!std::is_final_v<rund::compute::detail::FingerprintHash>);
 static_assert(sizeof(rund::compute::graph::Fingerprint) ==
               2u * sizeof(std::uint64_t));
 static_assert(std::variant_size_v<rund::compute::detail::ProgramCacheOutcome> ==

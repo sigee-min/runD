@@ -2,6 +2,7 @@
 
 #include "src/hash/fnv.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <mutex>
 #include <utility>
@@ -11,6 +12,144 @@ namespace {
 
 using namespace rund::compute;
 using namespace rund::compute::detail;
+using rund::node::accel::detail::DownloadRangeState;
+using rund::node::accel::detail::MarkDownloadComplete;
+using rund::node::accel::detail::MarkDownloadFailure;
+
+[[nodiscard]] ResidentBatchSpy *
+resident_spy(const BufferState *const buffer) noexcept {
+  const AccelBufferState *const storage =
+      buffer == nullptr ? nullptr : accel_buffer(*buffer);
+  return storage == nullptr
+             ? nullptr
+             : static_cast<ResidentBatchSpy *>(storage->buffer.owner.get());
+}
+
+[[nodiscard]] bool copy_resident(const DownloadRequest &request,
+                                 ResidentBatchSpy &spy) noexcept {
+  if (request.bytes != 0u && request.data == nullptr) {
+    return false;
+  }
+  if (request.offset > spy.source.size() ||
+      request.bytes > spy.source.size() - request.offset) {
+    return false;
+  }
+  if (request.bytes != 0u) {
+    std::memcpy(request.data, spy.source.data() + request.offset,
+                request.bytes);
+  }
+  const std::uint64_t hash = rund::node::hash_detail::HashBytes(
+      spy.source.data() + request.offset, request.bytes);
+  if (request.payload_hash != nullptr) {
+    *request.payload_hash = hash;
+  }
+  MarkDownloadComplete(request.outcome, request.bytes, hash,
+                       request.payload_hash != nullptr);
+  return true;
+}
+
+DownloadResult ResidentDownload(DeviceState &, const BufferState &buffer,
+                                void *const data, const std::size_t bytes,
+                                const std::size_t offset) {
+  ResidentBatchSpy *const spy = resident_spy(&buffer);
+  if (spy == nullptr) {
+    return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
+  }
+  ++spy->scalar_calls;
+  ++spy->scalar_routes;
+  DownloadRequest request{
+      .buffer = &buffer,
+      .data = data,
+      .bytes = bytes,
+      .offset = offset,
+  };
+  if (!copy_resident(request, *spy)) {
+    return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
+  }
+  return DownloadResult{.status = Status::success(),
+                        .confirmed_bytes = bytes,
+                        .ordered_prefix = 1u,
+                        .payload_hash_valid = true};
+}
+
+DownloadResult ResidentDownloadBatch(
+    DeviceState &, const std::span<const DownloadRequest> requests,
+    const rund::node::accel::detail::TransferAuthority authority) {
+  if (requests.empty()) {
+    return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
+  }
+  ResidentBatchSpy *const spy = resident_spy(requests.front().buffer);
+  if (spy == nullptr) {
+    return DownloadResult{.status = Status::fail(Reason::TransferInvalid)};
+  }
+  ++spy->batch_calls;
+  spy->batch_routes = requests.size();
+  spy->authority = authority;
+  spy->outcomes.fill({});
+  DownloadResult result{.status = Status::success(),
+                        .command_submits = 1u,
+                        .readback_ns = 13u,
+                        .payload_hash_valid = true};
+  for (std::size_t index = 0u; index < requests.size(); ++index) {
+    const DownloadRequest &request = requests[index];
+    if (spy->late_failure && index == 1u) {
+      if (request.bytes != 0u && request.data == nullptr) {
+        MarkDownloadFailure(request.outcome, DownloadRangeState::FailedNoWrite);
+        spy->outcomes[index] = *request.outcome;
+        result.status = Status::fail(Reason::TransferInvalid);
+        result.payload_hash_valid = false;
+        result.first_failed = index;
+        result.first_failed_valid = true;
+        return result;
+      }
+      const std::size_t partial = std::min<std::size_t>(2u, request.bytes);
+      if (request.offset > spy->source.size() ||
+          request.bytes > spy->source.size() - request.offset) {
+        MarkDownloadFailure(request.outcome, DownloadRangeState::FailedNoWrite);
+        spy->outcomes[index] = *request.outcome;
+        result.status = Status::fail(Reason::TransferInvalid);
+        result.payload_hash_valid = false;
+        result.first_failed = index;
+        result.first_failed_valid = true;
+        return result;
+      }
+      if (partial != 0u) {
+        std::memcpy(request.data, spy->source.data() + request.offset, partial);
+      }
+      MarkDownloadFailure(request.outcome, DownloadRangeState::FailedMayWrite,
+                          partial);
+      spy->outcomes[index] = *request.outcome;
+      result.status = Status::fail(Reason::TransferInvalid);
+      result.payload_hash_valid = false;
+      result.confirmed_bytes = requests[0u].bytes;
+      result.ordered_prefix = 1u;
+      result.first_failed = index;
+      result.first_failed_valid = true;
+      return result;
+    }
+    if (!copy_resident(request, *spy)) {
+      MarkDownloadFailure(request.outcome, DownloadRangeState::FailedNoWrite);
+      spy->outcomes[index] = *request.outcome;
+      result.status = Status::fail(Reason::TransferInvalid);
+      result.payload_hash_valid = false;
+      result.first_failed = index;
+      result.first_failed_valid = true;
+      return result;
+    }
+    spy->outcomes[index] = *request.outcome;
+    result.confirmed_bytes += request.bytes;
+    ++result.ordered_prefix;
+  }
+  return result;
+}
+
+const DeviceOps resident_operations{
+    .download = ResidentDownload,
+    .download_batch = ResidentDownloadBatch,
+    .download_prefix_capacity = 64u,
+};
+
+const DeviceOps resident_scalar_operations{.download = ResidentDownload};
 
 UploadResult
 UploadBatch(DeviceState &, const std::span<const UploadRequest> requests,
@@ -88,6 +227,39 @@ const DeviceOps operations{.upload_batch = UploadBatch,
 } // namespace
 
 TransferProbe *active_probe{};
+
+ResidentBatchFixture make_resident_batch_spy() {
+  ResidentBatchFixture fixture{
+      .spy = std::make_shared<ResidentBatchSpy>(),
+      .device = std::make_shared<DeviceState>(),
+      .buffer = std::make_shared<BufferState>(),
+      .backing = std::make_shared<ResidentVirtualBacking>(),
+  };
+  fixture.device->backend = Backend::Vulkan;
+  fixture.device->ops = &resident_operations;
+  fixture.buffer->device = fixture.device;
+  fixture.buffer->type = Type::U32;
+  fixture.buffer->count = fixture.spy->source.size() / sizeof(std::uint32_t);
+  fixture.buffer->bytes = fixture.spy->source.size();
+  fixture.buffer->physical_bytes = fixture.buffer->bytes;
+  rund::AccelBuffer accel{};
+  accel.check = {true, "ok"};
+  accel.byte_extent = fixture.buffer->bytes;
+  accel.owner = fixture.spy;
+  fixture.buffer->storage.emplace<AccelBufferState>(
+      AccelBufferState{.buffer = std::move(accel)});
+  for (std::size_t index = 0u; index < fixture.spy->source.size(); ++index) {
+    fixture.spy->source[index] = static_cast<std::byte>(index + 1u);
+  }
+  VirtualBackingAccess::bind_resident(*fixture.backing, fixture.buffer);
+  return fixture;
+}
+
+ResidentBatchFixture make_resident_scalar_spy() {
+  ResidentBatchFixture fixture = make_resident_batch_spy();
+  fixture.device->ops = &resident_scalar_operations;
+  return fixture;
+}
 
 NativeBuffer *native(BufferState &buffer) noexcept {
   AccelBufferState *const storage = accel_buffer(buffer);

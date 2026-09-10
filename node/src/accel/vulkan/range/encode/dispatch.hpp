@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../command/dispatch.hpp"
 #include "state.hpp"
 
 namespace rund::node::accel::detail {

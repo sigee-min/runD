@@ -1,3 +1,4 @@
+#include "../../device/state.hpp"
 #include "model.hpp"
 
 #include "../../cpu/run/state.hpp"

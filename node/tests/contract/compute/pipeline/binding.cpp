@@ -1,8 +1,9 @@
+#include "src/compute/pipeline/state/assembly.hpp"
 #include "local.hpp"
 
 #include <node/runtime/compute/access.hpp>
 
-#include "src/compute/cpu/state.hpp"
+#include "src/compute/cpu/state/run.hpp"
 #include "src/compute/job/local.hpp"
 #include "src/compute/pipeline/state.hpp"
 

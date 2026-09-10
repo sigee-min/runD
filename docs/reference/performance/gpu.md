@@ -78,7 +78,7 @@ transactions, cache lines, or measured latency.
 The Range planner derives a physical workgroup width `W` from `{64, 128, 256}`
 and a shared capacity `C` from the selected device's workgroup and shared-memory
 limits. The exact selection policy and pipeline-identity contract are owned by
-the [Accel Range contract](../../../node/docs/contracts/accel/range-aggregate.md).
+the [Accel Range contract](../../../node/docs/contracts/accel/range/aggregate.md).
 For a selected shared shape and an admitted `1 <= r <= C`, let a physical group
 cover `A` active outputs beginning at `B` in a domain of `N` elements and end at
 `E = B + A`. The direct candidate reads

@@ -27,6 +27,7 @@ namespace node_accel_contract::backend_pick {
               rund::kernel::ComputeStorageAlignmentValid(
                   required_vulkan.caps.storage_alignment));
   TEST_ASSERT(VulkanDirectBackendLastErrorIsPrecise());
+  TEST_ASSERT(VulkanTimelineFoundationContract());
   return true;
 }
 

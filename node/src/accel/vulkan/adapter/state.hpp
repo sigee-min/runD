@@ -3,8 +3,10 @@
 #include <accel/check.hpp>
 
 #include "../../kernel/callback.hpp"
+#include "../../kernel/fault/domain.hpp"
 #include "../command/model.hpp"
 #include "../command/ring.hpp"
+#include "../timeline/owner.hpp"
 #include "buffer.hpp"
 #include "pipeline.hpp"
 
@@ -54,10 +56,15 @@ struct VulkanAdapter {
   VkPhysicalDeviceMemoryProperties memory_properties{};
   VkDevice device = VK_NULL_HANDLE;
   VkQueue compute_queue = VK_NULL_HANDLE;
+  VulkanTimelineOwner timeline{};
   // Physical-device extension identity is frozen when this adapter is
   // created. Runtime policy reads this fact; it never probes or mutates it.
   const bool portability_subset;
   std::uint32_t compute_queue_family = 0u;
+  // Whole-run VkSubmitInfo streams may expand into driver-private native
+  // command buffers. Zero means that the instance could not install a known
+  // bound for that expansion and persistent stream capability must fail.
+  std::uint64_t persistent_stream_submit_capacity{};
   rund::kernel::ComputeCaps caps{};
   std::string device_name{};
   std::string driver_name{};
@@ -74,6 +81,11 @@ struct VulkanAdapter {
   std::weak_ptr<void> owner_token{};
   std::mutex mutex;
   std::condition_variable command_cv;
+  // Completion status is keyed by the immutable command sequence. Transfer
+  // waiters read it while holding mutex; no thread-local error is
+  // authoritative.
+  std::array<std::uint64_t, kVulkanCommandCapacity> completed_sequences{};
+  std::array<rund::AccelCheck, kVulkanCommandCapacity> completed_status{};
   std::condition_variable host_readback_cv;
   std::size_t active_host_readbacks = 0u;
   std::mutex completion_mutex;
@@ -83,6 +95,14 @@ struct VulkanAdapter {
   std::size_t pending_head = 0u;
   std::size_t pending_size = 0u;
   bool completion_stop = false;
+  using ResidencyService = void (*)(void *) noexcept;
+  std::mutex residency_mutex;
+  std::condition_variable residency_cv;
+  std::thread residency_thread{};
+  ResidencyService residency_service = nullptr;
+  void *residency_user = nullptr;
+  bool residency_stop = false;
+  std::atomic_bool residency_quarantined{false};
   // Prepared Map jobs retain pipeline addresses for their full lifetime.
   std::deque<VulkanCachedPipeline> pipelines{};
   std::unique_ptr<VulkanPipelineIndex> pipeline_index{};
@@ -94,6 +114,10 @@ struct VulkanAdapter {
   std::vector<VkDescriptorBufferInfo> descriptor_infos{};
   std::vector<VkWriteDescriptorSet> descriptor_writes{};
   std::unique_ptr<VulkanResidentState> resident{};
+  // Monotonic private generation for Vulkan residency preparation snapshots.
+  // The counter is adapter-owned so one pipeline cannot replay a prior
+  // snapshot generation after its backend owner has been replaced.
+  std::atomic<std::uint64_t> residency_preparation_generation{0u};
   std::array<CommandSlot, kVulkanCommandCapacity> commands{};
   VulkanCommandRing command_ring{};
   std::size_t recording_command = kInvalidVulkanCommand;
@@ -125,7 +149,10 @@ struct VulkanAdapter {
   std::uint64_t descriptor_setup_ns = 0u;
   std::uint64_t command_submit_wait_ns = 0u;
   std::uint64_t readback_ns = 0u;
-  std::atomic<bool> fault_device_lost_once{false};
+  DeviceLossFault device_loss_fault{};
+  std::atomic<bool> fault_host_read_once{false};
+  std::atomic<bool> fault_host_write_once{false};
+  std::atomic<bool> fault_residency_terminal_once{false};
   std::atomic<bool> fault_trace_unavailable_once{false};
   explicit VulkanAdapter(bool portability_subset = false);
   VulkanAdapter(const VulkanAdapter &) = delete;
