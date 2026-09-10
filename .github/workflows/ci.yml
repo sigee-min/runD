@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tools/test/run --fresh --match '^tools\.(lock|measure|evidence-status)$'
+          tools/test/run --fresh --match '^tools\.(lock|measure|evidence-status|native-headers)$'
 
       - name: Run the selected public verification operator
         env:

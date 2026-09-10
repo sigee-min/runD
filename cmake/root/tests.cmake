@@ -89,14 +89,19 @@ rund_test_route(tools.build-measure NO_BUILD_TARGETS)
 # object contexts participate in this configured graph.  The contract itself
 # derives all compiler arguments from this tree's compile database.
 if(TARGET node-object-accel-vulkan AND TARGET node-object-accel-metal)
+  # Reserve exactly the compiler fan-out advertised to the probe. CTest must
+  # account for nested workers instead of treating them as one CPU slot.
+  set(rund_native_header_processors 2)
   add_test(
     NAME tools.native-headers
     COMMAND "${rund_build_measure_python}"
             "${CMAKE_SOURCE_DIR}/tools/internal/header/contract.py"
             --root "${CMAKE_SOURCE_DIR}"
-            --build "${CMAKE_BINARY_DIR}")
+            --build "${CMAKE_BINARY_DIR}"
+            --jobs "${rund_native_header_processors}")
   set_tests_properties(tools.native-headers PROPERTIES
     LABELS "rund_tools;rund_contract"
+    PROCESSORS "${rund_native_header_processors}"
     TIMEOUT 600)
   rund_test_route(tools.native-headers NO_BUILD_TARGETS)
 endif()

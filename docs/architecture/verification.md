@@ -57,9 +57,17 @@ even on failure. Linux build and test concurrency are bounded independently.
 The Linux toolchain installation includes `ripgrep`, which the measurement
 contract uses to inspect its checked-in source owners.
 Before the cold Debug build, the public focused operator runs the lock,
-measurement-harness, and evidence-status regressions that previously failed
+measurement-harness, evidence-status, and native-header regressions that previously failed
 only after that build. This early selection does not replace the complete
-Debug matrix; all three tests still belong to and run in that matrix.
+Debug matrix; all four tests still belong to and run in that matrix.
+The native-header contract explicitly requests two compiler workers and reserves
+the same two CTest `PROCESSORS` slots from one registration value. Its nested
+compiler fan-out therefore participates in the enclosing scheduler's budget;
+it cannot claim one slot while starting four compilers beside the measurement
+parser. The selection contract checks the generated worker/slot agreement and
+exercises weighted admission through the real CTest scheduler. Standalone
+header-probe callers retain their explicit `--jobs` selection. Test coverage
+and timeout limits are unchanged.
 The two Clang routes share one workflow matrix and toolchain definition, but
 own separate check names, build roots, evidence artifacts, and 60-minute job
 budgets. Neither depends on the other or cancels the other on failure. Their
