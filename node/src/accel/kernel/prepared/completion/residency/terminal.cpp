@@ -155,16 +155,22 @@ void CompleteResidencyWindowFinal(
       if (state == nullptr) {
         continue;
       }
-      bool found = false;
-      for (std::size_t prior = 0u; prior < state_count; ++prior) {
-        found = found || states[prior] == state;
+      std::size_t position = 0u;
+      while (position < state_count &&
+             std::less<prepared::PipelineState *>{}(states[position], state)) {
+        ++position;
       }
-      if (!found) {
-        states[state_count++] = state;
+      if (position < state_count && states[position] == state) {
+        continue;
       }
+      // There are at most four owners. Insert directly into canonical mutex
+      // order instead of instantiating a general-purpose introsort.
+      for (std::size_t next = state_count; next > position; --next) {
+        states[next] = states[next - 1u];
+      }
+      states[position] = state;
+      ++state_count;
     }
-    std::sort(states.begin(), states.begin() + state_count,
-              std::less<prepared::PipelineState *>{});
     if (quarantine) {
       control->quarantined = true;
     }

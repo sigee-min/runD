@@ -9,7 +9,7 @@ namespace rund::node::accel::detail {
 [[nodiscard]] inline bool MetalSpatialWindowSameBindingIndices(
     const KernelBindingIndices &left,
     const KernelBindingIndices &right) noexcept {
-  if (left.count != right.count || left.ok != right.ok ||
+  if (left.size() != right.size() || left.ok != right.ok ||
       left.size() != right.size()) {
     return false;
   }

@@ -20,6 +20,8 @@ build_io_ir(const std::size_t external_input_count,
   lowering::ParsedIR result{
       .name = "device-vsm-graph-pointwise-io",
       .scalar_mode = scalar_mode,
+      .bindings = {},
+      .nodes = {},
       .ok = true,
       .reason = "ok",
   };
@@ -30,6 +32,7 @@ build_io_ir(const std::size_t external_input_count,
         .numeric_mode = result.scalar_mode,
         .name = "rund_graph_input_" + std::to_string(input),
         .element_bytes = element_bytes,
+        .value_bytes = {},
     });
   }
   result.bindings.push_back(lowering::ParsedBinding{
@@ -37,6 +40,7 @@ build_io_ir(const std::size_t external_input_count,
       .numeric_mode = result.scalar_mode,
       .name = "rund_graph_output",
       .element_bytes = element_bytes,
+      .value_bytes = {},
   });
   return result;
 }
