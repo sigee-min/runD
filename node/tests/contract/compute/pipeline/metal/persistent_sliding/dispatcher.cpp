@@ -5,6 +5,19 @@
 
 int RunComputePipelineMetalPersistentSlidingContract() { return 0; }
 
+#elif !defined(RUND_NODE_HAVE_METAL_SDK)
+
+int RunComputePipelineMetalPersistentSlidingContract() {
+  const auto opened = rund::compute::open(rund::compute::Target::metal());
+  if (opened || opened.reason() != rund::compute::Reason::AdapterUnavailable) {
+    std::fprintf(stderr, "Metal SDK-disabled open contract failed\n");
+    return 1;
+  }
+  std::fprintf(stderr,
+               "Metal SDK unavailable: open rejected; native execution not run\n");
+  return 0;
+}
+
 #else
 
 namespace persistent = rund_node_test_pipeline_metal_persistent;

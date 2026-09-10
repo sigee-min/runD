@@ -1,3 +1,9 @@
+if(RUND_NODE_HAVE_METAL_SDK)
+  set_property(SOURCE
+    tests/contract/compute/pipeline/metal/persistent_sliding/dispatcher.cpp
+    APPEND PROPERTY COMPILE_DEFINITIONS RUND_NODE_HAVE_METAL_SDK=1)
+endif()
+
 set(NODE_TEST_COMPUTE_COMMON_SOURCES
   tests/contract/compute/allocation.cpp
 )
@@ -513,6 +519,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/virtual/product/prepare.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/execution.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/device_vsm_unknown.cpp|compute.virtual-residency-product"
+  "tests/contract/compute/virtual/product/device_vsm_completion.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/failure/support.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/failure/boundary.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/failure/backing.cpp|compute.virtual-residency-product"
@@ -1037,6 +1044,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/virtual/product/prepare.cpp
   tests/contract/compute/virtual/product/execution.cpp
   tests/contract/compute/virtual/product/device_vsm_unknown.cpp
+  tests/contract/compute/virtual/product/device_vsm_completion.cpp
   tests/contract/compute/virtual/product/graph_persist_ring.cpp
   tests/contract/compute/virtual/product/failure/support.cpp
   tests/contract/compute/virtual/product/failure/boundary.cpp

@@ -46,6 +46,20 @@ Metal owner allocation; each active role's final turn must also fit the uint32
 control and uint64 descriptor generation ranges. These checks are shared by
 common request validation and native preparation.
 
+## DeviceVsm aggregate completion lifetime
+
+DeviceVsm aggregate completion stores its wait state in the prepared product
+owner, not the caller's transient run. The completion callback retains that
+owner and captures the wake function and argument before publishing completion.
+After the release publication it must not read or write the transient run:
+the acquiring caller may immediately destroy it. Notification and wake retain
+the owner until they return, including an inline wake that destroys the run.
+Warm execution resets and reuses the same wait state without a new allocation;
+the existing single-run admission prevents overlapping uses of that state.
+This common completion boundary applies to both Metal and Vulkan. The host
+contract destroys the run during wake and proves that the wait owner survives
+until callback return; native product contracts exercise the complete route.
+
 ## Transaction-capable aggregate Scan boundary
 
 The optional `VirtualBackingTransaction` provider is atomic only for the

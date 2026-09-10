@@ -41,7 +41,7 @@ Status start_accel_virtual_execution_device_vsm(
   run.output_hash_observed = false;
   run.output_hash = 0u;
   run.callback_count.store(0u, std::memory_order_release);
-  run.done.store(false, std::memory_order_release);
+  owner->done.store(false, std::memory_order_release);
   std::copy(inputs.begin(), inputs.end(), run.inputs.begin());
   for (std::size_t index = 0u; index < run.input_count; ++index) {
     std::vector<std::byte> &staged = owner->input_staging[index];
@@ -107,7 +107,8 @@ namespace {
 
 [[nodiscard]] bool valid(
     const device_vsm_product_detail::DeviceVsmProductRun &run) noexcept {
-  return run.done.load(std::memory_order_acquire) &&
+  return run.owner != nullptr &&
+         run.owner->done.load(std::memory_order_acquire) &&
          run.callback_count.load(std::memory_order_acquire) == 1u &&
          run.submission_control.count() == 1u &&
          node::accel::detail::device_vsm_final_valid(run.request, run.final);

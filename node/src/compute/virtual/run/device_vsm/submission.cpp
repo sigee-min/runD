@@ -16,9 +16,12 @@ void test_phase(DeviceVsmProductRun &run,
 void complete(void *const raw,
               node::accel::detail::DeviceVsmFinal &&final) noexcept {
   auto *const run = static_cast<DeviceVsmProductRun *>(raw);
-  if (run == nullptr) {
+  if (run == nullptr || run->owner == nullptr) {
     return;
   }
+  const std::shared_ptr<DeviceVsmProductOwner> owner = run->owner;
+  const VirtualWake wake = run->wake;
+  void *const wake_user = run->wake_user;
   test_phase(*run, DeviceVsmTestPhase::Callback);
   if (run->state != nullptr && run->state->device_vsm_test_barrier != nullptr) {
     run->state->device_vsm_test_barrier->wait_released();
@@ -48,10 +51,12 @@ void complete(void *const raw,
     quarantine_owner(run->owner);
     run->poison_pipeline = true;
   }
-  run->done.store(true, std::memory_order_release);
-  run->done.notify_one();
-  if (run->wake != nullptr) {
-    run->wake(run->wake_user);
+  // Publication is the final access to the transient run. The stable owner
+  // keeps the wait address alive even if the waiter immediately returns.
+  owner->done.store(true, std::memory_order_release);
+  owner->done.notify_one();
+  if (wake != nullptr) {
+    wake(wake_user);
   }
 }
 
@@ -93,7 +98,7 @@ Status submit(DeviceVsmProductRun &run) noexcept {
   if (!run.wait_for_callback) {
     return Status::success();
   }
-  run.done.wait(false, std::memory_order_acquire);
+  run.owner->done.wait(false, std::memory_order_acquire);
   if (run.callback_count.load(std::memory_order_acquire) != 1u ||
       run.submission_control.count() != 1u ||
       !accel::device_vsm_final_valid(request, run.final)) {

@@ -6,6 +6,10 @@
 
 int RunComputeVirtualResidencyProductContract() {
   using namespace rund_node_test_virtual::product;
+  if (CheckProductDeviceVsmCompletionLifetime() != 0) {
+    std::fprintf(stderr, "compute virtual product completion lifetime\n");
+    return 98;
+  }
   if (CheckProductReturnedFailureBoundary() != 0) {
     std::fprintf(stderr, "compute virtual product returned failure boundary\n");
     return 99;

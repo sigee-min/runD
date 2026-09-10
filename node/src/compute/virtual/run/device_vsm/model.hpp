@@ -102,6 +102,9 @@ struct DeviceVsmProductOwner final {
   std::size_t pipeline_count{};
   std::shared_ptr<const node::accel::detail::DeviceVsmProof> proof{};
   node::accel::detail::DeviceVsmPreparation preparation{};
+  // The callback retains this owner through notification and wake. A caller
+  // may destroy its transient run as soon as it observes completion.
+  std::atomic_bool done{false};
   bool submitted{};
   std::array<rund::AccelBuffer, VirtualPipelineState::InputCapacity> inputs{};
   std::size_t input_count{};
@@ -150,7 +153,6 @@ struct DeviceVsmProductRun final {
   node::accel::detail::DeviceVsmFinal final{};
   node::accel::detail::DeviceVsmSubmissionControl submission_control{};
   node::accel::detail::DeviceVsmRequest request{};
-  std::atomic_bool done{false};
   std::atomic_uint64_t callback_count{};
   std::array<bool, DeviceVsmPipelineCapacity> pipeline_started{};
   bool backing_recovery{};

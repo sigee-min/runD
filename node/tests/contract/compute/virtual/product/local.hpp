@@ -23,6 +23,7 @@ CheckProductCapability(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductPrepare(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductExecution(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductDeviceVsmUnknown(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductDeviceVsmCompletionLifetime();
 [[nodiscard]] int CheckProductActiveCount(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductBackingFailure(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductReturnedFailureBoundary();

@@ -4294,6 +4294,11 @@ and generic persistent-stream contracts. The dispatcher retains the original
 DeviceVSM → product → history → recurrence → persistent Q cases → public
 window/fallback → unknown-failure order and CPU/Vulkan unavailable-backend
 stub.
+The Metal dispatcher receives SDK availability from the existing CMake SDK
+discovery owner. Without that SDK it verifies that public Metal device open
+returns `AdapterUnavailable` and explicitly reports that native execution was
+not run. With the SDK it retains the full native contract and treats device
+open failure as a failure; the OS name alone is not an availability proof.
 
 Vulkan Map control is split by semantic phase. `map/source/control.cpp` owns
 the check, direct-control, generated-control, and controlled-artifact recipes,
