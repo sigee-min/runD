@@ -102,6 +102,7 @@ Both focused commands passed on the final implementation:
 
 - `tools/test/run --fresh compute.pipeline-residency`
 - `tools/test/run --fresh compute.virtual-graph-residency-product`
+- `tools/test/run --fresh compute.virtual-residency-product`
 
 The Authority contract keeps one Computing lease while admitting, activating
 and rolling back another slot three times; it compares borrowed table
@@ -111,7 +112,9 @@ allocations during issue; its negative control fails on `fda4ec0c` with eight
 allocations, and the final implementation passes with zero. Product tests
 bound Ticket/view storage, validate input evidence and quiescent scratch
 reuse, and run public CPU and native accelerator Graphs on a 1 MiB worker
-stack. Existing four-input and shared-input tests also execute their controlled
+stack. CPU requires zero native command submissions and fifteen Graph epochs;
+accelerators require fifteen of each. Both product entry points execute the
+CPU scratch regression, so the focused Graph route cannot omit it. Existing four-input and shared-input tests also execute their controlled
 failure/retry sequences on that worker stack. Stack limits here describe the
 checked fixtures, not arbitrary user callbacks or every platform's ABI.
 

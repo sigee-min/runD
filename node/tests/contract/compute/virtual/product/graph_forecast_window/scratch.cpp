@@ -5,6 +5,7 @@
 #include "src/compute/virtual/graph/reduce/lease.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <type_traits>
 
 namespace rund_node_test_virtual::product::graph_forecast_window {
@@ -87,6 +88,9 @@ int check_views() {
 int check_scratch(const rund::compute::Device &device) {
   if (const int views = check_views(); views != 0)
     return views;
+  const auto backend = device.backend();
+  if (!backend)
+    return 8;
   auto program = build_program(device);
   if (!program)
     return 8;
@@ -111,13 +115,28 @@ int check_scratch(const rund::compute::Device &device) {
     for (auto &input : backings)
       if (!input->invalidate())
         return 11;
-    if (!run_on_worker(*pipeline) ||
-        !std::all_of(output->values.begin(), output->values.end(),
-                     [index = std::size_t{0u}](std::uint64_t value) mutable {
-                       return value == expected(index++);
-                     }) ||
-        pipeline->stats().command_submits != Stages * 3u)
+    const Status ran = run_on_worker(*pipeline);
+    const bool exact = std::all_of(
+        output->values.begin(), output->values.end(),
+        [index = std::size_t{0u}](std::uint64_t value) mutable {
+          return value == expected(index++);
+        });
+    const auto stats = pipeline->stats();
+    const auto submits = stats.command_submits;
+    // CPU executes Jobs and has no native command submission. Epochs prove
+    // the same five-stage, three-batch Graph execution on every backend.
+    const auto expected_submits = *backend == Backend::Cpu ? 0u : Stages * 3u;
+    if (!ran || !exact || submits != expected_submits ||
+        stats.pipeline.residency.epoch_count != Stages * 3u ||
+        stats.pipeline.residency.backing_read_bytes != Inputs * Elements * 8u ||
+        stats.pipeline.residency.backing_write_bytes != Elements * 8u) {
+      std::fprintf(stderr,
+                   "Graph scratch repeat=%u status=%.*s exact=%u submits=%llu\n",
+                   repeat, static_cast<int>(ran.error().size()),
+                   ran.error().data(), static_cast<unsigned>(exact),
+                   static_cast<unsigned long long>(submits));
       return 12;
+    }
   }
   return 0;
 }

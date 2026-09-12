@@ -77,6 +77,16 @@ int RunComputeVirtualGraphResidencyProductContract() {
                  host_result);
     return 100 + host_result;
   }
+  if (rund::node::test_contract::backend_selected(rund::compute::Backend::Cpu)) {
+    const int scratch_result =
+        rund_node_test_virtual::product::CheckProductGraphForecastWindow(
+            rund::compute::Backend::Cpu);
+    if (scratch_result != 0) {
+      std::fprintf(stderr, "compute virtual CPU Graph scratch result=%d\n",
+                   scratch_result);
+      return 200 + scratch_result;
+    }
+  }
   for (const rund::compute::Backend backend :
        rund::node::test_contract::selected_accelerators()) {
     const int multi_host_result =
