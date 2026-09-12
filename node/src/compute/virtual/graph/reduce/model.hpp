@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace rund::compute::detail::graph_reduce {
 
@@ -83,11 +84,9 @@ struct StageEffects final {
 };
 
 struct StageScratch final {
-  std::array<residency::PageUse,
-             residency::TiledGraphPortCapacity * PipelineLeafCapacity>
-      uses{};
-  std::array<residency::GraphPortRequest, residency::TiledGraphPortCapacity>
-      requests{};
+  // Borrowed projection storage. Only the committed active prefix is readable.
+  std::span<residency::PageUse> uses{};
+  std::span<residency::GraphPortRequest> requests{};
   residency::Epoch epoch{};
   std::size_t use_count{};
   std::size_t port_count{};
@@ -101,40 +100,17 @@ struct Ticket final {
   VirtualEpochProjection byte_epoch{};
   std::shared_ptr<PipelineState> prefix;
   std::shared_ptr<PipelineState> collective;
-  std::array<residency::PageUse, PipelineLeafCapacity> prefix_sources{};
-  std::array<residency::PageUse, PipelineLeafCapacity> prefix_outputs{};
   std::array<residency::PageUse,
              residency::TiledGraphPortCapacity * PipelineLeafCapacity>
-      prefix_uses{};
+      stage_uses{};
   std::array<residency::GraphPortRequest, residency::TiledGraphPortCapacity>
-      prefix_requests{};
-  std::array<residency::PageUse,
-             residency::TiledGraphPortCapacity * PipelineLeafCapacity>
-      collective_uses{};
-  std::array<residency::GraphPortRequest, residency::TiledGraphPortCapacity>
-      collective_requests{};
+      stage_requests{};
   std::array<residency::PageUse, PipelineLeafCapacity> collective_outputs{};
   std::array<residency::CacheKey, PipelineLeafCapacity> output_keys{};
-  std::array<residency::CacheBinding,
-             residency::TiledGraphPortCapacity * PipelineLeafCapacity>
-      prefix_bindings{};
-  std::array<residency::CacheTransition,
-             residency::TiledGraphPortCapacity * PipelineLeafCapacity * 3u>
-      prefix_transitions{};
-  std::array<residency::GraphLeasePort, residency::TiledGraphPortCapacity>
-      prefix_ports{};
-  std::array<residency::GraphPageRemap, residency::GraphPageRemapCapacity>
-      prefix_remaps{};
-  std::array<residency::CacheBinding,
-             residency::TiledGraphPortCapacity * PipelineLeafCapacity>
-      collective_bindings{};
-  std::array<residency::CacheTransition,
-             residency::TiledGraphPortCapacity * PipelineLeafCapacity * 3u>
-      collective_transitions{};
-  std::array<residency::GraphLeasePort, residency::TiledGraphPortCapacity>
-      collective_ports{};
-  std::array<residency::GraphPageRemap, residency::GraphPageRemapCapacity>
-      collective_remaps{};
+  // Authority's fixed epoch slot owns these tables until terminal close.
+  // Clear the entire view with its token; never retain a second table copy.
+  residency::EpochLease prefix_lease{};
+  residency::EpochLease collective_lease{};
   std::array<residency::CacheBinding, PipelineLeafCapacity> resident_outputs{};
   std::array<LiveResource, residency::TiledGraphResourceCapacity>
       live_resources{};
@@ -146,17 +122,9 @@ struct Ticket final {
   Timeline prefix_timeline{};
   Timeline collective_timeline{};
   std::size_t count{};
-  std::size_t prefix_binding_count{};
-  std::size_t prefix_transition_count{};
-  std::size_t prefix_port_count{};
-  std::size_t prefix_remap_count{};
   std::size_t prefix_use_count{};
   std::size_t prefix_request_count{};
   std::size_t prefix_anchor_port{};
-  std::size_t collective_binding_count{};
-  std::size_t collective_transition_count{};
-  std::size_t collective_port_count{};
-  std::size_t collective_remap_count{};
   std::size_t collective_use_count{};
   std::size_t collective_request_count{};
   std::size_t collective_anchor_port{};
@@ -176,8 +144,6 @@ struct Ticket final {
   std::array<std::uint32_t, residency::execution::GraphPromoteSourceCapacity>
       forecast_resources{};
   std::size_t host_ready_count{};
-  std::uint64_t prefix_token{};
-  std::uint64_t collective_token{};
   CpuEpochReceipt prefix_receipt{};
   CpuEpochReceipt collective_receipt{};
   CpuEpochReceipt supply_receipt{};
@@ -193,6 +159,11 @@ struct Ticket final {
   bool output_dirty{};
   bool poison{};
 };
+
+// Reuses Prefix projection storage only after its consumers have joined and
+// its Authority lease has closed. The caller must finish reading each view
+// before projecting another stage into this same ticket.
+[[nodiscard]] StageScratch middle_scratch(Ticket &) noexcept;
 
 // Reconstructs one quiescent fixed ticket without requiring move assignment
 // from any callback-return-gated physical capability.

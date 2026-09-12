@@ -5,10 +5,19 @@
 
 namespace rund::compute::detail::graph_reduce {
 
+StageScratch middle_scratch(Ticket &ticket) noexcept {
+  if (ticket.phase != TicketPhase::IntermediateDirty ||
+      ticket.prefix_lease.token != 0u || ticket.collective_lease.token != 0u ||
+      ticket.submitted != ExecutionStage::None) {
+    return {};
+  }
+  return {.uses = ticket.stage_uses, .requests = ticket.stage_requests};
+}
+
 bool reset_ticket(Ticket &ticket) noexcept {
   if (ticket.host_ready_count != 0u || ticket.input_promote ||
       ticket.output_drain || ticket.output_persist ||
-      ticket.prefix_token != 0u || ticket.collective_token != 0u ||
+      ticket.prefix_lease.token != 0u || ticket.collective_lease.token != 0u ||
       ticket.submitted != ExecutionStage::None ||
       ticket.prefix_receipt.occupied() ||
       ticket.collective_receipt.occupied() ||

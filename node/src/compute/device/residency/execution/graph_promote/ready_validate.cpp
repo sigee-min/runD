@@ -9,13 +9,18 @@ AuthorityResult GraphPromoteOwner::validate_graph_promote_group(
     const TiledGraphInvocation &invocation, const std::uint64_t batch,
     const std::size_t stage, const std::uint64_t destination_token,
     graph_promote_detail::Group &group) const noexcept {
-  group = {};
+  group.owner.reset();
+  group.source_count = 0u;
+  group.tokens.fill(0u);
   if (ready.empty() || ready.size() > execution::GraphPromoteSourceCapacity ||
       destination_token == 0u) {
     return AuthorityResult{.failure = AuthorityFailure::Invalid};
   }
   group.owner = ready.front().plan_owner_;
-  group.source_count = ready.size();
+  if (!graph_promote_detail::project_group(group.owner, invocation, batch,
+                                           stage, group.projection)) {
+    return AuthorityResult{.failure = AuthorityFailure::Invalid};
+  }
   for (std::size_t index = 0u; index < ready.size(); ++index) {
     const execution::GraphReady &source = ready[index];
     const auto pages = source.pages();
@@ -31,16 +36,15 @@ AuthorityResult GraphPromoteOwner::validate_graph_promote_group(
                     }) ||
         std::find(group.resources.begin(), group.resources.begin() + index,
                   resource) != group.resources.begin() + index ||
-        !graph_promote_detail::validate_projection(
-            group.owner, source, invocation, batch, stage, resource,
-            group.projections[index]) ||
-        (index != 0u && group.projections[index].epoch.ordinal !=
-                            group.projections.front().epoch.ordinal)) {
+        !graph_promote_detail::validate_source(
+            group.owner, source, stage, resource, group.projection,
+            group.first_uses[index])) {
       return AuthorityResult{.failure = AuthorityFailure::Invalid};
     }
     group.resources[index] = resource;
     group.pages[index] = pages;
   }
+  group.source_count = ready.size();
   return AuthorityResult{.failure = AuthorityFailure::None};
 }
 

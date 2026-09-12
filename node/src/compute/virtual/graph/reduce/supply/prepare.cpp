@@ -46,9 +46,9 @@ Status SupplyController::prepare(Ticket &ticket, Timeline *const hidden_by,
     return failure;
   }
   const auto uses = std::span<const residency::PageUse>{
-      ticket.prefix_uses.data(), ticket.prefix_use_count};
+      ticket.stage_uses.data(), ticket.prefix_use_count};
   const auto requests = std::span<const residency::GraphPortRequest>{
-      ticket.prefix_requests.data(), ticket.prefix_request_count};
+      ticket.stage_requests.data(), ticket.prefix_request_count};
   auto persist_owner = authority_.graph_persists();
   residency::AuthorityResult acquired{};
   if (retry_) {
@@ -87,7 +87,7 @@ Status SupplyController::prepare(Ticket &ticket, Timeline *const hidden_by,
          acquired.lease.generation);
     return failure;
   }
-  ticket.prefix_token = acquired.lease.token;
+  ticket.prefix_lease = acquired.lease;
   const Status relocated = relocate_graph_lease(*ticket.prefix, graph_, pool_,
                                                 acquired.lease, stats_);
   if (!relocated) {
@@ -100,12 +100,13 @@ Status SupplyController::prepare(Ticket &ticket, Timeline *const hidden_by,
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &info);
     }
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
     }
     ticket.poison = !terminal || ticket.poison;
     return terminal ? relocated : Status::fail(Reason::PipelineInvalid);
   }
-  if (!retain_prefix_lease(ticket, acquired)) {
+  if (!valid_stage_lease(ticket.prefix_lease, ticket.count,
+                         ticket.prefix_request_count)) {
     note(Status::fail(Reason::PipelineInvalid), Check::Supply);
     (void)record_interval(
         hidden_by, Interval{.started = started, .completed = pipeline_clock()},
@@ -117,7 +118,7 @@ Status SupplyController::prepare(Ticket &ticket, Timeline *const hidden_by,
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &info);
     }
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
     }
     ticket.poison = !terminal || ticket.poison;
     return Status::fail(Reason::PipelineInvalid);
@@ -132,14 +133,14 @@ Status SupplyController::prepare(Ticket &ticket, Timeline *const hidden_by,
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &info);
     }
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
     }
     ticket.poison = !terminal || ticket.poison;
     return terminal ? status : Status::fail(Reason::PipelineInvalid);
   };
   VirtualSupplyResult supplied{};
   const Status supplied_status = prefetch_.supply_cpu_stage(
-      ticket, *ticket.prefix, 0u, prefix_lease(ticket), supplied);
+      ticket, *ticket.prefix, 0u, ticket.prefix_lease, supplied);
   const Interval ready{.started = started, .completed = pipeline_clock()};
   const bool recorded = record_interval(hidden_by, ready, std::nullopt,
                                         stats_.pipeline.residency);
@@ -149,20 +150,22 @@ Status SupplyController::prepare(Ticket &ticket, Timeline *const hidden_by,
   }
   classify_backing(stats_,
                    std::span<const residency::PageUse>{
-                       ticket.prefix_sources.data(), ticket.count},
+                       ticket.stage_uses.data(), ticket.count},
                    supplied.fetched_pages, prepared_before_ready, false);
-  if (!record_input_evidence(stats_, run_, ticket, supplied.fetched_pages,
+  if (!record_input_evidence(stats_, run_, ticket.prefix->device->backend,
+                             ticket.prefix_lease.ports, ticket.prefix_lease.bindings,
+                             ticket.prefix_lease.transitions, supplied.fetched_pages,
                              supplied.backing_bytes)) {
     return fail(Status::fail(Reason::PipelineInvalid));
   }
   const Status controls =
       write_controls(*ticket.prefix, run_, prefix_input_lease(ticket).bindings,
                      ticket.input_region, stats_);
-  if (!controls || !authority_.activate(ticket.prefix_token)) {
+  if (!controls || !authority_.activate(ticket.prefix_lease.token)) {
     return fail(controls ? Status::fail(Reason::PipelineInvalid) : controls);
   }
   std::size_t ready_count = 0u;
-  for (const residency::GraphLeasePort &port : prefix_lease(ticket).ports) {
+  for (const residency::GraphLeasePort &port : ticket.prefix_lease.ports) {
     const residency::TiledGraphResource *const resource =
         graph_.resource(port.resource);
     if (port.access != residency::Access::Read || resource == nullptr ||

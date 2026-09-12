@@ -14,7 +14,7 @@ Status StageController::submit(Ticket &ticket,
   const std::shared_ptr<PipelineState> &pipeline =
       prefix ? ticket.prefix : ticket.collective;
   const residency::EpochLease lease =
-      prefix ? prefix_lease(ticket) : collective_lease(ticket);
+      prefix ? ticket.prefix_lease : ticket.collective_lease;
   const std::uint32_t stage_index =
       prefix ? 0u : static_cast<std::uint32_t>(terminal_stage_);
   WavefrontCoordinate selected{};

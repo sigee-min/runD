@@ -25,10 +25,9 @@ external_backing_read(const residency::TiledGraphPort &port,
 }
 
 [[nodiscard]] Status supply_terminal_inputs(
-    Ticket &ticket, const VirtualRunProjection &run,
-    const residency::TiledGraphPlan &graph, const residency::Pool &pool,
+    Ticket &ticket, const residency::TiledGraphPlan &graph,
     PrefetchController &prefetch, const std::size_t terminal_stage,
-    const std::uint32_t capacity, bool &cleanup_failed) noexcept {
+    bool &cleanup_failed) noexcept {
   if (terminal_stage > std::numeric_limits<std::uint32_t>::max()) {
     return Status::fail(Reason::PipelineInvalid);
   }
@@ -58,13 +57,14 @@ external_backing_read(const residency::TiledGraphPort &port,
     return Status::success();
   }
 
-  StageScratch scratch{};
-  if (!project_stage_scratch(graph, run, pool, ticket, terminal_stage, capacity,
-                             scratch) ||
-      scratch.port_count != ports.size() ||
-      scratch.epoch.ordinal != ticket.collective_epoch.ordinal) {
-    return Status::fail(Reason::PipelineInvalid);
-  }
+  const StageScratch scratch{
+      .uses = ticket.stage_uses,
+      .requests = ticket.stage_requests,
+      .epoch = ticket.collective_epoch,
+      .use_count = ticket.collective_use_count,
+      .port_count = ticket.collective_request_count,
+      .anchor_port = ticket.collective_anchor_port,
+  };
   WavefrontCoordinate coordinate{
       .ordinal = scratch.epoch.ordinal,
       .batch = ticket.batch,
@@ -95,6 +95,15 @@ Status MiddleController::bind_terminal_input(Ticket &ticket) noexcept {
       ticket.collective_anchor_port >= ticket.collective_request_count) {
     return Status::fail(Reason::PipelineInvalid);
   }
+  StageScratch scratch = middle_scratch(ticket);
+  if (!project_stage_scratch(graph_, run_, pool_, ticket, terminal_stage_,
+                             capacity_, scratch) ||
+      scratch.epoch.ordinal != ticket.collective_epoch.ordinal ||
+      scratch.port_count != ticket.collective_request_count ||
+      scratch.use_count != ticket.collective_use_count ||
+      scratch.anchor_port != ticket.collective_anchor_port) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
   for (std::size_t port_index = 0u;
        port_index < ticket.collective_request_count; ++port_index) {
     const residency::TiledGraphPort &port =
@@ -114,7 +123,7 @@ Status MiddleController::bind_terminal_input(Ticket &ticket) noexcept {
     }
     const LiveResource &live = ticket.live_resources[resource_index];
     const Status checked = check_live(
-        ticket, ticket.collective_requests[port_index], live, capacity_);
+        ticket, ticket.stage_requests[port_index], live, capacity_);
     if (!checked) {
       return checked;
     }
@@ -123,15 +132,15 @@ Status MiddleController::bind_terminal_input(Ticket &ticket) noexcept {
       ticket.collective->device->backend == Backend::Cpu) {
     bool cleanup_failed = false;
     const Status supplied =
-        supply_terminal_inputs(ticket, run_, graph_, pool_, prefetch_,
-                               terminal_stage_, capacity_, cleanup_failed);
+        supply_terminal_inputs(ticket, graph_, prefetch_,
+                               terminal_stage_, cleanup_failed);
     ticket.poison = cleanup_failed || ticket.poison;
     if (!supplied) {
       return supplied;
     }
   }
   ticket.intermediate_region =
-      ticket.collective_requests[ticket.collective_anchor_port].region;
+      ticket.stage_requests[ticket.collective_anchor_port].region;
   return Status::success();
 }
 

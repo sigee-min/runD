@@ -1,5 +1,6 @@
 #include "../../../target/selection.hpp"
 #include "graph_forecast_window/internal.hpp"
+#include "graph_forecast_window/worker.hpp"
 #include "local.hpp"
 #include "src/compute/device/residency/pool.hpp"
 #include "src/compute/virtual/backing.hpp"
@@ -30,7 +31,7 @@ int check_runs(Pipeline &pipeline, const std::shared_ptr<Control> &control,
         return 6;
     const auto version = detail::VirtualBackingAccess::version(*output);
     const auto previous = output->values;
-    const Status status = pipeline.run();
+    const Status status = run_on_worker(pipeline);
     const Stats stats = pipeline.stats();
     if (failure) {
       if (status || status.reason() != Reason::BackendFailed ||
@@ -94,11 +95,14 @@ int check_runs(Pipeline &pipeline, const std::shared_ptr<Control> &control,
 int CheckProductGraphForecastWindow(const rund::compute::Backend backend) {
   using namespace rund::compute;
   using namespace graph_forecast_window;
-  if (backend == Backend::Cpu)
-    return 0;
+
   auto device = open(rund::node::test_contract::target_for(backend));
   if (!device)
     return device.reason() == Reason::AdapterUnavailable ? 0 : 1;
+  if (const int scratch = check_scratch(*device); scratch != 0)
+    return 20 + scratch;
+  if (backend == Backend::Cpu)
+    return 0;
   auto program = build_program(*device);
   auto shared_program = build_shared_program(*device);
   if (!program || !shared_program)

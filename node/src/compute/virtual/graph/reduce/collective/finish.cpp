@@ -27,13 +27,13 @@ Status CollectiveController::finish(Ticket &ticket,
                                 nullptr) noexcept {
     return cpu ? close_cpu_epoch(authority_, ticket.collective_receipt, false,
                                  invalidate, info)
-               : authority_.complete(ticket.collective_token, false,
+               : authority_.complete(ticket.collective_lease.token, false,
                                      invalidate);
   };
   const auto close = [&](residency::CloseInfo *const info = nullptr) noexcept {
     return cpu ? close_cpu_epoch(authority_, ticket.collective_receipt, true,
                                  false, info)
-               : authority_.complete(ticket.collective_token, true);
+               : authority_.complete(ticket.collective_lease.token, true);
   };
   const Status retained = retain_residency_output(
       *ticket.collective, run_, collective_output_lease(ticket), stats_);
@@ -47,14 +47,14 @@ Status CollectiveController::finish(Ticket &ticket,
     return folded ? retained : folded;
   }
   StageEffects effects{};
-  if (!capture_stage_effects(graph_, collective_lease(ticket), effects)) {
+  if (!capture_stage_effects(graph_, ticket.collective_lease, effects)) {
     const Status failure = Status::fail(Reason::PipelineInvalid);
     note(failure, Check::Capture);
     const Status folded = stages_.fold(ticket, ExecutionStage::Collective);
     residency::CloseInfo info{};
     const bool terminal = rollback(true, &info);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     } else {
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &info);
     }
@@ -71,7 +71,7 @@ Status CollectiveController::finish(Ticket &ticket,
     residency::CloseInfo info{};
     const bool terminal = rollback(true, &info);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     } else {
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &info);
     }
@@ -86,14 +86,14 @@ Status CollectiveController::finish(Ticket &ticket,
     residency::CloseInfo rollback_info{};
     const bool terminal = rollback(true, &rollback_info);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     } else {
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &rollback_info);
     }
     child_poison = cpu ? (!terminal || child_poison) : true;
     return folded ? Status::fail(Reason::PipelineInvalid) : folded;
   }
-  ticket.collective_token = 0u;
+  ticket.collective_lease = {};
   apply_stage_effects(ticket, effects);
   ticket.intermediate_dirty = false;
   ticket.output_dirty = true;

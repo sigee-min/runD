@@ -37,15 +37,15 @@ Status finish_prefix(residency::Authority &authority,
                                 nullptr) noexcept {
     return cpu ? close_cpu_epoch(authority, ticket.prefix_receipt, false,
                                  invalidate, info)
-               : authority.complete(ticket.prefix_token, false, invalidate);
+               : authority.complete(ticket.prefix_lease.token, false, invalidate);
   };
   const auto close = [&](residency::CloseInfo *const info = nullptr) noexcept {
     return cpu ? close_cpu_epoch(authority, ticket.prefix_receipt, true, false,
                                  info)
-               : authority.complete(ticket.prefix_token, true);
+               : authority.complete(ticket.prefix_lease.token, true);
   };
   StageEffects effects{};
-  if (!capture_stage_effects(graph, prefix_lease(ticket), effects)) {
+  if (!capture_stage_effects(graph, ticket.prefix_lease, effects)) {
     const std::uint64_t token = ticket.prefix_receipt.token();
     const std::uint64_t generation = ticket.prefix_receipt.generation();
     const Status failure_status = Status::fail(Reason::PipelineInvalid);
@@ -57,7 +57,7 @@ Status finish_prefix(residency::Authority &authority,
            token, generation);
     }
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
     }
     child_poison = !terminal || child_poison;
     return failure_status;
@@ -75,12 +75,12 @@ Status finish_prefix(residency::Authority &authority,
            token, generation);
     }
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
     }
     child_poison = cpu ? (!terminal || child_poison) : true;
     return Status::fail(Reason::PipelineInvalid);
   }
-  ticket.prefix_token = 0u;
+  ticket.prefix_lease = {};
   apply_stage_effects(ticket, effects);
   if (!wavefront.terminal(ticket.batch, 0u)) {
     note(Status::fail(Reason::PipelineInvalid), Check::Terminal, nullptr, token,

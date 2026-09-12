@@ -5,11 +5,10 @@
 #include <algorithm>
 
 namespace rund::compute::detail::graph_reduce {
-namespace {
 
 using ::rund::detail::counter::Accumulate;
 
-[[nodiscard]] bool record_lease_evidence(
+bool record_input_evidence(
     Stats &stats, const VirtualRunProjection &run, const Backend backend,
     const std::span<const residency::GraphLeasePort> ports,
     const std::span<const residency::CacheBinding> bindings,
@@ -59,7 +58,6 @@ using ::rund::detail::counter::Accumulate;
   return true;
 }
 
-} // namespace
 
 void classify_backing(Stats &stats,
                       const std::span<const residency::PageUse> sources,
@@ -76,27 +74,6 @@ void classify_backing(Stats &stats,
                  ? stats.pipeline.residency.prefetch_count
                  : stats.pipeline.residency.late_page_count,
              fetched);
-}
-
-bool record_input_evidence(Stats &stats, const VirtualRunProjection &run,
-                           const Ticket &ticket,
-                           const std::uint64_t fetched_pages,
-                           const std::uint64_t backing_bytes) noexcept {
-  if (ticket.prefix == nullptr || ticket.prefix->device == nullptr ||
-      ticket.prefix_port_count > ticket.prefix_ports.size() ||
-      ticket.prefix_binding_count > ticket.prefix_bindings.size() ||
-      ticket.prefix_transition_count > ticket.prefix_transitions.size()) {
-    return false;
-  }
-  return record_lease_evidence(
-      stats, run, ticket.prefix->device->backend,
-      std::span<const residency::GraphLeasePort>{ticket.prefix_ports.data(),
-                                                 ticket.prefix_port_count},
-      std::span<const residency::CacheBinding>{ticket.prefix_bindings.data(),
-                                               ticket.prefix_binding_count},
-      std::span<const residency::CacheTransition>{
-          ticket.prefix_transitions.data(), ticket.prefix_transition_count},
-      fetched_pages, backing_bytes);
 }
 
 } // namespace rund::compute::detail::graph_reduce

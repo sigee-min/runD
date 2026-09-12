@@ -8,7 +8,10 @@ bool project_stage_scratch(const residency::TiledGraphPlan &graph,
                            const std::size_t stage_index,
                            const std::uint32_t capacity,
                            StageScratch &scratch) noexcept {
-  scratch = {};
+  scratch.epoch = {};
+  scratch.use_count = 0u;
+  scratch.port_count = 0u;
+  scratch.anchor_port = 0u;
   if (stage_index >= graph.stages().size() || ticket.count == 0u ||
       ticket.count > PipelineLeafCapacity) {
     return false;
@@ -16,19 +19,22 @@ bool project_stage_scratch(const residency::TiledGraphPlan &graph,
   const residency::TiledGraphStage &stage = graph.stages()[stage_index];
   if (stage.ports.size() < 2u ||
       stage.ports.size() > residency::TiledGraphPortCapacity ||
+      stage.ports.size() > scratch.requests.size() ||
       stage.ports.size() > scratch.uses.size() / ticket.count) {
     return false;
   }
-  scratch.port_count = stage.ports.size();
-  scratch.use_count = scratch.port_count * ticket.count;
+  const std::size_t port_count = stage.ports.size();
+  const std::size_t use_count = port_count * ticket.count;
+  residency::Epoch epoch{};
   if (!run.active.graph.project(
           ticket.batch, stage_index,
-          std::span<residency::PageUse>{scratch.uses.data(), scratch.use_count},
-          scratch.epoch)) {
+          std::span<residency::PageUse>{scratch.uses.data(), use_count},
+          epoch)) {
     return false;
   }
   bool anchored = false;
-  for (std::size_t port_index = 0u; port_index < scratch.port_count;
+  std::size_t anchor_port = 0u;
+  for (std::size_t port_index = 0u; port_index < port_count;
        ++port_index) {
     const residency::TiledGraphPort port = stage.ports[port_index];
     const residency::GraphMaterialization *const materialization =
@@ -57,11 +63,18 @@ bool project_stage_scratch(const residency::TiledGraphPlan &graph,
         .remaps = resource->remaps,
     };
     if (!anchored && port.access == residency::Access::Read) {
-      scratch.anchor_port = port_index;
+      anchor_port = port_index;
       anchored = true;
     }
   }
-  return anchored;
+  if (!anchored) {
+    return false;
+  }
+  scratch.epoch = epoch;
+  scratch.use_count = use_count;
+  scratch.port_count = port_count;
+  scratch.anchor_port = anchor_port;
+  return true;
 }
 
 } // namespace rund::compute::detail::graph_reduce

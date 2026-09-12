@@ -4,13 +4,11 @@
 
 namespace rund::compute::detail::graph_reduce {
 
-[[nodiscard]] bool
-retain_prefix_lease(Ticket &, const residency::AuthorityResult &) noexcept;
-[[nodiscard]] bool
-retain_collective_lease(Ticket &, const residency::AuthorityResult &) noexcept;
-[[nodiscard]] residency::EpochLease prefix_lease(Ticket &) noexcept;
-[[nodiscard]] residency::EpochLease prefix_input_lease(Ticket &) noexcept;
-[[nodiscard]] residency::EpochLease collective_lease(Ticket &) noexcept;
-[[nodiscard]] residency::EpochLease collective_output_lease(Ticket &) noexcept;
+[[nodiscard]] bool valid_stage_lease(const residency::EpochLease &,
+                                     std::size_t pages,
+                                     std::size_t ports) noexcept;
+[[nodiscard]] residency::EpochLease prefix_input_lease(const Ticket &) noexcept;
+[[nodiscard]] residency::EpochLease
+collective_output_lease(const Ticket &) noexcept;
 
 } // namespace rund::compute::detail::graph_reduce

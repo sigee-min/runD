@@ -44,10 +44,10 @@ Status CollectiveController::prepare(Ticket &ticket) noexcept {
     }
   }
   const residency::AuthorityResult acquired = authority_.begin_graph_epoch(
-      std::span<const residency::PageUse>{ticket.collective_uses.data(),
+      std::span<const residency::PageUse>{ticket.stage_uses.data(),
                                           ticket.collective_use_count},
       std::span<const residency::GraphPortRequest>{
-          ticket.collective_requests.data(), ticket.collective_request_count},
+          ticket.stage_requests.data(), ticket.collective_request_count},
       ticket.collective_anchor_port, ticket.collective_epoch.ordinal,
       cpu ? permit.key() : residency::CpuReservationKey{});
   if (!acquired) {
@@ -77,13 +77,13 @@ Status CollectiveController::prepare(Ticket &ticket) noexcept {
       return failure;
     }
   }
-  ticket.collective_token = acquired.lease.token;
+  ticket.collective_lease = acquired.lease;
   const auto rollback = [&](const bool invalidate) noexcept {
     residency::CloseInfo info{};
     const bool closed =
         cpu ? close_cpu_epoch(authority_, ticket.collective_receipt, false,
                               invalidate, &info)
-            : authority_.complete(ticket.collective_token, false, invalidate);
+            : authority_.complete(ticket.collective_lease.token, false, invalidate);
     if (!closed && cpu) {
       note(Status::fail(Reason::PipelineBusy), Check::Recover, &info);
     }
@@ -95,32 +95,33 @@ Status CollectiveController::prepare(Ticket &ticket) noexcept {
     note(relocated, Check::Relocate);
     const bool terminal = rollback(true);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     }
     ticket.poison = cpu ? (!terminal || ticket.poison) : true;
     return terminal ? relocated : Status::fail(Reason::PipelineInvalid);
   }
-  if (!retain_collective_lease(ticket, acquired)) {
+  if (!valid_stage_lease(ticket.collective_lease, ticket.count,
+                         ticket.collective_request_count)) {
     note(Status::fail(Reason::PipelineInvalid), Check::Collective);
     const bool terminal = rollback(true);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     }
     return Status::fail(Reason::PipelineInvalid);
   }
   bool complete = true;
   for (std::size_t port_index = 0u;
-       complete && port_index < ticket.collective_port_count; ++port_index) {
-    const residency::GraphLeasePort &port = ticket.collective_ports[port_index];
-    if (port.first_binding > ticket.collective_binding_count ||
+       complete && port_index < ticket.collective_lease.ports.size(); ++port_index) {
+    const residency::GraphLeasePort &port = ticket.collective_lease.ports[port_index];
+    if (port.first_binding > ticket.collective_lease.bindings.size() ||
         port.binding_count != ticket.count ||
         port.binding_count >
-            ticket.collective_binding_count - port.first_binding) {
+            ticket.collective_lease.bindings.size() - port.first_binding) {
       complete = false;
       break;
     }
     const auto bindings = std::span<const residency::CacheBinding>{
-        ticket.collective_bindings.data() + port.first_binding,
+        ticket.collective_lease.bindings.data() + port.first_binding,
         port.binding_count};
     if (port.access == residency::Access::Read) {
       complete = std::none_of(
@@ -138,26 +139,26 @@ Status CollectiveController::prepare(Ticket &ticket) noexcept {
     note(Status::fail(Reason::PipelineInvalid), Check::Collective);
     const bool terminal = rollback(true);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     }
     return terminal ? Status::fail(Reason::PipelineInvalid)
                     : Status::fail(Reason::PipelineBusy);
   }
   const residency::GraphLeasePort &anchor =
-      ticket.collective_ports[ticket.collective_anchor_port];
+      ticket.collective_lease.ports[ticket.collective_anchor_port];
   if (anchor.access != residency::Access::Read ||
-      anchor.first_binding > ticket.collective_binding_count ||
+      anchor.first_binding > ticket.collective_lease.bindings.size() ||
       anchor.binding_count >
-          ticket.collective_binding_count - anchor.first_binding) {
+          ticket.collective_lease.bindings.size() - anchor.first_binding) {
     note(Status::fail(Reason::PipelineInvalid), Check::Collective);
     const bool terminal = rollback(true);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     }
     return Status::fail(Reason::PipelineInvalid);
   }
   const auto anchor_bindings = std::span<const residency::CacheBinding>{
-      ticket.collective_bindings.data() + anchor.first_binding,
+      ticket.collective_lease.bindings.data() + anchor.first_binding,
       anchor.binding_count};
   VirtualTransferInterval control{};
   const Status controls =
@@ -169,12 +170,12 @@ Status CollectiveController::prepare(Ticket &ticket) noexcept {
                .completed = control.completed_ns},
       Timeline::Direction::HostToDevice, stats_.pipeline.residency);
   if (!controls || !control_recorded ||
-      !authority_.activate(ticket.collective_token)) {
+      !authority_.activate(ticket.collective_lease.token)) {
     note(!controls ? controls : Status::fail(Reason::PipelineInvalid),
          Check::Activate);
     const bool terminal = rollback(true);
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
     }
     return !controls ? controls : Status::fail(Reason::PipelineInvalid);
   }

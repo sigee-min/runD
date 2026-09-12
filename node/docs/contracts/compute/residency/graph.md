@@ -673,6 +673,38 @@ destination tokens. The graph coordinator is the only substantive invocation
 orchestrator; the public `reduce.cpp` facade forwards to it and must not grow
 duplicate projection, lease, transfer, or readiness policy.
 
+Graph execution borrows each `EpochLease` directly from Authority's fixed
+lease slot. Its bindings, transitions, ports, remaps, and relocations are
+immutable from admission through activation and execution; admitting or
+recycling another slot cannot invalidate them. A Ticket carries the complete
+borrowed view, including its token and generation, and clears the entire view
+when that epoch closes or rolls back. Effect capture and output retention must
+finish before close; cleanup uses credentials and copied effect keys, never a
+closed lease. Receipt/quarantine ownership remains with Authority.
+
+Stage projection writes directly into the Ticket's bounded PageUse/request
+storage and publishes active counts only after every port is valid. Inactive
+capacity has no semantic meaning and is neither cleared nor read by projection.
+Ticket initialization projects Terminal output identity first, then Prefix
+into the same storage. After Prefix has joined and its lease has closed,
+Middle reuses that storage. Terminal binding finally reprojects its stage
+before admission. Each synchronous reader must finish before another stage
+projection overwrites that same Ticket; Forecast workers retain their own
+projected requests and do not borrow this scratch. Only epoch metadata, output
+keys, and the small output projection survive a stage change.
+
+Graph Promote groups likewise project one common invocation/batch/stage;
+input sources retain only their own ranges into that projection. Source owner,
+identity, coordinate, unique read port, ordered page subset, and exact physical
+row authentication still apply independently to every source. Input evidence
+consumes borrowed spans directly, without constructing a Ticket or copying lease tables. These changes add no heap
+workspace, physical frame, or memory-budget owner. The product Graph fixture
+executes public CPU/native runs and native failure/retry sequences on a 1 MiB
+worker stack; fixed view/Group/Ticket bounds and cross-slot lease stability
+have separate contract checks. Compiler frame measurements and the 512 KiB
+Release reproduction live in the
+[Graph scratch evidence](../../../../../docs/reference/performance/virtual/scratch.md).
+
 The `registry/graph_persist_owner.{hpp,cpp}` `GraphPersistOwner` owns the
 complete Host-output-to-backing Persist credential lifecycle and CPU retry
 queries/recovery. Its issue, terminal, release, validation, and retry methods

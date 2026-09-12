@@ -8,6 +8,7 @@ results. It is separate from the installed Release baseline.
 | [Method](./method.md) | Workload, sampling, counter admission, crossover classification, and blocked-target rules. |
 | [Window](./window.md) | Direct pointwise Q2--Q4 paired CPU/Metal measurement and its public-receipt boundary. |
 | [Forecast](./forecast.md) | Graph input worker refill, completion waiting, recovery, and bounded Debug diagnostic comparisons. |
+| [Scratch](./scratch.md) | Graph lease/projection ownership, bounded worker stacks, and current-source Release diagnostics. |
 | [Results](./result.md) | Frozen measured comparisons with host/source identity and explicit claim limits. |
 
 The current-source natural-admission matrix is invoked with

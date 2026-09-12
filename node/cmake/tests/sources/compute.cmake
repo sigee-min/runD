@@ -451,6 +451,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/virtual/product/graph_wavefront_host.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_forecast_window.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_forecast_window/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_forecast_window/scratch.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_forecast_window/backing.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront_host/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront_host/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
@@ -993,6 +994,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/virtual/product/graph_forecast_window.cpp
   tests/contract/compute/virtual/product/graph_forecast_window/program.cpp
   tests/contract/compute/virtual/product/graph_forecast_window/backing.cpp
+  tests/contract/compute/virtual/product/graph_forecast_window/scratch.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host/program.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host/fixture.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host/evidence.cpp

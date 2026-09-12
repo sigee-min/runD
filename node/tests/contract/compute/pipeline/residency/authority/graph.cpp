@@ -2,7 +2,9 @@
 
 #include "src/compute/device/residency/registry.hpp"
 
+#include <algorithm>
 #include <array>
+#include <vector>
 #include <cstddef>
 #include <limits>
 
@@ -143,10 +145,78 @@ int CheckAuthorityGraph() {
       graph_stage0.lease.bindings[1].frame != graph_input_b_base + 1u ||
       graph_stage0.lease.bindings[2].frame != graph_internal_base + 1u ||
       graph_epoch.complete(graph_stage0.lease.token, true) ||
-      !graph_epoch.activate(graph_stage0.lease.token) ||
-      !graph_epoch.complete(graph_stage0.lease.token, true)) {
+      !graph_epoch.activate(graph_stage0.lease.token)) {
     return 66;
   }
+  // A computing epoch borrows one fixed slot. Repeated admission/rollback in
+  // the other slot must not move or mutate any of the first lease's tables.
+  const auto &borrowed = graph_stage0.lease;
+  const std::vector<CacheBinding> saved_bindings(borrowed.bindings.begin(),
+                                               borrowed.bindings.end());
+  const std::vector<CacheTransition> saved_transitions(
+      borrowed.transitions.begin(), borrowed.transitions.end());
+  const std::vector<GraphLeasePort> saved_ports(borrowed.ports.begin(),
+                                               borrowed.ports.end());
+  auto other_uses = graph_stage0_uses;
+  auto other_ports = graph_stage0_ports;
+  for (auto &use : other_uses) {
+    use.pin = {.first_epoch = 1u, .last_epoch = 1u};
+    use.prefetch_epoch = use.ready_epoch = 1u;
+    use.next_use = never;
+  }
+  for (auto &port : other_ports) {
+    port.region.count = 1u;
+    port.cache_regions[0] = port.region;
+    port.materialization.key.backing += 100u;
+  }
+  for (unsigned reuse = 0u; reuse < 3u; ++reuse) {
+    const auto other =
+        graph_epoch.begin_graph_epoch(other_uses, other_ports, 0u, 1u);
+    if (!other || other.lease.token == borrowed.token ||
+        !graph_epoch.activate(other.lease.token) ||
+        !graph_epoch.complete(other.lease.token, false, true))
+      return 74;
+    const auto resumed = graph_epoch.resume(borrowed.token);
+    if (!resumed || resumed.lease.generation != borrowed.generation ||
+        resumed.lease.bindings.data() != borrowed.bindings.data() ||
+        resumed.lease.transitions.data() != borrowed.transitions.data() ||
+        resumed.lease.ports.data() != borrowed.ports.data() ||
+        resumed.lease.remaps.data() != borrowed.remaps.data() ||
+        resumed.lease.relocations.data() != borrowed.relocations.data() ||
+        !std::equal(saved_bindings.begin(), saved_bindings.end(),
+                     borrowed.bindings.begin(), borrowed.bindings.end(),
+                     [](const CacheBinding &a, const CacheBinding &b) {
+                       return a.key == b.key && a.frame == b.frame &&
+                              a.access == b.access && a.dirty == b.dirty &&
+                              a.prior_dirty == b.prior_dirty &&
+                              a.next_use == b.next_use &&
+                              a.retain_until == b.retain_until &&
+                              a.fetch == b.fetch && a.relocated == b.relocated &&
+                              a.retire_on_success == b.retire_on_success;
+                     }) ||
+        !std::equal(saved_transitions.begin(), saved_transitions.end(),
+                     borrowed.transitions.begin(), borrowed.transitions.end(),
+                     [](const CacheTransition &a, const CacheTransition &b) {
+                       return a.key == b.key && a.frame == b.frame &&
+                              a.kind == b.kind && a.dirty == b.dirty;
+                     }) ||
+        !std::equal(saved_ports.begin(), saved_ports.end(),
+                     borrowed.ports.begin(), borrowed.ports.end(),
+                     [](const GraphLeasePort &a, const GraphLeasePort &b) {
+                       return a.program_port == b.program_port &&
+                              a.access == b.access && a.resource == b.resource &&
+                              a.region == b.region &&
+                              a.cache_regions == b.cache_regions &&
+                              a.cache_region_count == b.cache_region_count &&
+                              a.first_binding == b.first_binding &&
+                              a.binding_count == b.binding_count &&
+                              a.first_remap == b.first_remap &&
+                              a.remap_count == b.remap_count;
+                     }))
+      return 75;
+  }
+  if (!graph_epoch.complete(borrowed.token, true))
+    return 76;
   auto overlapping_ports = graph_stage0_ports;
   overlapping_ports.back().region = graph_input_a_region;
   if (graph_epoch

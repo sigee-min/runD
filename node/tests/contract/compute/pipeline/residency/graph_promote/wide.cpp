@@ -1,4 +1,5 @@
 #include "local.hpp"
+#include "src/compute/device/residency/execution/graph_promote/internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,6 +14,7 @@ namespace rund_node_test_pipeline_residency::graph_promote {
   using namespace residency;
   constexpr std::size_t InputCount = execution::GraphPromoteSourceCapacity;
   static_assert(InputCount == 7u);
+  static_assert(sizeof(graph_promote_detail::Group) < 48u * 1024u);
 
   TiledGraphPlanInput input{
       .page_count = 1u,

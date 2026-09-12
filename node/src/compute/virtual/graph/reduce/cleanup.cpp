@@ -38,7 +38,7 @@ bool cleanup_ticket(residency::Authority &authority, Ticket &ticket,
     const bool terminal = cancel_input_promotion(authority, ticket);
     clean = terminal && clean;
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
     } else {
       report(Status::fail(Reason::PipelineBusy), Check::Recover,
              ticket.prefix_epoch.ordinal, ticket.prefix_receipt.token(),
@@ -72,7 +72,7 @@ bool cleanup_ticket(residency::Authority &authority, Ticket &ticket,
       report(Status::fail(Reason::PipelineBusy), Check::Recover, Fail::NoEpoch);
     }
   }
-  if (ticket.collective_token != 0u) {
+  if (ticket.collective_lease.token != 0u) {
     const bool cpu = ticket.collective != nullptr &&
                      ticket.collective->device != nullptr &&
                      ticket.collective->device->backend == Backend::Cpu;
@@ -80,10 +80,10 @@ bool cleanup_ticket(residency::Authority &authority, Ticket &ticket,
     const bool terminal =
         cpu ? close_cpu_epoch(authority, ticket.collective_receipt, false, true,
                               &info)
-            : authority.complete(ticket.collective_token, false, true);
+            : authority.complete(ticket.collective_lease.token, false, true);
     clean = terminal && clean;
     if (terminal) {
-      ticket.collective_token = 0u;
+      ticket.collective_lease = {};
       ticket.output_dirty = false;
     } else {
       report(Status::fail(Reason::PipelineBusy), Check::Recover,
@@ -91,7 +91,7 @@ bool cleanup_ticket(residency::Authority &authority, Ticket &ticket,
              ticket.collective_receipt.generation(), cpu ? &info : nullptr);
     }
   }
-  if (ticket.prefix_token != 0u) {
+  if (ticket.prefix_lease.token != 0u) {
     const bool cpu = ticket.prefix != nullptr &&
                      ticket.prefix->device != nullptr &&
                      ticket.prefix->device->backend == Backend::Cpu;
@@ -99,10 +99,10 @@ bool cleanup_ticket(residency::Authority &authority, Ticket &ticket,
     const bool terminal =
         cpu ? close_cpu_epoch(authority, ticket.prefix_receipt, false, true,
                               &info)
-            : authority.complete(ticket.prefix_token, false, true);
+            : authority.complete(ticket.prefix_lease.token, false, true);
     clean = terminal && clean;
     if (terminal) {
-      ticket.prefix_token = 0u;
+      ticket.prefix_lease = {};
       ticket.intermediate_dirty = false;
     } else {
       report(Status::fail(Reason::PipelineBusy), Check::Recover,

@@ -7,9 +7,10 @@ namespace {
 
 [[nodiscard]] bool
 contains_use(const graph_promote_detail::Projection &projection,
+             const std::size_t first_use,
              const execution::GraphForecastPage host) noexcept {
   const auto begin = projection.uses.begin() +
-                     static_cast<std::ptrdiff_t>(projection.first_use);
+                     static_cast<std::ptrdiff_t>(first_use);
   const auto end = begin + static_cast<std::ptrdiff_t>(projection.page_count);
   return std::find_if(begin, end, [host](const PageUse use) {
            return use.key == host.use;
@@ -56,7 +57,8 @@ AuthorityResult GraphPromoteOwner::bind_graph_promote_group(
   for (std::size_t source_index = 0u; source_index < group.source_count;
        ++source_index) {
     const graph_promote_detail::Projection &projection =
-        group.projections[source_index];
+        group.projection;
+    const std::size_t first_use = group.first_uses[source_index];
     const std::uint32_t resource = group.resources[source_index];
     const std::uint64_t source_token = group.tokens[source_index];
     const auto source =
@@ -92,7 +94,7 @@ AuthorityResult GraphPromoteOwner::bind_graph_promote_group(
 
     const auto forecast_pages = group.pages[source_index];
     for (std::size_t index = 0u; index < projection.page_count; ++index) {
-      const PageUse use = projection.uses[projection.first_use + index];
+      const PageUse use = projection.uses[first_use + index];
       const CacheBinding binding =
           destination->bindings[destination_port->first_binding + index];
       const auto host =
@@ -161,8 +163,8 @@ AuthorityResult GraphPromoteOwner::bind_graph_promote_group(
       };
     }
     if (std::any_of(forecast_pages.begin(), forecast_pages.end(),
-                    [&projection](const auto page) {
-                      return !contains_use(projection, page);
+                    [&projection, first_use](const auto page) {
+                      return !contains_use(projection, first_use, page);
                     })) {
       return AuthorityResult{.failure = AuthorityFailure::Invalid};
     }
@@ -176,7 +178,7 @@ AuthorityResult GraphPromoteOwner::bind_graph_promote_group(
   ticket.plan_ = group.owner->identity();
   ticket.completion_ = Status::fail(Reason::CompletionInvalid);
   ticket.destination_token_ = destination_token;
-  ticket.coordinate_ = group.projections.front().epoch.ordinal;
+  ticket.coordinate_ = group.projection.epoch.ordinal;
   ticket.page_count_ = page_count;
   ticket.source_count_ = group.source_count;
   ticket.terminal_ = execution::TerminalKind::Known;

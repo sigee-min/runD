@@ -4,7 +4,7 @@ namespace rund::compute::detail::graph_reduce {
 
 bool MiddleController::ready_external_inputs(
     Ticket &ticket, const std::size_t stage_index) noexcept {
-  StageScratch scratch{};
+  StageScratch scratch = middle_scratch(ticket);
   if (!project_stage_scratch(graph_, run_, pool_, ticket, stage_index,
                              capacity_, scratch)) {
     return false;

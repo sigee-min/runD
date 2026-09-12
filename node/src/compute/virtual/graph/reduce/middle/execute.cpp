@@ -20,7 +20,7 @@ Status MiddleController::execute(Ticket &ticket, bool &child_poison) noexcept {
       (void)ready_external_inputs(ticket, stage_index);
     }
   }
-  StageScratch scratch{};
+  StageScratch scratch = middle_scratch(ticket);
   for (std::size_t completed = 1u; completed < terminal_stage_; ++completed) {
     (void)completed;
     WavefrontCoordinate selected{};

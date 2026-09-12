@@ -29,7 +29,7 @@ Status PrefetchController::refill(Ticket &ticket,
     // before another stage can reuse that input's physical Host region.
     while (wavefront_.forecast_middle(ticket.batch, coordinate, resource,
                                       after_stage)) {
-      StageScratch scratch{};
+      StageScratch scratch = middle_scratch(ticket);
       if (!project_stage_scratch(
               graph_, run_, pool_, ticket, coordinate.stage,
               static_cast<std::uint32_t>(run_.frame_capacity), scratch)) {

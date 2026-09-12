@@ -4,32 +4,6 @@
 
 #include <rund/compute/pipeline/runtime.hpp>
 
-namespace {
-
-[[nodiscard]] bool record_middle_input_evidence(
-    rund::compute::Stats &stats,
-    const rund::compute::detail::VirtualRunProjection &run,
-    const std::shared_ptr<rund::compute::detail::PipelineState> &pipeline,
-    const rund::compute::detail::residency::EpochLease lease) noexcept {
-  using namespace rund::compute::detail::graph_reduce;
-  Ticket evidence{};
-  if (pipeline == nullptr || pipeline->device == nullptr ||
-      lease.ports.size() > evidence.prefix_ports.size() ||
-      lease.bindings.size() > evidence.prefix_bindings.size()) {
-    return false;
-  }
-  evidence.prefix = pipeline;
-  evidence.prefix_port_count = lease.ports.size();
-  evidence.prefix_binding_count = lease.bindings.size();
-  std::copy(lease.ports.begin(), lease.ports.end(),
-            evidence.prefix_ports.begin());
-  std::copy(lease.bindings.begin(), lease.bindings.end(),
-            evidence.prefix_bindings.begin());
-  return record_input_evidence(stats, run, evidence, 0u, 0u);
-}
-
-} // namespace
-
 namespace rund::compute::detail::graph_reduce {
 
 Status
@@ -212,7 +186,11 @@ MiddleController::run_stage(Ticket &ticket, const StageScratch &scratch,
       return !promoted.status ? promoted.status
                               : Status::fail(Reason::PipelineInvalid);
     }
-    if (!record_middle_input_evidence(stats_, run_, pipeline, acquired.lease)) {
+    // Preserve the Middle promotion counters: read hits/fetches only.
+    // This observation has never folded lease transitions into evictions.
+    if (!record_input_evidence(stats_, run_, pipeline->device->backend,
+                               acquired.lease.ports, acquired.lease.bindings,
+                               {}, 0u, 0u)) {
       note(Status::fail(Reason::PipelineInvalid), Check::Capture);
       const bool terminal = rollback(true);
       child_poison = true;

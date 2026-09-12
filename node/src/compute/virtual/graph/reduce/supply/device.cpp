@@ -17,34 +17,35 @@ Status SupplyController::make_device_ready(Ticket &ticket,
     return Status::fail(Reason::PipelineInvalid);
   }
   const residency::AuthorityResult acquired = authority_.begin_graph_epoch(
-      std::span<const residency::PageUse>{ticket.prefix_uses.data(),
+      std::span<const residency::PageUse>{ticket.stage_uses.data(),
                                           ticket.prefix_use_count},
       std::span<const residency::GraphPortRequest>{
-          ticket.prefix_requests.data(), ticket.prefix_request_count},
+          ticket.stage_requests.data(), ticket.prefix_request_count},
       ticket.prefix_anchor_port, ticket.prefix_epoch.ordinal);
   if (!acquired) {
     return authority_status(acquired);
   }
-  ticket.prefix_token = acquired.lease.token;
+  ticket.prefix_lease = acquired.lease;
   const Status relocated = relocate_graph_lease(*ticket.prefix, graph_, pool_,
                                                 acquired.lease, stats_);
   if (!relocated) {
-    const bool terminal = authority_.complete(ticket.prefix_token, false, true);
-    ticket.prefix_token = 0u;
+    const bool terminal = authority_.complete(ticket.prefix_lease.token, false, true);
+    ticket.prefix_lease = {};
     ticket.poison = true;
     return terminal ? relocated : Status::fail(Reason::PipelineInvalid);
   }
-  if (!retain_prefix_lease(ticket, acquired)) {
+  if (!valid_stage_lease(ticket.prefix_lease, ticket.count,
+                         ticket.prefix_request_count)) {
     return Status::fail(Reason::PipelineInvalid);
   }
   const residency::EpochLease inputs = prefix_input_lease(ticket);
   std::uint64_t execution_fetches = 0u;
-  for (std::size_t port_index = 0u; port_index < ticket.prefix_port_count;
+  for (std::size_t port_index = 0u; port_index < ticket.prefix_lease.ports.size();
        ++port_index) {
-    const residency::GraphLeasePort port = ticket.prefix_ports[port_index];
+    const residency::GraphLeasePort port = ticket.prefix_lease.ports[port_index];
     if (port.access != residency::Access::Read ||
-        port.first_binding > ticket.prefix_binding_count ||
-        port.binding_count > ticket.prefix_binding_count - port.first_binding) {
+        port.first_binding > ticket.prefix_lease.bindings.size() ||
+        port.binding_count > ticket.prefix_lease.bindings.size() - port.first_binding) {
       if (port.access == residency::Access::Read) {
         return Status::fail(Reason::PipelineInvalid);
       }
@@ -52,7 +53,7 @@ Status SupplyController::make_device_ready(Ticket &ticket,
     }
     for (std::size_t page = 0u; page < port.binding_count; ++page) {
       execution_fetches += static_cast<std::uint64_t>(
-          ticket.prefix_bindings[port.first_binding + page].fetch);
+          ticket.prefix_lease.bindings[port.first_binding + page].fetch);
     }
   }
   VirtualTransferInterval control{};
@@ -70,12 +71,12 @@ Status SupplyController::make_device_ready(Ticket &ticket,
 
   if (ticket.host_ready_count != 0u) {
     const Status issued = issue_input_promotion(
-        authority_, run_.active.graph, ticket, 0u, ticket.prefix_token);
+        authority_, run_.active.graph, ticket, 0u, ticket.prefix_lease.token);
     if (!issued) {
       return issued;
     }
     const InputPromotionResult promoted = transfer_input_promotion(
-        authority_, *ticket.prefix, run_, prefix_lease(ticket), stats_, ticket);
+        authority_, *ticket.prefix, run_, ticket.prefix_lease, stats_, ticket);
     const bool upload_recorded =
         !promoted.status || execution_fetches == 0u ||
         record_interval(hidden_by, promoted.interval,
@@ -100,11 +101,13 @@ Status SupplyController::make_device_ready(Ticket &ticket,
                         Timeline::Direction::HostToDevice,
                         stats_.pipeline.residency);
     if (!uploaded || !upload_recorded || execution_fetches != 0u ||
-        !authority_.activate(ticket.prefix_token)) {
+        !authority_.activate(ticket.prefix_lease.token)) {
       return !uploaded ? uploaded : Status::fail(Reason::PipelineInvalid);
     }
   }
-  if (!record_input_evidence(stats_, run_, ticket,
+  if (!record_input_evidence(stats_, run_, ticket.prefix->device->backend,
+                             ticket.prefix_lease.ports, ticket.prefix_lease.bindings,
+                             ticket.prefix_lease.transitions,
                              ticket.host_supply.fetched_pages,
                              ticket.host_supply.backing_bytes)) {
     return Status::fail(Reason::PipelineInvalid);
