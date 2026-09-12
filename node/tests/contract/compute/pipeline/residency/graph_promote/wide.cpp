@@ -1,8 +1,10 @@
 #include "local.hpp"
+#include "../../../allocation.hpp"
 #include "src/compute/device/residency/execution/graph_promote/internal.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <memory>
 #include <span>
 #include <utility>
@@ -186,10 +188,18 @@ namespace rund_node_test_pipeline_residency::graph_promote {
   AuthorityResult destination =
       authority.begin_graph_epoch(uses, requests, 0u, epoch.ordinal);
   execution::GraphPromote promote{};
-  if (!destination ||
-      !authority.graph_promotes().issue_graph_promote_group(
-          ready, invocation, 0u, 0u,
-                                           destination.lease.token, promote) ||
+  if (!destination)
+    return 7;
+  node_compute_allocation::Start();
+  const auto issued = authority.graph_promotes().issue_graph_promote_group(
+      ready, invocation, 0u, 0u, destination.lease.token, promote);
+  node_compute_allocation::Stop();
+  if (node_compute_allocation::Count() != 0u) {
+    std::fprintf(stderr, "Graph Promote allocated %llu times\n",
+                 static_cast<unsigned long long>(node_compute_allocation::Count()));
+    return 13;
+  }
+  if (!issued ||
       !promote || promote.source_count() != InputCount ||
       promote.pages().size() != InputCount) {
     return 7;

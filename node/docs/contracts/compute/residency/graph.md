@@ -694,7 +694,9 @@ projected requests and do not borrow this scratch. Only epoch metadata, output
 keys, and the small output projection survive a stage change.
 
 Graph Promote groups likewise project one common invocation/batch/stage;
-input sources retain only their own ranges into that projection. Source owner,
+input sources retain only their own ranges into that projection. Port lists
+are borrowed from the immutable plan, with zero allocation during group issue.
+Source owner,
 identity, coordinate, unique read port, ordered page subset, and exact physical
 row authentication still apply independently to every source. Input evidence
 consumes borrowed spans directly, without constructing a Ticket or copying lease tables. These changes add no heap

@@ -46,7 +46,7 @@ project_group(const std::shared_ptr<const ResidencyPlan> &owner,
       run.page_count > execution::GraphForecastCapacity) {
     return false;
   }
-  const auto ports = plan.stages()[stage].ports;
+  const auto &ports = plan.stages()[stage].ports;
   if (ports.empty() || ports.size() > TiledGraphPortCapacity ||
       run.page_count > result.uses.size() / ports.size()) {
     return false;
@@ -77,7 +77,7 @@ validate_source(const std::shared_ptr<const ResidencyPlan> &owner,
   }
   const TiledGraphPlan &plan = owner->tiled_graph();
   const TiledGraphResource *const declared = plan.resource(resource);
-  const auto ports = plan.stages()[stage].ports;
+  const auto &ports = plan.stages()[stage].ports;
   if (declared == nullptr ||
       declared->kind != GraphResourceKind::ExternalInput ||
       declared->persistence != ResourcePersistence::Backing) {

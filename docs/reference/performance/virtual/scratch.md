@@ -74,18 +74,27 @@ thread to exclude worker creation and joining from execution timing.
 
 | Input callback delay | Wall before / after (ms) | Coordinator CPU before / after (ms) |
 | --- | ---: | ---: |
-| None | 8.701 / 5.456 | 2.157 / 1.095 |
-| 5 ms per non-prefix page | 79.741 / 71.679 | 2.945 / 2.233 |
+| None | 3.492 / 2.901 | 1.165 / 0.557 |
+| 5 ms per non-prefix page | 66.781 / 65.468 | 4.431 / 2.320 |
 
-These medians show 37.3% less wall time and 49.2% less coordinator CPU time
-without callback delay. With delay, they show 10.1% and 24.2% reductions.
+These medians show 16.9% less wall time and 52.2% less coordinator CPU time
+without callback delay. With delay, they show 2.0% and 47.6% reductions.
 Each of the three ABBA cycles has the same direction for both metrics.
-Wall samples vary substantially: 3.273–64.855 ms before and 2.284–57.808 ms
-after without delay, and 60.047–165.197 / 62.414–170.186 ms with delay.
+Wall samples range from 3.028–10.780 ms before and 2.466–3.819 ms after
+without delay, and 62.042–91.689 / 60.631–70.220 ms with delay.
 This diagnostic does not establish statistical significance or a universal
 speedup. Coordinator CPU uses `CLOCK_THREAD_CPUTIME_ID` and excludes workers
 and driver threads; wall uses `steady_clock`. GPU stages still submit/wait
 individually. No GPU duration, GPU idle time, or kernel speedup is inferred.
+
+The earlier `fda4ec0c` round remains in `round-fda4ec0c/`. Its no-delay
+wall/CPU medians were 8.701/2.157 ms before and 5.456/1.095 ms after;
+delayed values were 79.741/2.945 and 71.679/2.233 ms. Final review found
+that the new common projection copied its port vectors. The added allocation
+regression observed eight allocations for seven-source Promote; borrowing
+the port vectors eliminates all eight. The table above uses the final
+corrected code and a fresh complete ABBA round, rather than selecting the best
+round. Cross-round wall variability limits small timing claims.
 
 ## Verification and reproduction
 
@@ -97,7 +106,9 @@ Both focused commands passed on the final implementation:
 The Authority contract keeps one Computing lease while admitting, activating
 and rolling back another slot three times; it compares borrowed table
 addresses, exact generation, and all binding/transition/port fields. The
-maximum seven-source Promote contract bounds Group storage. Product tests
+maximum seven-source Promote contract bounds Group storage and requires zero
+allocations during issue; its negative control fails on `fda4ec0c` with eight
+allocations, and the final implementation passes with zero. Product tests
 bound Ticket/view storage, validate input evidence and quiescent scratch
 reuse, and run public CPU and native accelerator Graphs on a 1 MiB worker
 stack. Existing four-input and shared-input tests also execute their controlled
