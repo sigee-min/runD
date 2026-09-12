@@ -174,6 +174,7 @@ int RunRuntimeComputeHostContract() {
   const auto recovered = failure_job->read();
   TEST_ASSERT(recovered);
   TEST_ASSERT(*recovered == std::vector<std::uint32_t>({1u, 3u}));
+  TEST_ASSERT(runtime_compute_host_detail::CheckTimedSubmissionObservation());
   TEST_ASSERT(runtime_compute_host_detail::CheckCpuStepParity(runtime));
   TEST_ASSERT(runtime_compute_host_detail::CheckServerReplay(runtime));
 

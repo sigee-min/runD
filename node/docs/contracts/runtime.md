@@ -324,6 +324,19 @@ Request -> Submission -> Poll | Completion
 `Session::compute(job)` returns the move-only `compute::Request`.
 `Request::submit()` returns the move-only `compute::Submission`, whose
 `poll()`, `wait()`, and `cancel()` observe or control that one admission.
+`poll()` and positive-duration `wait_for()` consume the same Scheduler
+CompletionPool observer reference. `WaitSubmission` delegates the timed wait
+to that owner before the public Poll projection. The timed wait parks on
+that completion cell's existing stripe condition variable through Committing
+until terminal publication or timeout; it does not wait on the earlier Compute
+cancellation/finish phase. Status and Stats are read under the Compute gate
+after terminal observation, and that gate is released while waiting. The
+observer remains retained by the Submission; no per-wait thread, heap node,
+condition variable, or second completion state is created. Nonpositive timeouts
+are immediate observations. The controlled observation contract holds Compute
+at Complete while its Scheduler receipt remains Committing, then verifies the
+full timeout and later exact terminal/failure observation. Public status and
+Stats projection remain on the existing Poll path.
 Direct coroutine await returns the same `compute::Completion` publication.
 The coroutine bridge is the nested `compute::Request::Awaiter`; it does not
 create another root product type or result family.

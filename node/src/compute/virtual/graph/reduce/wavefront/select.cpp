@@ -88,13 +88,14 @@ bool Wavefront::forecast(WavefrontCoordinate &selected,
   return true;
 }
 
-bool Wavefront::forecast_middle(const std::uint64_t batch,
-                                WavefrontCoordinate &selected,
-                                std::uint32_t &resource) const noexcept {
+bool Wavefront::forecast_middle(
+    const std::uint64_t batch, WavefrontCoordinate &selected,
+    std::uint32_t &resource, const std::uint32_t after_stage) const noexcept {
   const Cell *found = nullptr;
   std::uint32_t found_resource = 0u;
   for (const Cell &cell : cells_) {
-    if (cell.coordinate.batch != batch || cell.coordinate.stage == 0u ||
+    if (cell.coordinate.batch != batch ||
+        cell.coordinate.stage <= after_stage ||
         cell.coordinate.stage + 1u >= stage_count_ ||
         cell.state != CellState::Waiting || cell.failed || cell.device_ready ||
         cell.required_mask == 0u ||

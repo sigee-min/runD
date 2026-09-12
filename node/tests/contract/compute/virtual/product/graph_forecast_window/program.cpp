@@ -12,6 +12,23 @@ template <std::size_t First, std::size_t Count, class Expression>
            expand<First + Half, Count - Half>(value);
   }
 }
+template <class A, class B, class C, class D>
+[[nodiscard]] auto compose(A a, B b, C c, D d) {
+  const auto prefix =
+      a.map("forecast-prefix", [](auto v) { return expand<1u, Leaves>(v); });
+  const auto slow = b.map(
+      "forecast-slow", [](auto v) { return expand<Leaves + 1u, Leaves>(v); });
+  const auto fast = c.map("forecast-fast", [](auto v) {
+    return expand<2u * Leaves + 1u, Leaves>(v);
+  });
+  const auto refill = d.map("forecast-refill", [](auto v) {
+    return expand<3u * Leaves + 1u, Leaves>(v);
+  });
+  return zip(prefix, slow, fast, refill)
+      .map("forecast-final", [](auto av, auto bv, auto cv, auto dv) {
+        return av + bv + cv + dv;
+      });
+}
 } // namespace
 rund::compute::Result<Program>
 build_program(const rund::compute::Device &device) {
@@ -20,23 +37,17 @@ build_program(const rund::compute::Device &device) {
       .zip_input<std::uint64_t>(PageElements)
       .zip_input<std::uint64_t>(PageElements)
       .zip_input<std::uint64_t>(PageElements)
-      .branch([](auto a, auto b, auto c, auto d) {
-        const auto prefix = a.map("forecast-prefix",
-                                  [](auto v) { return expand<1u, Leaves>(v); });
-        const auto slow = b.map("forecast-slow", [](auto v) {
-          return expand<Leaves + 1u, Leaves>(v);
-        });
-        const auto fast = c.map("forecast-fast", [](auto v) {
-          return expand<2u * Leaves + 1u, Leaves>(v);
-        });
-        const auto refill = d.map("forecast-refill", [](auto v) {
-          return expand<3u * Leaves + 1u, Leaves>(v);
-        });
-        return zip(prefix, slow, fast, refill)
-            .map("forecast-final", [](auto av, auto bv, auto cv, auto dv) {
-              return av + bv + cv + dv;
-            });
-      })
+      .branch(
+          [](auto a, auto b, auto c, auto d) { return compose(a, b, c, d); })
+      .compile();
+}
+rund::compute::Result<SharedProgram>
+build_shared_program(const rund::compute::Device &device) {
+  return rund::compute::on(device)
+      .input<std::uint64_t>(PageElements)
+      .zip_input<std::uint64_t>(PageElements)
+      .zip_input<std::uint64_t>(PageElements)
+      .branch([](auto a, auto b, auto d) { return compose(a, b, b, d); })
       .compile();
 }
 std::uint64_t expected(const std::size_t element) noexcept {

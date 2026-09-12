@@ -15,6 +15,8 @@ inline constexpr std::size_t Stages = 5u;
 inline constexpr std::size_t Leaves = 340u;
 using Program = rund::compute::Program<std::uint64_t(
     std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t)>;
+using SharedProgram = rund::compute::Program<std::uint64_t(
+    std::uint64_t, std::uint64_t, std::uint64_t)>;
 struct Control final {
   std::mutex gate;
   std::condition_variable changed;
@@ -44,5 +46,7 @@ private:
 };
 [[nodiscard]] rund::compute::Result<Program>
 build_program(const rund::compute::Device &);
+[[nodiscard]] rund::compute::Result<SharedProgram>
+build_shared_program(const rund::compute::Device &);
 [[nodiscard]] std::uint64_t expected(std::size_t) noexcept;
 } // namespace rund_node_test_virtual::product::graph_forecast_window

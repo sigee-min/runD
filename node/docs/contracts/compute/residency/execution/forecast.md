@@ -167,7 +167,11 @@ route.
 
 The two fixed physical Forecast lanes are a work window, independent of the
 logical `(batch, stage, resource)` coordinate. Before selecting a runnable
-cell, the coordinator fills free lanes in planner order. After a callback
+cell, the coordinator fills free lanes in planner order. Its fixed-stage scan
+skips an input with a live callback or a Ready pin awaiting promotion, allowing
+later independent inputs to use the free worker. A repeated use of one input
+therefore cannot block another backing or overwrite the first consumer's Ready
+frames; after that consumer runs, exact Device residency can satisfy the repeat. After a callback
 returns, its authenticated receipt is retired into a pinned GraphReady owner;
 the freed worker can fetch another dependency-ready input while another lane
 remains in flight. The selected stage alone consumes its complete Ready set

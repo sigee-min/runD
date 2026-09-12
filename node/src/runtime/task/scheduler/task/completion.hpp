@@ -4,6 +4,7 @@
 
 #include <rund/task/status.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -42,6 +43,9 @@ public:
                                                task::Phase next) noexcept;
   [[nodiscard]] static task::Poll poll(CompletionLease lease) noexcept;
   [[nodiscard]] static task::Status wait(CompletionLease lease) noexcept;
+  [[nodiscard]] static task::Poll
+  wait_for(const ::rund::detail::task::ResultRef &observer,
+           std::chrono::nanoseconds timeout) noexcept;
   [[nodiscard]] static bool park(CompletionLease lease,
                                  CompletionWaiter &waiter) noexcept;
   [[nodiscard]] static bool unpark(CompletionLease lease,

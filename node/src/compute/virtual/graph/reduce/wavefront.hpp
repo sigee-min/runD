@@ -77,9 +77,11 @@ public:
   // Middle execution may forecast only a nonterminal cell. The public
   // planner contract still exposes forecast() for lower-level tests that
   // inspect every stage, so this bounded view is kept explicit here. The
-  // caller's batch is part of the admission boundary.
-  [[nodiscard]] bool forecast_middle(std::uint64_t, WavefrontCoordinate &,
-                                     std::uint32_t &resource) const noexcept;
+  // caller's batch is part of the admission boundary. after_stage is an
+  // exclusive scan cursor; skipping a blocked resource creates no ready fact.
+  [[nodiscard]] bool
+  forecast_middle(std::uint64_t, WavefrontCoordinate &, std::uint32_t &resource,
+                  std::uint32_t after_stage = 0u) const noexcept;
   // Reserve one exact missing resource before submitting its Forecast. The
   // reservation is a planner fact only: it does not make the cell HostReady
   // and is cleared by Forecast terminal or explicit rollback.

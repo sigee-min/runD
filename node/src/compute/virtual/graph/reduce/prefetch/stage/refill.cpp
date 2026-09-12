@@ -7,6 +7,9 @@ Status PrefetchController::refill(Ticket &ticket,
   if (!parallel_supported()) {
     return Status::success();
   }
+  if (ticket.host_ready_count > ticket.forecast_resources.size()) {
+    return Status::fail(Reason::PipelineInvalid);
+  }
   for (std::size_t index = 0u; index < lanes_.size(); ++index) {
     PrefetchLane &selected = lanes_[index];
     if (selected.pending || selected.forecast) {
@@ -17,32 +20,49 @@ Status PrefetchController::refill(Ticket &ticket,
     }
     WavefrontCoordinate coordinate{};
     std::uint32_t resource = 0u;
-    if (!wavefront_.forecast_middle(ticket.batch, coordinate, resource)) {
-      break;
-    }
-    StageScratch scratch{};
-    if (!project_stage_scratch(graph_, run_, pool_, ticket, coordinate.stage,
-                               static_cast<std::uint32_t>(run_.frame_capacity),
-                               scratch)) {
-      return Status::fail(Reason::PipelineInvalid);
-    }
+    std::uint32_t after_stage = 0u;
     PrefetchLane candidate{};
     const residency::PoolPhysicalOwner *owner = nullptr;
-    Status status =
-        project_stage(candidate, ticket, scratch, coordinate, resource, owner);
-    if (!status || owner == nullptr || candidate.input_index >= input_count_) {
-      return status ? Status::fail(Reason::PipelineInvalid) : status;
-    }
-    // Backing concurrency is a resource bound, independent of the logical
-    // graph port or physical worker. Never overlap callbacks on one backing.
-    for (const PrefetchLane &active : lanes_) {
-      if (active.pending && active.input_index < input_count_ &&
-          run_.inputs[active.input_index].backing ==
-              run_.inputs[candidate.input_index].backing) {
-        return Status::success();
+    bool found = false;
+    // Scan only the fixed middle-stage set. An unavailable backing must not
+    // hide a later independent input, and a pinned Ready row must be consumed
+    // before another stage can reuse that input's physical Host region.
+    while (wavefront_.forecast_middle(ticket.batch, coordinate, resource,
+                                      after_stage)) {
+      StageScratch scratch{};
+      if (!project_stage_scratch(
+              graph_, run_, pool_, ticket, coordinate.stage,
+              static_cast<std::uint32_t>(run_.frame_capacity), scratch)) {
+        return Status::fail(Reason::PipelineInvalid);
       }
+      const Status status = project_stage(candidate, ticket, scratch,
+                                          coordinate, resource, owner);
+      if (!status || owner == nullptr ||
+          candidate.input_index >= input_count_) {
+        return status ? Status::fail(Reason::PipelineInvalid) : status;
+      }
+      const bool callback_live = std::any_of(
+          lanes_.begin(), lanes_.end(), [&](const PrefetchLane &active) {
+            return active.pending && active.input_index < input_count_ &&
+                   run_.inputs[active.input_index].backing ==
+                       run_.inputs[candidate.input_index].backing;
+          });
+      const auto ready_end =
+          ticket.forecast_resources.begin() +
+          static_cast<std::ptrdiff_t>(ticket.host_ready_count);
+      const bool ready_pinned = std::find(ticket.forecast_resources.begin(),
+                                          ready_end, resource) != ready_end;
+      if (callback_live || ready_pinned) {
+        after_stage = coordinate.stage;
+        continue;
+      }
+      found = true;
+      break;
     }
-    status = select_missing(candidate, *owner, false);
+    if (!found) {
+      break;
+    }
+    Status status = select_missing(candidate, *owner, false);
     if (!status) {
       return status;
     }

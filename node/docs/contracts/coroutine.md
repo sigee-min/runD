@@ -125,7 +125,12 @@ not materialize one cell per possible task. A claimed cell owns phase, failure
 code, typed result storage, external wait notification, and coroutine/task
 waiters. Expected operational failures are
 reported with `ReasonCode`/result status. Unexpected C++ exceptions are caught
-at the task boundary and converted to task failure.
+at the task boundary and converted to task failure. Source-private timed
+observation validates the CompletionPool observer functions and waits on the
+same cell generation, terminal phase, and existing stripe condition variable
+as blocking observation. A Committing cell is pending even if its producer's
+payload is already complete; timeout returns the current pending observation.
+The Session Compute adapter is owned by [Runtime](./runtime.md#compute-node-host).
 
 Nested `co_await Task<T>` admits the child through the same scheduler, parks
 the parent on the child's completion, and resumes the parent exactly once.

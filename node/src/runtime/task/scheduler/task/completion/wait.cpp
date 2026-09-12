@@ -2,6 +2,8 @@
 
 #include "../../host.hpp"
 
+#include <rund/task/handle/ref.hpp>
+
 namespace rund::node {
 
 CompletionWaiter *OrderCompletionWaiters(CompletionWaiter *waiter) noexcept {
@@ -81,6 +83,39 @@ task::Status CompletionPool::wait(const CompletionLease lease) noexcept {
   }
   return cell.code == ReasonCode::Ok ? task::Status::success()
                                      : task::Status::fail(cell.code);
+}
+
+task::Poll
+CompletionPool::wait_for(const ::rund::detail::task::ResultRef &observer,
+                         const std::chrono::nanoseconds timeout) noexcept {
+  if (observer.poll != observer_poll || observer.wait != observer_wait ||
+      observer.copy != observer_copy || observer.release != release_observer) {
+    return task::Poll{.phase = task::Phase::Failed,
+                      .code = ReasonCode::TaskHandleStale};
+  }
+  const CompletionLease lease{.authority = observer.authority,
+                              .slot = observer.slot,
+                              .generation = observer.generation};
+  if (timeout <= std::chrono::nanoseconds::zero()) {
+    return poll(lease);
+  }
+  auto *const store = static_cast<Store *>(lease.authority);
+  if (store == nullptr || !store->contains(lease.slot)) {
+    return task::Poll{.phase = task::Phase::Failed,
+                      .code = ReasonCode::TaskHandleStale};
+  }
+  Store::Cell &cell = store->at(lease.slot);
+  Store::Stripe &stripe = store->stripe(lease.slot);
+  std::unique_lock lock{stripe.mutex};
+  stripe.ready.wait_for(lock, timeout, [&] {
+    return cell.generation != lease.generation ||
+           cell.phase == task::Phase::Idle || CompletionTerminal(cell.phase);
+  });
+  if (cell.generation != lease.generation || cell.phase == task::Phase::Idle) {
+    return task::Poll{.phase = task::Phase::Failed,
+                      .code = ReasonCode::TaskHandleStale};
+  }
+  return task::Poll{.phase = cell.phase, .code = cell.code};
 }
 
 bool CompletionPool::park(const CompletionLease lease,

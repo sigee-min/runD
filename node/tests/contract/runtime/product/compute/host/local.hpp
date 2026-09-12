@@ -12,6 +12,7 @@ struct ReadyOrder final {
 };
 
 [[nodiscard]] ReadyOrder CheckReadyOrder(std::uint32_t workers);
+[[nodiscard]] bool CheckTimedSubmissionObservation();
 [[nodiscard]] bool CheckCpuStepParity(rund::Session &runtime);
 [[nodiscard]] bool CheckServerReplay(rund::Session &server);
 

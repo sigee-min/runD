@@ -1,5 +1,6 @@
 #include "request.hpp"
 #include "../runtime/local.hpp"
+#include "../task/scheduler/task/completion.hpp"
 #include "local.hpp"
 
 #include <rund/task/coroutine.hpp>
@@ -8,6 +9,22 @@
 #include <chrono>
 #include <exception>
 #include <utility>
+
+namespace rund::node {
+
+task::Poll WaitSubmission(compute_detail::TaskState &state,
+                          const std::chrono::nanoseconds timeout) noexcept {
+  ::rund::detail::task::ResultRef observer{};
+  {
+    std::lock_guard lock{state.mutex};
+    observer = state.completion;
+  }
+  // The Submission retains this observer. Release the Compute payload gate
+  // before waiting: its status precedes the Scheduler's terminal publication.
+  return CompletionPool::wait_for(observer, timeout);
+}
+
+} // namespace rund::node
 
 namespace rund::compute {
 namespace {
@@ -216,13 +233,7 @@ Poll Submission::wait_for(
   if (host == nullptr || state == nullptr) {
     return Poll{false, false, true, Reason::RuntimeMissing};
   }
-  {
-    std::unique_lock lock{host->mutex};
-    host->drained.wait_for(lock, timeout, [state] {
-      return state->terminal_phase.load(std::memory_order_acquire) ==
-             node::compute_detail::TerminalPhase::Complete;
-    });
-  }
+  static_cast<void>(node::WaitSubmission(*state, timeout));
   return poll();
 }
 

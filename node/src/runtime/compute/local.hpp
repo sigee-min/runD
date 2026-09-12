@@ -4,6 +4,7 @@
 
 #include <rund/reason.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 
@@ -15,6 +16,10 @@ void CancelSubmitted(const std::shared_ptr<ComputeHostState> &host) noexcept;
 } // namespace rund::node::runtime_detail
 
 namespace rund::node {
+
+[[nodiscard]] task::Poll
+WaitSubmission(compute_detail::TaskState &state,
+               std::chrono::nanoseconds timeout) noexcept;
 
 void Signal(runtime_detail::ComputeHostState *host, ::rund::TraceEvent event,
             compute::Reason reason = compute::Reason::Ok) noexcept;

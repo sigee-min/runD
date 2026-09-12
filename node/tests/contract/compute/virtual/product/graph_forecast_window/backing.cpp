@@ -48,6 +48,12 @@ rund::compute::Status Backing::read(const std::uint64_t offset,
         control_->timeout = true;
     }
     if (offset == 0u && input_ == 3u) {
+      // Independent workers may enter in either order. Hold the later input
+      // until the slow callback has entered, then prove real overlap/refill.
+      if (!control_->changed.wait_for(lock, std::chrono::seconds{3}, [this] {
+            return control_->slow_started;
+          }))
+        control_->timeout = true;
       control_->refill_started = true;
       control_->refilled_while_slow =
           control_->slow_started && control_->active == 2u;

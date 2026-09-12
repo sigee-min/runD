@@ -16,6 +16,7 @@ set(NODE_TEST_RUNTIME_COMPUTE_SOURCES
   tests/contract/compute/allocation.cpp
   tests/contract/runtime/product/compute/host.cpp
   tests/contract/runtime/product/compute/host/ready.cpp
+  tests/contract/runtime/product/compute/host/observation.cpp
   tests/contract/runtime/product/compute/host/parity.cpp
   tests/contract/runtime/product/compute/host/replay.cpp
   tests/contract/runtime/product/compute/scope.cpp
