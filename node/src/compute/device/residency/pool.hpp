@@ -215,6 +215,8 @@ public:
   std::unique_ptr<AcceleratorExecutionRing> accelerator_execution;
   // Two fixed workers let a persistent backing fill the authoritative Host
   // frame banks for e+1 and e+2. Workers own request metadata, never payload.
+  // Declared first so the completion sequence survives worker destruction.
+  PrefetchCompletion prefetch_completion;
   std::array<Prefetcher, 2u> prefetch;
   // Accelerator Graph output persistence is independently callback-return
   // gated from Device Drain. The allocation is absent from CPU and Direct

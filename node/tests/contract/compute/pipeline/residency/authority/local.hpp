@@ -23,5 +23,6 @@ namespace authority_detail {
 [[nodiscard]] int CheckAuthorityViews();
 [[nodiscard]] int CheckAuthorityViewCommit();
 [[nodiscard]] int CheckAuthorityPrefetch();
+[[nodiscard]] int CheckPrefetchCompletion();
 
 } // namespace rund_node_test_pipeline_residency

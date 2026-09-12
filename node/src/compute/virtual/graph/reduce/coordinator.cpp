@@ -49,7 +49,7 @@ VirtualGraphResult execute_tiled_graph(
   }
   PrefetchController prefetch{state, inputs, run,       stats,
                               pool,  graph,  wavefront, batches};
-  const bool pair_route = prefetch.pair_supported();
+  const bool parallel_route = prefetch.parallel_supported();
   SupplyController supply{
       run, stats, pool, graph, wavefront, prefetch, state.failure_log};
   supply.configure_retry(state.pipeline->residency->identity(),
@@ -78,12 +78,12 @@ VirtualGraphResult execute_tiled_graph(
                         state.failure_log};
   std::span<Ticket> ticket_span{tickets};
   GraphExecutionContext context{
-      state,      inputs,   output,         run,         stats,
-      reduction,  pool,     authority,      graph,       ticket_span,
-      wavefront,  prefetch, supply,         stages,      collective,
-      middle,     persists, abort,          output_hash, identity,
-      batches,    capacity, terminal_stage, cpu,         persisted_output,
-      pair_route, false,    false,
+      state,          inputs,   output,         run,         stats,
+      reduction,      pool,     authority,      graph,       ticket_span,
+      wavefront,      prefetch, supply,         stages,      collective,
+      middle,         persists, abort,          output_hash, identity,
+      batches,        capacity, terminal_stage, cpu,         persisted_output,
+      parallel_route, false,    false,
   };
 
   const VirtualGraphResult initial = prepare_initial(context);

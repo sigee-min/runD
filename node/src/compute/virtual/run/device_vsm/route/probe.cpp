@@ -35,7 +35,7 @@ defer_ordinary_callback_route(const VirtualPipelineState &state,
                                                               run)) {
       return false;
     }
-    return graph_reduce::graph_wavefront_pair_eligible(state, run) ||
+    return graph_reduce::graph_wavefront_parallel_eligible(state, run) ||
            VirtualBackingAccess::write_lanes(output) >= 2u;
   }
   if (run.reduction() || run.graph_reduction() || run.input_count != 1u ||

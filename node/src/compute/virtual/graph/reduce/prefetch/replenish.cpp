@@ -7,10 +7,10 @@ Status PrefetchController::replenish(const std::uint64_t consumed_batch,
   if (state_.pipeline->device->backend == Backend::Cpu) {
     return Status::success();
   }
-  // The two physical workers are reserved for the current batch's independent
-  // middle-cell Forecast pair. Demand-driven Prefix supply will issue the next
-  // batch only after that pair has retired, preserving the fixed lane bound.
-  if (pair_supported()) {
+  // Current-batch dependency-ready inputs share the fixed worker window.
+  // Demand-driven Prefix supply resumes after all middle Forecasts retire;
+  // speculative future batches cannot occupy either current-demand slot.
+  if (parallel_supported()) {
     return Status::success();
   }
   const std::uint64_t distance = run_.active.graph.prefetch_distance();

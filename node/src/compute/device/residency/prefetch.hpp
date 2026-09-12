@@ -4,6 +4,7 @@
 
 #include <rund/compute/virtual.hpp>
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -72,6 +73,26 @@ struct PrefetchReceipt final {
   std::span<AliasLease> aliases;
 };
 
+// Pool-owned wake sequence shared by its fixed workers. A wake is not a
+// receipt: the coordinator snapshots before checking each worker, then parks
+// only while the same snapshot still holds. The Pool outlives both workers.
+class PrefetchCompletion final {
+public:
+  [[nodiscard]] std::uint64_t observe() const noexcept {
+    return sequence_.load(std::memory_order_acquire);
+  }
+  void publish() noexcept {
+    sequence_.fetch_add(1u, std::memory_order_release);
+    sequence_.notify_all();
+  }
+  void wait(const std::uint64_t observed) const noexcept {
+    sequence_.wait(observed, std::memory_order_acquire);
+  }
+
+private:
+  std::atomic<std::uint64_t> sequence_{};
+};
+
 // Each of the two cold-created workers in a Device-global Pool retains request
 // metadata only. Payload always lives in Authority-registered Host frames, and
 // submit/wait performs no allocation.
@@ -82,8 +103,9 @@ public:
   Prefetcher(const Prefetcher &) = delete;
   Prefetcher &operator=(const Prefetcher &) = delete;
 
-  [[nodiscard]] bool configure(std::uint64_t page_bytes,
-                               std::uint32_t capacity) noexcept;
+  [[nodiscard]] bool
+  configure(std::uint64_t page_bytes, std::uint32_t capacity,
+            PrefetchCompletion *completion = nullptr) noexcept;
   [[nodiscard]] bool submit(VirtualBacking &backing,
                             std::span<const PrefetchRequest> requests,
                             std::uint64_t token, bool speculative,
@@ -136,6 +158,7 @@ private:
   bool coherent_deferred_{};
   Status status_{Status::success()};
   std::uint64_t io_ns_{};
+  PrefetchCompletion *completion_{};
   State state_{State::Empty};
 };
 

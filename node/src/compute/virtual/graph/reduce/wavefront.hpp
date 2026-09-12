@@ -14,8 +14,8 @@ struct VirtualRunProjection;
 namespace rund::compute::detail::graph_reduce {
 
 [[nodiscard]] bool
-graph_wavefront_pair_eligible(const VirtualPipelineState &,
-                              const VirtualRunProjection &) noexcept;
+graph_wavefront_parallel_eligible(const VirtualPipelineState &,
+                                  const VirtualRunProjection &) noexcept;
 
 inline constexpr std::size_t WavefrontBankCount = 2u;
 inline constexpr std::size_t WavefrontStageCapacity =
@@ -80,11 +80,6 @@ public:
   // caller's batch is part of the admission boundary.
   [[nodiscard]] bool forecast_middle(std::uint64_t, WavefrontCoordinate &,
                                      std::uint32_t &resource) const noexcept;
-  // Pure pair admission probe. It returns the exact two current-batch
-  // independent middle cells without reserving either Forecast bit.
-  [[nodiscard]] bool
-  pair_forecast(std::uint64_t batch, std::array<WavefrontCoordinate, 2u> &,
-                std::array<std::uint32_t, 2u> &) const noexcept;
   // Reserve one exact missing resource before submitting its Forecast. The
   // reservation is a planner fact only: it does not make the cell HostReady
   // and is cleared by Forecast terminal or explicit rollback.

@@ -132,52 +132,6 @@ bool Wavefront::forecast_middle(const std::uint64_t batch,
   return true;
 }
 
-bool Wavefront::pair_forecast(
-    const std::uint64_t batch, std::array<WavefrontCoordinate, 2u> &coordinates,
-    std::array<std::uint32_t, 2u> &resources) const noexcept {
-  coordinates = {};
-  resources = {};
-  if (stage_count_ != 4u || invocation_ == nullptr ||
-      batch >= invocation_->batch_count()) {
-    return false;
-  }
-
-  const auto exact_missing_middle = [this](const Cell *const cell) noexcept {
-    return cell != nullptr && cell->state == CellState::Waiting &&
-           !cell->failed && !cell->device_ready && cell->required_mask == 1u &&
-           cell->host_ready_mask == 0u && cell->forecast_mask == 0u &&
-           cell->external_input_count == 1u && predecessors_ready(*cell) &&
-           cell->coordinate.page_count != 0u;
-  };
-  const Cell *const first = find(batch, 1u);
-  const Cell *const second = find(batch, 2u);
-  if (!exact_missing_middle(first) || !exact_missing_middle(second) ||
-      first->coordinate == second->coordinate ||
-      first->external_inputs[0u] == second->external_inputs[0u]) {
-    return false;
-  }
-
-  // No third current-batch external-input cell may be waiting behind the
-  // pair. Stage zero is already terminal at this point and the terminal cell
-  // is dependency-only for the admitted four-stage shape.
-  for (const Cell &cell : cells_) {
-    if (cell.state == CellState::Empty || cell.coordinate.batch != batch ||
-        cell.coordinate.stage == 1u || cell.coordinate.stage == 2u) {
-      continue;
-    }
-    if (cell.state == CellState::Waiting && cell.required_mask != 0u &&
-        cell.host_ready_mask != cell.required_mask) {
-      return false;
-    }
-  }
-
-  coordinates[0u] = first->coordinate;
-  coordinates[1u] = second->coordinate;
-  resources[0u] = first->external_inputs[0u];
-  resources[1u] = second->external_inputs[0u];
-  return true;
-}
-
 bool Wavefront::reserve_forecast(const WavefrontCoordinate &coordinate,
                                  const std::uint32_t resource) noexcept {
   Cell *const cell = find(coordinate.batch, coordinate.stage);

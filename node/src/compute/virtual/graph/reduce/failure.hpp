@@ -47,7 +47,7 @@ enum class Check : std::uint8_t {
   PromoteCapacity,
   PipelineIndex,
   PipelineIdentity,
-  PairStart,
+  ForecastStart,
   ForecastShape,
   FinalShape,
   ForecastScratch,

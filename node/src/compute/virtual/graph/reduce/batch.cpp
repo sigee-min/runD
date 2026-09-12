@@ -73,7 +73,7 @@ VirtualGraphResult execute_batch(GraphExecutionContext &context,
   const bool defer_next =
       next != nullptr && next->phase == TicketPhase::OutputPersisting;
   bool next_prepared = false;
-  if (next != nullptr && !defer_next && !context.pair_route) {
+  if (next != nullptr && !defer_next && !context.parallel_route) {
     const VirtualGraphResult prepared =
         prepare_next(context, current, *next, batch);
     if (!prepared.status) {
@@ -171,7 +171,7 @@ VirtualGraphResult execute_batch(GraphExecutionContext &context,
       return ready;
     }
   }
-  if (context.pair_route && next != nullptr && !defer_next) {
+  if (context.parallel_route && next != nullptr && !defer_next) {
     const VirtualGraphResult ready = ready_next(context, current, *next, batch);
     if (!ready.status) {
       return ready;

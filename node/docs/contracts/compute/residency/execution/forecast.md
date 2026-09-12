@@ -155,17 +155,42 @@ existing per-port `PageUse.prefetch_epoch`, `ready_epoch`, `next_use`, and pin
 interval; it does not reconstruct consumer liveness in the runtime. After the
 hard bounded-plan admission for a nonresident, non-required
 `GraphPointwise` with Q>=2 and one serialized external read per stage, Host
-deferral has either the exact three-input/four-stage pair proof (two
-same-batch independent middle cells, stages 1 and 2, each with a distinct
-missing resource/page) or the ordinary two-bank output proof
-(`VirtualWriteLanes::write_lanes() >= 2`). The pair branch issues both fixed Forecast
-slots before a nonblocking ready poll; that poll scans ready lanes in
-deterministic lane order, promotes the first ready cell, and retains the
-other capability until its own terminal. Cross-batch prefetch waits for the
-pair to retire. Cross-stage reuse of an external row is valid when each stage
-has one external read; same-stage fan-in remains rejected. If neither Host
-branch is proven, including a serial-output graph, the existing DeviceVsm
-probe remains authoritative.
+deferral uses the dependency-driven Forecast window or the ordinary two-bank
+output capability (`VirtualWriteLanes::write_lanes() >= 2`).
+`graph_wavefront_parallel_eligible` derives independent middle-stage inputs
+from transitive same-batch predecessors in the sealed first/recurrent batch
+forms. It does not encode an exact input count, stage count, or stage pair.
+Live admission still requires the actual predecessor terminals. Each admitted
+stage has at most one external input, and simultaneous callbacks must name
+distinct backing identities. Same-stage external fan-in retains its existing
+route.
+
+The two fixed physical Forecast lanes are a work window, independent of the
+logical `(batch, stage, resource)` coordinate. Before selecting a runnable
+cell, the coordinator fills free lanes in planner order. After a callback
+returns, its authenticated receipt is retired into a pinned GraphReady owner;
+the freed worker can fetch another dependency-ready input while another lane
+remains in flight. The selected stage alone consumes its complete Ready set
+through exact Promote admission. A successful callback never impersonates
+Device readiness. A later failure joins or quarantines every issued owner
+before reuse, through the same abort controller. CPU receipt-book recovery is
+required only for CPU tickets; an accelerator never creates that book. A
+known input failure that closes every native/Forecast owner preserves its exact
+reason and permits a clean retry, without an output version increment. A
+missing CPU book or unresolved/unknown native ownership still poisons.
+Future-batch speculation
+waits until this current-batch window retires, retaining the two-worker bound.
+
+A Pool-owned `PrefetchCompletion` wake sequence replaces repeated polling and
+yielding. The coordinator snapshots it before scanning lane readiness and
+parks only while the snapshot is unchanged. Workers publish Ready under their
+own gate before advancing the sequence; completion before the scan, between
+the scan and wait, and after parking cannot be lost. Wakeup is only a hint:
+lane state and Authority receipts remain the sole result owners. The sequence
+outlives worker shutdown and allocates no per-run storage. Final publication,
+Host-stage native submit/wait, and the existing backing transaction remain
+unchanged. This is bounded Host input scheduling, not a native GPU consumer of
+the ready horizon.
 
 A forecast miss is not automatically a late GPU stall. It becomes late only
 when `Promote(e)` reaches the ready edge without an authenticated HostReady
@@ -294,7 +319,7 @@ than being released as if it were a clean Forecast receipt.
 | Graph Authority-minted fixed two-slot Host-output-to-backing Persist lease | Implemented: exact absolute backing/frame-relative ranges, callback-return reuse, Known retry, and Unknown quarantine |
 | Public GraphPointwise bounded Backing-output Persist consumer | Implemented for the Host fallback success path: exact K=2 pages/tail and one internal publication; natural public failure/retry evidence is not claimed |
 | Graph independently pipelined backing Persist output ring | Implemented for the Host fallback: two fixed workers, exact Drain/Persist lifetime split, backing-admitted two-write concurrency, same-bank callback-return reuse, and Final join; Known/Unknown lifecycle is lower-level coverage |
-| Graph bounded common ready-wavefront after exact Forecast/H2D facts | Implemented; the exact two-cell independent middle-wavefront may issue both same-batch Forecasts before polling |
+| Graph bounded common ready-wavefront after exact Forecast/H2D facts | Implemented: dependency-driven two-lane Forecast refill and completion-driven wait; exact Ready/Promote ownership remains per selected cell |
 | Public Graph later-stage reuse of an exact already-resident external input | Implemented |
 | Public Graph more-than-two-backing Forecast/H2D issue | Implemented for the seven-input multi-stage Host bound: actual Metal/Vulkan prove five pages, three batches, thirty-five exact reads, exact tail/output, and one publication; the lower-level Authority aggregate is also seven-source |
 | Service-free U64 Map-to-Reduce Graph product (Sum/CountNonzero/Min/Max), one submit and aggregate Final | Implemented |

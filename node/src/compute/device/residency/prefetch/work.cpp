@@ -74,6 +74,9 @@ void Prefetcher::work() noexcept {
     io_ns_ = elapsed;
     state_ = State::Ready;
     ready_.notify_one();
+    if (completion_ != nullptr) {
+      completion_->publish();
+    }
   }
 }
 

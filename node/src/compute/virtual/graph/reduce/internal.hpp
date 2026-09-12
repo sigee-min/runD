@@ -49,7 +49,7 @@ struct GraphExecutionContext final {
   std::size_t terminal_stage{};
   bool cpu{};
   bool persisted_output{};
-  bool pair_route{};
+  bool parallel_route{};
   bool prefetch_cleanup_failed{};
   bool child_poison{};
 };

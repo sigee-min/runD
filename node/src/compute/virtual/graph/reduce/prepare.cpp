@@ -44,7 +44,7 @@ VirtualGraphResult prepare_initial(GraphExecutionContext &context) noexcept {
       status =
           context.prefetch.schedule(0u, false, context.prefetch_cleanup_failed);
       if (status && distance != 0u && context.batches > 1u &&
-          !context.pair_route) {
+          !context.parallel_route) {
         status = context.prefetch.schedule(1u, true,
                                            context.prefetch_cleanup_failed);
       }

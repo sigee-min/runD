@@ -106,6 +106,15 @@ int RunComputeVirtualGraphResidencyProductContract() {
                    static_cast<unsigned>(backend), host_result);
       return static_cast<int>(backend) * 1000 + host_result;
     }
+    const int forecast_result =
+        rund_node_test_virtual::product::CheckProductGraphForecastWindow(
+            backend);
+    if (forecast_result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual Forecast window backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), forecast_result);
+      return static_cast<int>(backend) * 1000 + forecast_result;
+    }
     const int persist_result =
         rund_node_test_virtual::product::CheckProductGraphPersistRing(backend);
     if (persist_result != 0) {

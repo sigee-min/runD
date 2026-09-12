@@ -150,17 +150,10 @@ Resident backings, explicitly required DeviceVsm, Q1, scan, reduction,
 same-stage-fan-in, resident or mixed-input Graph shapes, and unsupported
 parallel-read shapes retain their existing routes. A hard bounded-plan admission first
 validates a nonresident, non-required `GraphPointwise` with Q>=2 and one
-serialized external read per stage. Host deferral then has two exact branches:
-the existing `graph_wavefront_pair_eligible` proof admits exactly four stages,
-two same-batch independent middle cells (stages 1 and 2), one distinct missing
-external resource/page per cell, and the fixed two-worker Host
-Forecast/Promote path; or an output backing with
-`VirtualWriteLanes::write_lanes() >= 2` admits the ordinary fixed two-slot
-Drain-to-Persist ring. In the pair branch, workers issue both Forecasts before
-nonblocking polling; ready receipts are consumed in deterministic lane order,
-and cross-batch prefetch waits for the pair to retire. Cross-stage reuse of an
-external input is valid when each stage has one external read; same-stage
-fan-in remains rejected. A serial-output graph remains on the DeviceVsm probe.
+serialized external read per stage. Host deferral consumes the dependency-driven input window or output-ring
+capability defined by [Forecast](./forecast.md#ready-horizon). Cross-stage
+reuse of an external input remains valid; same-stage external fan-in retains
+its existing route. Neither proof changes the planner's dependency edges.
 Both Host branches are still Host stage scheduling with one native
 submit/wait per selected cell, not GPU-owned Graph recurrence.
 

@@ -172,7 +172,8 @@ acquire_graph(Registry &registry, const std::shared_ptr<DeviceState> &device,
     if (device->backend != Backend::Cpu) {
       for (Prefetcher &prefetcher : pool->prefetch) {
         if (!prefetcher.configure(layout.input_page_bytes,
-                                  layout.frame_capacity)) {
+                                  layout.frame_capacity,
+                                  &pool->prefetch_completion)) {
           return nullptr;
         }
       }

@@ -59,8 +59,8 @@ int CheckAuthorityPrefetch() {
       !prefetcher.quiescent()) {
     return 44;
   }
-  return 0;
-  return 0;
+  const int completion = CheckPrefetchCompletion();
+  return completion == 0 ? 0 : 44 + completion;
 }
 
 } // namespace rund_node_test_pipeline_residency

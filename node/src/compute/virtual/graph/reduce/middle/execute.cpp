@@ -20,15 +20,6 @@ Status MiddleController::execute(Ticket &ticket, bool &child_poison) noexcept {
       (void)ready_external_inputs(ticket, stage_index);
     }
   }
-  if (prefetch_.pair_supported()) {
-    bool cleanup_failed = false;
-    const Status paired = prefetch_.start_pair(ticket, cleanup_failed);
-    child_poison = cleanup_failed || child_poison;
-    if (!paired && paired.reason() != Reason::BackendUnsupported) {
-      note(paired, Check::PairStart);
-      return paired;
-    }
-  }
   StageScratch scratch{};
   for (std::size_t completed = 1u; completed < terminal_stage_; ++completed) {
     (void)completed;

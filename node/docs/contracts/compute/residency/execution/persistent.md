@@ -193,15 +193,11 @@ retain their existing routes. An ordinary accelerator nonresident,
 non-required `GraphPointwise` with Q>=2 first passes the hard bounded-plan
 check: every external input is nonresident with serialized reads, each stage
 has exactly one external read, and the sealed topology is valid.
-Host deferral then requires either the exact `graph_wavefront_pair_eligible`
-proof or an output backing that advertises `VirtualWriteLanes::write_lanes() >= 2`.
-The pair branch issues both bounded Host Forecasts before nonblocking callback
-polling in deterministic lane order and delays cross-batch prefetch until the
-pair retires. The output-capability branch uses the ordinary fixed two-slot
-Drain-to-Persist ring. Cross-stage reuse of one external input row is permitted
-when each stage has exactly one external read; same-stage external fan-in
-remains rejected. A serial-output GraphPointwise remains on the DeviceVsm
-probe. The public one-input three-stage branch/join product exercises the
+Host deferral and callback waiting consume the single dependency-driven
+[Forecast](./forecast.md#ready-horizon) policy, or the output backing's fixed
+two-slot write capability. Cross-stage input reuse is permitted while
+same-stage external fan-in retains its existing route. A graph with neither
+proof remains on the DeviceVsm probe. The public one-input three-stage branch/join product exercises the
 two-slot ring at Q=5 with two simultaneous output callbacks, exact logical I/O
 bytes, exact output, and one backing version/publication. Selected stages still
 use Host-owned native submit/wait; this does not claim GPU-generated or

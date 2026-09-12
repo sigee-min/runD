@@ -76,6 +76,12 @@ VirtualGraphResult AbortController::finish(const Status status,
     const bool cpu = ticket.collective != nullptr &&
                      ticket.collective->device != nullptr &&
                      ticket.collective->device->backend == Backend::Cpu;
+    // CPU epoch receipts are mandatory only for CPU tickets. Accelerator
+    // tickets close their authenticated native/Forecast leases above and
+    // never create a CpuReceiptBook.
+    if (cpu && receipts_ == nullptr) {
+      clean = false;
+    }
     if (cpu && ticket.output_persist) {
       if (!ticket.output_persist.unknown()) {
         // The helper intentionally returns false after publishing the sticky
@@ -98,8 +104,6 @@ VirtualGraphResult AbortController::finish(const Status status,
         std::terminate();
       }
     }
-  } else {
-    clean = false;
   }
   residency::CloseInfo close_info{};
   const bool recovered =

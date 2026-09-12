@@ -91,6 +91,13 @@ int RunComputeVirtualResidencyProductContract() {
                    static_cast<unsigned>(backend), result);
       return static_cast<int>(backend) * 1000 + 172 + result;
     }
+    if (const int result = CheckProductGraphForecastWindow(backend);
+        result != 0) {
+      std::fprintf(stderr,
+                   "compute virtual Forecast window backend=%u result=%d\n",
+                   static_cast<unsigned>(backend), result);
+      return static_cast<int>(backend) * 1000 + 172 + result;
+    }
     if (const int result = CheckProductGraphMultiHostWavefront(backend);
         result != 0) {
       std::fprintf(stderr,

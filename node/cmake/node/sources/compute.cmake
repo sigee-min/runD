@@ -503,7 +503,7 @@ list(APPEND NODE_SOURCES
   src/compute/virtual/graph/reduce/failure.cpp
   src/compute/virtual/graph/reduce/finish.cpp
   src/compute/virtual/graph/reduce/prepare.cpp
-  src/compute/virtual/graph/reduce/pair.cpp
+  src/compute/virtual/graph/reduce/parallel.cpp
   src/compute/virtual/graph/reduce/receipts/book.cpp
   src/compute/virtual/graph/reduce/receipts/book/lifecycle.cpp
   src/compute/virtual/graph/reduce/receipts/book/lookup.cpp
@@ -558,7 +558,7 @@ list(APPEND NODE_SOURCES
   src/compute/virtual/graph/reduce/prefetch/stage.cpp
   src/compute/virtual/graph/reduce/prefetch/stage/cpu.cpp
   src/compute/virtual/graph/reduce/prefetch/stage/project.cpp
-  src/compute/virtual/graph/reduce/prefetch/stage/pair.cpp
+  src/compute/virtual/graph/reduce/prefetch/stage/refill.cpp
   src/compute/virtual/graph/reduce/prefix.cpp
   src/compute/virtual/graph/reduce/promote.cpp
   src/compute/virtual/graph/reduce/promote/copy.cpp

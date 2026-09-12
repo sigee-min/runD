@@ -55,8 +55,8 @@ public:
 
   [[nodiscard]] Status schedule(std::uint64_t batch, bool speculative,
                                 bool &cleanup_failed) noexcept;
-  [[nodiscard]] bool pair_supported() const noexcept;
-  [[nodiscard]] Status start_pair(Ticket &, bool &cleanup_failed) noexcept;
+  [[nodiscard]] bool parallel_supported() const noexcept;
+  [[nodiscard]] Status refill(Ticket &, bool &cleanup_failed) noexcept;
   [[nodiscard]] Status poll(Ticket &, bool &progressed) noexcept;
   [[nodiscard]] bool has_pending(std::uint64_t batch) const noexcept;
   [[nodiscard]] Status consume(Ticket &, Timeline *hidden_by) noexcept;
@@ -124,6 +124,7 @@ private:
   Wavefront &wavefront_;
   std::uint64_t batches_{};
   std::array<PrefetchLane, LaneCount> lanes_{};
+  const bool parallel_{};
 };
 
 } // namespace rund::compute::detail::graph_reduce

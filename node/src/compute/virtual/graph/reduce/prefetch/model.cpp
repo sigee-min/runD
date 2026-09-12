@@ -9,7 +9,8 @@ PrefetchController::PrefetchController(
     const std::uint64_t batches) noexcept
     : state_(state), run_(run), stats_(stats), pool_(pool),
       authority_(pool.authority()), graph_(graph), wavefront_(wavefront),
-      batches_(batches) {
+      batches_(batches),
+      parallel_(graph_wavefront_parallel_eligible(state, run)) {
   input_count_ = std::min(inputs.size(), inputs_.size());
   std::copy(inputs.begin(),
             inputs.begin() + static_cast<std::ptrdiff_t>(input_count_),
@@ -61,8 +62,8 @@ bool PrefetchController::settle(PrefetchLane &lane) noexcept {
   return settled;
 }
 
-bool PrefetchController::pair_supported() const noexcept {
-  return graph_wavefront_pair_eligible(state_, run_);
+bool PrefetchController::parallel_supported() const noexcept {
+  return parallel_;
 }
 
 bool PrefetchController::has_pending(const std::uint64_t batch) const noexcept {

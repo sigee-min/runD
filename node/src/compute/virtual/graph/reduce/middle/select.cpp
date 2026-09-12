@@ -1,6 +1,5 @@
 #include "internal.hpp"
 
-#include <thread>
 
 namespace rund::compute::detail::graph_reduce {
 
@@ -19,10 +18,17 @@ MiddleController::SelectResult MiddleController::select(
     }
   }
 
-  bool projected = false;
   std::size_t supplied_inputs = 0u;
-  while (!wavefront_.select(selected)) {
-    if (wavefront_.promote(ticket.batch, selected)) {
+  for (;;) {
+    const std::uint64_t observed = pool_.prefetch_completion.observe();
+    bool cleanup_failed = false;
+    const Status refilled = prefetch_.refill(ticket, cleanup_failed);
+    child_poison = cleanup_failed || child_poison;
+    if (!refilled) {
+      return fail(refilled, Check::ForecastStart, Fail::NoStage);
+    }
+    if (wavefront_.select(selected) ||
+        wavefront_.promote(ticket.batch, selected)) {
       break;
     }
     bool progressed = false;
@@ -34,10 +40,10 @@ MiddleController::SelectResult MiddleController::select(
       continue;
     }
     if (prefetch_.has_pending(ticket.batch)) {
-      // Prefetcher::ready() is deliberately nonblocking. Yield while either
-      // exact callback completes, then consume only the first ready receipt;
-      // no ordinal wait can hide a later independent cell.
-      std::this_thread::yield();
+      // Snapshot preceded every ready observation. A completion between the
+      // poll and this wait changes the sequence, so it cannot be lost.
+      // Each receipt still authenticates its exact lane and Authority token.
+      pool_.prefetch_completion.wait(observed);
       continue;
     }
     {
@@ -56,11 +62,10 @@ MiddleController::SelectResult MiddleController::select(
         return fail(Status::fail(Reason::PipelineInvalid),
                     Check::ForecastScratch, stage_id(ticket, selected));
       }
-      projected = true;
-      bool cleanup_failed = false;
-      const Status supplied = prefetch_.supply_stage(ticket, scratch, selected,
-                                                     resource, cleanup_failed);
-      child_poison = cleanup_failed || child_poison;
+      bool supply_cleanup_failed = false;
+      const Status supplied = prefetch_.supply_stage(
+          ticket, scratch, selected, resource, supply_cleanup_failed);
+      child_poison = supply_cleanup_failed || child_poison;
       if (!supplied) {
         return fail(supplied, Check::SupplyStage, selected.stage);
       }
@@ -77,8 +82,8 @@ MiddleController::SelectResult MiddleController::select(
                 stage_id(ticket, selected));
   }
   const std::size_t stage_index = selected.stage;
-  if (!projected && !project_stage_scratch(graph_, run_, pool_, ticket,
-                                           stage_index, capacity_, scratch)) {
+  if (!project_stage_scratch(graph_, run_, pool_, ticket, stage_index,
+                             capacity_, scratch)) {
     return fail(Status::fail(Reason::PipelineInvalid), Check::FinalScratch,
                 stage_id(ticket, selected));
   }

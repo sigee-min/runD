@@ -53,7 +53,15 @@ configuration and destruction, while `prefetch/submit.cpp`, `work.cpp`,
 `observe.cpp`, and `cancel.cpp` own request publication, worker I/O, receipt
 observation, and Authority/alias teardown respectively. `support.cpp` is the
 single timing and alias-match formula owner. The declarations-only local seam
-stores no worker state or second completion token.
+stores no worker state or second completion token. The Pool retains one
+8-byte atomic PrefetchCompletion sequence before its two workers. Graph
+workers borrow its address for their configured lifetime; ordinary workers
+keep their single-worker wait without emitting an unused shared notification.
+Destruction joins the
+workers before destroying the sequence. It is a wake hint for the
+[Forecast window](./execution/forecast.md#ready-horizon), not a second receipt
+or frame state. The fixed owner size includes this sequence and two borrowed
+pointers; payload frames and the number of workers do not grow.
 
 The execution Plan names the complete `H`-frame Host input and `O`-frame Host
 output regions for each bank, not reconstructed K-prefixes. A projected epoch

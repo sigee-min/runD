@@ -347,6 +347,7 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/pipeline/residency/authority/views.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/authority/view_commit.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/authority/prefetch.cpp|compute.pipeline-residency"
+  "tests/contract/compute/pipeline/residency/authority/prefetch/completion.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/cycle.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/execution/support.cpp|compute.pipeline-residency"
   "tests/contract/compute/pipeline/residency/execution/plan.cpp|compute.pipeline-residency"
@@ -448,6 +449,9 @@ list(APPEND RUND_NODE_TEST_COMPANION_ROWS
   "tests/contract/compute/virtual/product/oracle/window.cpp|compute.virtual-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront_host.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_forecast_window.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_forecast_window/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
+  "tests/contract/compute/virtual/product/graph_forecast_window/backing.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront_host/program.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront_host/fixture.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
   "tests/contract/compute/virtual/product/graph_wavefront_host/evidence.cpp|compute.virtual-residency-product,compute.virtual-graph-residency-product"
@@ -868,6 +872,7 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/pipeline/residency/authority/views.cpp
   tests/contract/compute/pipeline/residency/authority/view_commit.cpp
   tests/contract/compute/pipeline/residency/authority/prefetch.cpp
+  tests/contract/compute/pipeline/residency/authority/prefetch/completion.cpp
   tests/contract/compute/pipeline/residency/cycle.cpp
   tests/contract/compute/pipeline/residency/execution/dispatcher.cpp
   tests/contract/compute/pipeline/residency/execution/support.cpp
@@ -985,6 +990,9 @@ set(NODE_TEST_COMPUTE_EXECUTION_SOURCES
   tests/contract/compute/virtual/product/route_contract.cpp
   tests/contract/compute/virtual/product/graph_wavefront.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host.cpp
+  tests/contract/compute/virtual/product/graph_forecast_window.cpp
+  tests/contract/compute/virtual/product/graph_forecast_window/program.cpp
+  tests/contract/compute/virtual/product/graph_forecast_window/backing.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host/program.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host/fixture.cpp
   tests/contract/compute/virtual/product/graph_wavefront_host/evidence.cpp

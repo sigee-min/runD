@@ -32,6 +32,7 @@ CheckProductCapability(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductWindow(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductReduce(rund::compute::Backend backend);
 [[nodiscard]] int CheckProductGraphWavefront(rund::compute::Backend backend);
+[[nodiscard]] int CheckProductGraphForecastWindow(rund::compute::Backend);
 [[nodiscard]] int
 CheckProductGraphHostWavefront(rund::compute::Backend backend);
 [[nodiscard]] int

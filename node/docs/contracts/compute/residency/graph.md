@@ -235,24 +235,16 @@ output class. The service-free Graph Map-to-Reduce product
 has actual six-input Sum/CountNonzero/Min/Max evidence on Metal and Vulkan in
 addition to its one- and two-input cases. A given input may first appear at
 the front stage or at one later stage, and a later stage may require multiple
-exact backing inputs together. The general controller still services those
-demands sequentially. Before DeviceVsm preparation, the ordinary accelerator
+exact backing inputs together. Same-stage external fan-in still uses sequential Host supply. Before DeviceVsm preparation, the ordinary accelerator
 `GraphPointwise` route now first validates a bounded nonresident,
 non-required graph with Q>=2, serialized external reads, one external read per
 stage, and a sealed planner shape. Cross-stage reuse of one external backing
 row is valid and covered idempotently; same-stage external fan-in, resident or
 mixed rows, parallel reads, malformed plans, and unsupported topologies retain
-their existing safe routes. Host deferral then has two branches: the exact
-`graph_wavefront_pair_eligible` proof, or an output backing with
-`VirtualWriteLanes::write_lanes() >= 2` for the ordinary two-slot ring. In the pair
-branch, the two fixed Forecast workers retain exact
-`(batch, stage, resource, generation, capability)` slots and issue both
-Forecasts before polling either callback. The poll scans the fixed lanes in
-order among ready receipts, so the first ready lane is deterministic; the
-other slot keeps its pin and capability until its own terminal. Cross-batch
-prefetch is delayed until that pair has retired, so the physical lane bound
-remains two. The output-capability branch uses the ordinary fixed
-Drain-to-Persist banks. A serial-output graph remains on the DeviceVsm probe.
+their existing safe routes. Host deferral and the two-worker dependency-driven input window are owned by
+[Forecast](./execution/forecast.md#ready-horizon). The output-capability branch
+uses the ordinary fixed Drain-to-Persist banks. A graph with neither admission
+proof remains on the DeviceVsm probe.
 The public one-input branch/join `GraphPointwise` product proves the same
 bounded ring through five pages, two simultaneous output callbacks, exact I/O
 bytes, and one backing publication.
@@ -264,7 +256,7 @@ projection mints an exact typed Forecast, records HostReady only after its
 terminal, and mints an exact Graph Promote against the destination stage
 token. Promote release alone opens DeviceReady. A concurrent eviction
 therefore fails closed; the probe remains a readiness fact, not a pin or a
-second cache authority. Outside the two-cell admission, if the same fixed
+second cache authority. Outside parallel Forecast admission, if the same fixed
 Host bank holds a `batch+2` speculative receipt, the controller first waits
 for its callback, terminals and releases that exact capability, reuses the
 lane for current demand, and reschedules the displaced prefix
@@ -286,9 +278,9 @@ product runs on actual Metal and Vulkan with five pages, `K=2`, and a
 seven-element tail. It proves thirty-five exact input-page reads, five output writes,
 three two-stage batches, no DeviceVsm selection, exact output, and one backing
 publication. The fixed overlap journal retains nine intervals: seven possible
-source waits plus the already-admitted Drain/Persist pair. Only the bounded
-two-cell pair overlaps Forecast callbacks; independently parallel arbitrary
-per-input workers remain outside this boundary.
+source waits plus the already-admitted Drain/Persist pair. The dependency-driven middle-stage window overlaps at most two Forecast
+callbacks and refills a free lane before the other lane returns. Same-stage
+fan-in and arbitrary per-input worker creation remain outside that window.
 
 This is a common Host controller. Every selected stage still performs one
 Host-owned backend submit and one Host-owned completion wait/callback; general
@@ -843,13 +835,14 @@ admission reports `fetch=false` and H2D is elided.
 Graph prefetch stage execution is divided by semantic authority:
 `prefetch/stage/project.cpp` owns immutable stage/lane projection,
 `prefetch/stage/cpu.cpp` owns CPU backing supply, `prefetch/stage.cpp` owns
-one-stage Authority acquisition and activation, and `prefetch/stage/pair.cpp`
-owns atomic two-lane forecast admission and rollback. No leaf reconstructs
+one-stage Authority acquisition and activation, and `prefetch/stage/refill.cpp`
+owns bounded dependency-driven lane refill and rollback. No leaf reconstructs
 another leaf's receipt or cache-key policy.
 
-The static eligibility proof for that paired route is owned separately by
-`graph/reduce/pair.cpp`; the reduction coordinator consumes its boolean
-result and does not duplicate the four-stage topology or predecessor test.
+The static eligibility proof is owned by `graph/reduce/parallel.cpp`; the
+reduction coordinator consumes its result without duplicating the sealed
+predecessor proof. The window and completion-wait laws have one owner in
+[Forecast](./execution/forecast.md#ready-horizon).
 
 Window footprints include the exact clamped halo. Canonical page identity,
 overlap pinning, tile alignment, and fusion legality are owned by
